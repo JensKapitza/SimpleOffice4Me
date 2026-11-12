@@ -370,7 +370,7 @@ def complete_text(
             f"(Zeitlimit: {provider.timeout} Sekunden). "
             "Bitte später erneut versuchen."
         ) from None
-    except (urllib.error.URLError, OSError) as exc:
+    except (urllib.error.URLError, OSError):
         raise InferenceUnavailable("Lokale Inferenz nicht erreichbar; Ollama und Modell prüfen.") from None
     return _parse_json_object(answer)
 

@@ -407,22 +407,12 @@ class ContactMetaWebTest(unittest.TestCase):
         self.assertEqual(1, len(payload["suggestions"]))
         self.assertEqual(META_MODEL_API_MODEL, payload["model"])
 
-    def test_contacts_page_offers_explicit_cloud_choice(self) -> None:
+    def test_contacts_page_shows_configured_provider_and_request_consent(self) -> None:
         body = self.client.get("/documents/contacts").get_data(as_text=True)
         self.assertIn('id="engel-contact-consent"', body)
         self.assertIn('name="consent_meta"', body)
-        self.assertIn("Muse Spark 1.3 Contributor", body)
-        self.assertIn(
-            "eingegebener Text und lokal erkannter Foto-Text gehen an Meta; "
-            "Bilddateien bleiben lokal",
-            body,
-        )
-        self.assertIn(
-            "Contributor-Modus: Inhalte können zum Training künftiger "
-            "Meta-Modelle verwendet werden.",
-            body,
-        )
-        self.assertIn("Nur synthetische Demo-Daten", body)
+        self.assertIn("Standard ist das lokale Modell via Ollama", body)
+        self.assertIn("Beim Kontaktimport bleiben Bilddateien lokal", body)
         match = re.search(
             r'<input[^>]*id="engel-contact-consent"[^>]*>', body
         )

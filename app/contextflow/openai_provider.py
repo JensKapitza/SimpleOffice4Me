@@ -125,7 +125,7 @@ class OpenAIVisionProvider(VisionProvider):
             opener = urllib.request.build_opener(_NoRedirectHandler())
             with opener.open(request, timeout=OPENAI_CALL_TIMEOUT) as response:
                 raw = response.read(OPENAI_MAX_RESPONSE_BYTES + 1)
-        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError):
             raise VisionError("OpenAI inference failed; endpoint, credentials and service status prüfen.") from None
         if len(raw) > OPENAI_MAX_RESPONSE_BYTES:
             raise VisionError("OpenAI inference returned too much data")

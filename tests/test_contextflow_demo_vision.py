@@ -1,4 +1,4 @@
-"""Focused start-config tests for Meta-only demo inference backends."""
+"""Focused start-config tests for local and Meta demo inference backends."""
 
 from __future__ import annotations
 
@@ -76,10 +76,11 @@ class DemoVisionEnvTest(unittest.TestCase):
                 )
                 self.assertEqual(config["CONTEXTFLOW_OLLAMA_TIMEOUT"], 180)
 
-    def test_non_meta_local_model_is_rejected(self) -> None:
-        with self.assertRaises(SystemExit) as raised:
-            vision_config_from_env({"CONTEXTFLOW_OLLAMA_MODEL": "qwen3-vl:2b"})
-        self.assertIn("ausschließlich Meta-Modelle", str(raised.exception))
+    def test_local_model_id_is_not_restricted_to_a_vendor_allowlist(self) -> None:
+        config = vision_config_from_env(
+            {"CONTEXTFLOW_OLLAMA_MODEL": "qwen3-vl:2b"}
+        )
+        self.assertEqual("qwen3-vl:2b", config["CONTEXTFLOW_OLLAMA_MODEL"])
 
     def test_meta_cloud_key_uses_explicit_memory_only_config_slot(self) -> None:
         config = vision_config_from_env(

@@ -42,8 +42,7 @@ def vision_config_from_env(
 ) -> dict[str, str | int | bool]:
     """Vision backend config from optional environment variables.
 
-    Local inference accepts only the project's explicit Meta Ollama
-    allowlist. The optional Meta Model API path requires an explicit
+    Local inference accepts any valid installed Ollama model ID. The optional Meta Model API path requires an explicit
     provider choice and MODEL_API_KEY; its model and endpoint are pinned.
     With neither configured, a labeled mock keeps the UI live-testable.
     """
@@ -69,7 +68,7 @@ def vision_config_from_env(
     if provider not in {"local", "meta", "mock"}:
         _fail("CONTEXTFLOW_VISION_PROVIDER must be local, meta or mock")
     if provider == "local" and not model:
-        _fail("Local inference needs CONTEXTFLOW_OLLAMA_MODEL set to a Meta model")
+        _fail("Local inference needs CONTEXTFLOW_OLLAMA_MODEL set to an installed Ollama model")
     if provider == "meta" and not str(source.get("MODEL_API_KEY", "") or "").strip():
         _fail(
             "Meta Muse Spark 1.3 Contributor was selected but MODEL_API_KEY is missing. "

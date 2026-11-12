@@ -494,7 +494,7 @@ class LocalVisionProvider(VisionProvider):
                 f"(Zeitlimit: {self.timeout} Sekunden). "
                 "Bitte später erneut versuchen."
             ) from None
-        except (urllib.error.URLError, OSError) as exc:
+        except (urllib.error.URLError, OSError):
             raise InferenceUnavailable(
                 "Lokale Inferenz nicht erreichbar; Ollama und Modell prüfen."
             ) from None
