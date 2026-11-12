@@ -14,7 +14,8 @@
     <div class="card-header"><strong>Anwendung während der Freigabe</strong></div>
     <div class="card-body">
       <p class="small text-secondary">Hier kannst du die Anwendung weiter bedienen. Seitenwechsel in diesem Arbeitsbereich erhalten die Freigabe. Das Schließen oder Neuladen dieser Support-Seite beendet sie. Eingabefreigaben betreffen nur freigegebene Formularfelder; gespeichert wird durch dich.</p>
-      <iframe id="screen-workspace-frame" name="screen-application-workspace" title="SimpleOffice Arbeitsbereich" data-start-url="{{ url_for('documents.index') }}" class="w-100 border rounded" style="height:70vh;min-height:360px" sandbox="allow-same-origin allow-scripts allow-forms allow-downloads allow-popups allow-modals" referrerpolicy="same-origin"></iframe>
+      {# The authenticated application workspace needs its same-origin scripts and APIs. The app CSP limits framing to self; a sandbox combining allow-scripts and allow-same-origin would provide no isolation. #}
+      <iframe id="screen-workspace-frame" name="screen-application-workspace" title="SimpleOffice Arbeitsbereich" data-start-url="{{ url_for('documents.index') }}" class="w-100 border rounded" style="height:70vh;min-height:360px" referrerpolicy="same-origin"></iframe>
     </div>
   </section>
 

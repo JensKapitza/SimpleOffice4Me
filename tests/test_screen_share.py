@@ -153,6 +153,13 @@ class ScreenShareTests(unittest.TestCase):
         template = (ROOT / "templates" / "screen" / "index.html").read_text(encoding="utf-8")
         self.assertIn("connectivity_relay_ice.ice", template)
 
+    def test_workspace_frame_uses_same_origin_policy_without_ineffective_sandbox(self):
+        template = (ROOT / "templates" / "screen" / "index.html").read_text(encoding="utf-8")
+        iframe = next(line for line in template.splitlines() if 'id="screen-workspace-frame"' in line)
+        self.assertNotIn("sandbox=", iframe)
+        policy = (ROOT / "app/__init__.py").read_text(encoding="utf-8")
+        self.assertIn("frame-ancestors 'self'", policy)
+
     def test_viewer_route_and_autoconnect_contract(self):
         source = (ROOT / "app/screen_share.py").read_text(encoding="utf-8")
         template = (ROOT / "templates/screen/index.html").read_text(encoding="utf-8")

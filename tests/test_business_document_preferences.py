@@ -18,6 +18,7 @@ from app.business_customer_documents import (
 from app.business_document_generation import business_settings, save_business_settings
 from app.business_document_preferences import (
     company_bank_accounts,
+    normalize_company_bank_accounts,
     validate_document_preferences,
 )
 from app.business_documents import _invoice_row_from_form
@@ -67,6 +68,12 @@ def _business_form(default_id: str = ACCOUNT_2) -> MultiDict:
 
 
 class BusinessDocumentPreferenceTests(unittest.TestCase):
+    def test_company_iban_validation_checks_iso_13616_mod97(self):
+        valid = normalize_company_bank_accounts([{"label": "Konto", "iban": "DE89 3704 0044 0532 0130 00"}])
+        self.assertEqual("DE89370400440532013000", valid[0]["iban"])
+        with self.assertRaisesRegex(ValueError, "IBAN ist ungültig"):
+            normalize_company_bank_accounts([{"label": "Konto", "iban": "DE88 3704 0044 0532 0130 00"}])
+
     def test_multiple_company_accounts_are_persisted_and_default_mirrors_legacy_fields(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
