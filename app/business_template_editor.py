@@ -7,6 +7,7 @@ backwards compatible until visual layouts are connected to PDF generation.
 from __future__ import annotations
 
 import copy
+import io
 import json
 import re
 import uuid
@@ -14,7 +15,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from flask import abort, flash, g, redirect, render_template, request, url_for
+from flask import abort, flash, g, redirect, render_template, request, send_file, url_for
 
 from .auth import login_required
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_now
@@ -26,7 +27,7 @@ VISUAL_TEMPLATE_INDEX = "visual-templates.json"
 VISUAL_TEMPLATE_SCHEMA = 1
 DOCUMENT_TYPES = {"invoice", "quote", "delivery_note", "letter"}
 REGIONS = {"header", "content", "footer", "margin_left", "margin_right"}
-ELEMENT_TYPES = {"text", "token", "line", "rect"}
+ELEMENT_TYPES = {"text", "token", "line", "rect", "invoice_lines", "invoice_totals", "body"}
 ALIGNMENTS = {"left", "center", "right", "justify"}
 HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
 TOKEN_PATTERN = re.compile(r"\{\{[a-z0-9_.-]{1,80}\}\}", re.IGNORECASE)
@@ -145,14 +146,30 @@ def default_visual_layout(document_type: str = "invoice") -> dict[str, Any]:
         _element("doc-meta", "token", "content", 118, 55, 74, 26,
                  "Nr.: {{rechnung.nummer}}\nDatum: {{rechnung.datum}}\nZahlungsziel: {{rechnung.zahlungsziel}}", font_size=8),
         _element("title", "text", "content", 18, 88, 100, 10, title, font_size=17, bold=True),
-        _element("free-1", "token", "content", 18, 118, 174, 12, "{{freitext1}}", font_size=9),
-        _element("free-2", "token", "content", 18, 145, 174, 16, "{{freitext2}}", font_size=9),
-        _element("free-3", "token", "content", 18, 205, 174, 14, "{{freitext3}}", font_size=9),
+        _element("free-1", "token", "content", 18, 101, 174, 10, "{{freitext1}}", font_size=9),
         _element("bank", "token", "footer", 18, 263, 80, 22,
                  "IBAN: {{firma.iban}}\nBIC: {{firma.bic}}\nBank: {{firma.bank}}", font_size=7.5),
         _element("tax", "token", "footer", 112, 263, 80, 22,
                  "Steuer-Nr.: {{firma.steuer_nr}}\nUSt-IdNr.: {{firma.ust_idnr}}", font_size=7.5),
     ]
+    if document_type == "invoice":
+        elements += [
+            _element("invoice-lines", "invoice_lines", "content", 18, 116, 174, 68, "", font_size=8),
+            _element("invoice-totals", "invoice_totals", "content", 112, 188, 80, 30, "", font_size=9),
+            _element("free-2", "token", "content", 18, 188, 86, 14, "{{freitext2}}", font_size=9),
+            _element("free-3", "token", "content", 18, 222, 174, 14, "{{freitext3}}", font_size=9),
+        ]
+    elif document_type == "letter":
+        elements += [
+            _element("body", "body", "content", 18, 116, 174, 118, "", font_size=10),
+            _element("free-3", "token", "content", 18, 238, 174, 10, "{{freitext3}}", font_size=9),
+        ]
+    else:
+        elements += [
+            _element("body", "body", "content", 18, 116, 174, 102, "", font_size=10),
+            _element("free-2", "token", "content", 18, 222, 174, 12, "{{freitext2}}", font_size=9),
+            _element("free-3", "token", "content", 18, 238, 174, 10, "{{freitext3}}", font_size=9),
+        ]
     return {
         "schema_version": VISUAL_TEMPLATE_SCHEMA,
         "page": {"format": "A4", "width_mm": 210, "height_mm": 297},
@@ -259,6 +276,13 @@ def validate_visual_layout(layout: Any) -> dict[str, Any]:
             "locked": bool(raw.get("locked", False)),
             "visible": bool(raw.get("visible", True)),
         })
+    dynamic_types = ("invoice_lines", "invoice_totals", "body")
+    for dynamic_type in dynamic_types:
+        matching = [item for item in normalized_elements if item["type"] == dynamic_type]
+        if len(matching) > 1:
+            raise ValueError(f"visual template may contain only one {dynamic_type} element")
+        if matching and matching[0]["region"] != "content":
+            raise ValueError(f"{dynamic_type} element must be in the content region")
     regions_in = layout.get("regions", {}) if isinstance(layout.get("regions"), dict) else {}
     def region(name: str, enabled: bool) -> dict[str, Any]:
         raw_region = regions_in.get(name, {})
@@ -403,6 +427,17 @@ def editor_preview_tokens(business: dict[str, Any], layout: dict[str, Any]) -> d
     }
 
 
+def visual_template_choices(root: Path, document_type: str) -> list[dict[str, Any]]:
+    """Return visual templates that are valid choices for one document workflow."""
+    if document_type not in DOCUMENT_TYPES:
+        raise ValueError("unsupported document type")
+    return [
+        {**row, "active": False, "visual": True}
+        for row in visual_templates(root)
+        if row.get("document_type") == document_type
+    ]
+
+
 def _is_admin() -> bool:
     try:
         return bool(g.user["is_admin"])
@@ -451,6 +486,48 @@ def register_template_editor_routes(bp, *, root_provider, actor_provider, busine
             is_admin=_is_admin(),
             document_types=sorted(DOCUMENT_TYPES),
         )
+
+    @bp.get("/templates/editor/<template_id>/preview.pdf")
+    @login_required
+    def visual_template_preview(template_id: str):
+        try:
+            row, _layout = visual_template(root_provider(), template_id)
+            from .business_template_render import (
+                render_visual_invoice_pdf,
+                render_visual_letter_pdf,
+                sample_invoice,
+            )
+            if row.get("document_type") == "invoice":
+                sample = sample_invoice()
+                business = business_settings_provider(root_provider())
+                sample["seller"].update({
+                    "name": business.get("seller_name") or sample["seller"]["name"],
+                    "street": business.get("seller_street") or sample["seller"]["street"],
+                    "postal": business.get("seller_postal") or sample["seller"]["postal"],
+                    "city": business.get("seller_city") or sample["seller"]["city"],
+                    "email": business.get("seller_email") or sample["seller"]["email"],
+                    "iban": business.get("seller_iban") or sample["seller"]["iban"],
+                    "bic": business.get("seller_bic") or sample["seller"]["bic"],
+                    "bank": business.get("seller_bank") or sample["seller"]["bank"],
+                    "vat_id": business.get("seller_vat_id") or sample["seller"]["vat_id"],
+                    "tax_number": business.get("seller_tax_number") or sample["seller"]["tax_number"],
+                })
+                pdf = render_visual_invoice_pdf(root_provider(), template_id, sample)
+            else:
+                pdf = render_visual_letter_pdf(
+                    root_provider(), template_id,
+                    business=business_settings_provider(root_provider()),
+                    recipient="Musterkunde GmbH\nKundenstraße 5\n54321 Kundenstadt",
+                    subject="Vorschau",
+                    body="Dies ist eine Vorschau des frei positionierten Dokumenttextes.\n\n"
+                         "Die gleiche Layoutdefinition wird für die produktive PDF-Ausgabe verwendet.",
+                )
+            return send_file(
+                io.BytesIO(pdf), mimetype="application/pdf", as_attachment=False,
+                download_name=f"{row['name']}-Vorschau.pdf",
+            )
+        except ValueError:
+            abort(409)
 
     @bp.post("/templates/editor/<template_id>")
     @login_required
