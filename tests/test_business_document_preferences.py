@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,13 +16,18 @@ from app.business_customer_documents import (
     preferred_bank_account_id,
     preferred_template_id,
 )
-from app.business_document_generation import business_settings, save_business_settings
+from app.business_document_generation import (
+    CONTROL_DIR,
+    SETTINGS_FILE,
+    business_settings,
+    save_business_settings,
+)
 from app.business_document_preferences import (
     company_bank_accounts,
     normalize_company_bank_accounts,
     validate_document_preferences,
 )
-from app.business_documents import _invoice_row_from_form
+from app.business_documents import _invoice_row_from_form, _invoice_store_path, finalize_invoice
 from app.business_template_editor import create_visual_template, save_visual_template, visual_template
 from app.business_template_render import render_visual_letter_pdf
 from app.contact_extensions import ContactCRMStore
@@ -73,6 +79,62 @@ class BusinessDocumentPreferenceTests(unittest.TestCase):
         self.assertEqual("DE89370400440532013000", valid[0]["iban"])
         with self.assertRaisesRegex(ValueError, "IBAN ist ungültig"):
             normalize_company_bank_accounts([{"label": "Konto", "iban": "DE88 3704 0044 0532 0130 00"}])
+
+    def test_legacy_bad_checksum_account_remains_editable(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            settings_path = root / CONTROL_DIR / SETTINGS_FILE
+            settings_path.parent.mkdir(parents=True)
+            settings_path.write_text(json.dumps({
+                "seller_name": "Kapitza GmbH",
+                "seller_bank_accounts": [{
+                    "account_id": ACCOUNT_1,
+                    "label": "Altes Konto",
+                    "iban": "DE88370400440532013000",
+                    "default": True,
+                }],
+            }), encoding="utf-8")
+
+            loaded = business_settings(root)
+            self.assertEqual("DE88370400440532013000", loaded["seller_iban"])
+            self.assertEqual("Altes Konto", loaded["seller_bank_accounts"][0]["label"])
+            with self.assertRaisesRegex(ValueError, "IBAN ist ungültig"):
+                invoice_seller_snapshot(loaded, ACCOUNT_1)
+
+            draft_path = _invoice_store_path(root, "legacy-draft")
+            draft_path.write_text(json.dumps({
+                "invoice_id": "legacy-draft",
+                "status": "draft",
+                "seller": {
+                    "bank_account_label": "Altes Konto",
+                    "iban": "DE88370400440532013000",
+                },
+            }), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "IBAN ist ungültig"):
+                finalize_invoice(root, "legacy-draft", "tester")
+
+            invalid_form = _business_form(default_id=ACCOUNT_1)
+            invalid_form.setlist(
+                "bank_account_iban",
+                ["DE88370400440532013000", "DE12500105170648489890"],
+            )
+            with mock.patch("app.business_document_generation.DocumentStore"):
+                with self.assertRaisesRegex(ValueError, "IBAN ist ungültig"):
+                    save_business_settings(root, invalid_form, "tester")
+                self.assertEqual(
+                    "DE88370400440532013000",
+                    json.loads(settings_path.read_text(encoding="utf-8"))["seller_bank_accounts"][0]["iban"],
+                )
+                corrected = save_business_settings(
+                    root,
+                    _business_form(default_id=ACCOUNT_1),
+                    "tester",
+                )
+            self.assertEqual("DE89370400440532013000", corrected["seller_iban"])
+            self.assertEqual(
+                "DE89370400440532013000",
+                invoice_seller_snapshot(corrected, ACCOUNT_1)["iban"],
+            )
 
     def test_multiple_company_accounts_are_persisted_and_default_mirrors_legacy_fields(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -6,6 +6,7 @@ from typing import Any, Mapping
 from .business_document_preferences import (
     company_bank_accounts,
     document_preferences,
+    normalize_company_bank_accounts,
     selected_company_bank_account,
 )
 
@@ -65,6 +66,11 @@ def invoice_seller_snapshot(
     account_id: str,
 ) -> dict[str, str]:
     account = selected_company_bank_account(settings, account_id)
+    if account is not None and account.get("iban"):
+        normalize_company_bank_accounts([{
+            "label": str(account.get("label") or "Rechnungskonto"),
+            "iban": account["iban"],
+        }])
     return {
         "name": str(settings.get("seller_name", "")),
         "street": str(settings.get("seller_street", "")),

@@ -426,6 +426,12 @@ def finalize_invoice(root: Path, invoice_id: str, actor: str) -> tuple[dict[str,
         if not acquired: raise ValueError("invoice finalization is already in progress")
         row = timed("invoice_load", lambda: invoice(root, invoice_id))
         if row.get("status") != "draft": raise ValueError("invoice is already finalized")
+        seller = row.get("seller") if isinstance(row.get("seller"), dict) else {}
+        if seller.get("iban"):
+            normalize_company_bank_accounts([{
+                "label": str(seller.get("bank_account_label") or "Rechnungskonto"),
+                "iban": seller["iban"],
+            }])
         buyer = row.get("buyer") or {}
         # Unstructured addresses are permitted for ordinary PDF invoices.
         # ZUGFeRD is attempted only when the buyer has structured address fields.
