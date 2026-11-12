@@ -1,6 +1,6 @@
 {% extends "layout.html" %}
 {% from "documents/_country_datalist.html" import eu_country_datalist %}
-{% block header %}{% include "documents/nav.html" %}<script src="{{ url_for('static', filename='js/company-bank-accounts.js') }}"></script>
+{% block header %}{% include "documents/nav.html" %}
 {% endblock %}
 {% block body %}
 <main id="main-content" class="container-xl py-4">
@@ -27,4 +27,5 @@
   {% endif %}
   <section class="card"><div class="card-header">Vorlagen</div><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th scope="col">Name</th><th scope="col">Quelle</th><th scope="col">Seiten</th><th scope="col">Status</th><th scope="col">Erstellt</th><th scope="col"></th></tr></thead><tbody>{% for row in templates %}<tr><td>{{ row.name }}</td><td>{{ row.source_name|default('PDF') }}</td><td>{{ row.pages }}</td><td>{% if row.active %}<span class="badge text-bg-success">Aktiv</span>{% else %}<span class="badge text-bg-secondary">Inaktiv</span>{% endif %}</td><td>{{ row.created_at }}<br><small class="text-secondary">{{ row.created_by }}</small></td><td class="text-end">{% if is_admin and not row.active %}<form method="post" action="{{ url_for('.activate_template', template_id=row.template_id) }}"><button type="submit" class="btn btn-sm btn-outline-primary">Aktivieren</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="6" class="text-secondary">Noch keine Vorlage vorhanden. Vor dem Erzeugen eines Briefs oder einer Rechnung muss eine 3-seitige Vorlage eingerichtet werden.</td></tr>{% endfor %}</tbody></table></div></section>
 </main>
+<script src="{{ url_for('static', filename='js/company-bank-accounts.js') }}"></script>
 {% endblock %}
