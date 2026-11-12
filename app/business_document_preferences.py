@@ -108,7 +108,7 @@ def company_bank_accounts(settings: Mapping[str, Any]) -> list[dict[str, Any]]:
         "label": "Standardkonto",
         "holder": str(settings.get("seller_name", "")),
         "iban": iban,
-        "blz": re.sub(r"\\s+", "", str(settings.get("seller_blz", "")))[:20],
+        "blz": re.sub(r"\s+", "", str(settings.get("seller_blz", "")))[:20],
         "bic": _clean_bic(settings.get("seller_bic")),
         "bank": str(settings.get("seller_bank", "")),
         "currency": _clean_currency(settings.get("currency", "EUR")),
