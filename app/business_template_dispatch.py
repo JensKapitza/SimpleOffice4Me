@@ -12,20 +12,33 @@ from .business_document_generation import (
     render_business_pdf,
     templates,
 )
-from .business_template_editor import visual_template, visual_template_choices
+from .business_template_editor import active_visual_template, visual_template, visual_template_choices
 from .business_template_render import render_visual_invoice_pdf, render_visual_letter_pdf
 
 
 def business_template_choices(root: Path, document_type: str) -> list[dict[str, Any]]:
-    """Combine legacy corporate backgrounds with compatible visual templates."""
-    return list(templates(root)) + visual_template_choices(root, document_type)
+    """Combine legacy backgrounds with compatible visual templates.
+
+    An activated visual template wins the default selection for its document type
+    without changing the legacy global-template setting.
+    """
+    visual = visual_template_choices(root, document_type)
+    visual_active = any(bool(row.get("active")) for row in visual)
+    legacy_source = list(templates(root))
+    legacy = (
+        [{**row, "active": False} for row in legacy_source]
+        if visual_active
+        else legacy_source
+    )
+    return legacy + visual
 
 
 def business_template(root: Path, template_id: str, document_type: str) -> dict[str, Any]:
     """Resolve an explicit legacy or visual template and enforce its document type."""
     template_id = str(template_id or "").strip()
     if not template_id:
-        return active_template(root)
+        visual_default = active_visual_template(root, document_type)
+        return visual_default if visual_default is not None else active_template(root)
     try:
         return active_template(root, template_id)
     except ValueError as legacy_error:

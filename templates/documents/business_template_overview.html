@@ -12,13 +12,34 @@
       <p class="text-secondary mb-0">Visuelle Dokumentvorlagen direkt in SimpleOffice erstellen und bearbeiten.</p>
     </div>
     {% if is_admin %}
-    <button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#new-template" aria-expanded="false" aria-controls="new-template">
-      <i class="fa-solid fa-plus me-1"></i>Neue Vorlage erstellen
-    </button>
+    <div class="d-flex flex-wrap gap-2">
+      <button class="btn btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#import-template" aria-expanded="false" aria-controls="import-template">
+        <i class="fa-solid fa-file-import me-1"></i>Importieren
+      </button>
+      <button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#new-template" aria-expanded="false" aria-controls="new-template">
+        <i class="fa-solid fa-plus me-1"></i>Neue Vorlage erstellen
+      </button>
+    </div>
     {% endif %}
   </div>
 
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+
+  {% if is_admin %}
+  <section id="import-template" class="collapse card mb-4">
+    <div class="card-header fw-semibold">SimpleOffice-Vorlage importieren</div>
+    <div class="card-body">
+      <form method="post" enctype="multipart/form-data" action="{{ url_for('.visual_template_import') }}" class="row g-3 align-items-end">
+        <div class="col-md-8">
+          <label class="form-label" for="template-json">Vorlagendatei</label>
+          <input id="template-json" class="form-control" type="file" name="template_json" accept=".json,.simpleoffice-template.json,application/json" required>
+          <div class="form-text">Maximal 5 MB. Schema, Bildassets und sämtliche Layoutwerte werden serverseitig geprüft.</div>
+        </div>
+        <div class="col-md-4"><button class="btn btn-primary w-100" type="submit">Vorlage importieren</button></div>
+      </form>
+    </div>
+  </section>
+  {% endif %}
 
   {% if is_admin %}
   <section id="new-template" class="collapse card mb-4">
@@ -64,12 +85,21 @@
                   {% if row.document_type == 'invoice' %}Rechnung{% elif row.document_type == 'quote' %}Angebot{% elif row.document_type == 'delivery_note' %}Lieferschein{% else %}Brief{% endif %}
                 </div>
               </div>
-              <span class="badge text-bg-primary align-self-start">Visuell</span>
+              <div class="d-flex flex-column gap-1 align-items-end">
+                <span class="badge text-bg-primary">Visuell</span>
+                {% if row.active %}<span class="badge text-bg-success">Aktiv</span>{% endif %}
+              </div>
             </div>
             <p class="small text-secondary mt-3 mb-3">Schema {{ row.schema_version }} · Version {{ row.version }}<br>Geändert: {{ row.updated_at }}</p>
             <div class="d-flex flex-wrap gap-2">
               <a class="btn btn-sm btn-primary" href="{{ url_for('.visual_template_edit', template_id=row.template_id) }}">Bearbeiten</a>
+              <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('.visual_template_export', template_id=row.template_id) }}">Exportieren</a>
               {% if is_admin %}
+              {% if not row.active %}
+              <form method="post" action="{{ url_for('.visual_template_activate', template_id=row.template_id) }}">
+                <button class="btn btn-sm btn-outline-success" type="submit">Aktivieren</button>
+              </form>
+              {% endif %}
               <form method="post" action="{{ url_for('.visual_template_duplicate', template_id=row.template_id) }}">
                 <button class="btn btn-sm btn-outline-secondary" type="submit">Duplizieren</button>
               </form>

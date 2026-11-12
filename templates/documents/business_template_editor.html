@@ -97,6 +97,10 @@
               <div id="basic-elements" class="accordion-collapse collapse show">
                 <div class="accordion-body p-1 template-palette">
                   <button type="button" class="template-palette-item" data-add-element="text"><i class="fa-solid fa-font"></i><span>Textfeld</span></button>
+                  <label class="template-palette-item template-image-upload">
+                    <i class="fa-regular fa-image"></i><span>Bild / Logo</span>
+                    <input class="visually-hidden" type="file" accept="image/png,image/jpeg" data-image-upload data-upload-url="{{ url_for('.visual_template_asset_upload', template_id=template_row.template_id) }}" {% if not is_admin %}disabled{% endif %}>
+                  </label>
                   <button type="button" class="template-palette-item" data-add-element="line"><i class="fa-solid fa-minus"></i><span>Linie</span></button>
                   <button type="button" class="template-palette-item" data-add-element="rect"><i class="fa-regular fa-square"></i><span>Rechteck</span></button>
                   <button type="button" class="template-palette-item" data-add-element="invoice_lines"><i class="fa-solid fa-table-list"></i><span>Rechnungspositionen</span></button>
@@ -111,7 +115,7 @@
 
       <section class="template-canvas-wrap" aria-label="A4 Vorlagenvorschau">
         <div class="template-page-label">A4 (210 × 297 mm)</div>
-        <div id="template-canvas" class="template-canvas">
+        <div id="template-canvas" class="template-canvas" data-asset-url-template="{{ url_for('.visual_template_asset', template_id=template_row.template_id, asset='__ASSET__') }}">
           <div class="template-region region-header" data-region="header"><span>Header</span></div>
           <div class="template-region region-content" data-region="content"><span>Inhalt</span></div>
           <div class="template-region region-footer" data-region="footer"><span>Footer</span></div>
@@ -187,6 +191,26 @@
             <label class="form-label small" for="free-text-{{ n }}">Freitext {{ n }}</label>
             <input id="free-text-{{ n }}" class="form-control form-control-sm mb-2" maxlength="500" data-free-text="freitext{{ n }}">
             {% endfor %}
+          </div>
+        </section>
+
+        <section class="card mb-3">
+          <div class="card-header fw-semibold">Versionen</div>
+          <div class="card-body p-0">
+            <div class="list-group list-group-flush">
+              {% for version in versions %}
+              <div class="list-group-item d-flex justify-content-between align-items-center gap-2">
+                <div><strong>v{{ version.version }}</strong><br><small class="text-secondary">{{ version.updated_at }} · {{ version.updated_by }}</small></div>
+                {% if is_admin and version.version != template_row.version %}
+                <form method="post" action="{{ url_for('.visual_template_restore', template_id=template_row.template_id, version=version.version) }}">
+                  <button class="btn btn-sm btn-outline-secondary" type="submit">Wiederherstellen</button>
+                </form>
+                {% else %}<span class="badge text-bg-light">aktuell</span>{% endif %}
+              </div>
+              {% else %}
+              <div class="list-group-item text-secondary small">Noch keine Snapshots vorhanden.</div>
+              {% endfor %}
+            </div>
           </div>
         </section>
 
