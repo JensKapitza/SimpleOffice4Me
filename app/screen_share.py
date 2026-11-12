@@ -18,6 +18,7 @@ from .access_control import audit
 from .auth import login_required
 from .desktop_proxy_status import _desktop_proxy_status
 from .federation_qr_image import render_qr_svg
+from .screen_support import register_support, session_ended
 
 
 bp = Blueprint("screen", __name__, url_prefix="/screen")
@@ -157,6 +158,7 @@ def _actor_id() -> str:
 def _purge_sessions() -> None:
     now = time.time()
     for key in [key for key, value in _sessions.items() if value.get("closed") or now - float(value["updated_at"]) > _SESSION_TTL_SECONDS]:
+        session_ended(key, _sessions[key])
         _sessions.pop(key, None)
 
 
@@ -364,6 +366,7 @@ def post_signal(session_id: str):
         if kind in {"answer", "ready"}:
             value["connected"] = True
         if kind == "bye":
+            session_ended(session_id, value)
             value["closed"] = True
             value["messages"].clear()
             value["signal_bytes"] = 0
@@ -382,7 +385,11 @@ def close_session(session_id: str):
             return jsonify({"schema": 1, "closed": True})
         if value["owner"] != _actor_id():
             abort(403)
+        session_ended(session_id, value)
         value["closed"] = True
         value["updated_at"] = time.time()
     audit("screen_session_closed", "screen_session", session_id)
     return jsonify({"schema": 1, "closed": True})
+
+
+register_support(bp)
