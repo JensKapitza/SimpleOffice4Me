@@ -126,7 +126,7 @@ class VisualBusinessTemplateRenderTests(unittest.TestCase):
             root = Path(temp)
             visual = self._create(root, "invoice", "Visuelle Rechnung")
             legacy = {"template_id": "legacy-1", "name": "Legacy", "active": True}
-            with mock.patch("app.business_documents.templates", return_value=[legacy]):
+            with mock.patch("app.business_template_dispatch.templates", return_value=[legacy]):
                 choices = _business_template_choices(root, "invoice")
 
             self.assertIs(legacy, choices[0])
@@ -138,7 +138,7 @@ class VisualBusinessTemplateRenderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             visual = self._create(root, "invoice")
-            with mock.patch("app.business_documents.active_template", side_effect=ValueError("legacy missing")):
+            with mock.patch("app.business_template_dispatch.active_template", side_effect=ValueError("legacy missing")):
                 resolved = _business_template(root, visual["template_id"], "invoice")
                 self.assertEqual(visual["template_id"], resolved["template_id"])
                 with self.assertRaisesRegex(ValueError, "not valid for letter"):
@@ -170,7 +170,7 @@ class VisualBusinessTemplateRenderTests(unittest.TestCase):
             root = Path(temp)
             visual = self._create(root, "invoice")
             with mock.patch(
-                "app.business_documents.render_visual_invoice_pdf", return_value=b"visual-pdf"
+                "app.business_template_dispatch.render_visual_invoice_pdf", return_value=b"visual-pdf"
             ) as visual_render:
                 self.assertEqual(
                     b"visual-pdf", _render_invoice_with_template(root, visual, row)
@@ -179,9 +179,9 @@ class VisualBusinessTemplateRenderTests(unittest.TestCase):
 
             legacy = {"template_id": "legacy", "file": "legacy.pdf"}
             with mock.patch(
-                "app.business_documents._invoice_content_pdf", return_value=b"content"
+                "app.business_template_dispatch._invoice_content_pdf", return_value=b"content"
             ) as content_render, mock.patch(
-                "app.business_documents._merge_content_with_template", return_value=b"legacy-pdf"
+                "app.business_template_dispatch._merge_content_with_template", return_value=b"legacy-pdf"
             ) as merge:
                 self.assertEqual(
                     b"legacy-pdf", _render_invoice_with_template(root, legacy, row)
