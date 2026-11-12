@@ -37,6 +37,13 @@ docker compose -f deploy/docker/compose.yaml ps
 
 Standardmäßig wird nur `127.0.0.1:8080` veröffentlicht. Der interne Container-Port bleibt fest 8080; der Host-Port kann mit `SIMPLEOFFICE_HTTP_PORT` geändert werden. Für einen LAN-Test kann `SIMPLEOFFICE_BIND_ADDRESS=0.0.0.0` gesetzt werden. Für einen öffentlichen Server sollte der Reverse Proxy dagegen auf den lokalen Port weiterleiten.
 
+Für einen direkten LAN-Zugriff über HTTPS kann der optionale Proxy gestartet
+werden, ohne den Web-Backend-Port auf dem Host freizugeben. Anleitung und
+Einstellungen: [HTTPS-LAN-Proxy](DESKTOP_LAN_PROXY_SCREEN_VIEWER.md#docker-konfiguration).
+Der Overlay-Port wird nur an `SIMPLEOFFICE_LAN_PROXY_PUBLISH_ADDRESS`
+gebunden; eine einzelne LAN-IP statt `0.0.0.0` erlaubt eine gezielte
+Host-Firewallregel.
+
 Daten liegen persistent im Volume `simpleoffice-data`. Ein Image- oder Container-Update löscht dieses Volume nicht.
 
 ### Rechte des Webcontainers

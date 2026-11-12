@@ -52,6 +52,22 @@ class DeploymentAssetsTest(unittest.TestCase):
             with self.subTest(item=item):
                 self.assertIn(item, dockerignore)
 
+    def test_lan_proxy_overlay_publishes_only_a_selected_host_address(self):
+        compose = self.text("deploy/docker/compose.lan-proxy.yaml")
+        self.assertIn("SIMPLEOFFICE_LAN_PROXY_PUBLISH_ADDRESS:?", compose)
+        self.assertIn("SIMPLEOFFICE_LAN_PROXY_PUBLIC_HOST:?", compose)
+        self.assertIn("SIMPLEOFFICE_LAN_PROXY_CONTAINER_MODE: \"1\"", compose)
+        self.assertIn("SIMPLEOFFICE_LAN_PROXY_TLS_DIR: /run/simpleoffice", compose)
+        self.assertIn("read_only: true", compose)
+        self.assertIn("create_host_path: false", compose)
+        settings = self.text("templates/admin/server_settings.html")
+        self.assertIn("Enable and auto-start LAN proxy", settings)
+        self.assertIn("Proxy bind address", settings)
+        self.assertIn("Firewall access remains under your control", settings)
+        android = self.text("android/apk/app/build.gradle")
+        self.assertNotIn("aiohttp==", android)
+        self.assertIn("start_wsgi_proxy", self.text("app/lan_proxy_wsgi.py"))
+
     def test_federation_compose_restart_smoke_is_wired_to_docker_ci(self):
         compose = self.text("deploy/docker/compose.federation-test.yaml")
         workflow = self.text(".github/workflows/ubuntu-26-compat.yml")

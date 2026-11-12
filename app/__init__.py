@@ -312,6 +312,8 @@ if app.config.get("DOCUMENT_ROOT"):
 if _trusted_proxy_hops > 0:
     trusted_proxy_hops = _trusted_proxy_hops
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=trusted_proxy_hops, x_proto=trusted_proxy_hops, x_host=trusted_proxy_hops, x_prefix=trusted_proxy_hops)
+from .lan_proxy import LanProxyHeadersMiddleware
+app.wsgi_app = LanProxyHeadersMiddleware(app, app.wsgi_app)
 
 
 from . import auth

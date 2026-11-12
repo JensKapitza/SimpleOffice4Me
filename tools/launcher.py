@@ -391,6 +391,12 @@ def start(configure_only: bool = False) -> None:
     try:
         audio_manager.start_background()
         announcement_worker.start_background()
+        app.config["LAN_PROXY_BACKEND_HOST"] = "127.0.0.1"
+        app.config["LAN_PROXY_BACKEND_PORT"] = port
+        from app.lan_proxy import configure_lan_proxy, lan_proxy_runtime
+        proxy_status = configure_lan_proxy(app, document_root, "127.0.0.1", port)
+        if proxy_status["state"] == "error":
+            print(f"LAN-Proxy konnte nicht starten: {proxy_status['message']}.", file=sys.stderr, flush=True)
         try:
             serve(app, **options)
         except OSError as exc:
@@ -400,6 +406,8 @@ def start(configure_only: bool = False) -> None:
     finally:
         audio_manager.stop_all()
         announcement_worker.stop()
+        from app.lan_proxy import lan_proxy_runtime
+        lan_proxy_runtime.stop(state="stopped", message="Web process stopped")
         stop_worker(worker)
         stop_worker(osm_worker)
         stop_worker(datalogger_worker)
