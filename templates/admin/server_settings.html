@@ -4,7 +4,7 @@
 <main id="main-content" class="container-xl py-4">
   <div class="mb-4">
     <h1 class="h2 mb-1">{{ 'Server & background services' if g.language == 'en' else 'Server & Hintergrunddienste' }}</h1>
-    <p class="text-secondary mb-0">{{ 'Bind address, WSGI limits and background workers. Values apply after a restart of the web process. Explicit per-start overrides (CLI flags, systemd units, desktop shell) win over these stored values; no environment variable is required.' if g.language == 'en' else 'Bind-Adresse, WSGI-Grenzen und Hintergrunddienste. Werte gelten nach einem Neustart des Webprozesses. Explizite Start-Overrides (CLI-Schalter, Systemd-Units, Desktop-Shell) gewinnen über diese gespeicherten Werte; keine Umgebungsvariable ist erforderlich.' }}</p>
+    <p class="text-secondary mb-0">{{ 'Web bind and WSGI values apply after restart. The separate HTTPS LAN proxy can be started or stopped here immediately and can auto-start with the application.' if g.language == 'en' else 'Web-Bindung und WSGI-Werte gelten nach einem Neustart. Der getrennte HTTPS-LAN-Proxy lässt sich hier sofort starten oder stoppen und kann mit der Anwendung automatisch starten.' }}</p>
   </div>
   <nav aria-label="{{ 'Settings sections' if g.language == 'en' else 'Einstellungsbereiche' }}" class="mb-4">
     <div class="nav nav-tabs">
@@ -17,15 +17,19 @@
     </div>
   </nav>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
-  <section class="card mb-3" aria-label="Desktop LAN proxy status">
-    <div class="card-header"><strong>{{ 'Desktop LAN proxy (Mini-Services)' if g.language == 'en' else 'Desktop-LAN-Proxy (Mini-Services)' }}</strong></div>
+  <section class="card mb-3" aria-label="LAN proxy status">
+    <div class="card-header"><strong>{{ 'LAN proxy status' if g.language == 'en' else 'LAN-Proxy-Status' }}</strong></div>
     <div class="card-body">
-      <p class="mb-1">{{ 'Current desktop status' if g.language == 'en' else 'Aktueller Desktop-Status' }}: <strong>{{ desktop_proxy_status.state }}</strong></p>
-      {% if desktop_proxy_status.origin %}
-        <p class="mb-1"><a href="{{ desktop_proxy_status.origin }}" rel="noopener noreferrer">{{ desktop_proxy_status.origin }}</a></p>
+      <p class="mb-1">{{ 'Current status' if g.language == 'en' else 'Aktueller Status' }}: <strong>{{ lan_proxy_status.state }}</strong></p>
+      {% if lan_proxy_status.origin %}
+        <p class="mb-1"><a href="{{ lan_proxy_status.origin }}" rel="noopener noreferrer">{{ lan_proxy_status.origin }}</a></p>
       {% endif %}
-      <p class="small text-secondary mb-1">{{ desktop_proxy_status.message }}</p>
-      <p class="small text-secondary mb-0">{{ 'The Electron Desktop hosts the proxy. It uses the saved host/port after a full EXE restart. The internal Python server stays on loopback. This status reports the listening socket, not reachability from a second LAN device.' if g.language == 'en' else 'Die Desktop-EXE betreibt den Proxy. Gespeicherte Host-/Port-Werte gelten nach vollständigem EXE-Neustart. Der interne Python-Server bleibt auf Loopback. Dieser Status bestätigt nur die lokale Bindung, nicht die Erreichbarkeit von einem zweiten LAN-Gerät.' }}</p>
+      <p class="small text-secondary mb-2">{{ lan_proxy_status.message }}</p>
+      <p class="small text-secondary">{{ 'This listener is owned by the app process, separate from Mini-Services. It requires a trusted TLS certificate and does not change firewall rules. Bind it to one private interface address; keep the web backend on loopback where the deployment supports it.' if g.language == 'en' else 'Dieser Listener läuft im Anwendungsprozess, unabhängig von Mini-Services. Er benötigt ein vertrauenswürdiges TLS-Zertifikat und ändert keine Firewall-Regeln. Binde ihn an eine private Schnittstellenadresse; der Web-Backend-Server bleibt, soweit die Bereitstellung es erlaubt, auf Loopback.' }}</p>
+      <div class="d-flex gap-2">
+        <form method="post" action="{{ url_for('admin_server.control_lan_proxy') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary" type="submit" name="action" value="start">{{ 'Start proxy' if g.language == 'en' else 'Proxy starten' }}</button></form>
+        <form method="post" action="{{ url_for('admin_server.control_lan_proxy') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-secondary" type="submit" name="action" value="stop">{{ 'Stop proxy' if g.language == 'en' else 'Proxy stoppen' }}</button></form>
+      </div>
     </div>
   </section>
   <section class="card">
@@ -33,6 +37,31 @@
     <div class="card-body">
       <form method="post" action="{{ url_for('admin_server.save_server_settings') }}" class="row g-3 align-items-end">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-12"><h2 class="h5 mb-0">{{ 'HTTPS LAN proxy' if g.language == 'en' else 'HTTPS-LAN-Proxy' }}</h2></div>
+        <div class="col-md-7">
+          <input type="hidden" name="lan_proxy_enabled" value="0">
+          <div class="form-check form-switch"><input class="form-check-input" id="lan-proxy-enabled" type="checkbox" name="lan_proxy_enabled" value="1" {% if lan_proxy.enabled %}checked{% endif %}><label class="form-check-label" for="lan-proxy-enabled">{{ 'Enable and auto-start LAN proxy' if g.language == 'en' else 'LAN-Proxy aktivieren und automatisch starten' }}</label></div>
+          <div class="form-text">{{ 'Saving applies changes immediately. The proxy can also be started and stopped with the controls above.' if g.language == 'en' else 'Speichern übernimmt Änderungen sofort. Über die Schaltflächen oben kann der Proxy zusätzlich gestartet und gestoppt werden.' }}</div>
+        </div>
+        <div class="col-md-7">
+          <label class="form-label" for="lan-proxy-host">{{ 'Proxy bind address' if g.language == 'en' else 'Proxy-Bind-Adresse' }}</label>
+          <input class="form-control" id="lan-proxy-host" type="text" name="lan_proxy_host" value="{{ lan_proxy.bind_host }}" maxlength="64" required>
+          <div class="form-text">{{ 'Use one private interface IP (for example 192.168.1.20). Do not enter 0.0.0.0 outside the Docker network namespace.' if g.language == 'en' else 'Eine private Schnittstellen-IP verwenden (zum Beispiel 192.168.1.20). Außerhalb des Docker-Netzwerk-Namespace nicht 0.0.0.0 eintragen.' }}</div>
+        </div>
+        <div class="col-md-5">
+          <label class="form-label" for="lan-proxy-port">{{ 'HTTPS proxy port' if g.language == 'en' else 'HTTPS-Proxy-Port' }}</label>
+          <input class="form-control" id="lan-proxy-port" type="number" name="lan_proxy_port" value="{{ lan_proxy.port }}" min="1024" max="65535" required>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="lan-proxy-cert">{{ 'TLS certificate path' if g.language == 'en' else 'Pfad zum TLS-Zertifikat' }}</label>
+          <input class="form-control font-monospace" id="lan-proxy-cert" name="lan_proxy_tls_cert" value="{{ lan_proxy.tls_cert }}" maxlength="4096" autocomplete="off">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="lan-proxy-key">{{ 'TLS private key path' if g.language == 'en' else 'Pfad zum TLS-Privatschlüssel' }}</label>
+          <input class="form-control font-monospace" id="lan-proxy-key" name="lan_proxy_tls_key" value="{{ lan_proxy.tls_key }}" maxlength="4096" autocomplete="off">
+        </div>
+        <div class="col-12"><p class="form-text mb-0">{{ 'The certificate must be trusted by LAN browsers and include the chosen IP or DNS name. The key must be outside the document folder, readable by the app user, and not world-readable. Firewall access remains under your control.' if g.language == 'en' else 'Das Zertifikat muss von den LAN-Browsern vertraut werden und die gewählte IP oder den DNS-Namen enthalten. Der Schlüssel muss außerhalb des Dokumentordners liegen, für den Anwendungsbenutzer lesbar und für andere nicht öffentlich lesbar sein. Die Firewall bleibt unter deiner Kontrolle.' }}</p></div>
+        <div class="col-12"><hr></div>
         <div class="col-md-7">
           <label class="form-label" for="server-host">{{ 'Bind address' if g.language == 'en' else 'Bind-Adresse' }}</label>
           <input class="form-control" id="server-host" type="text" name="host" value="{{ server.host }}" maxlength="253" required>

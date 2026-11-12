@@ -19,22 +19,26 @@ def project_version() -> str:
 
 
 class InstallableArtifactWorkflowTests(unittest.TestCase):
-    def test_electron_package_includes_local_main_process_dependencies(self):
+    def test_electron_delegates_lan_proxy_to_packaged_python_runtime(self):
         desktop_dir = ROOT / "desktop" / "electron"
         package = json.loads(
             (desktop_dir / "package.json").read_text(encoding="utf-8")
         )
         main_source = (desktop_dir / "main.js").read_text(encoding="utf-8")
+        runtime_source = (ROOT / "desktop/python-setup/runtime_entry.py").read_text(encoding="utf-8")
+        backend_builder = (ROOT / "desktop/python-setup/build_backend.py").read_text(encoding="utf-8")
         packaged_files = set(package["build"]["files"])
         local_requires = re.findall(
             r"require\(['\"](\./[^'\"]+)['\"]\)", main_source
         )
-        self.assertTrue(local_requires, "expected main process local dependencies")
         for dependency in local_requires:
             with self.subTest(dependency=dependency):
                 relative = dependency.removeprefix("./")
                 candidates = {relative, relative + ".js", relative + "/index.js"}
                 self.assertTrue(candidates & packaged_files)
+        self.assertNotIn("createLanProxy", main_source)
+        self.assertIn("configure_lan_proxy", runtime_source)
+        self.assertIn('"--collect-all", "aiohttp"', backend_builder)
 
     def test_desktop_package_version_tracks_project(self):
         package = json.loads(

@@ -1,88 +1,103 @@
-# Desktop-LAN-Proxy und Bildschirm-Viewer (Entwurf)
+# HTTPS-LAN-Proxy und Bildschirm-Viewer
 
 ## Startverhalten
 
-Die Desktop-EXE lässt das eingebettete Waitress-Backend auf `127.0.0.1` und einem
-dynamischen Port. Beim EXE-Start wird zusätzlich die persistierte Sektion
-`server` aus `<Dokumentordner>/.simpleoffice-meta/settings.json` gelesen:
+Die gespeicherte Sektion `lan_proxy` in
+`<Dokumentordner>/.simpleoffice-meta/settings.json` steuert einen eigenständigen
+HTTPS-Listener. **Admin → Einstellungen → Server** kann ihn sofort starten oder
+stoppen und unabhängig vom Webserver für Autostart aktivieren. Die Einstellung
+gilt für den Standard-Launcher, das eingebettete Desktop-Backend und andere
+WSGI-Starts, sobald der Server die erste Anfrage bearbeitet.
 
-- `host=127.0.0.1` (oder `localhost`, `::1`): kein LAN-Proxy.
-- `host=192.168.x.y` oder `0.0.0.0` und `port=8081`: opt-in LAN-Proxy **nur mit TLS-Zertifikat und privatem Schlüssel**.
-- Der Proxy wird nach dem Backend gestartet und beim EXE-Ende geschlossen.
-- Ein Änderung von Host/Port erfordert einen vollständigen EXE-Neustart.
-- Belegter Proxy-Port oder ungültige Einstellung: Fehler im Electron-Log,
-  kein verdeckter Wechsel auf einen anderen Port.
+- Das Web-Backend kann an `127.0.0.1` gebunden bleiben.
+- Der Proxy bindet an eine einzelne Loopback- oder private Schnittstellen-IP,
+  zum Beispiel `192.168.1.50:8081`. So lässt sich die Firewall auf genau diese
+  Adresse und diesen Port beschränken.
+- Für Docker wird `compose.lan-proxy.yaml` zusätzlich geladen. Der Proxy bindet
+  innerhalb des isolierten Container-Netzwerks an `0.0.0.0`; veröffentlicht
+  wird der Port nur an die in `SIMPLEOFFICE_LAN_PROXY_PUBLISH_ADDRESS`
+  eingetragene Host-IP.
+- Ein gültiges, von den Clients vertrautes TLS-Zertifikat und der zugehörige
+  private Schlüssel sind Pflicht. Der Schlüssel muss außerhalb des
+  Dokumentordners liegen und darf nicht für andere lesbar sein.
+- Änderungen und Start/Stop gelten sofort. Ein belegter Port oder eine nicht
+  verfügbare Bind-Adresse erscheint als Fehlerstatus; es gibt keinen stillen
+  Portwechsel.
 
-Beispiel: Backend `127.0.0.1:49152`, Proxy `192.168.1.50:8081`.
-Alle HTTPS-Methoden und Pfade werden intern an das Loopback-HTTP-Backend weitergeleitet.
-Die Anmeldung und CSRF-Prüfung des Backends bleiben erforderlich.
-Es werden weder HTTP-Upgrades noch WebSocket-Verbindungen weitergeleitet.
+Alle HTTP-Methoden und Pfade werden an einen festen Loopback-Endpunkt
+weitergeleitet. Host-, Schema- und Clientdaten vertraut das Backend nur nach
+Prüfung eines zufälligen Prozess-Tokens. Der HTTPS-Listener setzt Cookies auf
+`Secure`; Anmeldung und CSRF-Prüfung bleiben erforderlich. HTTP-Upgrades,
+CONNECT und TRACE werden nicht weitergeleitet.
+
+### Docker-Konfiguration
+
+1. In `deploy/docker/.env` `SIMPLEOFFICE_LAN_PROXY_PUBLISH_ADDRESS` (eine
+   konkrete Host-IP), `SIMPLEOFFICE_LAN_PROXY_PUBLIC_HOST`,
+   `SIMPLEOFFICE_LAN_PROXY_TLS_CERT` und `SIMPLEOFFICE_LAN_PROXY_TLS_KEY`
+   eintragen.
+2. Mit beiden Compose-Dateien starten:
+
+   ```sh
+   docker compose --env-file deploy/docker/.env \
+     -f deploy/docker/compose.yaml \
+     -f deploy/docker/compose.lan-proxy.yaml up -d
+   ```
+
+3. In den Server-Einstellungen `0.0.0.0` als Proxy-Bind-Adresse und die
+   Containerpfade `/run/simpleoffice/lan-proxy.crt` sowie
+   `/run/simpleoffice/lan-proxy.key` eintragen und den Proxy aktivieren. Der
+   veröffentlichte Port ist standardmäßig `8081`; der Proxy-Port in der UI muss
+   ebenfalls `8081` sein.
+   Für eine private Schlüsseldatei auf Linux kann der Containerbenutzer
+   `simpleoffice` (UID/GID `10001`) über die Gruppe lesend zugreifen, zum
+   Beispiel mit Host-Eigentümer `root:10001` und Modus `0640`.
+4. Nur diesen Port für das gewählte LAN-Profil in der Host-Firewall freigeben.
+   Das Web-Backend bleibt über die Standard-Compose-Datei an Loopback des Hosts
+   veröffentlicht. Keine Router-Portfreigabe ins Internet einrichten.
 
 ## Bildschirm
 
 Beim Start der Bildschirmfreigabe wird zusätzlich ein Zuschauer-Link
-`/screen/view/<Verbindungscode>` angeboten. Die Seite wählt die
-Empfängerrolle automatisch und nutzt denselben WebRTC-Signalisierungskanal.
+`/screen/view/<Verbindungscode>` angeboten. Die Seite wählt die Empfängerrolle
+automatisch und nutzt denselben WebRTC-Signalisierungskanal.
 
 - Der lokale Link verwendet den aktuellen Browser-Ursprung.
-- Der LAN-Link wird nur angezeigt, wenn die Desktop-Konfiguration einen
-  Proxy-Ursprung ermitteln kann.
-- **Beide Links erfordern derzeit eine SimpleOffice-Anmeldung.**
-- Der Verbindungscode ist nur für die aktuelle Sitzung gültig.
-- Nach Ende der Sitzung wird der Link ungültig.
-- Mehrere parallele Empfänger sind mit dem derzeitigen WebRTC-Sender nicht
-  zuverlässig unterstützt: eigenes Follow-up erforderlich.
+- Der LAN-Link wird nur bei laufendem Proxy mit HTTPS-Ursprung angezeigt.
+- Beide Links erfordern derzeit eine SimpleOffice-Anmeldung.
+- Der Verbindungscode ist nur für die aktuelle Sitzung gültig und wird nach
+  deren Ende ungültig.
+- Mehrere parallele Empfänger werden vom derzeitigen WebRTC-Sender nicht
+  zuverlässig unterstützt.
 
-## Sicherheit / Einschränkungen
+## Sicherheit und Einschränkungen
 
-Der LAN-Listener ist jetzt **HTTPS-only**. Die beiden Umgebungsvariablen
-`SIMPLEOFFICE_DESKTOP_LAN_TLS_CERT` (vollständiger Pfad zur PEM-Zertifikatkette)
-und `SIMPLEOFFICE_DESKTOP_LAN_TLS_KEY` (vollständiger Pfad zum PEM-Privatschlüssel)
-müssen vor dem EXE-Start gesetzt sein. Der Schlüssel bleibt außerhalb des
-Dokumentenverzeichnisses/Repositorys und muss vor unberechtigtem Lesen geschützt
-werden. Das Zertifikat muss für den verwendeten LAN-Hostnamen bzw. die IP
-gültig und im aufrufenden Browser vertrauenswürdig sein.
+Der Listener ist HTTPS-only. Ohne gültige TLS-Dateien startet er nicht; der
+lokale Betrieb bleibt verfügbar und die Statusseite zeigt den Fehler. Im Netz
+wird ausschließlich eine `https://`-URL bekanntgegeben. HTTP ist kein
+Fallback. Browser-Bildschirmaufnahme benötigt einen sicheren Kontext.
 
-Ohne diese beiden Dateien startet **kein LAN-Listener**; der localhost-Desktop
-bleibt unverändert verwendbar. Die Statusanzeige zeigt `error`, nicht
-`running`. Die lokale Kommunikation zum eingebetteten Python-Backend bleibt
-an `127.0.0.1` gebunden. Im Netz wird ausschließlich eine `https://`-URL
-bekanntgegeben. HTTP wird nicht als unsicherer Fallback angeboten.
+Der Proxy ist ein eigener Listener im Anwendungsprozess und kein
+Mini-Services-Worker. Mini Services zeigt den Laufzeitstatus. Zertifikatsausgabe,
+Gastlinks und mehrere Zuschauer sind nicht Teil dieses Funktionsumfangs.
 
-Keine Router-Portfreigabe ins Internet einrichten. Externe Zugriffe erfordern
-gesonderte Prüfung (TLS-Konfiguration, Authentifizierung und TURN/WebRTC).
-Browser-Bildschirmaufnahme benötigt einen sicheren Kontext.
+Auf der Android-APK und auf Termux ohne installiertes `aiohttp` verwendet der
+Proxy einen Standardbibliothek-Fallback. Er nimmt Anfragen mit `Content-Length`
+an; chunked Requests und Upgrades werden in diesem Fallback abgelehnt. Der
+Android-Runtime behält zusätzlich seinen bisherigen LAN-Peer-Endpunkt für
+Connect-QR und Federation; der HTTPS-Proxy ersetzt diesen separaten Endpunkt
+nicht.
 
-Der neue Proxy läuft im Electron-Hauptprozess, **noch nicht** als registrierter
-Mini-Services-Worker. Statusanzeige, Start/Stop in Mini-Services,
-Zertifikatsverwaltung, Gastlinks und mehrere Zuschauer sind noch separat umzusetzen.
+## Prüfpunkte vor Freigabe
 
-## Prüfpunkte vor Merge
+1. HTTPS-Proxy von einem zweiten Gerät im selben LAN mit vertrautem Zertifikat
+   aufrufen.
+2. Prüfen, dass Standardwerte keinen LAN-Port öffnen.
+3. Bildschirmfreigabe und Empfang im zweiten Browser mit Login prüfen.
+4. Portkonflikt, mehrere Netzwerkschnittstellen, Firewall und Neustart prüfen.
+5. Python-Proxy- und Browser-Screen-Share-Tests sowie CI ausführen.
 
-1. Windows-EXE: TLS-Zertifikat und Schlüssel konfigurieren, Host/Port speichern, EXE komplett beenden und neu starten.
-2. HTTPS-Proxy in demselben LAN von einem anderen Gerät mit vertrauenswürdigem Zertifikat aufrufen.
-3. Sicherstellen, dass bei Standardwerten kein LAN-Port geöffnet wird.
-4. Bildschirmfreigabe auf Desktop, Empfang im zweiten Browser mit Login.
-5. Portkonflikt, mehrere Netzwerkschnittstellen, Firewall und Neustart.
-6. Node-Tests: `node --test tests/desktop_lan_proxy.test.cjs`.
-7. Python- und Browser-Screen-Share-Tests / CI.
-
-## Mini-Services-Status (Desktop-Variante)
-
-Der Electron-Prozess schreibt alle fünf Sekunden einen atomar erneuerten
-Laufzeitstatus in `.simpleoffice-meta/desktop-proxy-status.json`.
-Die Servereinstellungen und die Mini-Services-Übersicht zeigen diesen an.
-Ein Status älter als 20 Sekunden wird als `stale` gekennzeichnet, nicht als
-laufender Proxy. Zustände: `running`, `disabled`, `error`, `stopped`,
-`stale`, `unknown`.
-
-Der Listener akzeptiert nur Loopback und private LAN-Quelladressen.
-Er ersetzt **keine** TLS-Zertifikatsprüfung. Die Windows-Firewall muss den
-konfigurierten Port freigeben; keine pauschalen Portfreigaben im Router.
-Mini-Services bietet derzeit die Statusanzeige und verweist zur
-Host-/Port-Konfiguration; Live-Start/-Stop erfolgt ausschließlich über den
-EXE-Prozess, um parallele Listener zu vermeiden.
-
-Weitere Prüfung: Desktop-Neustart, Statusalterung nach hartem Prozessabbruch,
-Zugriff über einen zweiten Client, ausschließlich lokal gebundene Standardeinstellung
-und WebRTC-Browserkompatibilität.
+Die Admin-Seite und Mini Services lesen den Live-Status des Prozess-Managers.
+Ein älterer Electron-Heartbeat wird für bereits installierte Versionen noch
+ausgewertet. Statuswerte: `running`, `disabled`, `error`, `stopped`, `stale`,
+`unknown`.

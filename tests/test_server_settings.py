@@ -225,6 +225,8 @@ class ServerAdminTests(unittest.TestCase):
         body = page.get_data(as_text=True)
         self.assertIn("Bind-Adresse", body)
         self.assertNotIn("Bind address", body)
+        self.assertIn("LAN-Proxy aktivieren und automatisch starten", body)
+        self.assertIn("Proxy starten", body)
 
     def test_admin_can_save_reset_and_is_validated(self):
         response = self.client.post(
@@ -258,6 +260,49 @@ class ServerAdminTests(unittest.TestCase):
             conn.execute("UPDATE user SET is_admin=0 WHERE username='admin'")
             conn.commit()
         response = self.client.post("/admin/settings/server", data={"port": "9090"})
+        self.assertEqual(403, response.status_code)
+
+    def test_admin_can_start_and_stop_lan_proxy_without_restarting_web_server(self):
+        from app.lan_proxy import lan_proxy_runtime
+        from app.settings_store import SettingsStore
+
+        SettingsStore(self.root).save({"lan_proxy": {
+            "enabled": False,
+            "bind_host": "192.168.1.42",
+            "port": 8443,
+            "tls_cert": "/tmp/synthetic-certificate.pem",
+            "tls_key": "/tmp/synthetic-private-key.pem",
+        }}, "test")
+        with patch("app.admin_server_settings._apply_lan_proxy", return_value={
+            "state": "running", "message": "running", "origin": "https://192.168.1.42:8443",
+        }) as start_proxy:
+            started = self.client.post(
+                "/admin/settings/server/lan-proxy", data={"action": "start"},
+            )
+        self.assertEqual(302, started.status_code)
+        self.assertTrue(SettingsStore(self.root).settings()["lan_proxy"]["enabled"])
+        start_proxy.assert_called_once()
+
+        with patch.object(lan_proxy_runtime, "stop", return_value={
+            "state": "disabled", "message": "stopped", "origin": "",
+        }) as stop_proxy:
+            stopped = self.client.post(
+                "/admin/settings/server/lan-proxy", data={"action": "stop"},
+            )
+        self.assertEqual(302, stopped.status_code)
+        self.assertFalse(SettingsStore(self.root).settings()["lan_proxy"]["enabled"])
+        stop_proxy.assert_called_once()
+
+    def test_non_admin_cannot_control_lan_proxy(self):
+        from app import app, db as database
+
+        with app.app_context():
+            conn = database.get_db()
+            conn.execute("UPDATE user SET is_admin=0 WHERE username='admin'")
+            conn.commit()
+        response = self.client.post(
+            "/admin/settings/server/lan-proxy", data={"action": "start"},
+        )
         self.assertEqual(403, response.status_code)
 
 

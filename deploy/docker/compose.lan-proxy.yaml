@@ -1,0 +1,23 @@
+# Opt-in HTTPS LAN proxy. Keep the web port bound to loopback in compose.yaml;
+# publish only this proxy on one selected host interface.
+services:
+  simpleoffice:
+    environment:
+      SIMPLEOFFICE_LAN_PROXY_CONTAINER_MODE: "1"
+      SIMPLEOFFICE_LAN_PROXY_PUBLIC_HOST: ${SIMPLEOFFICE_LAN_PROXY_PUBLIC_HOST:?Set this to the host LAN IP or DNS name}
+      SIMPLEOFFICE_LAN_PROXY_PUBLIC_PORT: ${SIMPLEOFFICE_LAN_PROXY_PUBLIC_PORT:-8081}
+    ports:
+      - "${SIMPLEOFFICE_LAN_PROXY_PUBLISH_ADDRESS:?Set this to one host LAN interface IP}:${SIMPLEOFFICE_LAN_PROXY_PUBLIC_PORT:-8081}:8081"
+    volumes:
+      - type: bind
+        source: ${SIMPLEOFFICE_LAN_PROXY_TLS_CERT:?Set the host TLS certificate path}
+        target: /run/simpleoffice/lan-proxy.crt
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${SIMPLEOFFICE_LAN_PROXY_TLS_KEY:?Set the host TLS private key path}
+        target: /run/simpleoffice/lan-proxy.key
+        read_only: true
+        bind:
+          create_host_path: false
