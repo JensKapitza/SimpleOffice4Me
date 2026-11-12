@@ -26,10 +26,19 @@
 
     <div class="template-editor-toolbar card mb-3">
       <div class="card-body py-2 d-flex flex-wrap align-items-center gap-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-action="undo" title="Rückgängig" aria-label="Rückgängig"><i class="fa-solid fa-rotate-left"></i></button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-action="redo" title="Wiederholen" aria-label="Wiederholen"><i class="fa-solid fa-rotate-right"></i></button>
+        <span class="toolbar-divider"></span>
         <button type="button" class="btn btn-sm btn-outline-secondary fw-bold" data-format="bold" title="Fett">B</button>
         <button type="button" class="btn btn-sm btn-outline-secondary fst-italic" data-format="italic" title="Kursiv">I</button>
         <button type="button" class="btn btn-sm btn-outline-secondary text-decoration-underline" data-format="underline" title="Unterstrichen">U</button>
         <label class="visually-hidden" for="editor-color">Farbe</label><input id="editor-color" type="color" class="form-control form-control-color form-control-sm" value="#111827" data-prop="color">
+        <label class="visually-hidden" for="editor-font">Schriftart</label>
+        <select id="editor-font" class="form-select form-select-sm toolbar-font" data-prop="font_family">
+          <option value="Helvetica">Helvetica</option>
+          <option value="Times-Roman">Times</option>
+          <option value="Courier">Courier</option>
+        </select>
         <label class="visually-hidden" for="editor-size">Schriftgröße</label>
         <select id="editor-size" class="form-select form-select-sm toolbar-size" data-prop="font_size">
           {% for size in (7,8,9,10,11,12,14,16,18,20,24,28,32,36,48) %}<option value="{{ size }}">{{ size }} pt</option>{% endfor %}
@@ -39,11 +48,21 @@
         <button type="button" class="btn btn-sm btn-outline-secondary" data-align="{{ align }}" title="{{ align }}"><i class="fa-solid {{ icon }}"></i></button>
         {% endfor %}
         <span class="toolbar-divider"></span>
+        <label class="small mb-0 d-flex align-items-center gap-1">Raster
+          <select class="form-select form-select-sm grid-select" data-snap-grid>
+            <option value="0">aus</option>
+            <option value="1">1 mm</option>
+            <option value="2">2 mm</option>
+            <option value="5" selected>5 mm</option>
+          </select>
+        </label>
         <label class="small mb-0">X <input class="form-control form-control-sm metric-input" type="number" min="0" max="210" step="0.5" data-metric="x_mm"></label>
         <label class="small mb-0">Y <input class="form-control form-control-sm metric-input" type="number" min="0" max="297" step="0.5" data-metric="y_mm"></label>
         <label class="small mb-0">B <input class="form-control form-control-sm metric-input" type="number" min="1" max="210" step="0.5" data-metric="width_mm"></label>
         <label class="small mb-0">H <input class="form-control form-control-sm metric-input" type="number" min="1" max="297" step="0.5" data-metric="height_mm"></label>
         <div class="ms-auto d-flex gap-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-action="layer-down" title="Eine Ebene nach hinten" aria-label="Eine Ebene nach hinten"><i class="fa-solid fa-layer-group"></i><span class="visually-hidden">-</span></button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-action="layer-up" title="Eine Ebene nach vorne" aria-label="Eine Ebene nach vorne"><i class="fa-solid fa-layer-group"></i><span class="visually-hidden">+</span></button>
           <button type="button" class="btn btn-sm btn-outline-secondary" data-action="duplicate-element" title="Duplizieren"><i class="fa-regular fa-copy"></i></button>
           <button type="button" class="btn btn-sm btn-outline-danger" data-action="delete-element" title="Löschen"><i class="fa-regular fa-trash-can"></i></button>
         </div>
@@ -134,7 +153,11 @@
               <select id="element-region" class="form-select mb-2" data-element-region>
                 <option value="header">Header</option><option value="content">Inhalt</option><option value="footer">Footer</option><option value="margin_left">Rand links</option><option value="margin_right">Rand rechts</option>
               </select>
-              <div class="form-check"><input class="form-check-input" type="checkbox" id="element-locked" data-element-locked><label class="form-check-label" for="element-locked">Position sperren</label></div>
+              <div class="row g-2">
+                <div class="col-6"><div class="form-check"><input class="form-check-input" type="checkbox" id="element-locked" data-element-locked><label class="form-check-label" for="element-locked">Position sperren</label></div></div>
+                <div class="col-6"><div class="form-check"><input class="form-check-input" type="checkbox" id="element-visible" data-element-visible><label class="form-check-label" for="element-visible">Sichtbar</label></div></div>
+              </div>
+              <div class="mt-2 small text-secondary">Tastatur: Pfeile = 1 mm, Shift+Pfeile = 5 mm, Entf = löschen, Strg+Z/Y = Undo/Redo.</div>
             </div>
           </div>
         </section>

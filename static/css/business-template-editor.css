@@ -2,7 +2,9 @@
 .template-editor-grid { display:grid; grid-template-columns:minmax(210px,250px) minmax(560px,1fr) minmax(300px,360px); gap:1rem; align-items:start; }
 .template-elements-panel,.template-properties-panel { position:sticky; top:1rem; max-height:calc(100vh - 2rem); overflow:auto; }
 .template-editor-toolbar { position:sticky; top:.5rem; z-index:20; box-shadow:0 .15rem .5rem rgba(0,0,0,.08); }
+.toolbar-font { width:112px; }
 .toolbar-size { width:88px; }
+.grid-select { width:76px; }
 .metric-input { width:76px; display:inline-block; margin-left:.25rem; }
 .toolbar-divider { width:1px; height:28px; background:var(--bs-border-color); margin:0 .25rem; }
 .template-palette { display:grid; gap:.35rem; }
@@ -29,7 +31,7 @@
 .template-element:hover { border-color:rgba(13,110,253,.45); }
 .template-element.is-selected { border:2px solid #0d6efd; background:rgba(13,110,253,.045); overflow:visible; z-index:999!important; }
 .template-element.is-locked { cursor:not-allowed; }
-.template-element.is-hidden { display:none; }
+.template-element.is-hidden { opacity:.22; outline:1px dotted #94a3b8; }
 .template-element[data-type="line"] { padding:0; height:2px!important; background:currentColor; overflow:visible; }
 .template-element[data-type="rect"] { background:rgba(148,163,184,.14); border:1px solid currentColor; padding:0; }
 .template-element .resize-handle { display:none; position:absolute; width:10px; height:10px; right:-6px; bottom:-6px; background:#0d6efd; border:2px solid white; border-radius:2px; cursor:nwse-resize; box-shadow:0 0 0 1px #0d6efd; }
@@ -64,3 +66,11 @@
 
 .template-element.dynamic-template-element { display:flex; align-items:center; justify-content:center; border:1px dashed #64748b; background:rgba(148,163,184,.11); color:#475569; font-size:8pt!important; font-weight:600; text-align:center; }
 .template-element.dynamic-template-element.is-selected { border:2px solid #0d6efd; background:rgba(13,110,253,.08); color:#1d4ed8; }
+
+.template-canvas.snap-grid {
+  background-image:
+    linear-gradient(to right, rgba(100,116,139,.12) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(100,116,139,.12) 1px, transparent 1px);
+  background-size: 2.38095% 1.6835%;
+}
+.template-element:focus-visible { outline:2px solid #0d6efd; outline-offset:2px; }
