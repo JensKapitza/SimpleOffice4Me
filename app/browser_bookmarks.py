@@ -11,6 +11,7 @@ import unicodedata
 from urllib.parse import urlsplit
 
 from flask import Blueprint, Response, abort, flash, g, redirect, render_template, request, session, url_for
+from werkzeug.exceptions import NotFound
 
 from .auth import login_required
 from .db import get_db
@@ -271,7 +272,11 @@ def _current_import_draft():
 @login_required
 def import_preview():
     _ensure_schema()
-    draft, items = _current_import_draft()
+    try:
+        draft, items = _current_import_draft()
+    except NotFound:
+        flash("Es gibt keine aktive Importvorschau. Bitte wähle die Firefox-Datei erneut aus.")
+        return redirect(url_for("browser_bookmarks.index"))
     existing = {
         (row["url"], row["folder"])
         for row in get_db().execute("SELECT url,folder FROM browser_bookmark WHERE user_id=?", (_user_id(),)).fetchall()

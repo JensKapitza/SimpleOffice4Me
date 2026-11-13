@@ -12,7 +12,7 @@
   </div>
   {% if examples %}<h2 class="h5 mt-4">Vorschau (bis zu 20 neue Einträge)</h2>
     <ul class="list-group mb-4">{% for item in examples %}<li class="list-group-item"><strong>{{ item.title }}</strong><div class="small text-break">{{ item.url }}</div><div class="small text-secondary">{{ item.folder }}{% if item.tags %} · {{ item.tags }}{% endif %}</div></li>{% endfor %}</ul>
-  {% elif not invalid_count %}<p class="alert alert-info">Es gibt keine neuen Lesezeichen zum Übernehmen.</p>{% endif %}
+  {% elif not invalid_count %}<p class="alert alert-info" role="status" aria-live="polite">Es gibt keine neuen Lesezeichen zum Übernehmen.</p>{% endif %}
   <div class="d-flex flex-wrap gap-2">
     {% if new_count %}<form method="post" action="{{ url_for('browser_bookmarks.import_confirm') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-primary" type="submit">{{ new_count }} neue Lesezeichen übernehmen</button></form>{% endif %}
     <form method="post" action="{{ url_for('browser_bookmarks.import_cancel') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-outline-secondary" type="submit">Verwerfen</button></form>

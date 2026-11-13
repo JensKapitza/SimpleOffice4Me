@@ -11,6 +11,7 @@ on:
       - tests/browser/peer_to_peer_smoke.py
       - tests/test_federation_admin_ui.py
       - tests/test_federation_diagnostics.py
+      - templates/documents/nav.html
       - .github/workflows/manual-browser-screenshots.yml
       - requirements-ci-pip.in
       - requirements-ci-pip.txt

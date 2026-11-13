@@ -8,7 +8,7 @@
     <p class="text-secondary mb-0">{{ 'Create a QR for text, links or calendar events. The QR contains the content itself, so the phone does not need to reach this server.' if g.language == 'en' else 'Erzeuge einen QR-Code für Text, Links oder Termine. Der QR-Code enthält den Inhalt direkt; das Handy muss diesen Server dafür nicht erreichen.' }}</p>
   </div>
 
-  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   {% if form_error %}<div class="alert alert-danger" role="alert">{{ form_error }}</div>{% endif %}
 
   {% if selected %}
@@ -21,7 +21,7 @@
           <a class="btn btn-outline-secondary" href="{{ url_for('quick_share.index') }}">{{ 'Create another' if g.language == 'en' else 'Weiteren QR erstellen' }}</a>
         </div>
         <div class="row align-items-center g-4 mt-1">
-          <div class="col-md-auto text-center"><img class="quick-share-qr border rounded bg-white p-2" src="{{ selected.qr_src or url_for('quick_share.qr_svg', item_id=selected.item_id) }}" width="280" height="280" alt="QR-Code zum Scannen"></div>
+          <div class="col-md-auto text-center"><img class="quick-share-qr border rounded bg-white p-2" src="{{ selected.qr_src or url_for('quick_share.qr_svg', item_id=selected.item_id) }}" width="280" height="280" alt="QR-Code zum Scannen" loading="lazy" decoding="async"></div>
           <div class="col">
             <p>{{ 'Scan with your phone camera. Text and links are embedded directly; nothing is published as a server URL.' if g.language == 'en' else 'Mit der Handykamera scannen. Text und Links stecken direkt im Code; es wird keine Serveradresse veröffentlicht.' }}</p>
             <div class="d-flex flex-wrap gap-2">

@@ -65,6 +65,7 @@
         <div class="nav-item dropdown">
           <a class="nav-link dropdown-toggle" href="#" id="nav-tools" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ 'Tools' if g.language == 'en' else 'Werkzeuge' }}</a>
           <ul class="dropdown-menu" aria-labelledby="nav-tools">
+            <li><a class="dropdown-item" href="{{ url_for('repository_workspace.index') }}">{{ 'Repository workspace' if g.language == 'en' else 'Repository-Arbeitszentrale' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('library.index') }}">{{ 'Library' if g.language == 'en' else 'Bibliothek' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('library.index') }}#bulk-scan">{{ 'Bulk scan' if g.language == 'en' else 'Massen-Scan' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('printershare.index') }}">{{ 'Printers' if g.language == 'en' else 'Drucker' }}</a></li>
@@ -105,7 +106,6 @@
               <li><a class="dropdown-item" href="{{ url_for('s3_overlay.manage') }}">S3-Overlay</a></li>
               {% if v3_android_offline_enabled|default(false) %}<li><a class="dropdown-item" href="{{ url_for('v3_android_offline.index') }}">Android Offline</a></li>{% endif %}
               <li><a class="dropdown-item" href="{{ url_for('google_drive_admin.index') }}">Drive</a></li>
-              <li><a class="dropdown-item" href="{{ url_for('mcp.settings') }}">MCP</a></li>
             </ul>
           </div>
           <div class="nav-item dropdown">
@@ -120,7 +120,6 @@
         <div class="nav-item dropdown">
           <a class="nav-link dropdown-toggle" href="#" id="nav-more" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ 'More' if g.language == 'en' else 'Mehr' }}</a>
           <ul class="dropdown-menu" aria-labelledby="nav-more">
-            <li><a class="dropdown-item" href="{{ url_for('repository_workspace.index') }}">{{ 'Repository workspace' if g.language == 'en' else 'Repository-Arbeitszentrale' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('gamification.index') }}">{{ 'Data roulette' if g.language == 'en' else 'Daten-Roulette' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('datalogger.index') }}">{{ 'Data logger' if g.language == 'en' else 'Datenlogger' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('documents.notes_wiki') }}">{{ tr('notes') }}</a></li>
@@ -130,6 +129,7 @@
             <li><a class="dropdown-item" href="{{ url_for('quick_share.index') }}">{{ 'QR share' if g.language == 'en' else 'QR an Handy' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('browser_bookmarks.index') }}">{{ 'Bookmarks' if g.language == 'en' else 'Lesezeichen' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('vault.index') }}">{{ 'Password vault' if g.language == 'en' else 'Passwort-Vault' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('mcp.settings') }}">MCP</a></li>
           </ul>
         </div>
       </div>

@@ -7,7 +7,7 @@
     <h1 class="h2">Lesezeichen</h1>
     <p class="text-secondary">Deine persönliche, auf deinen Geräten verfügbare Linksammlung. Firefox-Lesezeichen kannst du als HTML importieren und wieder exportieren. Diese Liste greift nicht direkt auf die Browser-Leiste zu.</p>
   </header>
-  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   <div class="row g-4">
     <section class="col-lg-5" aria-labelledby="bookmark-add-title">
       <div class="card"><div class="card-body">

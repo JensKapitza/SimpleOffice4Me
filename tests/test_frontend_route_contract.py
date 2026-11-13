@@ -116,6 +116,14 @@ class FrontendRouteContractTests(unittest.TestCase):
         top_level_count = len(re.findall(r'<div class="nav-item dropdown">', template)) + 1
         self.assertLessEqual(top_level_count, 10, f"Top-level navigation items exceed 10: {top_level_count}")
 
+    def test_mcp_browser_entry_remains_in_more_menu(self):
+        """The manual browser MCP workflow opens settings from the More menu."""
+        template = NAV_TEMPLATE.read_text(encoding="utf-8")
+        more = re.search(r'id="nav-more".*?<ul class="dropdown-menu"[^>]*>(.*?)</ul>', template, re.S)
+        self.assertIsNotNone(more)
+        self.assertIn("url_for('mcp.settings')", more.group(1))
+        self.assertNotIn("url_for('repository_workspace.index')", more.group(1))
+
     def test_mini_services_has_one_global_entry_and_sftp_is_a_static_hub_link(self):
         """Mini Service configuration stays under one destination, independent of JS status loading."""
         template = NAV_TEMPLATE.read_text(encoding="utf-8")
@@ -500,6 +508,14 @@ class FrontendNavigationSmokeTests(unittest.TestCase):
         self.assertEqual(200, listing.status_code)
         self.assertNotIn("Private bookmark", listing.get_data(as_text=True))
         self.assertEqual(404, other.post("/bookmarks/owner-only-bookmark/delete").status_code)
+
+    def test_bookmark_import_preview_without_active_upload_returns_to_manager(self):
+        response = self.client.get("/bookmarks/import-preview")
+        self.assertEqual(302, response.status_code)
+        self.assertEqual("/bookmarks/", response.headers["Location"])
+        manager = self.client.get(response.headers["Location"])
+        self.assertEqual(200, manager.status_code)
+        self.assertIn("keine aktive Importvorschau", manager.get_data(as_text=True))
 
     def test_all_parameterless_template_linked_get_endpoints_render(self):
         """Smoke-test every directly callable GET page advertised anywhere in templates."""

@@ -33,6 +33,8 @@ PERSISTENCE_COVERAGE = {
     "shopping_store": "pending-provider:shopping records have no S3 authorization model",
     "site_visit_store": "pending-provider:site visit records require task-scoped authorization before S3 export",
     "capture_inbox_store": "excluded: owner-scoped unassigned capture records and media stay in the local inbox until an explicit sharing policy exists",
+    "browser_bookmarks": "excluded: account-owned bookmark imports have no S3 provider or explicit cross-user sharing policy",
+    "quick_share": "excluded: private QR history is owner-scoped and temporary QR payloads are deliberately not persisted",
     "contextflow.case_links": "excluded: cross-domain links require joined owner and resource authorization before any S3 projection",
     "inventory": "pending-provider:inventory enrichment has no principal-aware read API",
     "contact_extensions": "pending-provider:CRM extensions use contact-scoped permissions",
