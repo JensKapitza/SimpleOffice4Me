@@ -37,7 +37,7 @@ def ensure_self_signed_certificate(bind_host: str) -> tuple[str, str]:
             x509.SubjectAlternativeName
         ).value:
             raise ValueError("Existing TLS certificate does not cover the configured IP.")
-        if cert.not_valid_after_utc <= datetime.now(timezone.utc) + timedelta(days=7):
+        if cert.not_valid_after.replace(tzinfo=timezone.utc) <= datetime.now(timezone.utc) + timedelta(days=7):
             raise ValueError("Existing TLS certificate expires soon; renew explicitly.")
         return CERT_NAME, KEY_NAME
 
