@@ -116,6 +116,14 @@ class FrontendRouteContractTests(unittest.TestCase):
         top_level_count = len(re.findall(r'<div class="nav-item dropdown">', template)) + 1
         self.assertLessEqual(top_level_count, 10, f"Top-level navigation items exceed 10: {top_level_count}")
 
+    def test_mcp_browser_entry_remains_in_more_menu(self):
+        """The manual browser MCP workflow opens settings from the More menu."""
+        template = NAV_TEMPLATE.read_text(encoding="utf-8")
+        more = re.search(r'id="nav-more".*?<ul class="dropdown-menu"[^>]*>(.*?)</ul>', template, re.S)
+        self.assertIsNotNone(more)
+        self.assertIn("url_for('mcp.settings')", more.group(1))
+        self.assertNotIn("url_for('repository_workspace.index')", more.group(1))
+
     def test_mini_services_has_one_global_entry_and_sftp_is_a_static_hub_link(self):
         """Mini Service configuration stays under one destination, independent of JS status loading."""
         template = NAV_TEMPLATE.read_text(encoding="utf-8")
