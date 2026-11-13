@@ -19,6 +19,17 @@ def _clean_bic(value: Any) -> str:
     return re.sub(r"\s+", "", str(value or "")).upper()
 
 
+def _valid_iban_checksum(iban: str) -> bool:
+    """Validate the ISO 13616 mod-97 checksum without large integer parsing."""
+    rearranged = iban[4:] + iban[:4]
+    remainder = 0
+    for character in rearranged:
+        expanded = str(ord(character) - 55) if character.isalpha() else character
+        for digit in expanded:
+            remainder = (remainder * 10 + int(digit)) % 97
+    return remainder == 1
+
+
 def _clean_currency(value: Any) -> str:
     currency = str(value or "EUR").strip().upper()
     return currency if re.fullmatch(r"[A-Z]{3}", currency) else "EUR"
@@ -28,6 +39,7 @@ def normalize_company_bank_accounts(
     rows: Any,
     *,
     default_account_id: str = "",
+    validate_iban_checksum: bool = True,
 ) -> list[dict[str, str | bool]]:
     if rows in (None, ""):
         return []
@@ -60,7 +72,9 @@ def normalize_company_bank_accounts(
             label = f"Konto {index + 1}"
         if not iban:
             raise ValueError(f"IBAN fehlt bei {label}")
-        if not IBAN_RE.fullmatch(iban):
+        if not IBAN_RE.fullmatch(iban) or (
+            validate_iban_checksum and not _valid_iban_checksum(iban)
+        ):
             raise ValueError(f"IBAN ist ungültig bei {label}")
         if bic and not BIC_RE.fullmatch(bic):
             raise ValueError(f"BIC ist ungültig bei {label}")
@@ -98,7 +112,14 @@ def company_bank_accounts(settings: Mapping[str, Any]) -> list[dict[str, Any]]:
             ),
             "",
         )
-        return normalize_company_bank_accounts(raw, default_account_id=requested)
+        # Persisted settings can predate checksum validation. Keep them readable
+        # so users can open the settings page and replace an invalid legacy IBAN;
+        # every submitted account still goes through strict normalization.
+        return normalize_company_bank_accounts(
+            raw,
+            default_account_id=requested,
+            validate_iban_checksum=False,
+        )
 
     iban = _clean_iban(settings.get("seller_iban"))
     if not iban:
