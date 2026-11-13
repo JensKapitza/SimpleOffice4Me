@@ -350,6 +350,12 @@ replication_store.init_app(app)
 from . import documents
 app.register_blueprint(documents.bp)
 
+from . import quick_share
+app.register_blueprint(quick_share.bp)
+
+from . import browser_bookmarks
+app.register_blueprint(browser_bookmarks.bp)
+
 from . import photo_upload
 app.register_blueprint(photo_upload.bp)
 

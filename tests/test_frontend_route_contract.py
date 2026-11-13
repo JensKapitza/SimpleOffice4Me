@@ -43,6 +43,10 @@ NON_PAGE_GET_ENDPOINTS = {
     "library.export_books_csv",
     "library.export_books_ris",
     "library.export_books_bibtex",
+    # Firefox bookmark export is a Netscape HTML file download, not a page shell.
+    "browser_bookmarks.export_firefox",
+    # Import preview is only available after this browser session stages an upload.
+    "browser_bookmarks.import_preview",
 }
 
 
@@ -101,6 +105,35 @@ class FrontendRouteContractTests(unittest.TestCase):
         registered = {rule.endpoint for rule in app.url_map.iter_rules()}
         missing = sorted(_literal_endpoints(NAV_TEMPLATE) - registered)
         self.assertEqual([], missing, f"Main navigation endpoints are not registered: {missing}")
+
+    def test_main_navigation_dropdowns_stay_within_ten_entries(self):
+        """Large sections get their own dropdown instead of becoming crowded lists."""
+        template = NAV_TEMPLATE.read_text(encoding="utf-8")
+        dropdowns = re.findall(r'<ul class="dropdown-menu"[^>]*>(.*?)</ul>', template, re.S)
+        counts = [len(re.findall(r"<li\b", menu)) for menu in dropdowns]
+        self.assertTrue(counts, "No primary navigation dropdowns found")
+        self.assertLessEqual(max(counts), 10, f"Dropdown item counts exceed 10: {counts}")
+        top_level_count = len(re.findall(r'<div class="nav-item dropdown">', template)) + 1
+        self.assertLessEqual(top_level_count, 10, f"Top-level navigation items exceed 10: {top_level_count}")
+
+    def test_mini_services_has_one_global_entry_and_sftp_is_a_static_hub_link(self):
+        """Mini Service configuration stays under one destination, independent of JS status loading."""
+        template = NAV_TEMPLATE.read_text(encoding="utf-8")
+        self.assertEqual(1, template.count("url_for('mini_services_admin.index')"))
+        for endpoint in (
+            "telephony_admin.index",
+            "network_boot_admin.index",
+            "audio_output_admin.index",
+            "audio_streamer_admin.page",
+            "connectivity_relay_admin.index",
+            "firewall_admin.index",
+            "litellm_admin.index",
+            "mini_services_admin.sftp",
+        ):
+            self.assertNotIn(f"url_for('{endpoint}')", template)
+
+        hub = (TEMPLATES / "admin" / "mini_services_hub.html").read_text(encoding="utf-8")
+        self.assertIn("href=\"{{ url_for('mini_services_admin.sftp') }}\"", hub)
 
     def test_layout_children_do_not_define_unrendered_content_block(self):
         """layout.html exposes body, so a direct child using only content renders blank."""
@@ -255,6 +288,218 @@ class FrontendNavigationSmokeTests(unittest.TestCase):
         self.assertIn('role="alert"', body)
         self.assertIn('for="mini-reservations"', body)
         self.assertIn('id="mini-reservations"', body)
+
+    def test_quick_share_temporary_history_pin_and_owner_access(self):
+        self.client.get("/quick-share")
+        with app.app_context():
+            before = database.get_db().execute("SELECT COUNT(*) FROM quick_share_item").fetchone()[0]
+        temporary = self.client.post("/quick-share", data={
+            "kind": "text", "text": "Notiz fürs Handy", "save_mode": "temporary",
+        })
+        self.assertEqual(200, temporary.status_code)
+        self.assertIn("Temporary only; this QR is not stored", temporary.get_data(as_text=True))
+        self.assertIn("Nothing saved yet", temporary.get_data(as_text=True))
+        self.assertIn("data:image/svg+xml;base64,", temporary.get_data(as_text=True))
+        with app.app_context():
+            after = database.get_db().execute("SELECT COUNT(*) FROM quick_share_item").fetchone()[0]
+        self.assertEqual(before, after, "Temporary QR must not be persisted")
+
+        saved = self.client.post("/quick-share", data={
+            "kind": "link", "title": "Startseite", "url": "https://example.org/start?q=1",
+            "save_mode": "history",
+        }, follow_redirects=True)
+        self.assertEqual(200, saved.status_code)
+        saved_qr = re.search(r'src="/quick-share/([^"/]+)\.svg"', saved.get_data(as_text=True))
+        self.assertIsNotNone(saved_qr)
+        item_id = saved_qr.group(1)
+        with app.app_context():
+            row = database.get_db().execute(
+                "SELECT title,payload,pinned,expires_at FROM quick_share_item WHERE item_id=?", (item_id,),
+            ).fetchone()
+            self.assertNotIn("Startseite", row["title"])
+            self.assertNotIn("https://example.org/start", row["payload"])
+            self.assertEqual(0, row["pinned"])
+        qr = self.client.get(f"/quick-share/{item_id}.svg")
+        self.assertEqual(200, qr.status_code)
+        self.assertEqual("image/svg+xml", qr.mimetype)
+        self.assertIn("<svg", qr.get_data(as_text=True))
+        self.assertIn("no-store", qr.headers["Cache-Control"])
+
+        pinned = self.client.post(f"/quick-share/{item_id}/pin", follow_redirects=True)
+        self.assertEqual(200, pinned.status_code)
+        self.assertIn("Pinned", pinned.get_data(as_text=True))
+        with app.app_context():
+            row = database.get_db().execute(
+                "SELECT pinned,expires_at FROM quick_share_item WHERE item_id=?", (item_id,),
+            ).fetchone()
+            self.assertEqual((1, None), (row["pinned"], row["expires_at"]))
+
+        with app.app_context():
+            db = database.get_db()
+            db.execute(
+                "INSERT INTO user(username,password,is_admin,is_disabled,created_at,updated_at) "
+                "VALUES (?,?,0,0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
+                ("quick-share-other", generate_password_hash("quick-share-other-password")),
+            )
+            db.commit()
+        other = app.test_client()
+        login = other.post("/auth/login", data={
+            "username": "quick-share-other", "password": "quick-share-other-password",
+        })
+        self.assertLess(login.status_code, 400)
+        self.assertEqual(404, other.get(f"/quick-share/{item_id}.svg").status_code)
+        self.assertEqual(302, self.client.post(f"/quick-share/{item_id}/delete").status_code)
+        self.assertEqual(404, self.client.get(f"/quick-share/{item_id}.svg").status_code)
+
+    def test_quick_share_event_ics_and_unsafe_link_validation(self):
+        unsafe = self.client.post("/quick-share", data={
+            "kind": "link", "url": "javascript:alert(1)", "save_mode": "history",
+        })
+        self.assertEqual(400, unsafe.status_code)
+        self.assertIn("https://", unsafe.get_data(as_text=True))
+
+        created = self.client.post("/quick-share", data={
+            "kind": "event", "title": "Review",
+            "event_title": "Release, Review", "start": "2030-03-21T10:30",
+            "end": "2030-03-21T11:30", "location": "Raum; 2",
+            "description": "Punkt eins\nPunkt zwei", "save_mode": "history",
+        }, follow_redirects=True)
+        self.assertEqual(200, created.status_code)
+        selected = re.search(r'src="/quick-share/([^"/]+)\.svg"', created.get_data(as_text=True))
+        self.assertIsNotNone(selected)
+        response = self.client.get(f"/quick-share/{selected.group(1)}.ics")
+        self.assertEqual(200, response.status_code)
+        self.assertIn("text/calendar", response.content_type)
+        self.assertIn("SUMMARY:Release\\, Review", response.get_data(as_text=True))
+        self.assertIn("LOCATION:Raum\\; 2", response.get_data(as_text=True))
+        self.assertIn("DESCRIPTION:Punkt eins\\nPunkt zwei", response.get_data(as_text=True))
+        self.assertEqual("no-store", response.headers["Cache-Control"].split(",")[-1].strip())
+
+    def test_quick_share_create_is_csrf_protected(self):
+        self.client.get("/quick-share")
+        with self.client.session_transaction() as session:
+            csrf = session.get("_csrf_token")
+        app.config["TEST_CSRF_PROTECTION"] = True
+        try:
+            denied = self.client.post("/quick-share", data={
+                "kind": "text", "text": "should not be stored", "save_mode": "history",
+            })
+            self.assertEqual(403, denied.status_code)
+            accepted = self.client.post("/quick-share", data={
+                "_csrf_token": csrf, "kind": "text", "text": "CSRF protected",
+                "save_mode": "history",
+            })
+            self.assertEqual(302, accepted.status_code)
+        finally:
+            app.config["TEST_CSRF_PROTECTION"] = False
+
+    def test_bookmark_firefox_import_preview_is_non_mutating_and_confirm_is_csrf_protected(self):
+        from io import BytesIO
+
+        self.client.post("/bookmarks/add", data={
+            "title": "Existing", "url": "https://example.org/existing", "folder": "Work",
+        })
+        firefox_html = b'''<!DOCTYPE NETSCAPE-Bookmark-file-1>
+        <DL><p><DT><H3>Work</H3><DL><p>
+        <DT><A HREF="https://example.org/new?x=1&amp;y=2" TAGS="project">&lt;img src=x onerror=alert(1)&gt;</A>
+        <DT><A HREF="https://example.org/existing">Existing duplicate</A>
+        <DT><A HREF="javascript:alert(1)">Unsafe</A>
+        <DT><A HREF="data:text/html,unsafe">Also unsafe</A>
+        </DL><p></DL><p>'''
+        imported = self.client.post("/bookmarks/import", data={
+            "file": (BytesIO(firefox_html), "bookmarks.html"),
+        })
+        self.assertEqual(302, imported.status_code)
+        preview = self.client.get("/bookmarks/import-preview")
+        self.assertEqual(200, preview.status_code)
+        body = preview.get_data(as_text=True)
+        self.assertIn(">1</div><div>neu</div>", body)
+        self.assertIn(">1</div><div>Duplikate", body)
+        self.assertIn(">2</div><div>ungültige", body)
+        self.assertIn("&lt;img src=x onerror=alert(1)&gt;", body)
+        self.assertNotIn("<img src=x onerror=alert(1)>", body)
+        with app.app_context():
+            db = database.get_db()
+            self.assertEqual(1, db.execute("SELECT COUNT(*) FROM browser_bookmark").fetchone()[0])
+
+        with self.client.session_transaction() as session:
+            csrf = session.get("_csrf_token")
+        app.config["TEST_CSRF_PROTECTION"] = True
+        try:
+            denied = self.client.post("/bookmarks/import-confirm")
+            self.assertEqual(403, denied.status_code)
+            with app.app_context():
+                self.assertEqual(1, database.get_db().execute("SELECT COUNT(*) FROM browser_bookmark").fetchone()[0])
+            accepted = self.client.post("/bookmarks/import-confirm", data={"_csrf_token": csrf})
+            self.assertEqual(302, accepted.status_code)
+        finally:
+            app.config["TEST_CSRF_PROTECTION"] = False
+
+        with app.app_context():
+            rows = database.get_db().execute("SELECT title,url,folder FROM browser_bookmark ORDER BY title").fetchall()
+            self.assertEqual(2, len(rows))
+            added = next(row for row in rows if row["url"].endswith("new?x=1&y=2"))
+            self.assertEqual("Work", added["folder"])
+            self.assertIn("<img", added["title"])
+
+        exported = self.client.get("/bookmarks/export")
+        self.assertEqual(200, exported.status_code)
+        self.assertIn(b"<H3>Work</H3>", exported.data)
+        self.assertIn(b"&lt;img src=x onerror=alert(1)&gt;", exported.data)
+        with app.app_context():
+            db = database.get_db()
+            db.execute(
+                "INSERT INTO user(username,password,is_admin,is_disabled,created_at,updated_at) "
+                "VALUES (?,?,0,0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
+                ("bookmark-roundtrip", generate_password_hash("bookmark-roundtrip-password")),
+            )
+            db.commit()
+        roundtrip = app.test_client()
+        roundtrip.post("/auth/login", data={
+            "username": "bookmark-roundtrip", "password": "bookmark-roundtrip-password",
+        })
+        roundtrip.post("/bookmarks/import", data={
+            "file": (BytesIO(exported.data), "roundtrip.html"),
+        })
+        roundtrip_preview = roundtrip.get("/bookmarks/import-preview")
+        self.assertIn(">2</div><div>neu</div>", roundtrip_preview.get_data(as_text=True))
+        self.assertEqual(302, roundtrip.post("/bookmarks/import-confirm").status_code)
+        with app.app_context():
+            db = database.get_db()
+            roundtrip_user = db.execute("SELECT id FROM user WHERE username=?", ("bookmark-roundtrip",)).fetchone()
+            imported_folders = db.execute(
+                "SELECT DISTINCT folder FROM browser_bookmark WHERE user_id=?", (roundtrip_user["id"],),
+            ).fetchall()
+            self.assertEqual({"Work"}, {row["folder"] for row in imported_folders})
+
+    def test_bookmarks_are_owner_scoped_and_reject_unsafe_urls(self):
+        unsafe = self.client.post("/bookmarks/add", data={
+            "title": "Unsafe", "url": "javascript:alert(1)",
+        })
+        self.assertEqual(302, unsafe.status_code)
+        with app.app_context():
+            db = database.get_db()
+            count = db.execute("SELECT COUNT(*) FROM browser_bookmark").fetchone()[0]
+            self.assertEqual(0, count)
+            db.execute(
+                "INSERT INTO browser_bookmark(id,user_id,title,url) VALUES(?,?,?,?)",
+                ("owner-only-bookmark", 1, "Private bookmark", "https://example.org/private"),
+            )
+            db.execute(
+                "INSERT INTO user(username,password,is_admin,is_disabled,created_at,updated_at) "
+                "VALUES (?,?,0,0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
+                ("bookmark-other", generate_password_hash("bookmark-other-password")),
+            )
+            db.commit()
+        other = app.test_client()
+        login = other.post("/auth/login", data={
+            "username": "bookmark-other", "password": "bookmark-other-password",
+        })
+        self.assertLess(login.status_code, 400)
+        listing = other.get("/bookmarks/")
+        self.assertEqual(200, listing.status_code)
+        self.assertNotIn("Private bookmark", listing.get_data(as_text=True))
+        self.assertEqual(404, other.post("/bookmarks/owner-only-bookmark/delete").status_code)
 
     def test_all_parameterless_template_linked_get_endpoints_render(self):
         """Smoke-test every directly callable GET page advertised anywhere in templates."""
