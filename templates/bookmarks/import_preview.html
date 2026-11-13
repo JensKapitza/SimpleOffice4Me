@@ -1,0 +1,21 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block title %}Importvorschau · Lesezeichen{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4" style="max-width:900px">
+  <h1 class="h2">Firefox-Import prüfen</h1>
+  <p class="text-secondary">Noch wurde nichts in deine Lesezeichen übernommen. Der Entwurf wird nach 15 Minuten automatisch gelöscht.</p>
+  <div class="row g-3 my-3">
+    <div class="col-sm-4"><div class="card h-100"><div class="card-body"><div class="h2">{{ new_count }}</div><div>neu</div></div></div></div>
+    <div class="col-sm-4"><div class="card h-100"><div class="card-body"><div class="h2">{{ duplicate_count }}</div><div>Duplikate, werden übersprungen</div></div></div></div>
+    <div class="col-sm-4"><div class="card h-100"><div class="card-body"><div class="h2">{{ invalid_count }}</div><div>ungültige Links oder Einträge</div></div></div></div>
+  </div>
+  {% if examples %}<h2 class="h5 mt-4">Vorschau (bis zu 20 neue Einträge)</h2>
+    <ul class="list-group mb-4">{% for item in examples %}<li class="list-group-item"><strong>{{ item.title }}</strong><div class="small text-break">{{ item.url }}</div><div class="small text-secondary">{{ item.folder }}{% if item.tags %} · {{ item.tags }}{% endif %}</div></li>{% endfor %}</ul>
+  {% elif not invalid_count %}<p class="alert alert-info">Es gibt keine neuen Lesezeichen zum Übernehmen.</p>{% endif %}
+  <div class="d-flex flex-wrap gap-2">
+    {% if new_count %}<form method="post" action="{{ url_for('browser_bookmarks.import_confirm') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-primary" type="submit">{{ new_count }} neue Lesezeichen übernehmen</button></form>{% endif %}
+    <form method="post" action="{{ url_for('browser_bookmarks.import_cancel') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-outline-secondary" type="submit">Verwerfen</button></form>
+  </div>
+</main>
+{% endblock %}

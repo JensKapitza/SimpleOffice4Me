@@ -1,0 +1,92 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block title %}{{ 'QR share' if g.language == 'en' else 'QR an Handy' }} · SimpleOffice{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4" style="max-width:1050px">
+  <div class="mb-4">
+    <h1 class="h2 mb-1">{{ 'Send to phone with QR' if g.language == 'en' else 'Per QR ans Handy senden' }}</h1>
+    <p class="text-secondary mb-0">{{ 'Create a QR for text, links or calendar events. The QR contains the content itself, so the phone does not need to reach this server.' if g.language == 'en' else 'Erzeuge einen QR-Code für Text, Links oder Termine. Der QR-Code enthält den Inhalt direkt; das Handy muss diesen Server dafür nicht erreichen.' }}</p>
+  </div>
+
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}
+  {% if form_error %}<div class="alert alert-danger" role="alert">{{ form_error }}</div>{% endif %}
+
+  {% if selected %}
+    <section class="card shadow-sm mb-4" id="created" aria-labelledby="qr-result-title">
+      <div class="card-body">
+        <div class="d-flex flex-wrap justify-content-between gap-3 align-items-start">
+          <div><h2 class="h4 mb-1" id="qr-result-title">{{ selected.title }}</h2>
+            <p class="text-secondary mb-0">{{ {'text': 'Text', 'link': 'Link', 'event': 'Termin'}[selected.kind] }} · {{ 'Temporary only; this QR is not stored.' if g.language == 'en' and selected.temporary else 'Nur temporär; dieser QR wird nicht gespeichert.' if selected.temporary else 'Saved in history' if g.language == 'en' else 'In der History gespeichert' }}</p>
+          </div>
+          <a class="btn btn-outline-secondary" href="{{ url_for('quick_share.index') }}">{{ 'Create another' if g.language == 'en' else 'Weiteren QR erstellen' }}</a>
+        </div>
+        <div class="row align-items-center g-4 mt-1">
+          <div class="col-md-auto text-center"><img class="quick-share-qr border rounded bg-white p-2" src="{{ selected.qr_src or url_for('quick_share.qr_svg', item_id=selected.item_id) }}" width="280" height="280" alt="QR-Code zum Scannen"></div>
+          <div class="col">
+            <p>{{ 'Scan with your phone camera. Text and links are embedded directly; nothing is published as a server URL.' if g.language == 'en' else 'Mit der Handykamera scannen. Text und Links stecken direkt im Code; es wird keine Serveradresse veröffentlicht.' }}</p>
+            <div class="d-flex flex-wrap gap-2">
+              <button class="btn btn-outline-primary" type="button" data-copy-value="{{ selected.payload|e }}">{{ 'Copy content' if g.language == 'en' else 'Inhalt kopieren' }}</button>
+              {% if selected.kind == 'event' %}<a class="btn btn-outline-primary" href="{{ selected.ics_href or url_for('quick_share.event_ics', item_id=selected.item_id) }}" download="quick-share-event.ics">{{ 'Download calendar file' if g.language == 'en' else 'Kalenderdatei laden' }}</a>{% endif %}
+              {% if not selected.temporary %}
+                <form method="post" action="{{ url_for('quick_share.toggle_pin', item_id=selected.item_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-outline-secondary" type="submit">{{ ('Unpin' if selected.pinned else 'Pin to history') if g.language == 'en' else ('Lösen' if selected.pinned else 'Anheften') }}</button></form>
+              {% endif %}
+            </div>
+            <details class="mt-3"><summary>{{ 'Show QR content' if g.language == 'en' else 'QR-Inhalt anzeigen' }}</summary><pre class="quick-share-payload mt-2 p-2 bg-body-tertiary rounded" data-qr-payload>{{ selected.payload }}</pre></details>
+          </div>
+        </div>
+      </div>
+    </section>
+  {% endif %}
+
+  <div class="row g-4">
+    <section class="col-lg-7" aria-labelledby="quick-share-create-title">
+      <div class="card h-100"><div class="card-body">
+        <h2 class="h4" id="quick-share-create-title">{{ 'Create a QR' if g.language == 'en' else 'Neuen QR-Code erstellen' }}</h2>
+        <form method="post" action="{{ url_for('quick_share.create') }}" id="quick-share-form">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <div class="mb-3"><label class="form-label" for="quick-share-kind">{{ 'What do you want to send?' if g.language == 'en' else 'Was möchtest du senden?' }}</label>
+            <select class="form-select" id="quick-share-kind" name="kind">
+              <option value="text" {{ 'selected' if form_values.get('kind', 'text') == 'text' }}>{{ 'Text' if g.language == 'en' else 'Text' }}</option>
+              <option value="link" {{ 'selected' if form_values.get('kind') == 'link' }}>{{ 'Link' if g.language == 'en' else 'Link' }}</option>
+              <option value="event" {{ 'selected' if form_values.get('kind') == 'event' }}>{{ 'Calendar event' if g.language == 'en' else 'Termin' }}</option>
+            </select>
+          </div>
+          <div class="mb-3"><label class="form-label" for="quick-share-title">{{ 'Label' if g.language == 'en' else 'Bezeichnung' }}</label><input class="form-control" id="quick-share-title" name="title" maxlength="160" value="{{ form_values.get('title', '') }}" placeholder="{{ 'Optional' if g.language == 'en' else 'Optional' }}"></div>
+          <div class="mb-3" data-kind-section="text"><label class="form-label" for="quick-share-text">{{ 'Text' if g.language == 'en' else 'Text' }}</label><textarea class="form-control" id="quick-share-text" name="text" rows="5" maxlength="1800">{{ form_values.get('text', '') }}</textarea></div>
+          <div class="mb-3" data-kind-section="link"><label class="form-label" for="quick-share-url">{{ 'Web address' if g.language == 'en' else 'Webadresse' }}</label><input class="form-control" id="quick-share-url" type="url" name="url" maxlength="1800" value="{{ form_values.get('url', '') }}" placeholder="https://…"><div class="form-text">{{ 'Only http and https links are allowed.' if g.language == 'en' else 'Nur http- und https-Links sind erlaubt.' }}</div></div>
+          <fieldset class="mb-3" data-kind-section="event"><legend class="h6">{{ 'Calendar event' if g.language == 'en' else 'Termin' }}</legend>
+            <div class="mb-2"><label class="form-label" for="quick-share-event-title">{{ 'Event title' if g.language == 'en' else 'Terminname' }}</label><input class="form-control" id="quick-share-event-title" name="event_title" maxlength="240" value="{{ form_values.get('event_title', '') }}"></div>
+            <div class="row g-2"><div class="col-sm-6"><label class="form-label" for="quick-share-start">{{ 'Start' if g.language == 'en' else 'Beginn' }}</label><input class="form-control" id="quick-share-start" type="datetime-local" name="start" value="{{ form_values.get('start', '') }}"></div><div class="col-sm-6"><label class="form-label" for="quick-share-end">{{ 'End' if g.language == 'en' else 'Ende' }}</label><input class="form-control" id="quick-share-end" type="datetime-local" name="end" value="{{ form_values.get('end', '') }}"></div></div>
+            <div class="mt-2"><label class="form-label" for="quick-share-location">{{ 'Location' if g.language == 'en' else 'Ort' }}</label><input class="form-control" id="quick-share-location" name="location" maxlength="240" value="{{ form_values.get('location', '') }}"></div>
+            <div class="mt-2"><label class="form-label" for="quick-share-description">{{ 'Notes' if g.language == 'en' else 'Notiz' }}</label><textarea class="form-control" id="quick-share-description" name="description" rows="2" maxlength="800">{{ form_values.get('description', '') }}</textarea></div>
+          </fieldset>
+          <fieldset class="mb-3"><legend class="h6">{{ 'Keep this QR' if g.language == 'en' else 'QR aufbewahren' }}</legend>
+            <div class="form-check"><input class="form-check-input" type="radio" name="save_mode" id="quick-share-history" value="history" {{ 'checked' if form_values.get('save_mode', 'history') == 'history' }}><label class="form-check-label" for="quick-share-history">{{ 'Save in my history; unpinned entries expire after 30 days.' if g.language == 'en' else 'In meiner History speichern; nicht angeheftete Einträge verfallen nach 30 Tagen.' }}</label></div>
+            <div class="form-check"><input class="form-check-input" type="radio" name="save_mode" id="quick-share-temporary" value="temporary" {{ 'checked' if form_values.get('save_mode') == 'temporary' }}><label class="form-check-label" for="quick-share-temporary">{{ 'Temporary only; it is not saved and disappears when you leave this page.' if g.language == 'en' else 'Nur temporär; wird nicht gespeichert und verschwindet beim Verlassen dieser Seite.' }}</label></div>
+          </fieldset>
+          <button class="btn btn-primary" type="submit">{{ 'Create QR' if g.language == 'en' else 'QR-Code erstellen' }}</button>
+        </form>
+      </div></div>
+    </section>
+
+    <section class="col-lg-5" aria-labelledby="quick-share-history-title">
+      <div class="card"><div class="card-body">
+        <h2 class="h4" id="quick-share-history-title">{{ 'My history' if g.language == 'en' else 'Meine History' }}</h2>
+        <p class="small text-secondary">{{ 'Pinned items stay until you remove them. History is private to your account.' if g.language == 'en' else 'Angeheftete Einträge bleiben bis zum Löschen erhalten. Die History ist nur für dein Konto sichtbar.' }}</p>
+        <div class="list-group list-group-flush">
+          {% for item in items %}
+            <article class="list-group-item px-0">
+              <div class="d-flex justify-content-between gap-2"><div><a class="fw-semibold text-break" href="{{ url_for('quick_share.index', item=item.item_id) }}#created">{{ item.title }}</a><div class="small text-secondary">{{ {'text': 'Text', 'link': 'Link', 'event': 'Termin'}[item.kind] }} · {{ item.created_label }}{% if item.pinned %} · <span class="text-primary">{{ 'Pinned' if g.language == 'en' else 'Angeheftet' }}</span>{% endif %}</div></div><span aria-hidden="true">{{ '▣' if item.kind == 'event' else '↗' if item.kind == 'link' else '¶' }}</span></div>
+              <div class="d-flex gap-2 mt-2">
+                <form method="post" action="{{ url_for('quick_share.toggle_pin', item_id=item.item_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-secondary" type="submit">{{ ('Unpin' if item.pinned else 'Pin') if g.language == 'en' else ('Lösen' if item.pinned else 'Anheften') }}</button></form>
+                <form method="post" action="{{ url_for('quick_share.delete', item_id=item.item_id) }}" onsubmit="return confirm('{{ 'Delete this history item?' if g.language == 'en' else 'Diesen History-Eintrag löschen?' }}')"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-danger" type="submit">{{ 'Delete' if g.language == 'en' else 'Löschen' }}</button></form>
+              </div>
+            </article>
+          {% else %}<div class="list-group-item px-0 text-secondary">{{ 'Nothing saved yet.' if g.language == 'en' else 'Noch keine Einträge gespeichert.' }}</div>{% endfor %}
+        </div>
+      </div></div>
+    </section>
+  </div>
+</main>
+<script src="{{ url_for('static', filename='js/quick_share.js') }}" defer></script>
+{% endblock %}

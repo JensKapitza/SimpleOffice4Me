@@ -1,0 +1,64 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block title %}Lesezeichen · SimpleOffice{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4" style="max-width:1100px">
+  <header class="mb-4">
+    <h1 class="h2">Lesezeichen</h1>
+    <p class="text-secondary">Deine persönliche, auf deinen Geräten verfügbare Linksammlung. Firefox-Lesezeichen kannst du als HTML importieren und wieder exportieren. Diese Liste greift nicht direkt auf die Browser-Leiste zu.</p>
+  </header>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}
+  <div class="row g-4">
+    <section class="col-lg-5" aria-labelledby="bookmark-add-title">
+      <div class="card"><div class="card-body">
+        <h2 class="h4" id="bookmark-add-title">Lesezeichen hinzufügen</h2>
+        <form method="post" action="{{ url_for('browser_bookmarks.add') }}">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <label class="form-label" for="bookmark-title">Titel</label><input class="form-control mb-3" id="bookmark-title" name="title" maxlength="500" placeholder="Name der Seite">
+          <label class="form-label" for="bookmark-url">URL</label><input class="form-control mb-3" id="bookmark-url" name="url" type="url" maxlength="4096" required placeholder="https://example.org">
+          <label class="form-label" for="bookmark-folder">Ordner</label><input class="form-control mb-3" id="bookmark-folder" name="folder" maxlength="256" placeholder="z. B. Arbeit/Recherche">
+          <label class="form-label" for="bookmark-tags">Schlagwörter</label><input class="form-control mb-3" id="bookmark-tags" name="tags" maxlength="500">
+          <button class="btn btn-primary" type="submit">Speichern</button>
+        </form>
+      </div></div>
+      <div class="card mt-3"><div class="card-body">
+        <h2 class="h5">Firefox importieren</h2>
+        <p class="small text-secondary">In Firefox: Lesezeichen verwalten → Importieren und Sichern → Lesezeichen nach HTML exportieren. Wähle die exportierte Datei hier aus. Es werden nur sichere HTTP(S)-Links übernommen; vorhandene Einträge bleiben erhalten.</p>
+        <form method="post" enctype="multipart/form-data" action="{{ url_for('browser_bookmarks.import_firefox') }}">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <label class="form-label" for="bookmark-file">Firefox-HTML-Datei (max. 2 MiB)</label><input class="form-control mb-3" id="bookmark-file" name="file" type="file" accept=".html,.htm,text/html" required>
+          <button class="btn btn-outline-primary" type="submit">Vorschau erstellen</button>
+          <a class="btn btn-outline-secondary" href="{{ url_for('browser_bookmarks.export_firefox') }}">Als Firefox-HTML exportieren</a>
+        </form>
+      </div></div>
+    </section>
+    <section class="col-lg-7" aria-labelledby="bookmark-list-title">
+      <div class="d-flex justify-content-between align-items-center gap-3 mb-3"><h2 class="h4 mb-0" id="bookmark-list-title">Gespeicherte Lesezeichen ({{ bookmarks|length }})</h2>
+        <form method="get" action="{{ url_for('browser_bookmarks.index') }}" class="d-flex gap-2"><label class="visually-hidden" for="bookmark-search">Suchen</label><input class="form-control" id="bookmark-search" name="q" value="{{ query }}" placeholder="Suchen"><button class="btn btn-outline-secondary" type="submit">Suchen</button></form>
+      </div>
+      {% if bookmarks %}<div class="list-group">
+        {% for item in bookmarks %}<article class="list-group-item">
+          <form method="post" action="{{ url_for('browser_bookmarks.update', bookmark_id=item.id) }}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div class="row g-2">
+              <div class="col-md-5"><label class="visually-hidden" for="title-{{ item.id }}">Titel</label><input class="form-control form-control-sm" id="title-{{ item.id }}" name="title" value="{{ item.title }}" maxlength="500"></div>
+              <div class="col-md-7"><label class="visually-hidden" for="url-{{ item.id }}">URL</label><input class="form-control form-control-sm" id="url-{{ item.id }}" name="url" value="{{ item.url }}" maxlength="4096" required></div>
+              <div class="col-md-5"><label class="visually-hidden" for="folder-{{ item.id }}">Ordner</label><input class="form-control form-control-sm" id="folder-{{ item.id }}" name="folder" value="{{ item.folder }}" maxlength="256" placeholder="Ordner"></div>
+              <div class="col-md-7"><label class="visually-hidden" for="tags-{{ item.id }}">Schlagwörter</label><input class="form-control form-control-sm" id="tags-{{ item.id }}" name="tags" value="{{ item.tags }}" maxlength="500" placeholder="Schlagwörter"></div>
+            </div>
+            <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
+              <button class="btn btn-sm btn-outline-primary" type="submit">Änderungen speichern</button>
+              <a class="btn btn-sm btn-outline-secondary" href="{{ item.url }}" target="_blank" rel="noopener noreferrer">Öffnen ↗</a>
+              <span class="small text-secondary">{{ item.folder }}{% if item.tags %} · {{ item.tags }}{% endif %}</span>
+            </div>
+          </form>
+          <div class="d-flex gap-2 mt-2">
+            <form method="post" action="{{ url_for('browser_bookmarks.pin', bookmark_id=item.id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-secondary" type="submit">{{ 'Lösen' if item.pinned else 'Anheften' }}</button></form>
+            <form method="post" action="{{ url_for('browser_bookmarks.delete', bookmark_id=item.id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-danger" type="submit">Löschen</button></form>
+          </div>
+        </article>{% endfor %}
+      </div>{% else %}<p class="text-secondary">Noch keine Lesezeichen gespeichert.</p>{% endif %}
+    </section>
+  </div>
+</main>
+{% endblock %}
