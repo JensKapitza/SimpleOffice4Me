@@ -146,8 +146,6 @@ def validate_lan_proxy_settings(values: Any) -> dict[str, Any]:
     }
     if bool(result["tls_cert"]) != bool(result["tls_key"]):
         raise ValueError("TLS-Zertifikat und Privatschlüssel müssen gemeinsam angegeben werden.")
-    if enabled and not result["tls_cert"]:
-        raise ValueError("Zum Starten des LAN-Proxys sind ein TLS-Zertifikat und ein Privatschlüssel erforderlich.")
     if result["tls_cert"] == result["tls_key"] and result["tls_cert"]:
         raise ValueError("TLS-Zertifikat und Privatschlüssel müssen verschiedene Dateien sein.")
     return result
