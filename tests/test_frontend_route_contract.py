@@ -509,6 +509,14 @@ class FrontendNavigationSmokeTests(unittest.TestCase):
         self.assertNotIn("Private bookmark", listing.get_data(as_text=True))
         self.assertEqual(404, other.post("/bookmarks/owner-only-bookmark/delete").status_code)
 
+    def test_bookmark_import_preview_without_active_upload_returns_to_manager(self):
+        response = self.client.get("/bookmarks/import-preview")
+        self.assertEqual(302, response.status_code)
+        self.assertEqual("/bookmarks/", response.headers["Location"])
+        manager = self.client.get(response.headers["Location"])
+        self.assertEqual(200, manager.status_code)
+        self.assertIn("keine aktive Importvorschau", manager.get_data(as_text=True))
+
     def test_all_parameterless_template_linked_get_endpoints_render(self):
         """Smoke-test every directly callable GET page advertised anywhere in templates."""
         failures: list[str] = []
