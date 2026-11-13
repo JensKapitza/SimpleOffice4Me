@@ -245,6 +245,13 @@ class LanProxyRuntime:
     ) -> dict[str, str]:
         with self._operation_lock:
             try:
+                # Generate only when both TLS filenames are absent. Explicit identities
+                # remain under administrator control.
+                if settings.get("enabled") is True and not settings.get("tls_cert") and not settings.get("tls_key"):
+                    from .lan_proxy_self_signed import ensure_self_signed_certificate
+                    from .lan_proxy_config import _host
+                    cert_name, key_name = ensure_self_signed_certificate(_host(settings.get("bind_host")))
+                    settings = {**settings, "tls_cert": cert_name, "tls_key": key_name}
                 config = validate_lan_proxy_settings(settings)
                 if not config["enabled"]:
                     self.stop(state="disabled", message="LAN proxy is disabled")
