@@ -4,6 +4,20 @@
 
   const english = root.dataset.language === 'en';
   const text = (de, en) => english ? en : de;
+  const promptSpeechLanguage = english ? 'en-US' : 'de-DE';
+  function splitQuotedSpeech(value, mainLanguage, quotedLanguage) {
+    const segments = [];
+    const pattern = /[“„"]([^“”„"]+)[””“"]/g;
+    let cursor = 0;
+    let match;
+    while ((match = pattern.exec(String(value || ''))) !== null) {
+      if (match.index > cursor) segments.push({text: value.slice(cursor, match.index), language: mainLanguage});
+      segments.push({text: match[1], language: quotedLanguage});
+      cursor = pattern.lastIndex;
+    }
+    if (cursor < String(value || '').length) segments.push({text: String(value).slice(cursor), language: mainLanguage});
+    return segments.filter(segment => segment.text.trim());
+  }
   const levels = {
     preschool: text('Kita & Vorschule', 'Preschool'),
     1: text('Klasse 1', 'Grade 1'), 2: text('Klasse 2', 'Grade 2'),
@@ -181,8 +195,20 @@
     levelBank.german.forEach(item => {
       item.audioPrompt ||= item.q;
       item.speechLang = 'de-DE';
-      item.promptLang = english ? 'en-US' : 'de-DE';
+      item.promptLang = promptSpeechLanguage;
+      item.audioParts = item.visual && item.speak
+        ? [
+          {text:text('Welcher Laut beginnt das Wort?','Which sound starts the German word?'), language:promptSpeechLanguage},
+          {text:item.speak, language:'de-DE'}
+        ]
+        : splitQuotedSpeech(item.audioPrompt, item.promptLang, 'de-DE');
       item.speak ||= item.a;
+    });
+    levelBank.english.forEach(item => {
+      item.audioPrompt ||= item.q;
+      item.speechLang = 'en-US';
+      item.promptLang = promptSpeechLanguage;
+      item.audioParts = splitQuotedSpeech(item.audioPrompt, item.promptLang, 'en-US');
     });
   });
   const safetyCards = [
@@ -640,8 +666,12 @@
       searchPrompt.textContent = ['preschool','1','2'].includes(selectedLevel) ? '' : prompt;
       searchPrompt.setAttribute('aria-label', prompt);
       root.querySelector('[data-search-speak]').hidden = false;
-      root.querySelector('[data-search-speak]').onclick = () => speak(prompt, english ? 'en-US' : 'de-DE');
-      if (['preschool','1','2'].includes(selectedLevel)) speak(prompt, english ? 'en-US' : 'de-DE');
+      const wordPrompt = [
+        {text:prompt, language:promptSpeechLanguage},
+        {text:card.word, language:'de-DE'}
+      ];
+      root.querySelector('[data-search-speak]').onclick = () => speak(wordPrompt);
+      if (['preschool','1','2'].includes(selectedLevel)) speak(wordPrompt);
       searchPrompt.focus();
       root.querySelector('[data-search-target-image]').hidden = true;
       searchScene.hidden = true;
@@ -969,8 +999,9 @@
     setQuizFeedback('', '');
     root.querySelector('[data-next]').hidden = true;
     speakButton.hidden = !item.speak && !item.audioPrompt;
-    speakButton.onclick = () => speak(item.audioPrompt || item.speak, item.promptLang || item.speechLang || 'en-US');
-    if (item.audioPrompt) speak(item.audioPrompt, item.promptLang || item.speechLang || 'en-US');
+    const promptSpeech = item.audioParts?.length ? item.audioParts : item.audioPrompt || item.speak;
+    speakButton.onclick = () => speak(promptSpeech, item.promptLang || item.speechLang || 'en-US');
+    if (item.audioPrompt || item.audioParts?.length) speak(promptSpeech, item.promptLang || item.speechLang || 'en-US');
     choicesNode.replaceChildren();
     shuffle(item.c).forEach(choice => {
       const button = document.createElement('button');
@@ -1012,25 +1043,31 @@
       speechStatus.textContent = text('Vorlesestimme auf diesem Gerät nicht verfügbar.','Read-aloud speech is not available on this device.');
       return;
     }
+    const segments = Array.isArray(word) ? word : [{text:word, language}];
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(word);
-    utterance.lang = language;
-    utterance.rate = .9;
-    utterance.pitch = 1.08;
-    const languageKey = language.toLocaleLowerCase().startsWith('de') ? 'de' : 'en';
-    const available = window.speechSynthesis.getVoices().filter(voice => voice.lang.toLocaleLowerCase().startsWith(languageKey));
-    const requested = available.find(voice => voiceId(voice) === selectedSpeechVoices[languageKey]);
-    const qualityScore = voice => (voice.lang.toLocaleLowerCase() === language.toLocaleLowerCase() ? 10 : 0)
-      + (voice.localService ? 5 : 0)
-      + (/natural|neural|premium|enhanced/i.test(voice.name) ? 3 : 0);
-    const chosen = requested || [...available].sort((a,b)=>qualityScore(b)-qualityScore(a))[0];
-    if (chosen) utterance.voice = chosen;
-    utterance.onerror = event => {
-      if (event.error === 'canceled' || event.error === 'interrupted') return;
-      speechStatus.textContent = text('Die Stimme konnte nicht abgespielt werden. Wähle eine andere Stimme.','The voice could not be played. Choose another voice.');
-    };
-    utterance.onstart = () => { speechStatus.textContent = ''; };
-    window.speechSynthesis.speak(utterance);
+    segments.forEach(segment => {
+      const spokenText = String(segment.text || '').trim();
+      if (!spokenText) return;
+      const utterance = new SpeechSynthesisUtterance(spokenText);
+      utterance.lang = segment.language || language;
+      utterance.rate = .86;
+      utterance.pitch = 1.04;
+      const languageKey = utterance.lang.toLocaleLowerCase().startsWith('de') ? 'de' : 'en';
+      const available = window.speechSynthesis.getVoices().filter(voice => voice.lang.toLocaleLowerCase().startsWith(languageKey));
+      const requested = available.find(voice => voiceId(voice) === selectedSpeechVoices[languageKey]);
+      const qualityScore = voice => (voice.lang.toLocaleLowerCase() === utterance.lang.toLocaleLowerCase() ? 100 : 50)
+        + (voice.localService ? 8 : 0)
+        + (/natural|neural|premium|enhanced/i.test(voice.name) ? 12 : 0)
+        + (voice.default ? 1 : 0);
+      const chosen = requested || [...available].sort((a, b) => qualityScore(b) - qualityScore(a))[0];
+      if (chosen) utterance.voice = chosen;
+      utterance.onerror = event => {
+        if (event.error === 'canceled' || event.error === 'interrupted') return;
+        speechStatus.textContent = text('Die Stimme konnte nicht abgespielt werden. Wähle eine andere Stimme.','The voice could not be played. Choose another voice.');
+      };
+      utterance.onstart = () => { speechStatus.textContent = ''; };
+      window.speechSynthesis.speak(utterance);
+    });
   }
   function showSetup() {
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
