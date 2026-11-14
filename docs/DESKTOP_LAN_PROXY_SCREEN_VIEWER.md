@@ -17,10 +17,16 @@ WSGI-Starts, sobald der Server die erste Anfrage bearbeitet.
   innerhalb des isolierten Container-Netzwerks an `0.0.0.0`; veröffentlicht
   wird der Port nur an die in `SIMPLEOFFICE_LAN_PROXY_PUBLISH_ADDRESS`
   eingetragene Host-IP.
-- Ein gültiges, von den Clients vertrautes TLS-Zertifikat und der zugehörige
-  private Schlüssel sind Pflicht. Die Einstellungen enthalten nur Dateinamen;
-  die Dateien liegen im TLS-Ordner `SIMPLEOFFICE_LAN_PROXY_TLS_DIR` (Standard
-  auf dem Host: `~/.simpleoffice4me/lan-proxy`, in Docker: `/run/simpleoffice`).
+- Der Proxy benötigt ein gültiges, von den Clients vertrautes TLS-Zertifikat.
+  Sind beide TLS-Dateinamen leer, erzeugt die Anwendung beim Start ein dauerhaftes
+  selbstsigniertes Zertifikat für die konfigurierte IP. Im Docker-Wildcard-Modus
+  muss es zu `SIMPLEOFFICE_LAN_PROXY_PUBLIC_HOST` passen. Clients müssen dem
+  Zertifikat ausdrücklich vertrauen; die TLS-Prüfung wird nie abgeschaltet.
+  Explizite Zertifikats- und Schlüsseldateien bleiben unterstützt. Die Einstellungen
+  enthalten nur Dateinamen; Dateien liegen im TLS-Ordner
+  `SIMPLEOFFICE_LAN_PROXY_TLS_DIR` (Standard auf dem Host:
+  `~/.simpleoffice4me/lan-proxy`, im bestehenden Docker-Overlay:
+  `/run/simpleoffice`).
   Ein eigener TLS-Ordner muss als absoluter Pfad über
   `SIMPLEOFFICE_LAN_PROXY_TLS_DIR` festgelegt werden. Er darf nicht für Gruppe
   oder andere Benutzer beschreibbar sein und muss außerhalb des Dokumentordners
@@ -41,28 +47,36 @@ CONNECT und TRACE werden nicht weitergeleitet.
 
 ### Docker-Konfiguration
 
+Die TLS-Variante mit automatisch erzeugtem Zertifikat nutzt die persistente
+Anwendungsdaten-Volume. Host-Zertifikatspfade sind dafür nicht erforderlich.
+
 1. In `deploy/docker/.env` `SIMPLEOFFICE_LAN_PROXY_PUBLISH_ADDRESS` (eine
-   konkrete Host-IP), `SIMPLEOFFICE_LAN_PROXY_PUBLIC_HOST`,
-   `SIMPLEOFFICE_LAN_PROXY_TLS_CERT` und `SIMPLEOFFICE_LAN_PROXY_TLS_KEY`
-   eintragen.
-2. Mit beiden Compose-Dateien starten:
+   konkrete Host-IP) und `SIMPLEOFFICE_LAN_PROXY_PUBLIC_HOST` (genau die IP oder
+   DNS-Adresse, die Clients verwenden) eintragen.
+2. Basisdatei und Auto-TLS-Overlay starten:
 
    ```sh
    docker compose --env-file deploy/docker/.env \
      -f deploy/docker/compose.yaml \
-     -f deploy/docker/compose.lan-proxy.yaml up -d
+     -f deploy/docker/compose.lan-proxy-auto-tls.yaml up -d
    ```
 
 3. In den Server-Einstellungen `0.0.0.0` als Proxy-Bind-Adresse und die
-   Dateinamen `lan-proxy.crt` sowie `lan-proxy.key` eintragen und den Proxy aktivieren. Der
-   veröffentlichte Port ist standardmäßig `8081`; der Proxy-Port in der UI muss
-   ebenfalls `8081` sein.
-   Für eine private Schlüsseldatei auf Linux kann der Containerbenutzer
-   `simpleoffice` (UID/GID `10001`) über die Gruppe lesend zugreifen, zum
-   Beispiel mit Host-Eigentümer `root:10001` und Modus `0640`.
+   TLS-Dateinamen leer lassen. Die automatisch erstellten Zertifikatsdateien
+   bleiben in `/var/lib/simpleoffice4me/lan-proxy-tls` über Containerneustarts
+   erhalten. Der veröffentlichte Port ist standardmäßig `8081`; der Proxy-Port
+   in der UI muss ebenfalls `8081` sein.
 4. Nur diesen Port für das gewählte LAN-Profil in der Host-Firewall freigeben.
    Das Web-Backend bleibt über die Standard-Compose-Datei an Loopback des Hosts
    veröffentlicht. Keine Router-Portfreigabe ins Internet einrichten.
+
+Für eigene Zertifikate bleibt `compose.lan-proxy.yaml` verfügbar. Dort die
+Host-Dateipfade `SIMPLEOFFICE_LAN_PROXY_TLS_CERT` und
+`SIMPLEOFFICE_LAN_PROXY_TLS_KEY` setzen, die Einstellungen auf `lan-proxy.crt`
+und `lan-proxy.key` zeigen lassen und sicherstellen, dass der Containerbenutzer
+`simpleoffice` (UID/GID `10001`) den Schlüssel lesen kann (zum Beispiel
+Host-Eigentümer `root:10001`, Modus `0640`). Nicht beide TLS-Overlays gleichzeitig
+verwenden.
 
 ## Bildschirm
 
@@ -80,8 +94,9 @@ automatisch und nutzt denselben WebRTC-Signalisierungskanal.
 
 ## Sicherheit und Einschränkungen
 
-Der Listener ist HTTPS-only. Ohne gültige TLS-Dateien startet er nicht; der
-lokale Betrieb bleibt verfügbar und die Statusseite zeigt den Fehler. Im Netz
+Der Listener ist HTTPS-only. Wenn keine gültigen expliziten Dateien vorliegen
+und die automatische TLS-Erzeugung fehlschlägt, startet er nicht; der lokale
+Betrieb bleibt verfügbar und die Statusseite zeigt den Fehler. Im Netz
 wird ausschließlich eine `https://`-URL bekanntgegeben. HTTP ist kein
 Fallback. Browser-Bildschirmaufnahme benötigt einen sicheren Kontext.
 

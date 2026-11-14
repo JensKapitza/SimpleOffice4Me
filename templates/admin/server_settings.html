@@ -53,6 +53,7 @@
           <label class="form-label" for="lan-proxy-port">{{ 'HTTPS proxy port' if g.language == 'en' else 'HTTPS-Proxy-Port' }}</label>
           <input class="form-control" id="lan-proxy-port" type="number" name="lan_proxy_port" value="{{ lan_proxy.port }}" min="1024" max="65535" required>
         </div>
+        <div class="col-12"><p class="form-text">{{ 'TLS: Leave both TLS filenames blank to generate a persistent self-signed certificate for the configured IP on startup. In Docker wildcard mode, SIMPLEOFFICE_LAN_PROXY_PUBLIC_HOST supplies the certificate name and must match the address clients use. Clients must explicitly trust the certificate.' if g.language == 'en' else 'TLS: Beide Dateinamen leer lassen, um beim Start ein dauerhaftes selbstsigniertes Zertifikat für die eingestellte IP zu erzeugen. Im Docker-Wildcard-Modus gibt SIMPLEOFFICE_LAN_PROXY_PUBLIC_HOST den Zertifikatsnamen vor; er muss der von Clients verwendeten Adresse entsprechen. Andere Geräte müssen dem Zertifikat ausdrücklich vertrauen.' }}</p></div>
         <div class="col-md-6">
           <label class="form-label" for="lan-proxy-cert">{{ 'TLS certificate file name' if g.language == 'en' else 'Dateiname des TLS-Zertifikats' }}</label>
           <input class="form-control font-monospace" id="lan-proxy-cert" name="lan_proxy_tls_cert" value="{{ lan_proxy.tls_cert }}" maxlength="255" autocomplete="off" placeholder="lan-proxy.crt">

@@ -14,6 +14,7 @@ import ssl
 import threading
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from werkzeug.utils import safe_join
 
@@ -249,6 +250,12 @@ class LanProxyRuntime:
                 if not config["enabled"]:
                     self.stop(state="disabled", message="LAN proxy is disabled")
                     return self.status()
+                # Generate only when both TLS filenames are absent. Explicit identities
+                # remain under administrator control.
+                if not config["tls_cert"] and not config["tls_key"]:
+                    from .lan_proxy_self_signed import ensure_self_signed_certificate
+                    cert_name, key_name = ensure_self_signed_certificate(self._certificate_host(config))
+                    config = {**config, "tls_cert": cert_name, "tls_key": key_name}
                 backend_address = ipaddress.ip_address(backend_host)
                 if not backend_address.is_loopback or not 1 <= int(backend_port) <= 65535:
                     raise ValueError("LAN proxy backend must be a fixed loopback endpoint.")
@@ -388,6 +395,18 @@ class LanProxyRuntime:
             f"HTTPS proxy listening on {config['bind_host']}:{config['port']}",
             origin,
         )
+
+    @staticmethod
+    def _certificate_host(config: dict[str, Any]) -> str:
+        """Use the advertised Docker host for SANs when binding a wildcard."""
+        host = str(config["bind_host"])
+        if not ipaddress.ip_address(host).is_unspecified:
+            return host
+        advertised = LanProxyRuntime._public_host(config)
+        hostname = urlsplit(f"https://{advertised}").hostname
+        if not hostname:
+            raise ValueError("Docker LAN proxy public host is not a valid TLS identity")
+        return hostname
 
     @staticmethod
     def _public_host(config: dict[str, Any]) -> str:
