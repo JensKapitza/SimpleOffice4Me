@@ -154,6 +154,59 @@
       world: gradeQuestions.world[index], math: extras[index]
     };
   });
+  const visualEarlyGames = {
+    math: [
+      {q:text('Wie viele Äpfel siehst du?','How many apples can you see?'), visual:'🍎🍎🍎', a:'3', c:['2','3','4'], audioPrompt:text('Wie viele Äpfel siehst du?','How many apples can you see?'), speechLang:english?'en-US':'de-DE'},
+      {q:text('Wie viele Bälle siehst du?','How many balls can you see?'), visual:'⚽⚽⚽⚽', a:'4', c:['3','4','5'], audioPrompt:text('Wie viele Bälle siehst du?','How many balls can you see?'), speechLang:english?'en-US':'de-DE'},
+      {q:text('Wie viele Sterne siehst du?','How many stars can you see?'), visual:'⭐ ⭐ ⭐ ⭐ ⭐', a:'5', c:['4','5','6'], audioPrompt:text('Wie viele Sterne siehst du?','How many stars can you see?'), speechLang:english?'en-US':'de-DE'}
+    ],
+    german: [
+      {q:text('Welcher Laut beginnt Apfel?','Which sound starts Apfel (apple)?'), visual:'🍎', a:'A', c:['A','B','M'], audioPrompt:text('Welcher Laut beginnt Apfel?','Which sound starts Apfel (apple)?'), speak:'Apfel', speechLang:'de-DE'},
+      {q:text('Welcher Laut beginnt Ball?','Which sound starts Ball (ball)?'), visual:'⚽', a:'B', c:['B','A','S'], audioPrompt:text('Welcher Laut beginnt Ball?','Which sound starts Ball (ball)?'), speak:'Ball', speechLang:'de-DE'},
+      {q:text('Welcher Laut beginnt Maus?','Which sound starts Maus (mouse)?'), visual:'🐭', a:'M', c:['M','H','K'], audioPrompt:text('Welcher Laut beginnt Maus?','Which sound starts Maus (mouse)?'), speak:'Maus', speechLang:'de-DE'}
+    ],
+    english: [
+      {q:text('Finde die Katze.','Find the cat.'), visual:'🔊', a:'Katze', c:['Katze','Hund','Ente'], choiceImages:{Katze:'🐱',Hund:'🐶',Ente:'🦆'}, audioPrompt:'Find the cat.', speak:'cat', speechLang:'en-US'},
+      {q:text('Finde den Ball.','Find the ball.'), visual:'🔊', a:'Ball', c:['Ball','Sonne','Fisch'], choiceImages:{Ball:'⚽',Sonne:'☀️',Fisch:'🐟'}, audioPrompt:'Find the ball.', speak:'ball', speechLang:'en-US'},
+      {q:text('Finde den Apfel.','Find the apple.'), visual:'🔊', a:'Apfel', c:['Apfel','Haus','Blume'], choiceImages:{Apfel:'🍎',Haus:'🏠',Blume:'🌼'}, audioPrompt:'Find the apple.', speak:'apple', speechLang:'en-US'}
+    ],
+    world: [
+      {q:text('Welches Tier lebt im Wasser?','Which animal lives in water?'), visual:'🌊', a:'Fisch', c:['Fisch','Hund','Vogel'], choiceImages:{Fisch:'🐟',Hund:'🐶',Vogel:'🐦'}, audioPrompt:text('Welches Tier lebt im Wasser?','Which animal lives in water?'), speechLang:english?'en-US':'de-DE'},
+      {q:text('Was wächst auf einer Wiese?','What grows in a meadow?'), visual:'🌱', a:'Blume', c:['Blume','Auto','Schuh'], choiceImages:{Blume:'🌼',Auto:'🚗',Schuh:'👟'}, audioPrompt:text('Was wächst auf einer Wiese?','What grows in a meadow?'), speechLang:english?'en-US':'de-DE'},
+      {q:text('Was tragen wir auf dem Kopf?','What do we wear on our head?'), visual:'🧢', a:'Mütze', c:['Mütze','Socke','Tasse'], choiceImages:{Mütze:'🧢',Socke:'🧦',Tasse:'☕'}, audioPrompt:text('Was tragen wir auf dem Kopf?','What do we wear on our head?'), speechLang:english?'en-US':'de-DE'}
+    ]
+  };
+  ['preschool','1','2'].forEach(level => { Object.entries(visualEarlyGames).forEach(([subject, items]) => { bank[level][subject] = items; }); });
+  Object.values(bank).forEach(levelBank => {
+    levelBank.german.forEach(item => {
+      item.audioPrompt ||= item.q;
+      item.speechLang = 'de-DE';
+      item.promptLang = english ? 'en-US' : 'de-DE';
+      item.speak ||= item.a;
+    });
+  });
+  const safetyCards = [
+    {prompt:text('Die Ampel ist rot. Was machst du?','The light is red. What do you do?'), image:'🚦🔴', choices:[['🛑','Warten',false],['🏃','Loslaufen',true]]},
+    {prompt:text('Du fährst Fahrrad. Was schützt deinen Kopf?','You ride a bicycle. What protects your head?'), image:'🚲', choices:[['🪖','Helm',false],['🎩','Hut',true]]},
+    {prompt:text('Du gehst über die Straße. Was ist sicher?','You cross the road. What is safe?'), image:'🚸', choices:[['👀','Schauen und warten',false],['📱','Auf das Handy schauen',true]]}
+  ];
+  const arrowCards = [['⬆️','oben','up'],['➡️','rechts','right'],['⬇️','unten','down'],['⬅️','links','left']].map(([emoji,de,en])=>({emoji,name:text(de,en)}));
+  const mazeNodes = {
+    start:{col:0,row:1,exits:{right:'crossA'}},
+    crossA:{col:1,row:1,exits:{left:'start',up:'deadTop',down:'crossB'}},
+    deadTop:{col:1,row:0,exits:{down:'crossA'}},
+    crossB:{col:1,row:2,exits:{up:'crossA',left:'deadLeft',right:'crossC'}},
+    deadLeft:{col:0,row:2,exits:{right:'crossB'}},
+    crossC:{col:2,row:2,exits:{left:'crossB',right:'goal',down:'deadBottom'}},
+    goal:{col:3,row:2,exits:{left:'crossC'}},
+    deadBottom:{col:2,row:3,exits:{up:'crossC',right:'deadEnd'}},
+    deadEnd:{col:3,row:3,exits:{left:'deadBottom'}}
+  };
+  const mazeFriends = [
+    {character:'🐶',goal:'🦴',de:'Knochen',en:'bone'},
+    {character:'🐝',goal:'🍯',de:'Bienenstock',en:'beehive'},
+    {character:'🐱',goal:'🛏️',de:'Bett',en:'bed'}
+  ];
   const searchObjects = {
     preschool: [
       ['Apfel','Apple','🍎'],['Ball','Ball','⚽'],['Katze','Cat','🐱'],['Sonne','Sun','☀️'],['Fisch','Fish','🐟'],['Haus','House','🏠'],
@@ -207,14 +260,16 @@
   const searchGame = root.querySelector('[data-search-game]');
   const searchScene = root.querySelector('[data-search-scene]');
   const searchPrompt = root.querySelector('[data-search-prompt]');
-  const searchFeedback = root.querySelector('[data-search-feedback]');
+  const mazePanel = root.querySelector('[data-maze-panel]');
+  const mazeMap = root.querySelector('[data-maze-map]');
+  const mazeTask = root.querySelector('[data-maze-task]');
+  const mazeListenButton = root.querySelector('[data-maze-listen]');
   const searchNext = root.querySelector('[data-search-next]');
   const letterPlay = root.querySelector('[data-letter-play]');
   const letterChoices = root.querySelector('[data-letter-choices]');
   const result = root.querySelector('[data-result]');
   const questionNode = root.querySelector('[data-question]');
   const choicesNode = root.querySelector('[data-choices]');
-  const feedback = root.querySelector('[data-feedback]');
   const progress = root.querySelector('[data-progress]');
   const speakButton = root.querySelector('[data-speak]');
   let selectedLevel = 'preschool';
@@ -228,6 +283,50 @@
   let searchObjectsInScene = [];
   let activeWordCard = null;
   let searchReadyForNext = false;
+  let wrongAttempts = 0;
+  let mazeCurrentNode = 'start';
+  let mazePreviousNode = '';
+  let mazeDifficulty = 'easy';
+  let mazeListen = false;
+  let mazeCompleted = false;
+  let mazeFriend = mazeFriends[0];
+  let mazeVisited = new Set();
+  let mazeWrongTurns = {};
+  let mazeHappy = false;
+  let mazeHappyTimer = 0;
+  const maxWrongAttempts = 5;
+
+  function setQuizFeedback(kind, message) {
+    root.querySelector('[data-feedback-status-icon]').textContent = kind === 'wrong' ? '😟 ' : kind === 'right' ? '🌼😊 ' : '';
+    root.querySelector('[data-feedback-status-text]').textContent = message;
+    const icon = root.querySelector('[data-feedback-icon]');
+    icon.textContent = kind === 'wrong' ? '😟' : kind === 'right' ? '🌼😊' : '';
+    icon.hidden = !kind;
+  }
+  function setSearchFeedback(kind, message) {
+    root.querySelector('[data-search-status-icon]').textContent = kind === 'wrong' ? '😟 ' : kind === 'right' ? '🌼😊 ' : '';
+    root.querySelector('[data-search-status-text]').textContent = message;
+    const icon = root.querySelector('[data-search-icon]');
+    icon.textContent = kind === 'wrong' ? '😟' : kind === 'right' ? '🌼😊' : '';
+    icon.hidden = !kind;
+  }
+  function fadeWrongChoice(button) {
+    button.classList.add('is-wrong');
+    const mistakes = Number(button.dataset.mistakes || 0) + 1;
+    button.dataset.mistakes = String(mistakes);
+    button.style.opacity = String(Math.max(.12, 1 - mistakes * .17));
+  }
+  function revealQuizAnswer(item) {
+    choicesNode.querySelectorAll('button').forEach(option => {
+      option.disabled = true;
+      if (option.dataset.answer === String(item.a)) option.classList.add('is-correct');
+      else option.hidden = true;
+    });
+    const answer = item.choiceImages?.[item.a] || item.a;
+    setQuizFeedback('wrong', text(`Die Lösung ist: ${answer}`, `The answer is: ${answer}`));
+    root.querySelector('[data-next]').hidden = false;
+    root.querySelector('[data-next]').focus();
+  }
 
   const shuffle = items => {
     const shuffled = [...items];
@@ -241,6 +340,7 @@
     selectedSubject = subject;
     searchModes.hidden = true;
     searchGame.hidden = true;
+    mazePanel.hidden = true;
     questions = shuffle(bank[selectedLevel][subject]).slice(0, 3);
     index = 0;
     score = 0;
@@ -257,6 +357,7 @@
     game.hidden = true;
     result.hidden = true;
     searchGame.hidden = true;
+    mazePanel.hidden = true;
     searchModes.hidden = false;
     root.querySelector('[data-search-mode="objects"]').focus();
   }
@@ -280,19 +381,42 @@
         .filter(([, , emoji]) => !targetEmojis.has(emoji))
         .map(([de, en, emoji]) => ({name:text(de, en), emoji}));
       searchObjectsInScene = shuffle([...searchTargets, ...shuffle(distractors).slice(0, 9)]);
-    } else {
+    } else if (mode === 'letters') {
       searchTargets = shuffle(wordCards[selectedLevel]).slice(0, 3);
+    } else if (mode === 'directions') {
+      searchTargets = shuffle(arrowCards).slice(0, 3);
+    } else if (mode === 'maze') {
+      searchTargets = mazeFriends;
+      mazeDifficulty = 'easy';
+      mazeListen = false;
+    } else {
+      searchTargets = safetyCards;
     }
     showSearchRound();
   }
   function showSearchRound() {
     searchReadyForNext = false;
     searchNext.hidden = true;
-    searchFeedback.textContent = '';
+    wrongAttempts = 0;
+    setSearchFeedback('', '');
+    root.querySelector('[data-search-speak]').setAttribute('aria-label', text('Aufgabe anhören', 'Listen to the question'));
     root.querySelector('[data-search-progress]').textContent = text(`Runde ${searchIndex + 1} von 3`, `Round ${searchIndex + 1} of 3`);
-    if (selectedSearchMode === 'objects') {
+    mazePanel.hidden = true;
+    if (selectedSearchMode === 'maze') {
+      showMazeRound();
+      return;
+    }
+    if (selectedSearchMode === 'objects' || selectedSearchMode === 'directions') {
       const target = searchTargets[searchIndex];
-      searchPrompt.textContent = text(`Finde: ${target.name}`, `Find: ${target.name}`);
+      const spokenPrompt = selectedSearchMode === 'directions'
+        ? text(`Finde den Pfeil, der nach ${target.name} zeigt.`, `Find the arrow pointing ${target.name}.`)
+        : text(`Finde ${target.name}.`, `Find ${target.name}.`);
+      const early = ['preschool','1','2'].includes(selectedLevel);
+      searchPrompt.textContent = early || selectedSearchMode === 'directions' ? '' : text(`Finde: ${target.name}`, `Find: ${target.name}`);
+      searchPrompt.setAttribute('aria-label', spokenPrompt);
+      root.querySelector('[data-search-speak]').hidden = false;
+      root.querySelector('[data-search-speak]').onclick = () => speak(spokenPrompt, english ? 'en-US' : 'de-DE');
+      if (early || selectedSearchMode === 'directions') speak(spokenPrompt, english ? 'en-US' : 'de-DE');
       searchPrompt.focus();
       const targetImage = root.querySelector('[data-search-target-image]');
       targetImage.textContent = target.emoji;
@@ -300,7 +424,10 @@
       letterPlay.hidden = true;
       searchScene.hidden = false;
       searchScene.replaceChildren();
-      searchObjectsInScene.forEach((item, itemIndex) => {
+      const sceneItems = selectedSearchMode === 'directions'
+        ? shuffle([target, ...shuffle(arrowCards.filter(card => card.emoji !== target.emoji)).slice(0, 11)])
+        : searchObjectsInScene;
+      sceneItems.forEach((item, itemIndex) => {
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'kids-search-object';
@@ -310,19 +437,24 @@
         icon.setAttribute('aria-hidden', 'true');
         icon.textContent = item.emoji;
         button.append(icon);
-        button.addEventListener('click', () => findObject(button, item, target));
+        button.addEventListener('click', () => findObject(button, item, target, sceneItems));
         searchScene.append(button);
       });
-    } else {
+    } else if (selectedSearchMode === 'letters') {
       const card = searchTargets[searchIndex];
       activeWordCard = card;
-      searchPrompt.textContent = text('Welcher Buchstabe fehlt?', 'Which letter is missing from the German word?');
+      const prompt = text('Welcher Buchstabe fehlt in dem Wort?', 'Which letter is missing from the German word?');
+      searchPrompt.textContent = ['preschool','1','2'].includes(selectedLevel) ? '' : prompt;
+      searchPrompt.setAttribute('aria-label', prompt);
+      root.querySelector('[data-search-speak]').hidden = false;
+      root.querySelector('[data-search-speak]').onclick = () => speak(prompt, english ? 'en-US' : 'de-DE');
+      if (['preschool','1','2'].includes(selectedLevel)) speak(prompt, english ? 'en-US' : 'de-DE');
       searchPrompt.focus();
       root.querySelector('[data-search-target-image]').hidden = true;
       searchScene.hidden = true;
       letterPlay.hidden = false;
       root.querySelector('[data-letter-image]').textContent = card.image;
-      root.querySelector('[data-letter-word]').textContent = card.word.split('').map((letter, position) => position === card.missing ? '＿' : letter).join(' ');
+      root.querySelector('[data-letter-word]').textContent = card.word.toLocaleUpperCase().split('').map((letter, position) => position === card.missing ? '＿' : letter).join(' ');
       letterChoices.replaceChildren();
       const answer = card.word[card.missing].toLocaleLowerCase();
       const choices = shuffle([answer, ...shuffle('aeiourstlmnp'.split('').filter(letter => letter !== answer)).slice(0, 3)]);
@@ -331,104 +463,378 @@
         button.type = 'button';
         button.className = 'kids-learning-choice';
         button.textContent = letter.toLocaleUpperCase();
-        button.addEventListener('click', () => answerLetter(letter));
+        button.addEventListener('click', () => answerLetter(letter, button));
         letterChoices.append(button);
+      });
+    } else {
+      const card = searchTargets[searchIndex];
+      const targetImage = root.querySelector('[data-search-target-image]');
+      const prompt = card.prompt;
+      searchPrompt.textContent = ['preschool','1','2'].includes(selectedLevel) ? '' : prompt;
+      searchPrompt.setAttribute('aria-label', prompt);
+      targetImage.textContent = card.image;
+      targetImage.hidden = false;
+      letterPlay.hidden = true;
+      searchScene.hidden = false;
+      searchScene.replaceChildren();
+      root.querySelector('[data-search-speak]').hidden = false;
+      root.querySelector('[data-search-speak]').onclick = () => speak(prompt, english ? 'en-US' : 'de-DE');
+      speak(prompt, english ? 'en-US' : 'de-DE');
+      card.choices.forEach(([emoji, label, unsafe]) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'kids-search-object kids-safety-choice';
+        button.dataset.unsafe = String(unsafe);
+        button.setAttribute('aria-label', label);
+        button.textContent = emoji;
+        button.addEventListener('click', () => answerSafety(button));
+        searchScene.append(button);
       });
     }
   }
-  function findObject(button, item, target) {
+  function mazeDistance(from, goal) {
+    const queue = [[from, 0]];
+    const seen = new Set([from]);
+    while (queue.length) {
+      const [node, distance] = queue.shift();
+      if (node === goal) return distance;
+      Object.values(mazeNodes[node].exits).forEach(next => {
+        if (!seen.has(next)) {
+          seen.add(next);
+          queue.push([next, distance + 1]);
+        }
+      });
+    }
+    return Infinity;
+  }
+  function mazeRoute(from = mazeCurrentNode) {
+    const queue = [[from, []]];
+    const seen = new Set([from]);
+    while (queue.length) {
+      const [node, path] = queue.shift();
+      if (node === 'goal') return path;
+      Object.entries(mazeNodes[node].exits).forEach(([direction, next]) => {
+        if (!seen.has(next)) {
+          seen.add(next);
+          queue.push([next, [...path, direction]]);
+        }
+      });
+    }
+    return [];
+  }
+  function mazeDirectionName(direction) {
+    return text({up:'oben',right:'rechts',down:'unten',left:'links'}[direction], direction);
+  }
+  function speakMazeRoute() {
+    const route = mazeRoute();
+    if (!route.length) return;
+    const directions = route.map(mazeDirectionName);
+    const instructions = english
+      ? `Go ${directions.join(', then ')}.`
+      : `Gehe ${directions.map((direction, position) => position ? `dann nach ${direction}` : `nach ${direction}`).join(', ')}.`;
+    speak(instructions, english ? 'en-US' : 'de-DE');
+  }
+  function showMazeRound() {
+    window.clearTimeout(mazeHappyTimer);
+    mazeFriend = searchTargets[searchIndex];
+    mazeCurrentNode = 'start';
+    mazePreviousNode = '';
+    mazeVisited = new Set(['start']);
+    mazeWrongTurns = {};
+    mazeCompleted = false;
+    mazeHappy = false;
+    mazePanel.hidden = false;
+    searchScene.hidden = true;
+    letterPlay.hidden = true;
+    root.querySelector('[data-search-target-image]').hidden = true;
+    root.querySelector('[data-search-speak]').hidden = true;
+    searchPrompt.textContent = '';
+    const task = text(`Führe ${mazeFriend.character} zum ${mazeFriend.de}.`, `Guide ${mazeFriend.character} to the ${mazeFriend.en}.`);
+    searchPrompt.setAttribute('aria-label', task);
+    mazeTask.textContent = `${mazeFriend.character}  ➜  ${mazeFriend.goal}`;
+    mazeTask.setAttribute('aria-label', task);
+    mazeListenButton.setAttribute('aria-pressed', String(mazeListen));
+    mazeListenButton.textContent = `🔊 ${mazeListen ? text('Hörmodus an','Listen mode on') : text('Hörmodus aus','Listen mode off')}`;
+    mazeListenButton.disabled = mazeDifficulty === 'hard';
+    root.querySelectorAll('[data-maze-difficulty]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.mazeDifficulty === mazeDifficulty)));
+    mazePanel.focus();
+    drawMaze();
+    if (mazeListen) speakMazeRoute();
+  }
+  function drawMaze() {
+    mazeMap.replaceChildren();
+    mazeMap.setAttribute('aria-label', text(`Labyrinth: ${mazeFriend.character} soll zum ${mazeFriend.de}.`, `Maze: guide ${mazeFriend.character} to the ${mazeFriend.en}.`));
+    const svg = 'http://www.w3.org/2000/svg';
+    const point = node => ({x:50 + mazeNodes[node].col * 100, y:50 + mazeNodes[node].row * 100});
+    const drawnEdges = new Set();
+    Object.entries(mazeNodes).forEach(([node, config]) => Object.values(config.exits).forEach(next => {
+      const key = [node, next].sort().join(':');
+      if (drawnEdges.has(key)) return;
+      drawnEdges.add(key);
+      const start = point(node);
+      const end = point(next);
+      const road = document.createElementNS(svg, 'line');
+      road.setAttribute('x1', String(start.x));
+      road.setAttribute('y1', String(start.y));
+      road.setAttribute('x2', String(end.x));
+      road.setAttribute('y2', String(end.y));
+      road.setAttribute('stroke', '#b6c0cb');
+      road.setAttribute('stroke-width', '24');
+      road.setAttribute('stroke-linecap', 'round');
+      mazeMap.append(road);
+    }));
+    Object.keys(mazeNodes).forEach(node => {
+      const {x,y} = point(node);
+      const circle = document.createElementNS(svg, 'circle');
+      circle.setAttribute('cx', String(x));
+      circle.setAttribute('cy', String(y));
+      circle.setAttribute('r', '20');
+      circle.setAttribute('fill', node === 'goal' ? '#fff3cd' : '#fff');
+      circle.setAttribute('stroke', node === 'goal' ? '#f0ad00' : '#697586');
+      circle.setAttribute('stroke-width', '4');
+      mazeMap.append(circle);
+    });
+    const addIcon = (node, icon, label, offsetX = 0) => {
+      const {x,y} = point(node);
+      const marker = document.createElementNS(svg, 'text');
+      marker.setAttribute('x', String(x + offsetX));
+      marker.setAttribute('y', String(y + 1));
+      marker.setAttribute('text-anchor', 'middle');
+      marker.setAttribute('dominant-baseline', 'central');
+      marker.setAttribute('font-size', '32');
+      marker.setAttribute('aria-label', label);
+      marker.textContent = icon;
+      mazeMap.append(marker);
+    };
+    if (mazeCurrentNode !== 'start') addIcon('start', mazeFriend.character, text('Start','Start'));
+    addIcon('goal', mazeFriend.goal, text('Ziel','Goal'));
+    addIcon(mazeCurrentNode, mazeHappy ? `${mazeFriend.character}😊` : mazeFriend.character, text('Figur','Character'), mazeCurrentNode === 'goal' ? -30 : 0);
+    root.querySelectorAll('[data-maze-direction]').forEach(button => {
+      const key = `${mazeCurrentNode}:${button.dataset.mazeDirection}`;
+      const misses = mazeWrongTurns[key] || 0;
+      button.style.opacity = mazeDifficulty === 'easy' && misses ? String(Math.max(.28, 1 - misses * .24)) : '';
+    });
+  }
+  function fadeMazeChoice(direction) {
+    if (mazeDifficulty !== 'easy') return;
+    const junction = Object.keys(mazeNodes[mazeCurrentNode].exits).length > 1;
+    if (!junction) return;
+    const key = `${mazeCurrentNode}:${direction}`;
+    mazeWrongTurns[key] = (mazeWrongTurns[key] || 0) + 1;
+    drawMaze();
+  }
+  function moveMaze(direction) {
+    if (mazeCompleted) return;
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    const next = mazeNodes[mazeCurrentNode].exits[direction];
+    if (!next) {
+      fadeMazeChoice(direction);
+      if (mazeListen) speakMazeRoute();
+      return;
+    }
+    const previous = mazeCurrentNode;
+    const closerToGoal = mazeDistance(next, 'goal') < mazeDistance(previous, 'goal');
+    const wrongKey = `${mazeCurrentNode}:${direction}`;
+    if (!closerToGoal && next !== mazePreviousNode && (!mazeVisited.has(next) || mazeWrongTurns[wrongKey])) fadeMazeChoice(direction);
+    mazePreviousNode = previous;
+    mazeCurrentNode = next;
+    mazeVisited.add(next);
+    mazeHappy = closerToGoal;
+    drawMaze();
+    if (mazeCurrentNode === 'goal') {
+      mazeCompleted = true;
+      score += 1;
+      setSearchFeedback('right', text('Ihr habt den Weg gefunden!', 'You found the way!'));
+      searchReadyForNext = true;
+      searchNext.hidden = false;
+      searchNext.focus();
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    } else if (mazeListen) speakMazeRoute();
+    window.clearTimeout(mazeHappyTimer);
+    if (mazeHappy && !mazeCompleted) mazeHappyTimer = window.setTimeout(() => { mazeHappy = false; drawMaze(); }, 850);
+  }
+  function findObject(button, item, target, items = searchObjectsInScene) {
     if (searchReadyForNext || button.disabled) return;
     if (item.emoji === target.emoji) {
       button.classList.add('is-found');
       button.disabled = true;
       score += 1;
-      searchFeedback.textContent = text('Gefunden! Gut gemacht! 🌟', 'Found it! Well done! 🌟');
+      setSearchFeedback('right', text('Gefunden! Gut gemacht!', 'Found it! Well done!'));
       searchReadyForNext = true;
       searchNext.hidden = false;
       searchNext.focus();
     } else {
       button.classList.add('is-missed');
-      searchFeedback.textContent = text('Fast! Suche noch einmal. 🔎', 'Almost! Try looking again. 🔎');
-      window.setTimeout(() => button.classList.remove('is-missed'), 500);
+      wrongAttempts += 1;
+      button.dataset.mistakes = String(Number(button.dataset.mistakes || 0) + 1);
+      button.style.opacity = String(Math.max(.12, 1 - Number(button.dataset.mistakes) * .2));
+      setSearchFeedback('wrong', wrongAttempts >= maxWrongAttempts
+        ? text('Schau auf das Bild: Das ist die Lösung.', 'Look at the picture: this is the answer.')
+        : text(`Versuch ${wrongAttempts} von ${maxWrongAttempts}. Suche noch einmal.`, `Try ${wrongAttempts} of ${maxWrongAttempts}. Look again.`));
+      if (wrongAttempts >= maxWrongAttempts) {
+        searchScene.querySelectorAll('button').forEach((option, position) => {
+          option.disabled = true;
+          if (items[position].emoji !== target.emoji) option.hidden = true;
+          else option.classList.add('is-found');
+        });
+        searchReadyForNext = true;
+        searchNext.hidden = false;
+        searchNext.focus();
+      } else window.setTimeout(() => button.classList.remove('is-missed'), 500);
     }
   }
-  function answerLetter(letter) {
-    if (!activeWordCard || searchReadyForNext) return;
-    const correct = letter.toLocaleLowerCase() === activeWordCard.word[activeWordCard.missing].toLocaleLowerCase();
+  function answerSafety(button) {
+    if (searchReadyForNext) return;
+    if (button.dataset.unsafe === 'false') {
+      score += 1;
+      button.classList.add('is-found');
+      searchScene.querySelectorAll('button').forEach(option => { option.disabled = true; });
+      setSearchFeedback('right', text('Richtig und sicher!', 'That is safe!'));
+      searchReadyForNext = true;
+      searchNext.hidden = false;
+      searchNext.focus();
+      return;
+    }
+    wrongAttempts += 1;
+    fadeWrongChoice(button);
+    setSearchFeedback('wrong', wrongAttempts >= maxWrongAttempts
+      ? text('Schau: Das ist die sichere Wahl.', 'Look: this is the safe choice.')
+      : text(`Versuch ${wrongAttempts} von ${maxWrongAttempts}.`, `Try ${wrongAttempts} of ${maxWrongAttempts}.`));
+    if (wrongAttempts >= maxWrongAttempts) {
+      searchScene.querySelectorAll('button').forEach(option => {
+        option.disabled = true;
+        if (option.dataset.unsafe === 'false') option.classList.add('is-found');
+        else option.hidden = true;
+      });
+      searchReadyForNext = true;
+      searchNext.hidden = false;
+      searchNext.focus();
+    }
+  }
+  function answerLetter(letter, selectedButton = null) {
+    if (!activeWordCard || searchReadyForNext) return false;
+    const normalizedLetter = letter.toLocaleLowerCase();
+    const button = selectedButton || [...letterChoices.querySelectorAll('button')]
+      .find(option => option.textContent.toLocaleLowerCase() === normalizedLetter);
+    if (!button || button.disabled) return false;
+    const correct = normalizedLetter === activeWordCard.word[activeWordCard.missing].toLocaleLowerCase();
     if (correct) {
       score += 1;
       const displayed = activeWordCard.word.split('');
-      displayed[activeWordCard.missing] = displayed[activeWordCard.missing].toLocaleUpperCase();
+      displayed.forEach((letter, position) => { displayed[position] = letter.toLocaleUpperCase(); });
       root.querySelector('[data-letter-word]').textContent = displayed.join(' ');
       letterChoices.querySelectorAll('button').forEach(button => {
         button.disabled = true;
-        if (button.textContent.toLocaleLowerCase() === letter.toLocaleLowerCase()) button.classList.add('is-correct');
+        if (button.textContent.toLocaleLowerCase() === normalizedLetter) button.classList.add('is-correct');
       });
-      searchFeedback.textContent = text('Richtig! Das Wort heißt: ', 'That’s right! The word is: ') + activeWordCard.word + ' 🌟';
+      setSearchFeedback('right', text('Richtig! Das Wort heißt: ', 'That’s right! The word is: ') + activeWordCard.word.toLocaleUpperCase());
+      root.querySelector('[data-search-speak]').setAttribute('aria-label', text('Wort noch einmal anhören', 'Listen to the word again'));
+      speak(activeWordCard.word, 'de-DE');
       searchReadyForNext = true;
       searchNext.hidden = false;
       searchNext.focus();
     } else {
-      searchFeedback.textContent = text('Guter Versuch! Probier einen anderen Buchstaben.', 'Good try! Choose another letter.');
+      wrongAttempts += 1;
+      fadeWrongChoice(button);
+      setSearchFeedback('wrong', wrongAttempts >= maxWrongAttempts
+        ? text(`Die Lösung ist ${activeWordCard.word[activeWordCard.missing].toLocaleUpperCase()}.`, `The missing letter is ${activeWordCard.word[activeWordCard.missing].toLocaleUpperCase()}.`)
+        : text(`Versuch ${wrongAttempts} von ${maxWrongAttempts}. Probier es noch einmal.`, `Try ${wrongAttempts} of ${maxWrongAttempts}. Try again.`));
+      letterChoices.querySelector('button:not(:disabled):not(.is-correct)')?.focus();
+      if (wrongAttempts >= maxWrongAttempts) {
+        const revealed = activeWordCard.word.toLocaleUpperCase();
+        root.querySelector('[data-letter-word]').textContent = revealed.split('').join(' ');
+        letterChoices.querySelectorAll('button').forEach(option => {
+          option.disabled = true;
+          if (option.textContent.toLocaleLowerCase() === activeWordCard.word[activeWordCard.missing].toLocaleLowerCase()) option.classList.add('is-correct');
+          else option.hidden = true;
+        });
+        root.querySelector('[data-search-speak]').onclick = () => speak(activeWordCard.word, 'de-DE');
+        setSearchFeedback('wrong', text(`Die Lösung ist ${revealed}.`, `The answer is ${revealed}.`));
+        searchReadyForNext = true;
+        searchNext.hidden = false;
+        searchNext.focus();
+      }
     }
+    return true;
   }
   function finishSearch() {
     searchGame.hidden = true;
     result.hidden = false;
     root.querySelector('[data-result-title]').textContent = text('Toll gesucht! 🎉', 'Great searching! 🎉');
     root.querySelector('[data-result-copy]').textContent = text(`Du hast ${score} von 3 Aufgaben geschafft.`, `You completed ${score} of 3 tasks.`);
+    root.querySelector('[data-result-icon]').textContent = score === 3 ? '🌼😊' : '😟';
     root.querySelector('[data-result-title]').focus();
   }
   function showQuestion() {
     const item = questions[index];
+    wrongAttempts = 0;
     progress.textContent = text(`Frage ${index + 1} von ${questions.length}`, `Question ${index + 1} of ${questions.length}`);
-    questionNode.textContent = item.q;
+    questionNode.textContent = item.visual || item.q;
+    if (item.visual) questionNode.setAttribute('aria-label', item.q);
+    else questionNode.removeAttribute('aria-label');
     questionNode.focus();
-    feedback.textContent = '';
+    setQuizFeedback('', '');
     root.querySelector('[data-next]').hidden = true;
-    speakButton.hidden = !item.speak;
+    speakButton.hidden = !item.speak && !item.audioPrompt;
+    speakButton.onclick = () => speak(item.audioPrompt || item.speak, item.promptLang || item.speechLang || 'en-US');
+    if (item.audioPrompt) speak(item.audioPrompt, item.promptLang || item.speechLang || 'en-US');
     choicesNode.replaceChildren();
     shuffle(item.c).forEach(choice => {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'kids-learning-choice';
-      button.textContent = choice;
+      button.dataset.answer = String(choice);
+      button.textContent = item.choiceImages?.[choice] || choice;
+      if (item.choiceImages?.[choice]) button.setAttribute('aria-label', choice);
       button.addEventListener('click', () => answer(button, choice, item));
       choicesNode.append(button);
     });
   }
   function answer(button, choice, item) {
-    if (choicesNode.querySelector('button:disabled')) return;
+    if (choicesNode.querySelector('button.is-correct')) return;
     const correct = choice === item.a;
-    if (correct) score += 1;
-    choicesNode.querySelectorAll('button').forEach(option => {
-      option.disabled = true;
-      if (option.textContent === item.a) option.classList.add('is-correct');
-    });
-    if (!correct) button.classList.add('is-wrong');
-    feedback.textContent = correct
-      ? text('Richtig! Super gemacht! 🌟', 'That’s right! Well done! 🌟')
-      : text(`Gute Idee! Richtig ist: ${item.a}`, `Good try! The answer is: ${item.a}`);
-    root.querySelector('[data-next]').hidden = false;
-    if (item.speak) speak(item.speak);
+    if (correct) {
+      score += 1;
+      choicesNode.querySelectorAll('button').forEach(option => {
+        option.disabled = true;
+        if (option.dataset.answer === String(item.a)) option.classList.add('is-correct');
+      });
+      setQuizFeedback('right', text('Richtig! Super gemacht!', 'That’s right! Well done!'));
+      root.querySelector('[data-next]').hidden = false;
+      if (item.speak) {
+        speakButton.onclick = () => speak(item.speak, item.speechLang || 'en-US');
+        speak(item.speak, item.speechLang || 'en-US');
+      }
+    } else {
+      wrongAttempts += 1;
+      fadeWrongChoice(button);
+      setQuizFeedback('wrong', wrongAttempts >= maxWrongAttempts
+        ? text(`Versuch ${wrongAttempts} von ${maxWrongAttempts}. Jetzt siehst du die Lösung.`, `Try ${wrongAttempts} of ${maxWrongAttempts}. Here is the answer.`)
+        : text(`Versuch ${wrongAttempts} von ${maxWrongAttempts}. Probier es noch einmal.`, `Try ${wrongAttempts} of ${maxWrongAttempts}. Try again.`));
+      if (wrongAttempts >= maxWrongAttempts) revealQuizAnswer(item);
+    }
   }
-  function speak(word) {
+  function speak(word, language = 'en-US') {
     if (!('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) {
-      feedback.textContent = text('Die Vorlesestimme ist auf diesem Gerät nicht verfügbar.', 'A read-aloud voice is not available on this device.');
+      const message = text('Die Vorlesestimme ist auf diesem Gerät nicht verfügbar.', 'A read-aloud voice is not available on this device.');
+      if (searchGame.hidden) setQuizFeedback('', message);
+      else setSearchFeedback('', message);
       return;
     }
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(word);
-    utterance.lang = 'en-US';
+    utterance.lang = language;
     window.speechSynthesis.speak(utterance);
   }
   function showSetup() {
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    window.clearTimeout(mazeHappyTimer);
     game.hidden = true;
     searchGame.hidden = true;
     searchModes.hidden = true;
     result.hidden = true;
     setup.hidden = false;
+    mazePanel.hidden = true;
     root.querySelector('#kids-learning-level-heading').focus();
   }
 
@@ -441,6 +847,41 @@
     else start(button.dataset.subject);
   }));
   root.querySelectorAll('[data-search-mode]').forEach(button => button.addEventListener('click', () => startSearch(button.dataset.searchMode)));
+  root.querySelectorAll('[data-maze-difficulty]').forEach(button => button.addEventListener('click', () => {
+    if (mazeCompleted) return;
+    mazeDifficulty = button.dataset.mazeDifficulty;
+    if (mazeDifficulty === 'hard') {
+      mazeListen = false;
+      mazeListenButton.setAttribute('aria-pressed', 'false');
+      mazeListenButton.textContent = `🔊 ${text('Hörmodus aus','Listen mode off')}`;
+      mazeListenButton.disabled = true;
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    } else mazeListenButton.disabled = false;
+    mazeCurrentNode = 'start';
+      mazePreviousNode = '';
+    mazeVisited = new Set(['start']);
+    mazeWrongTurns = {};
+    mazeHappy = false;
+    root.querySelectorAll('[data-maze-difficulty]').forEach(option => option.setAttribute('aria-pressed', String(option === button)));
+    drawMaze();
+    mazePanel.focus();
+  }));
+  mazeListenButton.addEventListener('click', () => {
+    if (mazeDifficulty === 'hard' || mazeCompleted) return;
+    mazeListen = !mazeListen;
+    mazeListenButton.setAttribute('aria-pressed', String(mazeListen));
+    mazeListenButton.textContent = `🔊 ${mazeListen ? text('Hörmodus an','Listen mode on') : text('Hörmodus aus','Listen mode off')}`;
+    if (mazeListen) speakMazeRoute();
+    else if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+  });
+  root.querySelectorAll('[data-maze-direction]').forEach(button => button.addEventListener('click', () => moveMaze(button.dataset.mazeDirection)));
+  root.addEventListener('keydown', event => {
+    if (selectedSearchMode !== 'maze' || searchGame.hidden || !mazePanel.contains(document.activeElement)) return;
+    const direction = {ArrowUp:'up',ArrowRight:'right',ArrowDown:'down',ArrowLeft:'left'}[event.key];
+    if (!direction) return;
+    event.preventDefault();
+    moveMaze(direction);
+  });
   root.querySelector('[data-search-modes-back]').addEventListener('click', showSetup);
   root.querySelector('[data-search-back]').addEventListener('click', showSetup);
   searchNext.addEventListener('click', () => {
@@ -463,8 +904,7 @@
     if (searchGame.hidden || selectedSearchMode !== 'letters' || !letterGameHasFocus
         || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || event.isComposing
         || !/^[a-z]$/i.test(event.key)) return;
-    event.preventDefault();
-    answerLetter(event.key);
+    if (answerLetter(event.key)) event.preventDefault();
   });
   root.querySelector('[data-next]').addEventListener('click', () => {
     index += 1;
@@ -474,12 +914,9 @@
       result.hidden = false;
       root.querySelector('[data-result-title]').textContent = text('Toll gespielt! 🎉', 'Great playing! 🎉');
       root.querySelector('[data-result-copy]').textContent = text(`Du hast ${score} von ${questions.length} Fragen richtig beantwortet.`, `You got ${score} out of ${questions.length} questions right.`);
+      root.querySelector('[data-result-icon]').textContent = score === questions.length ? '🌼😊' : '😟';
       root.querySelector('[data-result-title]').focus();
     }
-  });
-  root.querySelector('[data-speak]').addEventListener('click', () => {
-    const item = questions[index];
-    if (item && item.speak) speak(item.speak);
   });
   root.querySelector('[data-back]').addEventListener('click', showSetup);
   root.querySelector('[data-result-back]').addEventListener('click', showSetup);
