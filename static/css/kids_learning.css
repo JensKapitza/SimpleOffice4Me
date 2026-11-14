@@ -11,6 +11,16 @@
 .kids-learning-level:focus-visible,.kids-learning-subject:focus-visible,.kids-learning-choice:focus-visible,.kids-search-object:focus-visible{outline:4px solid var(--bs-warning);outline-offset:2px}
 .kids-learning-game,.kids-learning-result,.kids-learning-search-game{border-radius:1.25rem}
 .kids-learning-search-modes-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.8rem}
+.kids-learning-maze-options{display:flex;flex-wrap:wrap;gap:.6rem;justify-content:center}
+.kids-learning-maze-task{text-align:center;font-size:2.4rem;min-height:1.3em;margin:.5rem 0}
+.kids-maze-map{display:block;width:min(100%,420px);height:auto;margin-inline:auto;border:3px solid var(--bs-border-color);border-radius:1rem;background:#f8f5ed}
+.kids-maze-controls{display:grid;grid-template-columns:repeat(3,minmax(70px,88px));grid-template-rows:repeat(2,76px);justify-content:center;gap:.45rem;margin:1rem auto}
+.kids-maze-direction{min-height:70px;border:3px solid var(--bs-primary);border-radius:1rem;background:var(--bs-primary-bg-subtle);font-size:2rem;touch-action:manipulation;transition:opacity .3s ease}
+.kids-maze-direction[data-maze-direction=up]{grid-column:2;grid-row:1}
+.kids-maze-direction[data-maze-direction=left]{grid-column:1;grid-row:2}
+.kids-maze-direction[data-maze-direction=down]{grid-column:2;grid-row:2}
+.kids-maze-direction[data-maze-direction=right]{grid-column:3;grid-row:2}
+.kids-maze-direction:focus-visible{outline:4px solid var(--bs-warning);outline-offset:2px}
 .kids-search-target-image,.kids-search-word-image{display:inline-block;font-size:3rem;line-height:1.3}
 .kids-search-scene{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.6rem;padding:.75rem;border:3px solid var(--bs-border-color);border-radius:1rem;background:var(--bs-primary-bg-subtle)}
 .kids-search-object{min-height:84px;border:3px solid var(--bs-border-color);border-radius:1rem;background:var(--bs-body-bg);font-size:2.5rem;touch-action:manipulation}
@@ -39,4 +49,4 @@
 .kids-learning-result-icon{font-size:4rem;line-height:1.3}
 .kids-speak-button{min-height:56px;touch-action:manipulation}
 @media(max-width:575.98px){.kids-learning-levels{grid-template-columns:repeat(2,minmax(0,1fr))}.kids-learning-subjects{grid-template-columns:repeat(2,minmax(0,1fr))}.kids-learning-subject{min-height:125px}.kids-learning-choice{min-height:70px}.kids-search-object{min-height:70px;font-size:2rem}.kids-search-scene{gap:.4rem;padding:.5rem}}
-@media(prefers-reduced-motion:reduce){.kids-learning-choice.is-wrong,.kids-search-object.is-wrong{transition:none}.kids-search-object.is-missed{animation:none}}
+@media(prefers-reduced-motion:reduce){.kids-learning-choice.is-wrong,.kids-search-object.is-wrong,.kids-maze-direction{transition:none}.kids-search-object.is-missed{animation:none}}

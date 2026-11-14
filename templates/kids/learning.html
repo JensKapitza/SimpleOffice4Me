@@ -35,6 +35,7 @@
       <button type="button" class="kids-learning-subject" data-search-mode="letters"><span aria-hidden="true">🔤</span><strong>{{ 'German letters and words' if g.language == 'en' else 'Buchstaben & Wörter' }}</strong><small>{{ 'Complete the German word to match the picture.' if g.language == 'en' else 'Ergänze das Wort passend zum Bild.' }}</small></button>
       <button type="button" class="kids-learning-subject" data-search-mode="directions"><span aria-hidden="true">⬅️➡️</span><strong>{{ 'Find the arrow' if g.language == 'en' else 'Pfeile finden' }}</strong><small>{{ 'Look and listen, then find the matching arrow.' if g.language == 'en' else 'Schau und höre: Finde den passenden Pfeil.' }}</small></button>
       <button type="button" class="kids-learning-subject" data-search-mode="safety"><span aria-hidden="true">🚦</span><strong>{{ 'Road safety' if g.language == 'en' else 'Sicher im Verkehr' }}</strong><small>{{ 'Choose the safe picture.' if g.language == 'en' else 'Wähle das sichere Bild.' }}</small></button>
+      <button type="button" class="kids-learning-subject" data-search-mode="maze"><span aria-hidden="true">🐶🦴</span><strong>{{ 'Find the way' if g.language == 'en' else 'Finde den Weg' }}</strong><small>{{ 'Guide a friend through the maze.' if g.language == 'en' else 'Führe eine Figur durchs Labyrinth.' }}</small></button>
     </div>
     <button type="button" class="btn btn-outline-secondary btn-lg mt-3" data-search-modes-back>{{ 'Choose another game' if g.language == 'en' else 'Anderes Spiel wählen' }}</button>
   </section>
@@ -50,6 +51,21 @@
       <span class="kids-learning-feedback-icon" data-search-icon aria-hidden="true" hidden></span>
       <span class="kids-search-target-image mt-2" data-search-target-image aria-hidden="true" hidden></span>
       <div class="kids-search-scene mt-4" data-search-scene role="group" aria-label="{{ 'Picture with objects to find' if g.language == 'en' else 'Wimmelbild mit Suchgegenständen' }}" hidden></div>
+      <div class="kids-learning-maze mt-3" data-maze-panel tabindex="-1" hidden>
+        <p class="kids-learning-maze-task" data-maze-task></p>
+        <div class="kids-learning-maze-options" role="group" aria-label="{{ 'Maze options' if g.language == 'en' else 'Labyrinth-Einstellungen' }}">
+          <button type="button" class="btn btn-outline-primary btn-lg" data-maze-difficulty="easy" aria-pressed="true">🐢 {{ 'Easy' if g.language == 'en' else 'Leicht' }}</button>
+          <button type="button" class="btn btn-outline-primary btn-lg" data-maze-difficulty="hard" aria-pressed="false">🐇 {{ 'Hard' if g.language == 'en' else 'Schwer' }}</button>
+          <button type="button" class="btn btn-outline-primary btn-lg" data-maze-listen aria-pressed="false">🔊 {{ 'Listen mode off' if g.language == 'en' else 'Hörmodus aus' }}</button>
+        </div>
+        <svg class="kids-maze-map mt-3" data-maze-map viewBox="0 0 400 400" role="img" aria-label="{{ 'Maze path' if g.language == 'en' else 'Labyrinthweg' }}"></svg>
+        <div class="kids-maze-controls" data-maze-controls role="group" aria-label="{{ 'Choose a direction' if g.language == 'en' else 'Richtung auswählen' }}">
+          <button type="button" class="kids-maze-direction" data-maze-direction="up" aria-label="{{ 'Up' if g.language == 'en' else 'Nach oben' }}">⬆️</button>
+          <button type="button" class="kids-maze-direction" data-maze-direction="left" aria-label="{{ 'Left' if g.language == 'en' else 'Nach links' }}">⬅️</button>
+          <button type="button" class="kids-maze-direction" data-maze-direction="down" aria-label="{{ 'Down' if g.language == 'en' else 'Nach unten' }}">⬇️</button>
+          <button type="button" class="kids-maze-direction" data-maze-direction="right" aria-label="{{ 'Right' if g.language == 'en' else 'Nach rechts' }}">➡️</button>
+        </div>
+      </div>
       <div class="kids-search-letters mt-3" data-letter-play hidden>
         <span class="kids-search-word-image" data-letter-image aria-hidden="true"></span>
         <strong class="kids-search-word" data-letter-word></strong>

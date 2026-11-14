@@ -191,6 +191,22 @@
     {prompt:text('Du gehst über die Straße. Was ist sicher?','You cross the road. What is safe?'), image:'🚸', choices:[['👀','Schauen und warten',false],['📱','Auf das Handy schauen',true]]}
   ];
   const arrowCards = [['⬆️','oben','up'],['➡️','rechts','right'],['⬇️','unten','down'],['⬅️','links','left']].map(([emoji,de,en])=>({emoji,name:text(de,en)}));
+  const mazeNodes = {
+    start:{col:0,row:1,exits:{right:'crossA'}},
+    crossA:{col:1,row:1,exits:{left:'start',up:'deadTop',down:'crossB'}},
+    deadTop:{col:1,row:0,exits:{down:'crossA'}},
+    crossB:{col:1,row:2,exits:{up:'crossA',left:'deadLeft',right:'crossC'}},
+    deadLeft:{col:0,row:2,exits:{right:'crossB'}},
+    crossC:{col:2,row:2,exits:{left:'crossB',right:'goal',down:'deadBottom'}},
+    goal:{col:3,row:2,exits:{left:'crossC'}},
+    deadBottom:{col:2,row:3,exits:{up:'crossC',right:'deadEnd'}},
+    deadEnd:{col:3,row:3,exits:{left:'deadBottom'}}
+  };
+  const mazeFriends = [
+    {character:'🐶',goal:'🦴',de:'Knochen',en:'bone'},
+    {character:'🐝',goal:'🍯',de:'Bienenstock',en:'beehive'},
+    {character:'🐱',goal:'🛏️',de:'Bett',en:'bed'}
+  ];
   const searchObjects = {
     preschool: [
       ['Apfel','Apple','🍎'],['Ball','Ball','⚽'],['Katze','Cat','🐱'],['Sonne','Sun','☀️'],['Fisch','Fish','🐟'],['Haus','House','🏠'],
@@ -244,6 +260,10 @@
   const searchGame = root.querySelector('[data-search-game]');
   const searchScene = root.querySelector('[data-search-scene]');
   const searchPrompt = root.querySelector('[data-search-prompt]');
+  const mazePanel = root.querySelector('[data-maze-panel]');
+  const mazeMap = root.querySelector('[data-maze-map]');
+  const mazeTask = root.querySelector('[data-maze-task]');
+  const mazeListenButton = root.querySelector('[data-maze-listen]');
   const searchNext = root.querySelector('[data-search-next]');
   const letterPlay = root.querySelector('[data-letter-play]');
   const letterChoices = root.querySelector('[data-letter-choices]');
@@ -264,6 +284,16 @@
   let activeWordCard = null;
   let searchReadyForNext = false;
   let wrongAttempts = 0;
+  let mazeCurrentNode = 'start';
+  let mazePreviousNode = '';
+  let mazeDifficulty = 'easy';
+  let mazeListen = false;
+  let mazeCompleted = false;
+  let mazeFriend = mazeFriends[0];
+  let mazeVisited = new Set();
+  let mazeWrongTurns = {};
+  let mazeHappy = false;
+  let mazeHappyTimer = 0;
   const maxWrongAttempts = 5;
 
   function setQuizFeedback(kind, message) {
@@ -310,6 +340,7 @@
     selectedSubject = subject;
     searchModes.hidden = true;
     searchGame.hidden = true;
+    mazePanel.hidden = true;
     questions = shuffle(bank[selectedLevel][subject]).slice(0, 3);
     index = 0;
     score = 0;
@@ -326,6 +357,7 @@
     game.hidden = true;
     result.hidden = true;
     searchGame.hidden = true;
+    mazePanel.hidden = true;
     searchModes.hidden = false;
     root.querySelector('[data-search-mode="objects"]').focus();
   }
@@ -353,6 +385,10 @@
       searchTargets = shuffle(wordCards[selectedLevel]).slice(0, 3);
     } else if (mode === 'directions') {
       searchTargets = shuffle(arrowCards).slice(0, 3);
+    } else if (mode === 'maze') {
+      searchTargets = mazeFriends;
+      mazeDifficulty = 'easy';
+      mazeListen = false;
     } else {
       searchTargets = safetyCards;
     }
@@ -365,6 +401,11 @@
     setSearchFeedback('', '');
     root.querySelector('[data-search-speak]').setAttribute('aria-label', text('Aufgabe anhören', 'Listen to the question'));
     root.querySelector('[data-search-progress]').textContent = text(`Runde ${searchIndex + 1} von 3`, `Round ${searchIndex + 1} of 3`);
+    mazePanel.hidden = true;
+    if (selectedSearchMode === 'maze') {
+      showMazeRound();
+      return;
+    }
     if (selectedSearchMode === 'objects' || selectedSearchMode === 'directions') {
       const target = searchTargets[searchIndex];
       const spokenPrompt = selectedSearchMode === 'directions'
@@ -450,6 +491,167 @@
         searchScene.append(button);
       });
     }
+  }
+  function mazeDistance(from, goal) {
+    const queue = [[from, 0]];
+    const seen = new Set([from]);
+    while (queue.length) {
+      const [node, distance] = queue.shift();
+      if (node === goal) return distance;
+      Object.values(mazeNodes[node].exits).forEach(next => {
+        if (!seen.has(next)) {
+          seen.add(next);
+          queue.push([next, distance + 1]);
+        }
+      });
+    }
+    return Infinity;
+  }
+  function mazeRoute(from = mazeCurrentNode) {
+    const queue = [[from, []]];
+    const seen = new Set([from]);
+    while (queue.length) {
+      const [node, path] = queue.shift();
+      if (node === 'goal') return path;
+      Object.entries(mazeNodes[node].exits).forEach(([direction, next]) => {
+        if (!seen.has(next)) {
+          seen.add(next);
+          queue.push([next, [...path, direction]]);
+        }
+      });
+    }
+    return [];
+  }
+  function mazeDirectionName(direction) {
+    return text({up:'oben',right:'rechts',down:'unten',left:'links'}[direction], direction);
+  }
+  function speakMazeRoute() {
+    const route = mazeRoute();
+    if (!route.length) return;
+    const directions = route.map(mazeDirectionName);
+    const instructions = english
+      ? `Go ${directions.join(', then ')}.`
+      : `Gehe ${directions.map((direction, position) => position ? `dann nach ${direction}` : `nach ${direction}`).join(', ')}.`;
+    speak(instructions, english ? 'en-US' : 'de-DE');
+  }
+  function showMazeRound() {
+    window.clearTimeout(mazeHappyTimer);
+    mazeFriend = searchTargets[searchIndex];
+    mazeCurrentNode = 'start';
+    mazePreviousNode = '';
+    mazeVisited = new Set(['start']);
+    mazeWrongTurns = {};
+    mazeCompleted = false;
+    mazeHappy = false;
+    mazePanel.hidden = false;
+    searchScene.hidden = true;
+    letterPlay.hidden = true;
+    root.querySelector('[data-search-target-image]').hidden = true;
+    root.querySelector('[data-search-speak]').hidden = true;
+    searchPrompt.textContent = '';
+    const task = text(`Führe ${mazeFriend.character} zum ${mazeFriend.de}.`, `Guide ${mazeFriend.character} to the ${mazeFriend.en}.`);
+    searchPrompt.setAttribute('aria-label', task);
+    mazeTask.textContent = `${mazeFriend.character}  ➜  ${mazeFriend.goal}`;
+    mazeTask.setAttribute('aria-label', task);
+    mazeListenButton.setAttribute('aria-pressed', String(mazeListen));
+    mazeListenButton.textContent = `🔊 ${mazeListen ? text('Hörmodus an','Listen mode on') : text('Hörmodus aus','Listen mode off')}`;
+    mazeListenButton.disabled = mazeDifficulty === 'hard';
+    root.querySelectorAll('[data-maze-difficulty]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.mazeDifficulty === mazeDifficulty)));
+    mazePanel.focus();
+    drawMaze();
+    if (mazeListen) speakMazeRoute();
+  }
+  function drawMaze() {
+    mazeMap.replaceChildren();
+    mazeMap.setAttribute('aria-label', text(`Labyrinth: ${mazeFriend.character} soll zum ${mazeFriend.de}.`, `Maze: guide ${mazeFriend.character} to the ${mazeFriend.en}.`));
+    const svg = 'http://www.w3.org/2000/svg';
+    const point = node => ({x:50 + mazeNodes[node].col * 100, y:50 + mazeNodes[node].row * 100});
+    const drawnEdges = new Set();
+    Object.entries(mazeNodes).forEach(([node, config]) => Object.values(config.exits).forEach(next => {
+      const key = [node, next].sort().join(':');
+      if (drawnEdges.has(key)) return;
+      drawnEdges.add(key);
+      const start = point(node);
+      const end = point(next);
+      const road = document.createElementNS(svg, 'line');
+      road.setAttribute('x1', String(start.x));
+      road.setAttribute('y1', String(start.y));
+      road.setAttribute('x2', String(end.x));
+      road.setAttribute('y2', String(end.y));
+      road.setAttribute('stroke', '#b6c0cb');
+      road.setAttribute('stroke-width', '24');
+      road.setAttribute('stroke-linecap', 'round');
+      mazeMap.append(road);
+    }));
+    Object.keys(mazeNodes).forEach(node => {
+      const {x,y} = point(node);
+      const circle = document.createElementNS(svg, 'circle');
+      circle.setAttribute('cx', String(x));
+      circle.setAttribute('cy', String(y));
+      circle.setAttribute('r', '20');
+      circle.setAttribute('fill', node === 'goal' ? '#fff3cd' : '#fff');
+      circle.setAttribute('stroke', node === 'goal' ? '#f0ad00' : '#697586');
+      circle.setAttribute('stroke-width', '4');
+      mazeMap.append(circle);
+    });
+    const addIcon = (node, icon, label, offsetX = 0) => {
+      const {x,y} = point(node);
+      const marker = document.createElementNS(svg, 'text');
+      marker.setAttribute('x', String(x + offsetX));
+      marker.setAttribute('y', String(y + 1));
+      marker.setAttribute('text-anchor', 'middle');
+      marker.setAttribute('dominant-baseline', 'central');
+      marker.setAttribute('font-size', '32');
+      marker.setAttribute('aria-label', label);
+      marker.textContent = icon;
+      mazeMap.append(marker);
+    };
+    if (mazeCurrentNode !== 'start') addIcon('start', mazeFriend.character, text('Start','Start'));
+    addIcon('goal', mazeFriend.goal, text('Ziel','Goal'));
+    addIcon(mazeCurrentNode, mazeHappy ? `${mazeFriend.character}😊` : mazeFriend.character, text('Figur','Character'), mazeCurrentNode === 'goal' ? -30 : 0);
+    root.querySelectorAll('[data-maze-direction]').forEach(button => {
+      const key = `${mazeCurrentNode}:${button.dataset.mazeDirection}`;
+      const misses = mazeWrongTurns[key] || 0;
+      button.style.opacity = mazeDifficulty === 'easy' && misses ? String(Math.max(.28, 1 - misses * .24)) : '';
+    });
+  }
+  function fadeMazeChoice(direction) {
+    if (mazeDifficulty !== 'easy') return;
+    const junction = Object.keys(mazeNodes[mazeCurrentNode].exits).length > 1;
+    if (!junction) return;
+    const key = `${mazeCurrentNode}:${direction}`;
+    mazeWrongTurns[key] = (mazeWrongTurns[key] || 0) + 1;
+    drawMaze();
+  }
+  function moveMaze(direction) {
+    if (mazeCompleted) return;
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    const next = mazeNodes[mazeCurrentNode].exits[direction];
+    if (!next) {
+      fadeMazeChoice(direction);
+      if (mazeListen) speakMazeRoute();
+      return;
+    }
+    const previous = mazeCurrentNode;
+    const closerToGoal = mazeDistance(next, 'goal') < mazeDistance(previous, 'goal');
+    const wrongKey = `${mazeCurrentNode}:${direction}`;
+    if (!closerToGoal && next !== mazePreviousNode && (!mazeVisited.has(next) || mazeWrongTurns[wrongKey])) fadeMazeChoice(direction);
+    mazePreviousNode = previous;
+    mazeCurrentNode = next;
+    mazeVisited.add(next);
+    mazeHappy = closerToGoal;
+    drawMaze();
+    if (mazeCurrentNode === 'goal') {
+      mazeCompleted = true;
+      score += 1;
+      setSearchFeedback('right', text('Ihr habt den Weg gefunden!', 'You found the way!'));
+      searchReadyForNext = true;
+      searchNext.hidden = false;
+      searchNext.focus();
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    } else if (mazeListen) speakMazeRoute();
+    window.clearTimeout(mazeHappyTimer);
+    if (mazeHappy && !mazeCompleted) mazeHappyTimer = window.setTimeout(() => { mazeHappy = false; drawMaze(); }, 850);
   }
   function findObject(button, item, target, items = searchObjectsInScene) {
     if (searchReadyForNext || button.disabled) return;
@@ -626,11 +828,13 @@
   }
   function showSetup() {
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    window.clearTimeout(mazeHappyTimer);
     game.hidden = true;
     searchGame.hidden = true;
     searchModes.hidden = true;
     result.hidden = true;
     setup.hidden = false;
+    mazePanel.hidden = true;
     root.querySelector('#kids-learning-level-heading').focus();
   }
 
@@ -643,6 +847,41 @@
     else start(button.dataset.subject);
   }));
   root.querySelectorAll('[data-search-mode]').forEach(button => button.addEventListener('click', () => startSearch(button.dataset.searchMode)));
+  root.querySelectorAll('[data-maze-difficulty]').forEach(button => button.addEventListener('click', () => {
+    if (mazeCompleted) return;
+    mazeDifficulty = button.dataset.mazeDifficulty;
+    if (mazeDifficulty === 'hard') {
+      mazeListen = false;
+      mazeListenButton.setAttribute('aria-pressed', 'false');
+      mazeListenButton.textContent = `🔊 ${text('Hörmodus aus','Listen mode off')}`;
+      mazeListenButton.disabled = true;
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    } else mazeListenButton.disabled = false;
+    mazeCurrentNode = 'start';
+      mazePreviousNode = '';
+    mazeVisited = new Set(['start']);
+    mazeWrongTurns = {};
+    mazeHappy = false;
+    root.querySelectorAll('[data-maze-difficulty]').forEach(option => option.setAttribute('aria-pressed', String(option === button)));
+    drawMaze();
+    mazePanel.focus();
+  }));
+  mazeListenButton.addEventListener('click', () => {
+    if (mazeDifficulty === 'hard' || mazeCompleted) return;
+    mazeListen = !mazeListen;
+    mazeListenButton.setAttribute('aria-pressed', String(mazeListen));
+    mazeListenButton.textContent = `🔊 ${mazeListen ? text('Hörmodus an','Listen mode on') : text('Hörmodus aus','Listen mode off')}`;
+    if (mazeListen) speakMazeRoute();
+    else if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+  });
+  root.querySelectorAll('[data-maze-direction]').forEach(button => button.addEventListener('click', () => moveMaze(button.dataset.mazeDirection)));
+  root.addEventListener('keydown', event => {
+    if (selectedSearchMode !== 'maze' || searchGame.hidden || !mazePanel.contains(document.activeElement)) return;
+    const direction = {ArrowUp:'up',ArrowRight:'right',ArrowDown:'down',ArrowLeft:'left'}[event.key];
+    if (!direction) return;
+    event.preventDefault();
+    moveMaze(direction);
+  });
   root.querySelector('[data-search-modes-back]').addEventListener('click', showSetup);
   root.querySelector('[data-search-back]').addEventListener('click', showSetup);
   searchNext.addEventListener('click', () => {
