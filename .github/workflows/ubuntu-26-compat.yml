@@ -51,7 +51,7 @@ jobs:
       - name: Install project
         run: |
           python -m pip install --require-hashes --upgrade -r requirements-ci-pip.txt
-          python -m pip install --editable ".[security,sftp]"
+          python -m pip install --editable ".[security,sftp,test]"
       - name: Run policy, compile and unit-test gates
         run: |
           python tools/check_project_policy.py .

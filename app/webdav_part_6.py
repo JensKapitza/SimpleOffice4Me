@@ -495,6 +495,7 @@ def file_tree(username: str, relative_path: str):
         return _download_response(
             resource, username, document,
             mimetypes.guess_type(resource.name)[0] or "application/octet-stream",
+            managed_root=_store().root,
         )
 
     key = _lock_key(resource, document)
@@ -748,7 +749,13 @@ def endpoint(path: str):
                 raise
             response.call_on_close(lambda: materialized.__exit__(None, None, None))
             return response
-        return _download_response(document_path, username, document, "application/octet-stream")
+        return _download_response(
+            document_path,
+            username,
+            document,
+            "application/octet-stream",
+            managed_root=_store().root,
+        )
     if request.method == "LOCK":
         response = _lock_request(username, document_path, document, request.url)
         response.headers.update(common_headers)

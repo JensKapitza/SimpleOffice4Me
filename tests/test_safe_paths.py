@@ -4,6 +4,7 @@ from pathlib import Path
 
 from app.safe_paths import (
     normalize_path,
+    open_file_under,
     relative_under,
     resolve_directory_under,
     resolve_file_under,
@@ -103,6 +104,31 @@ class SafePathsTest(unittest.TestCase):
                 resolve_file_under(root, "folder")
             with self.assertRaises(ValueError):
                 resolve_directory_under(root, "folder/file.txt")
+
+    def test_open_file_under_keeps_reads_on_checked_contained_file(self):
+        with tempfile.TemporaryDirectory() as temp, tempfile.TemporaryDirectory() as outside:
+            root = Path(temp)
+            target = root / "inside.txt"
+            target.write_bytes(b"inside")
+            with open_file_under(root, "inside.txt") as handle:
+                self.assertEqual(b"inside", handle.read())
+            internal_link = root / "internal-link.txt"
+            try:
+                internal_link.symlink_to(target)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlinks are unavailable on this platform")
+            with self.assertRaises((OSError, ValueError)):
+                open_file_under(root, "internal-link.txt")
+
+            outside_file = Path(outside) / "secret.txt"
+            outside_file.write_bytes(b"outside-secret")
+            link = root / "escape.txt"
+            try:
+                link.symlink_to(outside_file)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlinks are unavailable on this platform")
+            with self.assertRaises((OSError, ValueError)):
+                open_file_under(root, "escape.txt")
 
     def test_write_target_and_intermediate_parents_may_be_missing_inside_root(self):
         with tempfile.TemporaryDirectory() as temp:

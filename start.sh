@@ -362,16 +362,16 @@ native_python_packages() {
       printf '%s\n' "python3-venv python3-flask python3-bs4 python3-reportlab python3-pypdf python3-waitress python3-watchdog python3-cryptography python3-pil"
       ;;
     dnf|yum)
-      printf '%s\n' "python3-flask python3-beautifulsoup4 python3-reportlab python3-pypdf python3-waitress python3-watchdog python3-cryptography python3-pillow"
+      printf '%s\n' "python3-flask python3-reportlab python3-pypdf python3-waitress python3-watchdog python3-cryptography python3-pillow"
       ;;
     pacman)
-      printf '%s\n' "python-flask python-beautifulsoup4 python-reportlab python-pypdf python-waitress python-watchdog python-cryptography python-pillow"
+      printf '%s\n' "python-flask python-reportlab python-pypdf python-waitress python-watchdog python-cryptography python-pillow"
       ;;
     apk)
-      printf '%s\n' "py3-flask py3-beautifulsoup4 py3-reportlab py3-pypdf py3-waitress py3-watchdog py3-cryptography py3-pillow"
+      printf '%s\n' "py3-flask py3-reportlab py3-pypdf py3-waitress py3-watchdog py3-cryptography py3-pillow"
       ;;
     zypper)
-      printf '%s\n' "python3-Flask python3-beautifulsoup4 python3-reportlab python3-pypdf python3-waitress python3-watchdog python3-cryptography python3-Pillow"
+      printf '%s\n' "python3-Flask python3-reportlab python3-pypdf python3-waitress python3-watchdog python3-cryptography python3-Pillow"
       ;;
     *)
       printf '%s\n' ""
@@ -476,11 +476,10 @@ except ImportError:
 requirements = {
     "Flask": ">=3.0,<4",
     "argon2-cffi": ">=23.1,<26",
-    "beautifulsoup4": ">=4.12,<5",
     "defusedxml": ">=0.7,<1",
     "Pillow": ">=13.0.0,<14",
     "reportlab": ">=4.0,<6",
-    "pypdf": ">=5.0,<7",
+    "pypdf": ">=6.21.4,<7",
     "waitress": ">=3.0,<4",
     "cryptography": ">=50.0.2,<51",
     "watchdog": ">=6,<7",
@@ -697,10 +696,9 @@ if [ "$IS_TERMUX" -eq 1 ]; then
   termux_runtime_requirements=(
     'Flask>=3.0,<4'
     'argon2-cffi>=23.1,<26'
-    'beautifulsoup4>=4.12,<5'
     'defusedxml>=0.7,<1'
     'reportlab>=4.0,<6'
-    'pypdf>=5.0,<7'
+    'pypdf>=6.21.4,<7'
     'waitress>=3.0,<4'
     'watchdog>=6,<7'
     'tzdata>=2024.1'

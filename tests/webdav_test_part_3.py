@@ -416,6 +416,45 @@ class WebDavDocumentTestPart3(WebDavTestBase):
         self.assertEqual(200, contained.status_code)
         self.assertEqual(b"first office version", contained.data)
 
+    def test_webdav_does_not_self_heal_scan_an_unregistered_request_path(self):
+        unregistered = self.store.root / "externally-added.txt"
+        unregistered.write_bytes(b"must be imported before WebDAV access")
+
+        response = self.client.get(f"{self.files}/externally-added.txt", headers=self.auth)
+
+        self.assertEqual(404, response.status_code)
+        with self.assertRaises(ValueError):
+            self.store.get_document("externally-added.txt")
+
+    def test_download_rejects_symlink_swap_after_document_lookup(self):
+        outside = Path(self.temp.name) / "outside"
+        outside.mkdir()
+        (outside / "angebot.odt").write_bytes(b"outside-root secret")
+        nested = self.store.root / "nested"
+        nested.mkdir()
+        target = nested / "angebot.odt"
+        target.write_bytes(b"first office version")
+        self.store.scan()
+        symlink_probe = self.store.root / "symlink-probe"
+        try:
+            symlink_probe.symlink_to(outside, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks are unavailable on this platform")
+        symlink_probe.unlink()
+        from app.webdav import _tree_document as original_tree_document
+
+        def swap_after_lookup(path):
+            document = original_tree_document(path)
+            nested.rename(self.store.root / "nested-original")
+            nested.symlink_to(outside, target_is_directory=True)
+            return document
+
+        with mock.patch("app.webdav._tree_document", side_effect=swap_after_lookup):
+            response = self.client.get(f"{self.files}/nested/angebot.odt", headers=self.auth)
+
+        self.assertEqual(404, response.status_code)
+        self.assertNotIn(b"outside-root secret", response.data)
+
     def test_destination_and_user_boundaries_are_enforced(self):
         other_host = self.client.open(
             f"{self.files}/angebot.odt",

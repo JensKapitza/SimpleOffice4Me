@@ -8,6 +8,13 @@ Der vollständige hierarchische Dateibaum für Nautilus, Explorer, Finder und
 FreeFileSync ist in [WEBDAV_DATEIVERWALTUNG.md](WEBDAV_DATEIVERWALTUNG.md)
 beschrieben.
 
+WebDAV stellt nur Dokumente bereit, die im SimpleOffice-Dokumentindex
+registriert sind. Dateien, die direkt im Dateisystem abgelegt oder verändert
+wurden, müssen zunächst über die Dokumentverwaltung importiert bzw. neu
+indiziert werden. WebDAV löst für eine angefragte URL keinen Dateisystem-Scan
+aus; Downloads bleiben an die Datei gebunden, deren Pfad serverseitig geprüft
+wurde.
+
 ## Schnellstart
 
 1. Dokument in SimpleOffice öffnen und **In LibreOffice bearbeiten** wählen.

@@ -41,7 +41,7 @@ from .document_store import (
     utc_now,
 )
 from .file_lock import exclusive_file_lock
-from .safe_paths import resolve_file_under
+from .safe_paths import open_file_under, resolve_file_under
 from .ssh_keys import add_key, keys_for, revoke_key
 from .virtual_filesystem import VirtualFileSystem
 from .v2.materialize import materialize_verified_object
