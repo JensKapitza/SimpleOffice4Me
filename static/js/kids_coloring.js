@@ -48,6 +48,41 @@
       ['fin-left','M337 321 Q274 350 255 439 L356 403 Z'],['fin-right','M463 321 Q526 350 545 439 L444 403 Z'],
       ['flame','M365 431 Q400 457 435 431 Q437 492 400 535 Q363 492 365 431 Z'],
     ],details:['M400 119 L400 157','M369 365 L431 365']},
+    {id:'house',emoji:'🏠',de:'Haus',en:'House',zones:[
+      ['walls','M224 285 L400 150 L576 285 L576 520 L224 520 Z'],
+      ['roof','M190 292 L400 125 L610 292 L578 330 L400 188 L222 330 Z'],
+      ['door','M355 390 Q355 375 370 375 L430 375 Q445 375 445 390 L445 520 L355 520 Z'],
+      ['window-left','M263 330 L333 330 L333 393 L263 393 Z'],
+      ['window-right','M467 330 L537 330 L537 393 L467 393 Z'],
+    ],details:['M298 330 L298 393','M263 361 L333 361','M502 330 L502 393','M467 361 L537 361','M400 375 L400 520']},
+    {id:'sun',emoji:'☀️',de:'Sonne',en:'Sun',zones:[
+      ['ray-top','M370 177 L400 82 L430 177 Z'],['ray-upper-right','M465 203 L535 130 L520 233 Z'],
+      ['ray-right','M500 270 L605 270 L500 300 Z'],['ray-lower-right','M480 355 L550 430 L455 400 Z'],
+      ['ray-bottom','M430 385 L400 490 L370 385 Z'],['ray-lower-left','M320 355 L250 430 L345 400 Z'],
+      ['ray-left','M300 270 L195 270 L300 300 Z'],['ray-upper-left','M335 203 L265 130 L280 233 Z'],
+      ['sun-disc','M400 195 m-95 0 a95 95 0 1 0 190 0 a95 95 0 1 0 -190 0'],
+    ],details:['M355 185 Q365 175 375 185','M425 185 Q435 175 445 185','M350 225 Q400 270 450 225']},
+    {id:'apple',emoji:'🍎',de:'Apfel',en:'Apple',zones:[
+      ['fruit','M400 205 C340 158 250 190 245 302 C238 425 319 515 385 493 Q400 488 415 493 C481 515 562 425 555 302 C550 190 460 158 400 205 Z'],
+      ['leaf','M404 176 C436 108 512 112 535 135 C512 190 458 204 404 190 Z'],
+    ],details:['M400 207 Q390 164 402 135','M413 178 Q460 143 503 139','M400 240 Q400 320 400 420']},
+    {id:'turtle',emoji:'🐢',de:'Schildkröte',en:'Turtle',zones:[
+      ['head','M535 292 C579 268 627 285 632 320 C637 356 592 376 550 352 Z'],
+      ['shell','M205 305 C221 206 307 166 400 166 C493 166 579 206 595 305 Q580 411 400 420 Q220 411 205 305 Z'],
+      ['leg-front-left','M250 383 C218 399 212 440 241 460 Q270 475 296 439 L310 405 Z'],
+      ['leg-front-right','M490 405 L510 439 Q536 475 565 460 C594 440 588 399 556 383 Z'],
+      ['leg-back-left','M270 245 Q226 227 207 258 Q193 285 224 315 L260 302 Z'],
+      ['leg-back-right','M540 302 L576 315 Q607 285 593 258 Q574 227 530 245 Z'],
+      ['tail','M400 410 L367 462 L433 462 Z'],
+    ],details:['M326 210 Q400 248 474 210','M250 300 Q400 350 550 300','M320 218 L300 298 L350 340','M480 218 L500 298 L450 340','M370 250 L400 230 L430 250 L430 300 L400 320 L370 300 Z','M595 316 Q603 309 611 316']},
+    {id:'rainbow',emoji:'🌈',de:'Regenbogen',en:'Rainbow',zones:[
+      ['band-red','M160 470 A240 240 0 0 1 640 470 L590 470 A190 190 0 0 0 210 470 Z'],
+      ['band-orange','M210 470 A190 190 0 0 1 590 470 L540 470 A140 140 0 0 0 260 470 Z'],
+      ['band-yellow','M260 470 A140 140 0 0 1 540 470 L490 470 A90 90 0 0 0 310 470 Z'],
+      ['band-green','M310 470 A90 90 0 0 1 490 470 L440 470 A40 40 0 0 0 360 470 Z'],
+      ['cloud-left','M125 480 C95 480 85 458 99 440 C110 425 129 426 143 438 C154 410 196 408 211 439 C239 443 245 480 214 487 L125 487 Z'],
+      ['cloud-right','M586 480 C555 480 549 458 562 440 C573 425 592 426 606 438 C617 410 659 408 674 439 C702 443 708 480 677 487 L586 487 Z'],
+    ],details:['M126 466 L208 466','M587 466 L671 466']},
     {id:'blank',emoji:'🎨',de:'Leeres Blatt',en:'Blank page',zones:[],details:[]},
   ];
   const labels = new Map(templates.map((item) => [item.id, t(item.de, item.en)]));
@@ -197,6 +232,7 @@
     const hasContent = current.strokes.length || Object.keys(current.fills).length;
     if (!hasContent && !saveTimer && !drawingId
         && status.textContent === t('Noch nicht gespeichert','Not saved yet')) return true;
+    if (!saveTimer && status.textContent === t('Gespeichert','Saved')) return true;
     if (saveTimer) {
       window.clearTimeout(saveTimer);
       saveTimer = 0;
@@ -206,7 +242,27 @@
       saveQueue = saveQueue.then(saveNow, saveNow);
     }
     const saved = await saveQueue;
+    if (saved === true || status.textContent === t('Gespeichert','Saved')) return true;
     return saved || window.confirm(t('Das aktuelle Bild konnte nicht gespeichert werden. Trotzdem fortfahren?','The current picture could not be saved. Continue anyway?'));
+  }
+
+  async function cancelEditing(event) {
+    const button = event.currentTarget;
+    button.disabled = true;
+    if (!(await flushCurrent())) {
+      button.disabled = false;
+      return;
+    }
+    const wasSaved = status.textContent === t('Gespeichert','Saved');
+    editor.hidden = true;
+    document.documentElement.classList.remove('kids-coloring-focus');
+    galleryStatus.textContent = wasSaved
+      ? t('Malansicht geschlossen. Dein Bild ist unter „Meine Bilder“ gespeichert.','Coloring closed. Your picture is saved under “My pictures”.')
+      : t('Malansicht geschlossen.','Coloring closed.');
+    const templateHeading = root.querySelector('#kids-template-heading');
+    templateHeading.scrollIntoView({behavior:'smooth',block:'start'});
+    templateHeading.focus();
+    button.disabled = false;
   }
 
   async function startTemplate(templateId) {
@@ -379,6 +435,7 @@
     }
     button.disabled = false;
   });
+  root.querySelector('[data-cancel]').addEventListener('click', cancelEditing);
   titleInput.addEventListener('input', () => { if (current) markChanged(); });
   root.querySelector('[data-new-drawing]').addEventListener('click', () => startTemplate('blank'));
 

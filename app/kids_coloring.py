@@ -22,6 +22,11 @@ TEMPLATE_ZONES = {
     "flower": frozenset({"petal-top", "petal-left", "petal-right", "petal-bottom", "center", "stem", "leaf-left", "leaf-right"}),
     "dinosaur": frozenset({"body", "head", "tail", "leg-left", "leg-right", "spike-one", "spike-two", "spike-three"}),
     "rocket": frozenset({"body", "window", "fin-left", "fin-right", "flame"}),
+    "house": frozenset({"walls", "roof", "door", "window-left", "window-right"}),
+    "sun": frozenset({"ray-top", "ray-upper-right", "ray-right", "ray-lower-right", "ray-bottom", "ray-lower-left", "ray-left", "ray-upper-left", "sun-disc"}),
+    "apple": frozenset({"fruit", "leaf"}),
+    "turtle": frozenset({"head", "shell", "leg-front-left", "leg-front-right", "leg-back-left", "leg-back-right", "tail"}),
+    "rainbow": frozenset({"band-red", "band-orange", "band-yellow", "band-green", "cloud-left", "cloud-right"}),
     "blank": frozenset(),
 }
 PALETTE = frozenset({"#ef4444", "#f97316", "#facc15", "#22c55e", "#06b6d4", "#3b82f6", "#8b5cf6", "#ec4899", "#92400e", "#111827", "#ffffff"})

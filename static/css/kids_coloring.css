@@ -16,7 +16,7 @@
 .kids-saved-card .card-title{overflow-wrap:anywhere}
 .kids-focus-icon{font-size:2rem;line-height:1}
 .kids-focus-title{font-size:1.35rem}
-.kids-finish-button,.kids-undo-button,.kids-mode-buttons .btn{min-height:60px;font-size:1.15rem;font-weight:700;padding:.65rem 1rem;touch-action:manipulation}
+.kids-finish-button,.kids-cancel-button,.kids-undo-button,.kids-mode-buttons .btn{min-height:60px;font-size:1.15rem;font-weight:700;padding:.65rem 1rem;touch-action:manipulation}
 .kids-color-swatch{width:58px;height:58px;border-width:3px;flex:0 0 auto}
 .kids-canvas-help{font-size:1rem;color:var(--bs-secondary-color)}
 html.kids-coloring-focus,html.kids-coloring-focus body{height:100%;overflow:hidden!important}
@@ -31,4 +31,4 @@ html.kids-coloring-focus .kids-canvas-wrap{flex:1 1 auto;min-height:0;display:fl
 html.kids-coloring-focus .kids-canvas{width:100%;height:100%;max-height:none}
 html.kids-coloring-focus .kids-canvas-help{flex:0 0 auto;margin:0!important}
 @media(max-width:575.98px){.kids-template-grid,.kids-saved-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.kids-coloring-page{padding-inline:.75rem}.kids-color-swatch{width:44px;height:44px}.kids-title-input{flex:1 1 100%;max-width:none}}
-@media(max-width:575.98px){html.kids-coloring-focus .kids-color-swatch{width:54px;height:54px}html.kids-coloring-focus .kids-palette{flex:0 0 100%;justify-content:center}.kids-mode-buttons .btn{min-height:56px;padding:.5rem .75rem}.kids-undo-button{min-height:56px}.kids-focus-title{font-size:1.15rem}.kids-finish-button{min-height:58px;padding:.5rem .75rem}}
+@media(max-width:575.98px){html.kids-coloring-focus .kids-color-swatch{width:54px;height:54px}html.kids-coloring-focus .kids-palette{flex:0 0 100%;justify-content:center}.kids-mode-buttons .btn{min-height:56px;padding:.5rem .75rem}.kids-undo-button{min-height:56px}.kids-focus-title{font-size:1.15rem}.kids-finish-button,html.kids-coloring-focus .kids-cancel-button{min-height:58px;padding:.5rem .75rem}.kids-focus-actions{justify-content:flex-end}.kids-focus-actions [data-save-status]{flex:1 0 100%;text-align:right}}
