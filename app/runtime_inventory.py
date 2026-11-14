@@ -27,7 +27,7 @@ from .system_management import (
 )
 
 PACKAGE_NAMES = (
-    "Flask", "Werkzeug", "Jinja2", "beautifulsoup4", "Pillow",
+    "Flask", "Werkzeug", "Jinja2", "Pillow",
     "reportlab", "pypdf", "waitress", "cryptography", "paramiko", "pip-audit",
 )
 

@@ -81,8 +81,6 @@ class StartScriptTests(unittest.TestCase):
         for requirement in (
             '"Flask": ">=3.0,<4"',
             '"argon2-cffi": ">=23.1,<26"',
-            '"beautifulsoup4": ">=4.12,<5"',
-            '"soupsieve": ">=4.0.0,<5"',
             '"defusedxml": ">=0.7,<1"',
             '"Pillow": ">=13.0.0,<14"',
             '"reportlab": ">=4.0,<6"',

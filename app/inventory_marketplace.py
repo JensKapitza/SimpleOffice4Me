@@ -11,6 +11,7 @@ import base64
 import hashlib
 import hmac
 import http.client
+from html.parser import HTMLParser
 import json
 import os
 import re
@@ -20,7 +21,6 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote, urlencode, urljoin, urlsplit
 
-from bs4 import BeautifulSoup
 from flask import Blueprint, g, jsonify, request
 
 from .auth import login_required
@@ -218,21 +218,119 @@ def _public_result(
     }
 
 
+class _HtmlNode:
+    __slots__ = ("tag", "attrs", "children", "text")
+
+    def __init__(self, tag: str = "", attrs: dict[str, str] | None = None) -> None:
+        self.tag = tag
+        self.attrs = attrs or {}
+        self.children: list[_HtmlNode] = []
+        self.text: list[str] = []
+
+
+class _MarketplaceHtmlParser(HTMLParser):
+    """Small, bounded-purpose HTML tree for fixed marketplace fields.
+
+    Avoid CSS selector engines here: the page is remote and selectors never
+    need to be configurable, so a standard-library parser keeps the untrusted
+    HTML out of Soup Sieve's selector-matching code.
+    """
+
+    _VOID_TAGS = {
+        "area", "base", "br", "col", "embed", "hr", "img", "input",
+        "link", "meta", "param", "source", "track", "wbr",
+    }
+
+    def __init__(self, html: str) -> None:
+        super().__init__(convert_charrefs=True)
+        self.root = _HtmlNode()
+        self.stack = [self.root]
+        self.feed(html)
+        self.close()
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        node = _HtmlNode(tag.lower(), {key.lower(): value or "" for key, value in attrs})
+        self.stack[-1].children.append(node)
+        if node.tag not in self._VOID_TAGS:
+            self.stack.append(node)
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.stack[-1].children.append(
+            _HtmlNode(tag.lower(), {key.lower(): value or "" for key, value in attrs})
+        )
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.lower()
+        for index in range(len(self.stack) - 1, 0, -1):
+            if self.stack[index].tag == tag:
+                del self.stack[index:]
+                break
+
+    def handle_data(self, data: str) -> None:
+        self.stack[-1].text.append(data)
+
+
+def _descendants(node: _HtmlNode):
+    pending = list(reversed(node.children))
+    while pending:
+        current = pending.pop()
+        yield current
+        pending.extend(reversed(current.children))
+
+
+def _classes(node: _HtmlNode) -> set[str]:
+    return set(node.attrs.get("class", "").split())
+
+
+def _node_text(node: _HtmlNode) -> str:
+    chunks: list[str] = []
+    for current in [node, *_descendants(node)]:
+        chunks.extend(current.text)
+    return " ".join(" ".join(chunks).split())
+
+
 def parse_amazon_html(html: str) -> list[dict[str, Any]]:
-    soup = BeautifulSoup(html or "", "html.parser")
+    root = _MarketplaceHtmlParser(html or "").root
     results: list[dict[str, Any]] = []
-    for row in soup.select('[data-component-type="s-search-result"]'):
-        title_node = row.select_one("h2 a span") or row.select_one("h2 span")
-        link_node = row.select_one("h2 a[href]") or row.select_one("a.a-link-normal[href]")
+    rows = (
+        node for node in _descendants(root)
+        if node.attrs.get("data-component-type") == "s-search-result"
+    )
+    for row in rows:
+        nodes = list(_descendants(row))
+        headings = [node for node in nodes if node.tag == "h2"]
+        heading_descendants = {
+            id(heading): list(_descendants(heading)) for heading in headings
+        }
+        heading_nodes = [node for children in heading_descendants.values() for node in children]
+        title_node = None
+        for heading in headings:
+            children = heading_descendants[id(heading)]
+            anchors = [node for node in children if node.tag == "a"]
+            title_node = next(
+                (span for anchor in anchors for span in _descendants(anchor) if span.tag == "span"),
+                None,
+            ) or next((node for node in children if node.tag == "span"), None)
+            if title_node:
+                break
+        link_node = next((node for node in heading_nodes if node.tag == "a" and node.attrs.get("href")), None)
+        if link_node is None:
+            link_node = next((node for node in nodes if node.tag == "a" and node.attrs.get("href") and "a-link-normal" in _classes(node)), None)
         if not title_node or not link_node:
             continue
-        price_node = row.select_one(".a-price .a-offscreen")
+        price_node = next(
+            (
+                child for container in nodes if "a-price" in _classes(container)
+                for child in _descendants(container) if "a-offscreen" in _classes(child)
+            ),
+            None,
+        )
         result = _public_result(
             "amazon",
-            title_node.get_text(" ", strip=True),
-            link_node.get("href"),
-            price=price_node.get_text(" ", strip=True) if price_node else "",
-            external_id=row.get("data-asin"),
+            _node_text(title_node),
+            link_node.attrs.get("href"),
+            price=_node_text(price_node) if price_node else "",
+            external_id=row.attrs.get("data-asin"),
         )
         if result:
             results.append(result)
@@ -242,25 +340,30 @@ def parse_amazon_html(html: str) -> list[dict[str, Any]]:
 
 
 def parse_ebay_html(html: str) -> list[dict[str, Any]]:
-    soup = BeautifulSoup(html or "", "html.parser")
+    root = _MarketplaceHtmlParser(html or "").root
     results: list[dict[str, Any]] = []
-    for row in soup.select("li.s-item, div.s-item"):
-        title_node = row.select_one(".s-item__title")
-        link_node = row.select_one("a.s-item__link[href]")
+    rows = (
+        node for node in _descendants(root)
+        if node.tag in {"li", "div"} and "s-item" in _classes(node)
+    )
+    for row in rows:
+        nodes = list(_descendants(row))
+        title_node = next((node for node in nodes if "s-item__title" in _classes(node)), None)
+        link_node = next((node for node in nodes if node.tag == "a" and node.attrs.get("href") and "s-item__link" in _classes(node)), None)
         if not title_node or not link_node:
             continue
-        title = _clean(title_node.get_text(" ", strip=True), 300)
+        title = _clean(_node_text(title_node), 300)
         title = re.sub(r"^(?:Neues Angebot|New Listing)\s*", "", title, flags=re.IGNORECASE)
         if not title or title.lower() in {"shop on ebay", "auf ebay shoppen"}:
             continue
-        price_node = row.select_one(".s-item__price")
-        url = link_node.get("href")
+        price_node = next((node for node in nodes if "s-item__price" in _classes(node)), None)
+        url = link_node.attrs.get("href")
         item_match = re.search(r"/itm/(?:[^/?#]+/)?(\d+)", str(url or ""))
         result = _public_result(
             "ebay",
             title,
             url,
-            price=price_node.get_text(" ", strip=True) if price_node else "",
+            price=_node_text(price_node) if price_node else "",
             external_id=item_match.group(1) if item_match else "",
         )
         if result:

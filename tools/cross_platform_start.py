@@ -14,7 +14,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 SUPPORTED = {(3, 11), (3, 12), (3, 13), (3, 14)}
-REQUIRED = ("flask", "argon2-cffi", "beautifulsoup4", "defusedxml", "Pillow",
+REQUIRED = ("flask", "argon2-cffi", "defusedxml", "Pillow",
             "reportlab", "pypdf", "waitress", "cryptography", "watchdog", "tzdata")
 
 
