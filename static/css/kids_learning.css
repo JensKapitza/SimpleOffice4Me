@@ -1,0 +1,25 @@
+.kids-learning-page{max-width:1100px}
+.kids-learning-levels,.kids-learning-subjects{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:.75rem}
+.kids-learning-level,.kids-learning-subject{min-height:82px;padding:.8rem;border:2px solid var(--bs-border-color);border-radius:1rem;background:var(--bs-body-bg);color:var(--bs-body-color);display:flex;align-items:center;justify-content:center;gap:.5rem;text-align:center;touch-action:manipulation}
+.kids-learning-level{flex-direction:column;font-size:1rem}
+.kids-learning-level>span{font-size:1.5rem;line-height:1}
+.kids-learning-level[aria-pressed=true]{border-color:var(--bs-primary);background:var(--bs-primary-bg-subtle);box-shadow:0 0 0 .15rem color-mix(in srgb,var(--bs-primary) 22%,transparent)}
+.kids-learning-subject{min-height:110px;flex-direction:column}
+.kids-learning-subject>span{font-size:1.8rem;line-height:1}
+.kids-learning-subject strong{font-size:1.1rem}
+.kids-learning-subject small{color:var(--bs-secondary-color)}
+.kids-learning-level:focus-visible,.kids-learning-subject:focus-visible,.kids-learning-choice:focus-visible{outline:4px solid var(--bs-warning);outline-offset:2px}
+.kids-learning-game,.kids-learning-result{border-radius:1.25rem}
+.kids-learning-progress{font-size:1.1rem}
+.kids-learning-question-wrap{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap}
+.kids-learning-question{font-size:clamp(1.5rem,4vw,2.3rem);margin:0;line-height:1.25}
+.kids-learning-choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.8rem}
+.kids-learning-choice{min-height:76px;font-size:1.25rem;font-weight:700;border:3px solid var(--bs-border-color);border-radius:1rem;background:var(--bs-body-bg);color:var(--bs-body-color);padding:.7rem;touch-action:manipulation}
+.kids-learning-choice:hover:not(:disabled){border-color:var(--bs-primary);background:var(--bs-primary-bg-subtle)}
+.kids-learning-choice:disabled{opacity:1}
+.kids-learning-choice.is-correct{border-color:#198754;background:#d1e7dd;color:#0a3622}
+.kids-learning-choice.is-wrong{border-color:#dc3545;background:#f8d7da;color:#58151c}
+.kids-learning-feedback{min-height:1.7em;font-size:1.2rem;font-weight:700}
+.kids-learning-result-icon{font-size:4rem;line-height:1.3}
+.kids-speak-button{min-height:56px;touch-action:manipulation}
+@media(max-width:575.98px){.kids-learning-levels{grid-template-columns:repeat(2,minmax(0,1fr))}.kids-learning-subjects{grid-template-columns:repeat(2,minmax(0,1fr))}.kids-learning-subject{min-height:125px}.kids-learning-choice{min-height:70px}}
