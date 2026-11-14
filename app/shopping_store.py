@@ -2,14 +2,18 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
+import secrets
 import uuid
 from pathlib import Path
 from typing import Any
+from decimal import Decimal
 
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
 from .revision_history import RevisionHistory
+from .shopping_pricing import format_quantity, parse_decimal
 
 STATUSES = {"open", "taken", "bought", "not_found", "unavailable", "deferred"}
 PERMISSIONS = {"read", "add", "edit", "complete", "manage"}
@@ -78,15 +82,16 @@ class ShoppingStore:
         if not isinstance(value, dict):
             value = {}
         return {
-            "schema_version": 3,
+            "schema_version": 4,
             "lists": list(value.get("lists", [])) if isinstance(value.get("lists"), list) else [],
             "items": list(value.get("items", [])) if isinstance(value.get("items"), list) else [],
             "shares": list(value.get("shares", [])) if isinstance(value.get("shares"), list) else [],
             "products": list(value.get("products", [])) if isinstance(value.get("products"), list) else [],
+            "public_links": list(value.get("public_links", [])) if isinstance(value.get("public_links"), list) else [],
         }
 
     def _write(self, data: dict[str, Any]) -> None:
-        data["schema_version"] = 3
+        data["schema_version"] = 4
         atomic_json_write(self.path, data)
 
     @staticmethod
@@ -335,6 +340,82 @@ class ShoppingStore:
         self.history.record("shopping_list_updated", actor, "shopping-list", list_id, row)
         return dict(row)
 
+    @staticmethod
+    def _token_hash(token: str) -> str:
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    def has_public_read_link(self, list_id: str, actor: str) -> bool:
+        data = self._read()
+        if "manage" not in self._share_permissions(data, list_id, actor):
+            return False
+        return any(
+            row.get("list_id") == list_id and not row.get("revoked_at")
+            for row in data["public_links"]
+        )
+
+    def create_public_read_link(self, list_id: str, actor: str) -> dict[str, str]:
+        """Rotate a read-only QR share link; only a token hash is persisted."""
+        token = secrets.token_urlsafe(32)
+        now = utc_now()
+        row = {
+            "link_id": str(uuid.uuid4()), "list_id": list_id,
+            "token_hash": self._token_hash(token), "created_at": now,
+            "created_by": actor, "revoked_at": "",
+        }
+        with exclusive_file_lock(self.lock):
+            data = self._read()
+            self._require(data, list_id, actor, "manage")
+            for previous in data["public_links"]:
+                if previous.get("list_id") == list_id and not previous.get("revoked_at"):
+                    previous["revoked_at"] = now
+                    previous["revoked_by"] = actor
+            data["public_links"] = data["public_links"][-999:]
+            data["public_links"].append(row)
+            self._write(data)
+        self.history.record("shopping_public_link_created", actor, "shopping-list", list_id, {"link_id": row["link_id"]})
+        return {"link_id": row["link_id"], "token": token, "created_at": now}
+
+    def revoke_public_read_link(self, list_id: str, actor: str) -> None:
+        now = utc_now()
+        revoked = False
+        with exclusive_file_lock(self.lock):
+            data = self._read()
+            self._require(data, list_id, actor, "manage")
+            for row in data["public_links"]:
+                if row.get("list_id") == list_id and not row.get("revoked_at"):
+                    row["revoked_at"] = now
+                    row["revoked_by"] = actor
+                    revoked = True
+            if not revoked:
+                raise ValueError("shopping public link not found")
+            self._write(data)
+        self.history.record("shopping_public_link_revoked", actor, "shopping-list", list_id, {})
+
+    def public_read_list(self, token: str) -> dict[str, Any] | None:
+        if not token or len(token) > 128:
+            return None
+        wanted_hash = self._token_hash(token)
+        data = self._read()
+        share = next((row for row in data["public_links"] if row.get("token_hash") == wanted_hash and not row.get("revoked_at")), None)
+        if share is None:
+            return None
+        list_row = next((row for row in data["lists"] if row.get("list_id") == share.get("list_id") and not row.get("archived")), None)
+        if list_row is None:
+            return None
+        items = [
+            {
+                "name": str(row.get("name", "")),
+                "quantity": str(row.get("quantity", "")),
+                "unit": str(row.get("unit", "")),
+                "status": str(row.get("status", "open")),
+                "price": str(row.get("price", "")),
+            }
+            for row in data["items"]
+            if row.get("list_id") == share.get("list_id") and row.get("status") != "bought"
+        ]
+        items.sort(key=lambda row: row["name"].casefold())
+        return {"name": str(list_row.get("name", "")), "items": items, "created_at": share.get("created_at", "")}
+
     def items(self, actor: str, *, list_id: str = "", include_bought: bool = True) -> list[dict[str, Any]]:
         data = self._read()
         visible = {
@@ -408,6 +489,52 @@ class ShoppingStore:
             reverse=True,
         )
         return rows[:max(0, min(int(limit), 200))]
+
+    def restock_product(self, product_id: str, list_id: str, actor: str, quantity: str = "1") -> dict[str, Any]:
+        """Reopen/increment the matching list row, or create it from private product memory."""
+        amount = parse_decimal(quantity)
+        if amount is None or amount <= 0:
+            raise ValueError("Nachlege-Menge muss größer als null sein")
+        owner = self._text(actor, 200)
+        with exclusive_file_lock(self.lock):
+            data = self._read()
+            self._require(data, list_id, owner, "add")
+            product = next((row for row in data["products"] if row.get("product_id") == product_id and row.get("owner") == owner), None)
+            if product is None:
+                raise ValueError("shopping product not found")
+            key = str(product.get("product_key", ""))
+            item = next((row for row in data["items"] if row.get("list_id") == list_id and self._product_key(row) == key), None)
+            permissions = self._share_permissions(data, list_id, owner)
+            if item is not None and not {"edit", "complete"}.issubset(permissions):
+                # Adding is allowed independently from editing shared list rows.
+                item = None
+            now = utc_now()
+            if item is not None:
+                current = parse_decimal(item.get("quantity", "")) or Decimal("0")
+                item["quantity"] = format_quantity(current + amount)
+                item.update({"status": "open", "assigned_to": "", "completed_at": "", "updated_at": now, "updated_by": owner})
+                self._remember_product(data, owner, item)
+            else:
+                item = {
+                    "item_id": str(uuid.uuid4()), "list_id": list_id,
+                    "name": self._text(product.get("name", ""), 300),
+                    "quantity": format_quantity(amount), "unit": self._text(product.get("unit", ""), 40),
+                    "note": "", "category": self._text(product.get("category", ""), 120),
+                    "store": self._text(product.get("last_store", ""), 240),
+                    "brand": self._text(product.get("brand", ""), 160),
+                    "pack_size": self._text(product.get("pack_size", ""), 120),
+                    "price": self._text(product.get("last_price", ""), 80),
+                    "barcode": normalize_barcode(product.get("barcode", "")),
+                    "photo_id": self._text(product.get("photo_id", ""), 80),
+                    "priority": 0, "status": "open", "assigned_to": "", "request_id": "",
+                    "created_at": now, "created_by": owner, "updated_at": now, "updated_by": owner,
+                    "completed_at": "",
+                }
+                data["items"].append(item)
+                self._remember_product(data, owner, item)
+            self._write(data)
+        self.history.record("shopping_item_restocked", owner, "shopping-item", item["item_id"], {"quantity_added": format_quantity(amount)})
+        return dict(item)
 
     def set_product_favorite(self, product_id: str, actor: str, favorite: bool) -> dict[str, Any]:
         owner = self._text(actor, 200)
@@ -501,6 +628,9 @@ class ShoppingStore:
         request_id = self._text(values.get("request_id", ""), 80)
         if request_id and not _SAFE_ID.fullmatch(request_id):
             raise ValueError("invalid shopping request identifier")
+        price = self._text(values.get("price", ""), 80)
+        if price:
+            parse_decimal(price)
         item = {
             "item_id": str(uuid.uuid4()), "list_id": list_id, "name": name,
             "quantity": self._text(values.get("quantity", ""), 80),
@@ -510,7 +640,7 @@ class ShoppingStore:
             "store": self._text(values.get("store", ""), 240),
             "brand": self._text(values.get("brand", ""), 160),
             "pack_size": self._text(values.get("pack_size", ""), 120),
-            "price": self._text(values.get("price", ""), 80),
+            "price": price,
             "barcode": normalize_barcode(values.get("barcode", "")),
             "photo_id": self._text(values.get("photo_id", ""), 80),
             "priority": priority, "status": status,
@@ -575,6 +705,8 @@ class ShoppingStore:
                     item[key] = self._text(values[key], limit)
             if "barcode" in values:
                 item["barcode"] = normalize_barcode(values["barcode"])
+            if "price" in values and str(values["price"] or "").strip():
+                parse_decimal(values["price"])
             if not item.get("name"):
                 raise ValueError("shopping item name is required")
             if "priority" in values:

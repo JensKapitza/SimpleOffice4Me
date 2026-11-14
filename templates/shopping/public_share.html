@@ -1,0 +1,22 @@
+{% extends "layout.html" %}
+{% block title %}Geteilte Einkaufsliste · SimpleOffice{% endblock %}
+{% block body %}
+<main id="main-content" class="container py-4">
+  <h1 class="h2">{{ shared.name }}</h1>
+  <p class="text-secondary">Geteilte Einkaufsliste · schreibgeschützt</p>
+  <div class="alert alert-info">Nur offene Artikel werden angezeigt. Diese Freigabe erlaubt keinen Zugriff auf andere Listen.</div>
+  <section class="border rounded p-3 mb-3" aria-live="polite">
+    <strong>Geschätzte Summe:</strong> <span class="fs-5">{{ estimated_total }}</span>
+    {% if missing_prices %}<span class="small text-secondary d-block">{{ missing_prices }} Artikel ohne Preis wurden nicht eingerechnet.</span>{% else %}<span class="small text-secondary d-block">Alle offenen Artikel mit Preis eingerechnet.</span>{% endif %}
+  </section>
+  <div class="list-group">
+    {% for item in shared.items %}
+    <article class="list-group-item d-flex flex-wrap justify-content-between gap-2">
+      <div><strong>{{ item.name }}</strong><div class="small text-secondary">{% if item.quantity %}{{ item.quantity }} {{ item.unit }}{% endif %}</div></div>
+      {% if item.price %}<span class="fw-semibold">{{ item.price }} €{% if item.estimated_line_total %}<span class="small text-secondary d-block">ca. {{ item.estimated_line_total }} für die Menge</span>{% endif %}</span>{% endif %}
+    </article>
+    {% else %}<p class="list-group-item text-secondary">Die Liste ist leer.</p>{% endfor %}
+  </div>
+  <p class="small text-secondary mt-3">Der Eigentümer kann den Link jederzeit widerrufen.</p>
+</main>
+{% endblock %}
