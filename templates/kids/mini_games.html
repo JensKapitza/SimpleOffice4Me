@@ -1,0 +1,50 @@
+{% extends "layout.html" %}
+{% block title %}{{ 'Quick play break' if g.language == 'en' else 'Kurze Spielpause' }} · SimpleOffice{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/kids_mini_games.css') }}">{% endblock %}
+{% block body %}
+<main id="main-content" class="kids-mini-page container py-3 py-lg-4" data-kids-mini-games data-language="{{ g.language }}">
+  <header class="kids-mini-header d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4">
+    <div><h1 class="h2 mb-1">{{ 'Quick play break' if g.language == 'en' else 'Kurze Spielpause' }} 🌟</h1><p class="text-secondary mb-0">{{ 'Tiny games for curious minds. No timer and no reading needed for the easy rounds.' if g.language == 'en' else 'Kleine Spiele für neugierige Köpfe. Ohne Zeitdruck und in den leichten Runden ohne Lesen.' }}</p></div>
+    <nav class="d-flex flex-wrap gap-2" aria-label="{{ 'Kids activities' if g.language == 'en' else 'Kinderangebote' }}">
+      <a class="btn btn-outline-secondary btn-lg" href="{{ url_for('kids_learning.index') }}">{{ 'Learning games' if g.language == 'en' else 'Lernspiele' }}</a>
+      <a class="btn btn-outline-secondary btn-lg" href="{{ url_for('kids_coloring.index') }}">{{ 'Coloring wall' if g.language == 'en' else 'Ausmalwand' }} 🎨</a>
+    </nav>
+  </header>
+
+  <section class="kids-mini-picker" data-game-picker aria-labelledby="kids-mini-picker-title">
+    <h2 class="h4 mb-3" id="kids-mini-picker-title">{{ 'Pick a little game' if g.language == 'en' else 'Such dir ein Spiel aus' }}</h2>
+    <div class="kids-mini-game-grid">
+      <button class="kids-mini-game-card" type="button" data-mini-game="memory"><span aria-hidden="true">🃏</span><strong>{{ 'Animal pairs' if g.language == 'en' else 'Tierpaare' }}</strong><small>{{ 'Find two matching pictures and hear the word.' if g.language == 'en' else 'Finde zwei gleiche Bilder und höre das Wort.' }}</small></button>
+      <button class="kids-mini-game-card" type="button" data-mini-game="count"><span aria-hidden="true">🐾</span><strong>{{ 'Count the friends' if g.language == 'en' else 'Freunde zählen' }}</strong><small>{{ 'Look at the pictures and choose how many.' if g.language == 'en' else 'Schau genau hin und wähle die Anzahl.' }}</small></button>
+      <button class="kids-mini-game-card" type="button" data-mini-game="odd"><span aria-hidden="true">🔎</span><strong>{{ 'Find the different one' if g.language == 'en' else 'Finde den Ausreißer' }}</strong><small>{{ 'Three pictures belong together. Find the other one.' if g.language == 'en' else 'Drei Bilder passen zusammen. Finde das andere.' }}</small></button>
+    </div>
+  </section>
+
+  <section class="kids-mini-play card shadow-sm mt-4" data-mini-play hidden aria-labelledby="kids-mini-title">
+    <div class="card-body p-3 p-md-4">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <div><p class="small text-secondary mb-1" data-mini-progress></p><h2 class="h3 mb-0" data-mini-title id="kids-mini-title" tabindex="-1"></h2></div>
+        <button class="btn btn-outline-primary btn-lg" type="button" data-mini-repeat>{{ 'Hear again' if g.language == 'en' else 'Nochmal hören' }} 🔊</button>
+      </div>
+      <p class="kids-mini-prompt" data-mini-prompt aria-live="polite"></p>
+      <div class="kids-mini-stage" data-mini-stage role="group"></div>
+      <p class="kids-mini-feedback" data-mini-feedback role="status" aria-live="polite"></p>
+      <div class="d-flex flex-wrap gap-2 mt-3">
+        <button class="btn btn-success btn-lg" type="button" data-mini-next hidden>{{ 'Next' if g.language == 'en' else 'Weiter' }} ➡️</button>
+        <button class="btn btn-outline-secondary btn-lg" type="button" data-mini-back>{{ 'Choose another game' if g.language == 'en' else 'Anderes Spiel wählen' }}</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="kids-mini-result card shadow-sm mt-4" data-mini-result hidden aria-live="polite">
+    <div class="card-body text-center p-4">
+      <div class="kids-mini-result-flower" aria-hidden="true">🌼✨</div>
+      <h2 class="h3" data-result-title tabindex="-1"></h2>
+      <p class="lead" data-result-copy></p>
+      <button class="btn btn-primary btn-lg" type="button" data-play-again>{{ 'Play again' if g.language == 'en' else 'Nochmal spielen' }} 🔄</button>
+      <button class="btn btn-outline-secondary btn-lg ms-sm-2 mt-2 mt-sm-0" type="button" data-result-back>{{ 'Choose another game' if g.language == 'en' else 'Anderes Spiel wählen' }}</button>
+    </div>
+  </section>
+</main>
+<script src="{{ url_for('static', filename='js/kids_mini_games.js') }}" defer></script>
+{% endblock %}
