@@ -12,7 +12,7 @@
   const subjects = {
     math: text('Mathe', 'Math'), german: text('Deutsch', 'German'),
     english: text('Englisch', 'English'), world: text('Natur & Welt', 'Nature & world'),
-    search: text('Suchbild & Buchstaben', 'Search & letters')
+    search: text('Suchbild & Buchstaben', 'Search & letters'), mixed: text('Gemischte Runde', 'Mixed round')
   };
   const bank = {
     preschool: {
@@ -272,6 +272,9 @@
   const choicesNode = root.querySelector('[data-choices]');
   const progress = root.querySelector('[data-progress]');
   const speakButton = root.querySelector('[data-speak]');
+  const speechVoiceSelects = [...root.querySelectorAll('[data-speech-voice]')];
+  const speechStatus = root.querySelector('[data-speech-status]');
+  const selectedSpeechVoices = {de:'',en:''};
   let selectedLevel = 'preschool';
   let selectedSubject = 'math';
   let selectedSearchMode = 'objects';
@@ -336,12 +339,202 @@
     }
     return shuffled;
   };
+  const randomInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+  function randomMathChoices(answer, minimum = 0) {
+    const distractors = new Set();
+    for (let offset = 1; distractors.size < 3; offset += 1) {
+      shuffle([answer + offset, answer - offset]).forEach(value => {
+        if (value >= minimum && value !== answer && distractors.size < 3) distractors.add(value);
+      });
+    }
+    return shuffle([String(answer), ...[...distractors].map(String)]);
+  }
+  function createMathQuestion(level) {
+    if (level === 'preschool') {
+      const count = randomInt(1, 8);
+      const prompt = text('Wie viele Äpfel siehst du?','How many apples can you see?');
+      return {q:prompt, visual:Array(count).fill('🍎').join(' '), a:String(count), c:randomMathChoices(count, 1), audioPrompt:prompt, speechLang:english?'en-US':'de-DE'};
+    }
+
+    let left;
+    let right;
+    let answer;
+    let symbol;
+    let spokenOperator;
+    let minimum = 0;
+    if (['1','2'].includes(level)) {
+      const max = level === '1' ? 5 : 8;
+      symbol = Math.random() < .5 ? '+' : '−';
+      left = randomInt(1, max);
+      right = randomInt(1, max);
+      if (symbol === '−' && right > left) [left, right] = [right, left];
+      answer = symbol === '+' ? left + right : left - right;
+      spokenOperator = symbol === '+' ? text('plus','plus') : text('minus','minus');
+      minimum = 0;
+    } else if (level === '3') {
+      const operation = shuffle(['+','−','×'])[0];
+      symbol = operation;
+      left = randomInt(2, operation === '×' ? 10 : 50);
+      right = randomInt(2, operation === '×' ? 10 : 50);
+      if (operation === '−' && right > left) [left, right] = [right, left];
+      answer = operation === '+' ? left + right : operation === '−' ? left - right : left * right;
+      spokenOperator = operation === '×' ? text('mal','times') : operation === '+' ? text('plus','plus') : text('minus','minus');
+    } else {
+      const operation = shuffle(['+','−','×','÷'])[0];
+      symbol = operation === '÷' ? '÷' : operation;
+      if (operation === '÷') {
+        right = randomInt(2, 12);
+        answer = randomInt(2, 12);
+        left = right * answer;
+      } else if (operation === '×') {
+        left = randomInt(2, 12);
+        right = randomInt(2, 12);
+        answer = left * right;
+      } else {
+        left = randomInt(level === '4' ? 20 : 50, level === '4' ? 500 : 1000);
+        right = randomInt(2, level === '4' ? 99 : 500);
+        if (operation === '−' && right > left) [left, right] = [right, left];
+        answer = operation === '+' ? left + right : left - right;
+      }
+      spokenOperator = operation === '÷' ? text('geteilt durch','divided by') : operation === '×' ? text('mal','times') : operation === '+' ? text('plus','plus') : text('minus','minus');
+    }
+
+    const visual = ['1','2'].includes(level)
+      ? `${Array(left).fill('🍎').join(' ')} ${symbol} ${Array(right).fill('🍎').join(' ')}` : null;
+    const prompt = text(`Was ist ${left} ${spokenOperator} ${right}?`, `What is ${left} ${spokenOperator} ${right}?`);
+    return {q:prompt, visual, a:String(answer), c:randomMathChoices(answer, minimum), audioPrompt:prompt, speechLang:english?'en-US':'de-DE'};
+  }
+  function buildMathRound(level) {
+    const questionsForRound = [];
+    const seen = new Set();
+    while (questionsForRound.length < 3) {
+      const item = createMathQuestion(level);
+      const signature = item.visual || item.q;
+      if (seen.has(signature)) continue;
+      seen.add(signature);
+      questionsForRound.push(item);
+    }
+    return questionsForRound;
+  }
+  const germanWordCards = [
+    ['Apfel','🍎'],['Ball','⚽'],['Maus','🐭'],['Sonne','☀️'],['Haus','🏠'],['Fisch','🐟'],['Hund','🐶'],['Blume','🌼'],['Auto','🚗'],['Banane','🍌'],['Stern','⭐'],['Schule','🏫'],['Pferd','🐴'],['Regen','🌧️'],['Katze','🐱'],['Ente','🦆']
+  ];
+  function createGermanQuestion(level = selectedLevel) {
+    const [word, image] = shuffle(germanWordCards)[0];
+    const answer = word[0].toLocaleUpperCase();
+    const letters = [...new Set(germanWordCards.map(([entry]) => entry[0].toLocaleUpperCase()))].filter(letter => letter !== answer);
+    const prompt = text(`Welcher Laut beginnt ${word}?`, `Which sound starts the German word ${word}?`);
+    return {q:prompt, visual:['preschool','1','2'].includes(level)?image:null, a:answer, c:shuffle([answer,...shuffle(letters).slice(0,3)]), audioPrompt:prompt, promptLang:english?'en-US':'de-DE', speak:word, speechLang:'de-DE'};
+  }
+  function buildGermanRound(level) {
+    const generated = Array.from({length:16}, () => createGermanQuestion(level));
+    const existing = bank[level].german || [];
+    return shuffle([...new Map([...existing,...generated].map(item=>[item.q,item])).values()]).slice(0,3);
+  }
+  const englishWordCards = [
+    ['cat','Katze','🐱'],['dog','Hund','🐶'],['apple','Apfel','🍎'],['ball','Ball','⚽'],['sun','Sonne','☀️'],['fish','Fisch','🐟'],['house','Haus','🏠'],['flower','Blume','🌼'],['banana','Banane','🍌'],['star','Stern','⭐'],['book','Buch','📘'],['school','Schule','🏫'],['horse','Pferd','🐴'],['rain','Regen','🌧️'],['duck','Ente','🦆'],['moon','Mond','🌙']
+  ];
+  function createEnglishQuestion(level = selectedLevel) {
+    const [word, translation] = shuffle(englishWordCards)[0];
+    const options = shuffle(englishWordCards.filter(([, german]) => german !== translation)).slice(0,3);
+    const selectedWords = [[word,translation,englishWordCards.find(([,german])=>german===translation)?.[2]],...options];
+    const answers = selectedWords.map(([,german])=>german);
+    const imageByAnswer = Object.fromEntries(selectedWords.map(([,german,emoji])=>[german,emoji]));
+    const early = ['preschool','1','2'].includes(level);
+    const prompt = early ? text('Höre das englische Wort und finde das Bild.','Listen to the English word and find the picture.')
+      : text(`Was heißt „${word}“ auf Deutsch?`,`What does “${word}” mean in German?`);
+    return {q:prompt, visual:early?'🔊':null, a:translation, c:answers, choiceImages:early?imageByAnswer:null, audioPrompt:early?word:prompt, promptLang:early?'en-US':english?'en-US':'de-DE', speak:word, speechLang:'en-US'};
+  }
+  function buildEnglishRound(level) {
+    const generated = Array.from({length:16}, () => createEnglishQuestion(level));
+    const existing = bank[level].english || [];
+    // Early word-finding rounds deliberately reuse a spoken prompt, so use the
+    // vocabulary item as the deduplication key instead of collapsing the round
+    // to one generated question.
+    return shuffle([...new Map([...existing,...generated].map(item=>[`${item.q}|${item.speak || item.a}`,item])).values()]).slice(0,3);
+  }
+  const worldQuestionCards = [
+    ['Welches Tier sagt Miau?','Which animal says meow?','🐱',[['Katze','Cat','🐱'],['Kuh','Cow','🐄'],['Ente','Duck','🦆']]],
+    ['Welches Tier lebt im Wasser?','Which animal lives in water?','🌊',[['Fisch','Fish','🐟'],['Hund','Dog','🐶'],['Vogel','Bird','🐦']]],
+    ['Welches Tier kann fliegen?','Which animal can fly?','☁️',[['Vogel','Bird','🐦'],['Fisch','Fish','🐟'],['Katze','Cat','🐱']]],
+    ['Was braucht eine Pflanze?','What does a plant need?','🌱',[['Wasser','Water','💧'],['Schuhe','Shoes','👟'],['Spielzeug','Toys','🧸']]],
+    ['Was tragen wir auf dem Kopf?','What do we wear on our head?','🧢',[['Mütze','Hat','🧢'],['Socke','Sock','🧦'],['Tasse','Cup','☕']]],
+    ['Womit hören wir?','Which body part do we hear with?','👂',[['Ohren','Ears','👂'],['Nase','Nose','👃'],['Knie','Knees','🦵']]],
+    ['Welches Tier gibt Milch?','Which animal gives milk?','🥛',[['Kuh','Cow','🐄'],['Fisch','Fish','🐟'],['Frosch','Frog','🐸']]],
+    ['Was wächst am Baum?','What grows on a tree?','🌳',[['Apfel','Apple','🍎'],['Auto','Car','🚗'],['Ball','Ball','⚽']]],
+    ['Was wird aus Wasser bei Frost?','What does water become when it freezes?','❄️',[['Eis','Ice','🧊'],['Dampf','Steam','♨️'],['Sand','Sand','🏖️']]],
+    ['Was macht die Biene?','What does a bee make?','🐝',[['Honig','Honey','🍯'],['Saft','Juice','🧃'],['Brot','Bread','🍞']]],
+    ['Welche Jahreszeit kommt nach dem Winter?','Which season comes after winter?','🌷',[['Frühling','Spring','🌷'],['Herbst','Autumn','🍂'],['Sommer','Summer','☀️']]],
+    ['Wie viele Beine hat ein Insekt?','How many legs does an insect have?','🐞',[['Sechs','Six','6️⃣'],['Vier','Four','4️⃣'],['Acht','Eight','8️⃣']]]
+  ];
+  function buildWorldRound(level) {
+    const generated = worldQuestionCards.map(([de,en,visual,options]) => {
+      const choices = options.map(([optionDe,optionEn,emoji])=>text(optionDe,optionEn));
+      const choiceImages = Object.fromEntries(options.map(([optionDe,optionEn,emoji])=>[text(optionDe,optionEn),emoji]));
+      const prompt = text(de,en);
+      return {q:prompt, visual:['preschool','1','2'].includes(level)?visual:null, a:choices[0], c:choices, choiceImages, audioPrompt:prompt, promptLang:english?'en-US':'de-DE'};
+    });
+    const existing = ['preschool','1','2'].includes(level) ? bank[level].world : (bank[level].world || []);
+    return shuffle([...new Map([...existing,...generated].map(item=>[item.q,item])).values()]).slice(0,3);
+  }
+  function buildSubjectRound(subject, level) {
+    if (subject === 'math') return buildMathRound(level);
+    if (subject === 'german') return buildGermanRound(level);
+    if (subject === 'english') return buildEnglishRound(level);
+    if (subject === 'world') return buildWorldRound(level);
+    return [];
+  }
+  function buildMixedRound(level) {
+    return shuffle(['math','german','english','world']).slice(0,3).map(subject => shuffle(buildSubjectRound(subject,level))[0]);
+  }
+  function voiceId(voice) {
+    return voice.voiceURI || `${voice.name}|${voice.lang}`;
+  }
+  function renderSpeechVoices() {
+    if (!('speechSynthesis' in window)) return;
+    const voices = window.speechSynthesis.getVoices();
+    speechVoiceSelects.forEach(select => {
+      const language = select.dataset.speechVoice;
+      const matching = voices.filter(voice => voice.lang.toLocaleLowerCase().startsWith(language));
+      if (!matching.length) return;
+      select.replaceChildren();
+      const automatic = document.createElement('option');
+      automatic.value = '';
+      automatic.textContent = text('Automatisch – beste passende Stimme','Automatic – best matching voice');
+      select.append(automatic);
+      matching.sort((a,b)=>a.name.localeCompare(b.name)).forEach(voice=>{
+        const option = document.createElement('option');
+        option.value = voiceId(voice);
+        option.textContent = `${voice.name} (${voice.lang}) · ${voice.localService ? text('Gerät','Device') : text('Online','Online')}`;
+        select.append(option);
+      });
+      select.value = selectedSpeechVoices[language];
+      if (select.value !== selectedSpeechVoices[language]) {
+        selectedSpeechVoices[language] = '';
+        select.value = '';
+      }
+      select.hidden = false;
+    });
+  }
+  speechVoiceSelects.forEach(select => {
+    const language = select.dataset.speechVoice;
+    try { selectedSpeechVoices[language] = window.localStorage.getItem(`kids-learning.voice.${language}`) || ''; } catch {}
+    select.addEventListener('change', () => {
+      selectedSpeechVoices[language] = select.value;
+      try { window.localStorage.setItem(`kids-learning.voice.${language}`, select.value); } catch {}
+    });
+  });
+  if ('speechSynthesis' in window) {
+    renderSpeechVoices();
+    if (typeof window.speechSynthesis.addEventListener === 'function') window.speechSynthesis.addEventListener('voiceschanged', renderSpeechVoices);
+    else window.speechSynthesis.onvoiceschanged = renderSpeechVoices;
+  }
   function start(subject) {
     selectedSubject = subject;
     searchModes.hidden = true;
     searchGame.hidden = true;
     mazePanel.hidden = true;
-    questions = shuffle(bank[selectedLevel][subject]).slice(0, 3);
+    questions = subject === 'mixed' ? buildMixedRound(selectedLevel) : buildSubjectRound(subject, selectedLevel);
     index = 0;
     score = 0;
     setup.hidden = true;
@@ -816,14 +1009,27 @@
   }
   function speak(word, language = 'en-US') {
     if (!('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) {
-      const message = text('Die Vorlesestimme ist auf diesem Gerät nicht verfügbar.', 'A read-aloud voice is not available on this device.');
-      if (searchGame.hidden) setQuizFeedback('', message);
-      else setSearchFeedback('', message);
+      speechStatus.textContent = text('Vorlesestimme auf diesem Gerät nicht verfügbar.','Read-aloud speech is not available on this device.');
       return;
     }
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(word);
     utterance.lang = language;
+    utterance.rate = .9;
+    utterance.pitch = 1.08;
+    const languageKey = language.toLocaleLowerCase().startsWith('de') ? 'de' : 'en';
+    const available = window.speechSynthesis.getVoices().filter(voice => voice.lang.toLocaleLowerCase().startsWith(languageKey));
+    const requested = available.find(voice => voiceId(voice) === selectedSpeechVoices[languageKey]);
+    const qualityScore = voice => (voice.lang.toLocaleLowerCase() === language.toLocaleLowerCase() ? 10 : 0)
+      + (voice.localService ? 5 : 0)
+      + (/natural|neural|premium|enhanced/i.test(voice.name) ? 3 : 0);
+    const chosen = requested || [...available].sort((a,b)=>qualityScore(b)-qualityScore(a))[0];
+    if (chosen) utterance.voice = chosen;
+    utterance.onerror = event => {
+      if (event.error === 'canceled' || event.error === 'interrupted') return;
+      speechStatus.textContent = text('Die Stimme konnte nicht abgespielt werden. Wähle eine andere Stimme.','The voice could not be played. Choose another voice.');
+    };
+    utterance.onstart = () => { speechStatus.textContent = ''; };
     window.speechSynthesis.speak(utterance);
   }
   function showSetup() {
