@@ -11,6 +11,11 @@
 .kids-template-grid,.kids-saved-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:.75rem}
 .kids-template-card{min-height:112px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.25rem;text-align:center;border:1px solid var(--bs-border-color);border-radius:.75rem;background:var(--bs-body-bg);color:var(--bs-body-color);box-shadow:0 1px 4px #0001}
 .kids-template-card:hover,.kids-template-card:focus-visible{border-color:var(--bs-primary);box-shadow:0 0 0 .2rem color-mix(in srgb,var(--bs-primary) 20%,transparent)}
+.kids-template-card[hidden]{display:none}
+.kids-template-card.kids-writing-template{min-height:88px;font-size:1.25rem}
+.kids-template-card.kids-writing-template .kids-template-emoji{font-size:2.8rem;font-weight:800;line-height:1}
+.kids-template-filters .btn{min-height:48px;touch-action:manipulation}
+.kids-canvas [data-writing-guide]{pointer-events:none}
 .kids-template-emoji{font-size:2.2rem;line-height:1.1}
 .kids-saved-card{min-width:0}
 .kids-saved-card .card-title{overflow-wrap:anywhere}

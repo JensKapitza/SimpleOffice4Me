@@ -85,14 +85,26 @@
     ],details:['M126 466 L208 466','M587 466 L671 466']},
     {id:'blank',emoji:'🎨',de:'Leeres Blatt',en:'Blank page',zones:[],details:[]},
   ];
+  const writingLetters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'Ä', 'Ö', 'Ü', 'ẞ'];
+  writingLetters.forEach((glyph) => {
+    const key = glyph === 'Ä' ? 'ae' : glyph === 'Ö' ? 'oe' : glyph === 'Ü' ? 'ue' : glyph === 'ẞ' ? 'eszett' : glyph.toLowerCase();
+    templates.push({id:`letter-upper-${key}`,emoji:glyph,de:`Großbuchstabe ${glyph}`,en:`Capital letter ${glyph}`,kind:'uppercase',traceText:glyph,zones:[],details:[]});
+    const lower = glyph.toLocaleLowerCase('de-DE');
+    templates.push({id:`letter-lower-${key}`,emoji:lower,de:`Kleinbuchstabe ${lower}`,en:`Lowercase letter ${lower}`,kind:'lowercase',traceText:lower,zones:[],details:[]});
+  });
+  [...'0123456789'].forEach((glyph) => templates.push({
+    id:`number-${glyph}`,emoji:glyph,de:`Zahl ${glyph}`,en:`Number ${glyph}`,kind:'number',traceText:glyph,zones:[],details:[],
+  }));
   const labels = new Map(templates.map((item) => [item.id, t(item.de, item.en)]));
   const templateGrid = root.querySelector('[data-template-list]');
+  const templateFilters = [...root.querySelectorAll('[data-template-filter]')];
   const savedGrid = root.querySelector('[data-saved-list]');
   const editor = root.querySelector('[data-editor]');
   const canvas = root.querySelector('[data-canvas]');
   const titleInput = root.querySelector('[data-title]');
   const status = root.querySelector('[data-save-status]');
   const galleryStatus = root.querySelector('[data-gallery-status]');
+  const canvasHelp = root.querySelector('[data-canvas-help]');
   const undoButton = root.querySelector('[data-undo]');
   const palette = [...root.querySelectorAll('[data-color]')];
   const api = root.dataset.api;
@@ -128,8 +140,31 @@
   function renderCanvas() {
     if (!current) return;
     const template = currentTemplate();
+    const fillButton = root.querySelector('[data-mode="fill"]');
+    fillButton.hidden = !template.zones.length;
+    if (!template.zones.length && mode === 'fill') {
+      mode = 'draw';
+      root.querySelectorAll('[data-mode]').forEach((item) => {
+        const selected = item.dataset.mode === mode;
+        item.classList.toggle('active',selected);
+        item.setAttribute('aria-pressed',String(selected));
+      });
+    }
+    canvasHelp.textContent = template.traceText
+      ? t(`Fahre mit dem Finger oder der Maus die Punkte für „${template.traceText}“ nach. Du kannst auch frei darüber malen.`,`Trace the dots for “${template.traceText}” with your finger or mouse. You can also draw freely over it.`)
+      : t('Freihand ist eingeschaltet. Tippe auf „Flächen färben“, um eine Form auszumalen. „Für mich speichern“ legt dein Bild privat ab.','Finger painting is on. Tap “Color areas” to fill a shape. Save for me keeps it private.');
     canvas.replaceChildren();
     canvas.append(makeSvg('rect', {x:0,y:0,width:800,height:600,fill:'#fff'}));
+    if (template.traceText) {
+      canvas.append(makeSvg('path', {d:'M125 500 H675 M125 135 H675',fill:'none',stroke:'#d8dee7','stroke-width':3,'stroke-dasharray':'8 9','pointer-events':'none'}));
+      const guide = makeSvg('text', {
+        x:400,y:475,'text-anchor':'middle','font-family':'Arial Rounded MT Bold, Trebuchet MS, sans-serif',
+        'font-size':430,'font-weight':700,fill:'none',stroke:'#93a4b8','stroke-width':5,
+        'stroke-dasharray':'2 12','stroke-linecap':'round','stroke-linejoin':'round','pointer-events':'none',
+      });
+      guide.textContent = template.traceText;
+      canvas.append(guide);
+    }
     template.zones.forEach(([key,d]) => {
       const zone = makeSvg('path', {d,fill:current.fills[key] || '#fff', 'data-zone':key, tabindex:0, role:'button', 'aria-label':t('Fläche färben','Color area')});
       zone.addEventListener('keydown', (event) => {
@@ -145,7 +180,9 @@
       d:pathFromPoints(stroke.points),fill:'none',stroke:stroke.color,'stroke-width':stroke.width,
       'stroke-linecap':'round','stroke-linejoin':'round','pointer-events':'none',
     })));
-    canvas.setAttribute('aria-label', `${t(template.de,template.en)}. ${t('Malbild','Coloring picture')}`);
+    canvas.setAttribute('aria-label', template.traceText
+      ? `${t(template.de,template.en)}. ${t('Gepunktete Vorlage zum Nachspuren','Dotted tracing guide')}`
+      : `${t(template.de,template.en)}. ${t('Malbild','Coloring picture')}`);
   }
 
   function makeTemplateCard(template) {
@@ -153,6 +190,8 @@
     button.type = 'button';
     button.className = 'kids-template-card';
     button.dataset.template = template.id;
+    button.dataset.templateKind = template.kind || 'picture';
+    if (template.traceText) button.classList.add('kids-writing-template');
     button.setAttribute('aria-label', `${t('Vorlage auswählen: ','Choose picture: ')}${t(template.de,template.en)}`);
     const emoji = document.createElement('span');
     emoji.className = 'kids-template-emoji';
@@ -277,7 +316,9 @@
     });
     undoStack = [];
     editor.hidden = false;
-    titleInput.value = `${t('Mein Kunstwerk','My artwork')} · ${new Intl.DateTimeFormat(en ? 'en' : 'de', {dateStyle:'short',timeStyle:'short'}).format(new Date())}`;
+    titleInput.value = currentTemplate().traceText
+      ? t(currentTemplate().de,currentTemplate().en)
+      : `${t('Mein Kunstwerk','My artwork')} · ${new Intl.DateTimeFormat(en ? 'en' : 'de', {dateStyle:'short',timeStyle:'short'}).format(new Date())}`;
     undoButton.disabled = true;
     setStatus(t('Noch nicht gespeichert','Not saved yet'));
     renderCanvas();
@@ -455,5 +496,18 @@
   }
 
   templates.forEach((template) => templateGrid.append(makeTemplateCard(template)));
+  function applyTemplateFilter(kind) {
+    templateGrid.dataset.filter = kind;
+    templateGrid.querySelectorAll('[data-template]').forEach((card) => {
+      card.hidden = kind !== 'all' && card.dataset.templateKind !== kind;
+    });
+    templateFilters.forEach((button) => {
+      const selected = button.dataset.templateFilter === kind;
+      button.classList.toggle('active',selected);
+      button.setAttribute('aria-pressed',String(selected));
+    });
+  }
+  templateFilters.forEach((button) => button.addEventListener('click', () => applyTemplateFilter(button.dataset.templateFilter)));
+  applyTemplateFilter(templateGrid.dataset.filter || 'picture');
   refreshSaved();
 })();
