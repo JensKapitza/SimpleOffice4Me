@@ -83,6 +83,15 @@ class DeploymentAssetsTest(unittest.TestCase):
         self.assertNotIn("aiohttp==", android)
         self.assertIn("start_wsgi_proxy", self.text("app/lan_proxy_wsgi.py"))
 
+    def test_auto_tls_overlay_persists_generated_identity_without_host_cert_files(self):
+        compose = self.text("deploy/docker/compose.lan-proxy-auto-tls.yaml")
+        self.assertIn("SIMPLEOFFICE_LAN_PROXY_CONTAINER_MODE: \"1\"", compose)
+        self.assertIn("SIMPLEOFFICE_LAN_PROXY_PUBLIC_HOST:?", compose)
+        self.assertIn("SIMPLEOFFICE_LAN_PROXY_TLS_DIR: /var/lib/simpleoffice4me/lan-proxy-tls", compose)
+        self.assertNotIn("SIMPLEOFFICE_LAN_PROXY_TLS_CERT", compose)
+        self.assertNotIn("SIMPLEOFFICE_LAN_PROXY_TLS_KEY", compose)
+        self.assertNotIn("/run/simpleoffice", compose)
+
     def test_federation_compose_restart_smoke_is_wired_to_docker_ci(self):
         compose = self.text("deploy/docker/compose.federation-test.yaml")
         workflow = self.text(".github/workflows/ubuntu-26-compat.yml")

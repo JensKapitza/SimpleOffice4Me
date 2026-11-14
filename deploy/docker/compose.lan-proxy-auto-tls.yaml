@@ -1,0 +1,11 @@
+# Opt-in HTTPS LAN proxy with a generated self-signed identity.
+# Certificate and key persist in the existing application data volume.
+services:
+  simpleoffice:
+    environment:
+      SIMPLEOFFICE_LAN_PROXY_CONTAINER_MODE: "1"
+      SIMPLEOFFICE_LAN_PROXY_TLS_DIR: /var/lib/simpleoffice4me/lan-proxy-tls
+      SIMPLEOFFICE_LAN_PROXY_PUBLIC_HOST: ${SIMPLEOFFICE_LAN_PROXY_PUBLIC_HOST:?Set this to the host LAN IP or DNS name}
+      SIMPLEOFFICE_LAN_PROXY_PUBLIC_PORT: ${SIMPLEOFFICE_LAN_PROXY_PUBLIC_PORT:-8081}
+    ports:
+      - "${SIMPLEOFFICE_LAN_PROXY_PUBLISH_ADDRESS:?Set this to one host LAN interface IP}:${SIMPLEOFFICE_LAN_PROXY_PUBLIC_PORT:-8081}:8081"
