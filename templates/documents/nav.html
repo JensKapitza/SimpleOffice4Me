@@ -63,7 +63,7 @@
         </div>
 
         <div class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle" href="#" id="nav-tools" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ 'Tools' if g.language == 'en' else 'Werkzeuge' }}</a>
+          <a class="nav-link dropdown-toggle" href="#" id="nav-tools" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ 'Tools & more' if g.language == 'en' else 'Werkzeuge & mehr' }}</a>
           <ul class="dropdown-menu" aria-labelledby="nav-tools">
             <li><a class="dropdown-item" href="{{ url_for('repository_workspace.index') }}">{{ 'Repository workspace' if g.language == 'en' else 'Repository-Arbeitszentrale' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('library.index') }}">{{ 'Library' if g.language == 'en' else 'Bibliothek' }}</a></li>
@@ -71,6 +71,24 @@
             <li><a class="dropdown-item" href="{{ url_for('printershare.index') }}">{{ 'Printers' if g.language == 'en' else 'Drucker' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('screen.index') }}">{{ 'Screens' if g.language == 'en' else 'Bildschirm' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('reader.shelf') }}">{{ 'Bookshelf' if g.language == 'en' else 'Bücherregal' }}</a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item" href="{{ url_for('gamification.index') }}">{{ 'Data roulette' if g.language == 'en' else 'Daten-Roulette' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('datalogger.index') }}">{{ 'Data logger' if g.language == 'en' else 'Datenlogger' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('documents.notes_wiki') }}">{{ tr('notes') }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('documents.logbook') }}">{{ tr('logbook') }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('documents.first_run_setup') }}">{{ 'Setup' if g.language == 'en' else 'Einrichten' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('documents.settings') }}">{{ tr('settings') }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('quick_share.index') }}">{{ 'QR share' if g.language == 'en' else 'QR an Handy' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('browser_bookmarks.index') }}">{{ 'Bookmarks' if g.language == 'en' else 'Lesezeichen' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('vault.index') }}">{{ 'Password vault' if g.language == 'en' else 'Passwort-Vault' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('mcp.settings') }}">MCP</a></li>
+          </ul>
+        </div>
+
+        <div class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" id="nav-kids" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ 'Kids' if g.language == 'en' else 'Kinder' }}</a>
+          <ul class="dropdown-menu" aria-labelledby="nav-kids">
+            <li><a class="dropdown-item" href="{{ url_for('kids_coloring.index') }}">{{ 'Coloring wall' if g.language == 'en' else 'Ausmalwand' }}</a></li>
           </ul>
         </div>
 
@@ -117,21 +135,6 @@
           </div>
         {% endif %}
 
-        <div class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle" href="#" id="nav-more" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ 'More' if g.language == 'en' else 'Mehr' }}</a>
-          <ul class="dropdown-menu" aria-labelledby="nav-more">
-            <li><a class="dropdown-item" href="{{ url_for('gamification.index') }}">{{ 'Data roulette' if g.language == 'en' else 'Daten-Roulette' }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('datalogger.index') }}">{{ 'Data logger' if g.language == 'en' else 'Datenlogger' }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('documents.notes_wiki') }}">{{ tr('notes') }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('documents.logbook') }}">{{ tr('logbook') }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('documents.first_run_setup') }}">{{ 'Setup' if g.language == 'en' else 'Einrichten' }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('documents.settings') }}">{{ tr('settings') }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('quick_share.index') }}">{{ 'QR share' if g.language == 'en' else 'QR an Handy' }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('browser_bookmarks.index') }}">{{ 'Bookmarks' if g.language == 'en' else 'Lesezeichen' }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('vault.index') }}">{{ 'Password vault' if g.language == 'en' else 'Passwort-Vault' }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('mcp.settings') }}">MCP</a></li>
-          </ul>
-        </div>
       </div>
 
       {% if v3_search_enabled %}<button type="button" class="btn btn-sm btn-outline-light me-2 my-2 my-xxl-0 text-nowrap" data-v3-search-open title="Ctrl+K">Palette <kbd class="ms-1">Ctrl K</kbd></button>{% endif %}

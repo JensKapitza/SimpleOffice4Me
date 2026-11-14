@@ -356,6 +356,9 @@ app.register_blueprint(quick_share.bp)
 from . import browser_bookmarks
 app.register_blueprint(browser_bookmarks.bp)
 
+from . import kids_coloring
+app.register_blueprint(kids_coloring.bp)
+
 from . import photo_upload
 app.register_blueprint(photo_upload.bp)
 
