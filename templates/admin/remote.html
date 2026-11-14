@@ -9,6 +9,7 @@
     <div class="card-body">
       <p class="mb-2">{{ 'Platform' if g.language == 'en' else 'Plattform' }}: {{ agent.platform }}</p>
       <p class="mb-3">Status: {{ ('Active' if agent.running else ('Installed' if agent.installed else 'Not installed')) if g.language == 'en' else ('Aktiv' if agent.running else ('Installiert' if agent.installed else 'Nicht installiert')) }}</p>
+      <p class="small text-secondary">{{ 'Remote applications are entries in an allowlist. The executable remains on this host; publishing does not upload or install it.' if g.language == 'en' else 'Remote-Anwendungen sind Einträge in einer Freigabeliste. Die EXE bleibt auf diesem Host; das Veröffentlichen lädt sie weder hoch noch installiert es sie.' }}</p>
       {% if not agent.installed %}
       <form method="post" action="{{ url_for('remote_admin.install_agent') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-primary" type="submit">{{ 'Install' if g.language == 'en' else 'Installieren' }}</button></form>
       {% elif agent.running %}
@@ -19,12 +20,49 @@
     </div>
   </div>
 
+  <section class="card shadow-sm mb-4" aria-labelledby="remote-publish-heading">
+    <div class="card-header"><h2 class="h5 mb-0" id="remote-publish-heading">{{ 'Publish an application' if g.language == 'en' else 'Anwendung freigeben' }}</h2></div>
+    <div class="card-body">
+      <p class="text-secondary">{{ 'Add a Windows application by its full path on the SimpleOffice host. Only existing .exe files can be published; shell and script interpreters are blocked.' if g.language == 'en' else 'Füge eine Windows-Anwendung über ihren vollständigen Pfad auf dem SimpleOffice-Host hinzu. Nur vorhandene .exe-Dateien können freigegeben werden; Shell- und Skript-Interpreter sind gesperrt.' }}</p>
+      {% if agent.platform != 'windows' %}
+      <div class="alert alert-warning" role="status">{{ 'This host currently runs on ' ~ agent.platform ~ '. Windows RemoteApps require the SimpleOffice host to be Windows and the executable to exist there.' if g.language == 'en' else 'Dieser Host läuft aktuell unter ' ~ agent.platform ~ '. Windows-RemoteApps benötigen einen Windows-SimpleOffice-Host und eine dort vorhandene EXE-Datei.' }}</div>
+      {% endif %}
+      <form method="post" action="{{ url_for('remote_admin.publish_app') }}" class="row g-3">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-4">
+          <label class="form-label" for="remote-app-label">{{ 'Display name' if g.language == 'en' else 'Anzeigename' }}</label>
+          <input class="form-control" id="remote-app-label" name="label" maxlength="160" required autocomplete="off">
+        </div>
+        <div class="col-md-8">
+          <label class="form-label" for="remote-app-executable">{{ 'Full executable path on this host' if g.language == 'en' else 'Vollständiger EXE-Pfad auf diesem Host' }}</label>
+          <input class="form-control font-monospace" id="remote-app-executable" name="executable" type="text" maxlength="4096" placeholder="C:\\Program Files\\App\\App.exe" required aria-describedby="remote-app-path-help" autocomplete="off" spellcheck="false">
+          <div class="form-text" id="remote-app-path-help">{{ 'Example: C:\\Program Files\\App\\App.exe. The server checks that the file exists and records its SHA-256 fingerprint.' if g.language == 'en' else 'Beispiel: C:\\Program Files\\App\\App.exe. Der Server prüft die Datei und speichert ihren SHA-256-Fingerabdruck.' }}</div>
+        </div>
+        <div class="col-12">
+          <label class="form-label" for="remote-app-description">{{ 'Description (optional)' if g.language == 'en' else 'Beschreibung (optional)' }}</label>
+          <input class="form-control" id="remote-app-description" name="description" maxlength="500">
+        </div>
+        <fieldset class="col-12">
+          <legend class="form-label">{{ 'Allow users' if g.language == 'en' else 'Für Benutzer freigeben' }}</legend>
+          {% if users %}<div class="d-flex flex-wrap gap-3">{% for user in users %}<div class="form-check"><input class="form-check-input" id="remote-app-user-{{ user.id }}" type="checkbox" name="allowed_user_ids" value="{{ user.id }}"><label class="form-check-label" for="remote-app-user-{{ user.id }}">{{ user.display_name or user.username }} <span class="text-secondary">({{ user.username }})</span></label></div>{% endfor %}</div>
+          <div class="form-text">{{ 'If no users are selected, only administrators can see this application.' if g.language == 'en' else 'Ohne ausgewählte Benutzer sehen nur Administratoren diese Anwendung.' }}</div>
+          {% else %}<p class="small text-secondary mb-0">{{ 'No active users are available.' if g.language == 'en' else 'Keine aktiven Benutzer vorhanden.' }}</p>{% endif %}
+        </fieldset>
+        <div class="col-12 form-check ms-2">
+          <input class="form-check-input" id="remote-app-favorite" type="checkbox" name="favorite" value="1">
+          <label class="form-check-label" for="remote-app-favorite">{{ 'Mark as a favorite' if g.language == 'en' else 'Als Favorit markieren' }}</label>
+        </div>
+        <div class="col-12"><button class="btn btn-primary" type="submit">{{ 'Publish application' if g.language == 'en' else 'Anwendung freigeben' }}</button></div>
+      </form>
+    </div>
+  </section>
+
   <div class="card shadow-sm">
     <div class="card-header"><strong>{{ 'Published applications' if g.language == 'en' else 'Veröffentlichte Anwendungen' }}</strong></div>
     <div class="card-body">
       {% if apps %}
       <div class="table-responsive"><table class="table align-middle"><thead><tr><th scope="col">Name</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">{{ 'Actions' if g.language == 'en' else 'Aktionen' }}</span></th></tr></thead><tbody>
-      {% for app in apps %}<tr><td>{{ app.label }}</td><td>{{ ('Active' if app.enabled else 'Disabled') if g.language == 'en' else ('Aktiv' if app.enabled else 'Deaktiviert') }}</td><td class="text-end"><form method="post" action="{{ url_for('remote_admin.remove_app', app_id=app.app_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-danger" type="submit">{{ 'Remove' if g.language == 'en' else 'Entfernen' }}</button></form></td></tr>{% endfor %}
+      {% for app in apps %}<tr><td><strong>{{ app.label }}</strong>{% if app.favorite %}<span class="badge text-bg-warning ms-2">{{ 'Favorite' if g.language == 'en' else 'Favorit' }}</span>{% endif %}{% if app.description %}<br><span class="small text-secondary">{{ app.description }}</span>{% endif %}<br><code class="small text-break">{{ app.executable }}</code></td><td>{{ ('Active' if app.enabled else 'Disabled') if g.language == 'en' else ('Aktiv' if app.enabled else 'Deaktiviert') }}</td><td class="text-end"><form method="post" action="{{ url_for('remote_admin.remove_app', app_id=app.app_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-danger" type="submit">{{ 'Remove' if g.language == 'en' else 'Entfernen' }}</button></form></td></tr>{% endfor %}
       </tbody></table></div>
       {% else %}<p class="text-secondary mb-0">{{ 'No applications published yet.' if g.language == 'en' else 'Noch keine Anwendungen veröffentlicht.' }}</p>{% endif %}
     </div>
