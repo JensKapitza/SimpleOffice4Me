@@ -18,7 +18,6 @@
         <div class="d-flex align-items-center gap-2"><span class="kids-focus-icon" aria-hidden="true">🎨</span><strong class="kids-focus-title">{{ 'Let’s color!' if g.language == 'en' else 'Jetzt wird gemalt!' }}</strong></div>
         <div class="d-flex align-items-center gap-2"><span class="small text-secondary" data-save-status role="status" aria-live="polite">{{ 'Saved automatically' if g.language == 'en' else 'Speichert automatisch' }}</span><button class="btn btn-success btn-lg kids-finish-button" type="button" data-finish><i class="fa-solid fa-bookmark me-1" aria-hidden="true"></i>{{ 'Save for me' if g.language == 'en' else 'Für mich speichern' }}</button></div>
       </div>
-      <label class="visually-hidden" for="kids-picture-title">{{ 'Picture name' if g.language == 'en' else 'Bildname' }}</label>
       <input type="hidden" id="kids-picture-title" data-title value="{{ 'My picture' if g.language == 'en' else 'Mein Bild' }}">
 
       <div class="kids-coloring-tools d-flex flex-wrap align-items-center gap-2 mb-2">
