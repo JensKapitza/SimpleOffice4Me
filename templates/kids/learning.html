@@ -23,8 +23,41 @@
       <button type="button" class="kids-learning-subject" data-subject="german"><span aria-hidden="true">🔤</span><strong>{{ 'German' if g.language == 'en' else 'Deutsch' }}</strong><small>{{ 'Letters, words and reading' if g.language == 'en' else 'Buchstaben, Wörter und Lesen' }}</small></button>
       <button type="button" class="kids-learning-subject" data-subject="english"><span aria-hidden="true">🗣️</span><strong>{{ 'English' if g.language == 'en' else 'Englisch' }}</strong><small>{{ 'Hear and learn words' if g.language == 'en' else 'Wörter hören und lernen' }}</small></button>
       <button type="button" class="kids-learning-subject" data-subject="world"><span aria-hidden="true">🌱</span><strong>{{ 'Nature and the world' if g.language == 'en' else 'Natur & Welt' }}</strong><small>{{ 'Animals, plants and everyday life' if g.language == 'en' else 'Tiere, Pflanzen und Alltag' }}</small></button>
+      <button type="button" class="kids-learning-subject" data-subject="search"><span aria-hidden="true">🔎</span><strong>{{ 'Search and letters' if g.language == 'en' else 'Suchbild & Buchstaben' }}</strong><small>{{ 'Find things and complete words' if g.language == 'en' else 'Dinge finden und Wörter ergänzen' }}</small></button>
     </div>
     <p class="small text-secondary mt-3 mb-0">{{ 'English words can be played aloud with a voice available on your device.' if g.language == 'en' else 'Englische Wörter kann eine auf deinem Gerät verfügbare Stimme vorlesen.' }}</p>
+  </section>
+
+  <section class="kids-learning-search-modes" data-search-modes hidden aria-labelledby="kids-search-mode-heading">
+    <h2 class="h4" id="kids-search-mode-heading">{{ 'Choose a game' if g.language == 'en' else 'Was möchtest du machen?' }}</h2>
+    <div class="kids-learning-search-modes-grid">
+      <button type="button" class="kids-learning-subject" data-search-mode="objects"><span aria-hidden="true">🧩</span><strong>{{ 'Find the objects' if g.language == 'en' else 'Gegenstände suchen' }}</strong><small>{{ 'Find the named things in the picture.' if g.language == 'en' else 'Finde die genannten Dinge im Wimmelbild.' }}</small></button>
+      <button type="button" class="kids-learning-subject" data-search-mode="letters"><span aria-hidden="true">🔤</span><strong>{{ 'German letters and words' if g.language == 'en' else 'Buchstaben & Wörter' }}</strong><small>{{ 'Complete the German word to match the picture.' if g.language == 'en' else 'Ergänze das Wort passend zum Bild.' }}</small></button>
+    </div>
+    <button type="button" class="btn btn-outline-secondary btn-lg mt-3" data-search-modes-back>{{ 'Choose another game' if g.language == 'en' else 'Anderes Spiel wählen' }}</button>
+  </section>
+
+  <section class="kids-learning-search-game card shadow-sm" data-search-game hidden aria-live="polite">
+    <div class="card-body p-3 p-md-4">
+      <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+        <span class="badge text-bg-primary" data-search-level></span>
+        <strong class="kids-learning-progress" data-search-progress></strong>
+      </div>
+      <h2 class="kids-learning-question" data-search-prompt tabindex="-1"></h2>
+      <span class="kids-search-target-image mt-2" data-search-target-image aria-hidden="true" hidden></span>
+      <div class="kids-search-scene mt-4" data-search-scene role="group" aria-label="{{ 'Picture with objects to find' if g.language == 'en' else 'Wimmelbild mit Suchgegenständen' }}" hidden></div>
+      <div class="kids-search-letters mt-3" data-letter-play hidden>
+        <span class="kids-search-word-image" data-letter-image aria-hidden="true"></span>
+        <strong class="kids-search-word" data-letter-word></strong>
+        <p class="text-secondary mt-2">{{ 'Press the missing letter on the keyboard or tap a letter.' if g.language == 'en' else 'Drücke den fehlenden Buchstaben auf der Tastatur oder tippe ihn an.' }}</p>
+        <div class="kids-learning-choices" data-letter-choices role="group" aria-label="{{ 'Choose the missing letter' if g.language == 'en' else 'Fehlenden Buchstaben auswählen' }}"></div>
+      </div>
+      <p class="kids-learning-feedback mt-3 mb-0" data-search-feedback role="status" aria-live="polite"></p>
+      <div class="d-flex flex-wrap gap-2 mt-4">
+        <button type="button" class="btn btn-success btn-lg" data-search-next hidden>{{ 'Next' if g.language == 'en' else 'Weiter' }} ➡️</button>
+        <button type="button" class="btn btn-outline-secondary btn-lg" data-search-back>{{ 'Choose another game' if g.language == 'en' else 'Anderes Spiel wählen' }}</button>
+      </div>
+    </div>
   </section>
 
   <section class="kids-learning-game card shadow-sm" data-game hidden aria-live="polite">

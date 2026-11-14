@@ -11,7 +11,8 @@
   };
   const subjects = {
     math: text('Mathe', 'Math'), german: text('Deutsch', 'German'),
-    english: text('Englisch', 'English'), world: text('Natur & Welt', 'Nature & world')
+    english: text('Englisch', 'English'), world: text('Natur & Welt', 'Nature & world'),
+    search: text('Suchbild & Buchstaben', 'Search & letters')
   };
   const bank = {
     preschool: {
@@ -153,9 +154,63 @@
       world: gradeQuestions.world[index], math: extras[index]
     };
   });
+  const searchObjects = {
+    preschool: [
+      ['Apfel','Apple','🍎'],['Ball','Ball','⚽'],['Katze','Cat','🐱'],['Sonne','Sun','☀️'],['Fisch','Fish','🐟'],['Haus','House','🏠'],
+      ['Buch','Book','📘'],['Blume','Flower','🌼'],['Auto','Car','🚗'],['Banane','Banana','🍌'],['Hund','Dog','🐶'],['Stern','Star','⭐']
+    ],
+    1: [
+      ['Apfel','Apple','🍎'],['Ball','Ball','⚽'],['Katze','Cat','🐱'],['Sonne','Sun','☀️'],['Fisch','Fish','🐟'],['Haus','House','🏠'],
+      ['Buch','Book','📘'],['Blume','Flower','🌼'],['Auto','Car','🚗'],['Banane','Banana','🍌'],['Hund','Dog','🐶'],['Stern','Star','⭐']
+    ],
+    2: [
+      ['Schule','School','🏫'],['Regen','Rain','🌧️'],['Pferd','Horse','🐴'],['Brille','Glasses','👓'],['Tasse','Cup','☕'],['Mond','Moon','🌙'],
+      ['Schiff','Ship','🚢'],['Baum','Tree','🌳'],['Kuchen','Cake','🍰'],['Zug','Train','🚂'],['Ente','Duck','🦆'],['Uhr','Clock','🕒']
+    ],
+    3: [
+      ['Regenbogen','Rainbow','🌈'],['Dinosaurier','Dinosaur','🦕'],['Schmetterling','Butterfly','🦋'],['Rucksack','Backpack','🎒'],['Fußball','Football','⚽'],['Erdbeere','Strawberry','🍓'],
+      ['Gitarre','Guitar','🎸'],['Leuchtturm','Lighthouse','🗼'],['Kamera','Camera','📷'],['Schildkröte','Turtle','🐢'],['Zahnbürste','Toothbrush','🪥'],['Wolke','Cloud','☁️']
+    ],
+    4: [
+      ['Fernglas','Binoculars','🔭'],['Ananas','Pineapple','🍍'],['Feuerwehr','Fire engine','🚒'],['Schneemann','Snowman','⛄'],['Pflanze','Plant','🪴'],['Koffer','Suitcase','🧳'],
+      ['Mikrofon','Microphone','🎤'],['Leiter','Ladder','🪜'],['Schlüssel','Key','🔑'],['Pinguin','Penguin','🐧'],['Kaktus','Cactus','🌵'],['Kronleuchter','Chandelier','💡']
+    ],
+    5: [
+      ['Kompass','Compass','🧭'],['Teleskop','Telescope','🔭'],['Fahrrad','Bicycle','🚲'],['Berg','Mountain','⛰️'],['Papagei','Parrot','🦜'],['Muschel','Shell','🐚'],
+      ['Schlagzeug','Drum kit','🥁'],['Schloss','Castle','🏰'],['Fallschirm','Parachute','🪂'],['Rakete','Rocket','🚀'],['Kopfhörer','Headphones','🎧'],['Regenschirm','Umbrella','☂️']
+    ]
+  };
+  const wordCards = {
+    preschool: [
+      {word:'Katze',image:'🐱',missing:1}, {word:'Ball',image:'⚽',missing:0}, {word:'Hund',image:'🐶',missing:1}
+    ],
+    1: [
+      {word:'Apfel',image:'🍎',missing:1}, {word:'Sonne',image:'☀️',missing:1}, {word:'Blume',image:'🌼',missing:2}
+    ],
+    2: [
+      {word:'Schule',image:'🏫',missing:3}, {word:'Pferd',image:'🐴',missing:2}, {word:'Regen',image:'🌧️',missing:1}
+    ],
+    3: [
+      {word:'Regenbogen',image:'🌈',missing:5}, {word:'Schildkröte',image:'🐢',missing:4}, {word:'Rucksack',image:'🎒',missing:3}
+    ],
+    4: [
+      {word:'Fernglas',image:'🔭',missing:4}, {word:'Schneemann',image:'⛄',missing:5}, {word:'Erdbeere',image:'🍓',missing:3}
+    ],
+    5: [
+      {word:'Kompass',image:'🧭',missing:3}, {word:'Teleskop',image:'🔭',missing:5}, {word:'Fahrrad',image:'🚲',missing:4}
+    ]
+  };
 
   const setup = root.querySelector('[data-setup]');
   const game = root.querySelector('[data-game]');
+  const searchModes = root.querySelector('[data-search-modes]');
+  const searchGame = root.querySelector('[data-search-game]');
+  const searchScene = root.querySelector('[data-search-scene]');
+  const searchPrompt = root.querySelector('[data-search-prompt]');
+  const searchFeedback = root.querySelector('[data-search-feedback]');
+  const searchNext = root.querySelector('[data-search-next]');
+  const letterPlay = root.querySelector('[data-letter-play]');
+  const letterChoices = root.querySelector('[data-letter-choices]');
   const result = root.querySelector('[data-result]');
   const questionNode = root.querySelector('[data-question]');
   const choicesNode = root.querySelector('[data-choices]');
@@ -164,9 +219,15 @@
   const speakButton = root.querySelector('[data-speak]');
   let selectedLevel = 'preschool';
   let selectedSubject = 'math';
+  let selectedSearchMode = 'objects';
   let questions = [];
   let index = 0;
   let score = 0;
+  let searchTargets = [];
+  let searchIndex = 0;
+  let searchObjectsInScene = [];
+  let activeWordCard = null;
+  let searchReadyForNext = false;
 
   const shuffle = items => {
     const shuffled = [...items];
@@ -178,6 +239,8 @@
   };
   function start(subject) {
     selectedSubject = subject;
+    searchModes.hidden = true;
+    searchGame.hidden = true;
     questions = shuffle(bank[selectedLevel][subject]).slice(0, 3);
     index = 0;
     score = 0;
@@ -187,6 +250,134 @@
     root.querySelector('[data-game-level]').textContent = levels[selectedLevel];
     root.querySelector('[data-game-subject]').textContent = subjects[subject];
     showQuestion();
+  }
+  function showSearchModes() {
+    selectedSubject = 'search';
+    setup.hidden = true;
+    game.hidden = true;
+    result.hidden = true;
+    searchGame.hidden = true;
+    searchModes.hidden = false;
+    root.querySelector('[data-search-mode="objects"]').focus();
+  }
+  function startSearch(mode) {
+    selectedSubject = 'search';
+    selectedSearchMode = mode;
+    searchIndex = 0;
+    score = 0;
+    searchReadyForNext = false;
+    setup.hidden = true;
+    searchModes.hidden = true;
+    game.hidden = true;
+    result.hidden = true;
+    searchGame.hidden = false;
+    root.querySelector('[data-search-level]').textContent = levels[selectedLevel];
+    if (mode === 'objects') {
+      const targets = shuffle(searchObjects[selectedLevel].map(([de, en, emoji]) => ({name:text(de, en), emoji})));
+      searchTargets = targets.slice(0, 3);
+      const targetEmojis = new Set(searchTargets.map(item => item.emoji));
+      const distractors = Object.values(searchObjects).flat()
+        .filter(([, , emoji]) => !targetEmojis.has(emoji))
+        .map(([de, en, emoji]) => ({name:text(de, en), emoji}));
+      searchObjectsInScene = shuffle([...searchTargets, ...shuffle(distractors).slice(0, 9)]);
+    } else {
+      searchTargets = shuffle(wordCards[selectedLevel]).slice(0, 3);
+    }
+    showSearchRound();
+  }
+  function showSearchRound() {
+    searchReadyForNext = false;
+    searchNext.hidden = true;
+    searchFeedback.textContent = '';
+    root.querySelector('[data-search-progress]').textContent = text(`Runde ${searchIndex + 1} von 3`, `Round ${searchIndex + 1} of 3`);
+    if (selectedSearchMode === 'objects') {
+      const target = searchTargets[searchIndex];
+      searchPrompt.textContent = text(`Finde: ${target.name}`, `Find: ${target.name}`);
+      searchPrompt.focus();
+      const targetImage = root.querySelector('[data-search-target-image]');
+      targetImage.textContent = target.emoji;
+      targetImage.hidden = false;
+      letterPlay.hidden = true;
+      searchScene.hidden = false;
+      searchScene.replaceChildren();
+      searchObjectsInScene.forEach((item, itemIndex) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'kids-search-object';
+        button.dataset.objectIndex = String(itemIndex);
+        button.setAttribute('aria-label', item.name);
+        const icon = document.createElement('span');
+        icon.setAttribute('aria-hidden', 'true');
+        icon.textContent = item.emoji;
+        button.append(icon);
+        button.addEventListener('click', () => findObject(button, item, target));
+        searchScene.append(button);
+      });
+    } else {
+      const card = searchTargets[searchIndex];
+      activeWordCard = card;
+      searchPrompt.textContent = text('Welcher Buchstabe fehlt?', 'Which letter is missing from the German word?');
+      searchPrompt.focus();
+      root.querySelector('[data-search-target-image]').hidden = true;
+      searchScene.hidden = true;
+      letterPlay.hidden = false;
+      root.querySelector('[data-letter-image]').textContent = card.image;
+      root.querySelector('[data-letter-word]').textContent = card.word.split('').map((letter, position) => position === card.missing ? '＿' : letter).join(' ');
+      letterChoices.replaceChildren();
+      const answer = card.word[card.missing].toLocaleLowerCase();
+      const choices = shuffle([answer, ...shuffle('aeiourstlmnp'.split('').filter(letter => letter !== answer)).slice(0, 3)]);
+      choices.forEach(letter => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'kids-learning-choice';
+        button.textContent = letter.toLocaleUpperCase();
+        button.addEventListener('click', () => answerLetter(letter));
+        letterChoices.append(button);
+      });
+    }
+  }
+  function findObject(button, item, target) {
+    if (searchReadyForNext || button.disabled) return;
+    if (item.emoji === target.emoji) {
+      button.classList.add('is-found');
+      button.disabled = true;
+      score += 1;
+      searchFeedback.textContent = text('Gefunden! Gut gemacht! 🌟', 'Found it! Well done! 🌟');
+      searchReadyForNext = true;
+      searchNext.hidden = false;
+      searchNext.focus();
+    } else {
+      button.classList.add('is-missed');
+      searchFeedback.textContent = text('Fast! Suche noch einmal. 🔎', 'Almost! Try looking again. 🔎');
+      window.setTimeout(() => button.classList.remove('is-missed'), 500);
+    }
+  }
+  function answerLetter(letter) {
+    if (!activeWordCard || searchReadyForNext) return;
+    const correct = letter.toLocaleLowerCase() === activeWordCard.word[activeWordCard.missing].toLocaleLowerCase();
+    if (correct) {
+      score += 1;
+      const displayed = activeWordCard.word.split('');
+      displayed[activeWordCard.missing] = displayed[activeWordCard.missing].toLocaleUpperCase();
+      root.querySelector('[data-letter-word]').textContent = displayed.join(' ');
+      letterChoices.querySelectorAll('button').forEach(button => {
+        button.disabled = true;
+        if (button.textContent.toLocaleLowerCase() === letter.toLocaleLowerCase()) button.classList.add('is-correct');
+      });
+      searchFeedback.textContent = text('Richtig! Das Wort heißt: ', 'That’s right! The word is: ') + activeWordCard.word + ' 🌟';
+      searchReadyForNext = true;
+      searchNext.hidden = false;
+      searchNext.focus();
+    } else {
+      searchFeedback.textContent = text('Guter Versuch! Probier einen anderen Buchstaben.', 'Good try! Choose another letter.');
+    }
+  }
+  function finishSearch() {
+    searchGame.hidden = true;
+    result.hidden = false;
+    root.querySelector('[data-result-title]').textContent = text('Toll gesucht! 🎉', 'Great searching! 🎉');
+    root.querySelector('[data-result-copy]').textContent = text(`Du hast ${score} von 3 Aufgaben geschafft.`, `You completed ${score} of 3 tasks.`);
+    root.querySelector('[data-result-title]').focus();
   }
   function showQuestion() {
     const item = questions[index];
@@ -234,6 +425,8 @@
   function showSetup() {
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     game.hidden = true;
+    searchGame.hidden = true;
+    searchModes.hidden = true;
     result.hidden = true;
     setup.hidden = false;
     root.querySelector('#kids-learning-level-heading').focus();
@@ -243,7 +436,36 @@
     selectedLevel = button.dataset.level;
     root.querySelectorAll('[data-level]').forEach(level => level.setAttribute('aria-pressed', String(level === button)));
   }));
-  root.querySelectorAll('[data-subject]').forEach(button => button.addEventListener('click', () => start(button.dataset.subject)));
+  root.querySelectorAll('[data-subject]').forEach(button => button.addEventListener('click', () => {
+    if (button.dataset.subject === 'search') showSearchModes();
+    else start(button.dataset.subject);
+  }));
+  root.querySelectorAll('[data-search-mode]').forEach(button => button.addEventListener('click', () => startSearch(button.dataset.searchMode)));
+  root.querySelector('[data-search-modes-back]').addEventListener('click', showSetup);
+  root.querySelector('[data-search-back]').addEventListener('click', showSetup);
+  searchNext.addEventListener('click', () => {
+    if (!searchReadyForNext) return;
+    searchIndex += 1;
+    if (searchIndex < 3) showSearchRound();
+    else finishSearch();
+  });
+  searchScene.addEventListener('keydown', event => {
+    const movement = {ArrowRight:1, ArrowLeft:-1, ArrowDown:4, ArrowUp:-4}[event.key];
+    if (!movement) return;
+    const buttons = [...searchScene.querySelectorAll('button')];
+    const current = buttons.indexOf(document.activeElement);
+    if (current < 0) return;
+    event.preventDefault();
+    buttons[Math.max(0, Math.min(buttons.length - 1, current + movement))].focus();
+  });
+  root.addEventListener('keydown', event => {
+    const letterGameHasFocus = document.activeElement === searchPrompt || letterPlay.contains(document.activeElement);
+    if (searchGame.hidden || selectedSearchMode !== 'letters' || !letterGameHasFocus
+        || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || event.isComposing
+        || !/^[a-z]$/i.test(event.key)) return;
+    event.preventDefault();
+    answerLetter(event.key);
+  });
   root.querySelector('[data-next]').addEventListener('click', () => {
     index += 1;
     if (index < questions.length) showQuestion();
@@ -261,5 +483,8 @@
   });
   root.querySelector('[data-back]').addEventListener('click', showSetup);
   root.querySelector('[data-result-back]').addEventListener('click', showSetup);
-  root.querySelector('[data-replay]').addEventListener('click', () => start(selectedSubject));
+  root.querySelector('[data-replay]').addEventListener('click', () => {
+    if (selectedSubject === 'search') startSearch(selectedSearchMode);
+    else start(selectedSubject);
+  });
 })();
