@@ -219,13 +219,24 @@ def _public_result(
 
 
 class _HtmlNode:
-    __slots__ = ("tag", "attrs", "children", "text")
+    __slots__ = (
+        "tag", "attrs", "children", "text", "amazon_row", "ebay_row", "amazon_heading"
+    )
 
-    def __init__(self, tag: str = "", attrs: dict[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        tag: str = "",
+        attrs: dict[str, str] | None = None,
+        *,
+        parent: _HtmlNode | None = None,
+    ) -> None:
         self.tag = tag
         self.attrs = attrs or {}
         self.children: list[_HtmlNode] = []
         self.text: list[str] = []
+        self.amazon_row = parent.amazon_row if parent else None
+        self.ebay_row = parent.ebay_row if parent else None
+        self.amazon_heading = parent.amazon_heading if parent else None
 
 
 class _MarketplaceHtmlParser(HTMLParser):
@@ -240,24 +251,44 @@ class _MarketplaceHtmlParser(HTMLParser):
         "area", "base", "br", "col", "embed", "hr", "img", "input",
         "link", "meta", "param", "source", "track", "wbr",
     }
+    MAX_NODES = 50_000
 
     def __init__(self, html: str) -> None:
         super().__init__(convert_charrefs=True)
         self.root = _HtmlNode()
         self.stack = [self.root]
+        self.node_count = 0
+        self.aborted = False
         self.feed(html)
         self.close()
 
+    def _append_node(self, tag: str, attrs: list[tuple[str, str | None]]) -> _HtmlNode | None:
+        if self.aborted:
+            return None
+        if self.node_count >= self.MAX_NODES:
+            self.aborted = True
+            return None
+        parent = self.stack[-1]
+        attributes = {key.lower(): value or "" for key, value in attrs}
+        node = _HtmlNode(tag.lower(), attributes, parent=parent)
+        node_classes = set(attributes.get("class", "").split())
+        if attributes.get("data-component-type") == "s-search-result" and node.amazon_row is None:
+            node.amazon_row = node
+        if tag.lower() in {"li", "div"} and "s-item" in node_classes and node.ebay_row is None:
+            node.ebay_row = node
+        if tag.lower() == "h2" and node.amazon_row is not None:
+            node.amazon_heading = node
+        parent.children.append(node)
+        self.node_count += 1
+        return node
+
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        node = _HtmlNode(tag.lower(), {key.lower(): value or "" for key, value in attrs})
-        self.stack[-1].children.append(node)
-        if node.tag not in self._VOID_TAGS:
+        node = self._append_node(tag, attrs)
+        if node is not None and node.tag not in self._VOID_TAGS:
             self.stack.append(node)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        self.stack[-1].children.append(
-            _HtmlNode(tag.lower(), {key.lower(): value or "" for key, value in attrs})
-        )
+        self._append_node(tag, attrs)
 
     def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
@@ -267,7 +298,8 @@ class _MarketplaceHtmlParser(HTMLParser):
                 break
 
     def handle_data(self, data: str) -> None:
-        self.stack[-1].text.append(data)
+        if not self.aborted:
+            self.stack[-1].text.append(data)
 
 
 def _descendants(node: _HtmlNode):
@@ -284,7 +316,8 @@ def _classes(node: _HtmlNode) -> set[str]:
 
 def _node_text(node: _HtmlNode) -> str:
     chunks: list[str] = []
-    for current in [node, *_descendants(node)]:
+    chunks.extend(node.text)
+    for current in _descendants(node):
         chunks.extend(current.text)
     return " ".join(" ".join(chunks).split())
 
@@ -292,28 +325,15 @@ def _node_text(node: _HtmlNode) -> str:
 def parse_amazon_html(html: str) -> list[dict[str, Any]]:
     root = _MarketplaceHtmlParser(html or "").root
     results: list[dict[str, Any]] = []
-    rows = (
-        node for node in _descendants(root)
-        if node.attrs.get("data-component-type") == "s-search-result"
-    )
+    rows = (node for node in _descendants(root) if node.amazon_row is node)
     for row in rows:
         nodes = list(_descendants(row))
-        headings = [node for node in nodes if node.tag == "h2"]
-        heading_descendants = {
-            id(heading): list(_descendants(heading)) for heading in headings
-        }
-        heading_nodes = [node for children in heading_descendants.values() for node in children]
-        title_node = None
-        for heading in headings:
-            children = heading_descendants[id(heading)]
-            anchors = [node for node in children if node.tag == "a"]
-            title_node = next(
-                (span for anchor in anchors for span in _descendants(anchor) if span.tag == "span"),
-                None,
-            ) or next((node for node in children if node.tag == "span"), None)
-            if title_node:
-                break
-        link_node = next((node for node in heading_nodes if node.tag == "a" and node.attrs.get("href")), None)
+        heading_nodes = [node for node in nodes if node.amazon_heading is not None]
+        title_node = next((node for node in heading_nodes if node.tag == "span"), None)
+        link_node = next(
+            (node for node in heading_nodes if node.tag == "a" and node.attrs.get("href")),
+            None,
+        )
         if link_node is None:
             link_node = next((node for node in nodes if node.tag == "a" and node.attrs.get("href") and "a-link-normal" in _classes(node)), None)
         if not title_node or not link_node:
@@ -342,10 +362,7 @@ def parse_amazon_html(html: str) -> list[dict[str, Any]]:
 def parse_ebay_html(html: str) -> list[dict[str, Any]]:
     root = _MarketplaceHtmlParser(html or "").root
     results: list[dict[str, Any]] = []
-    rows = (
-        node for node in _descendants(root)
-        if node.tag in {"li", "div"} and "s-item" in _classes(node)
-    )
+    rows = (node for node in _descendants(root) if node.ebay_row is node)
     for row in rows:
         nodes = list(_descendants(row))
         title_node = next((node for node in nodes if "s-item__title" in _classes(node)), None)
