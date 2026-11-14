@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -15,6 +16,27 @@ CERT_NAME = "lan-proxy-self-signed.crt"
 KEY_NAME = "lan-proxy-self-signed.key"
 
 
+def _certificate_name(host: str):
+    """Return an IP or DNS SAN matching the exact address used by clients."""
+    from cryptography import x509
+
+    value = str(host or "").strip()
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        try:
+            dns_name = value.rstrip(".").encode("idna").decode("ascii").lower()
+        except UnicodeError as exc:
+            raise ValueError("Automatic TLS requires a valid DNS name or private IP.") from exc
+        pattern = r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*"
+        if not re.fullmatch(pattern, dns_name):
+            raise ValueError("Automatic TLS requires a valid DNS name or private IP.")
+        return x509.DNSName(dns_name)
+    if address.is_unspecified or address.is_multicast or not (address.is_loopback or address.is_private):
+        raise ValueError("Automatic TLS requires a specific LAN or loopback IP.")
+    return x509.IPAddress(address)
+
+
 def ensure_self_signed_certificate(bind_host: str) -> tuple[str, str]:
     """Create a persistent identity if missing; never silently replace one half."""
     from cryptography import x509
@@ -22,9 +44,7 @@ def ensure_self_signed_certificate(bind_host: str) -> tuple[str, str]:
     from cryptography.hazmat.primitives.asymmetric import ec
     from cryptography.x509.oid import NameOID
 
-    address = ipaddress.ip_address(bind_host)
-    if address.is_unspecified or address.is_multicast:
-        raise ValueError("Automatic TLS requires a specific LAN or loopback IP.")
+    san = _certificate_name(bind_host)
     directory = lan_proxy_tls_directory()
     cert_path, key_path = directory / CERT_NAME, directory / KEY_NAME
     if cert_path.is_symlink() or key_path.is_symlink():
@@ -33,11 +53,14 @@ def ensure_self_signed_certificate(bind_host: str) -> tuple[str, str]:
         raise ValueError("Incomplete TLS identity: remove or repair it manually.")
     if cert_path.exists():
         cert = x509.load_pem_x509_certificate(cert_path.read_bytes())
-        if x509.IPAddress(address) not in cert.extensions.get_extension_for_class(
+        if san not in cert.extensions.get_extension_for_class(
             x509.SubjectAlternativeName
         ).value:
-            raise ValueError("Existing TLS certificate does not cover the configured IP.")
-        if cert.not_valid_after.replace(tzinfo=timezone.utc) <= datetime.now(timezone.utc) + timedelta(days=7):
+            raise ValueError("Existing TLS certificate does not cover the configured client address.")
+        expires_at = getattr(cert, "not_valid_after_utc", None)
+        if expires_at is None:
+            expires_at = cert.not_valid_after.replace(tzinfo=timezone.utc)
+        if expires_at <= datetime.now(timezone.utc) + timedelta(days=7):
             raise ValueError("Existing TLS certificate expires soon; renew explicitly.")
         return CERT_NAME, KEY_NAME
 
@@ -52,7 +75,7 @@ def ensure_self_signed_certificate(bind_host: str) -> tuple[str, str]:
         .serial_number(x509.random_serial_number())
         .not_valid_before(now - timedelta(minutes=5))
         .not_valid_after(now + timedelta(days=365))
-        .add_extension(x509.SubjectAlternativeName([x509.IPAddress(address)]), critical=False)
+        .add_extension(x509.SubjectAlternativeName([san]), critical=False)
         .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
         .sign(key, hashes.SHA256())
     )

@@ -1,5 +1,6 @@
 """Coverage for LAN proxy configuration, trust boundaries and HTTPS forwarding."""
 
+import ipaddress
 import json
 import os
 import socket
@@ -76,6 +77,21 @@ class LanProxyConfigTests(unittest.TestCase):
                 validate_lan_proxy_settings(settings)
         with patch.dict(os.environ, {"SIMPLEOFFICE_LAN_PROXY_CONTAINER_MODE": "1"}):
             self.assertEqual("0.0.0.0", validate_lan_proxy_settings(settings)["bind_host"])
+
+    def test_wildcard_certificate_uses_existing_container_public_host(self):
+        settings = {**DEFAULT_LAN_PROXY_SETTINGS, "enabled": True, "bind_host": "0.0.0.0"}
+        with patch.dict(os.environ, {
+            "SIMPLEOFFICE_LAN_PROXY_CONTAINER_MODE": "1",
+            "SIMPLEOFFICE_LAN_PROXY_PUBLIC_HOST": "office.example.test",
+            "SIMPLEOFFICE_LAN_PROXY_PUBLIC_PORT": "9443",
+        }):
+            config = validate_lan_proxy_settings(settings)
+            self.assertEqual("office.example.test", LanProxyRuntime._certificate_host(config))
+            self.assertEqual("office.example.test:9443", LanProxyRuntime._public_host(config))
+        with patch.dict(os.environ, {"SIMPLEOFFICE_LAN_PROXY_CONTAINER_MODE": "1"}, clear=True):
+            config = validate_lan_proxy_settings(settings)
+            with self.assertRaisesRegex(ValueError, "PUBLIC_HOST"):
+                LanProxyRuntime._certificate_host(config)
 
     def test_public_or_multicast_bind_addresses_are_rejected(self):
         for address in ("8.8.8.8", "224.0.0.1", "not-an-ip"):
@@ -259,7 +275,14 @@ class LanProxyHttpsIntegrationTests(unittest.TestCase):
         self.backend_server.server_close()
         self.backend_thread.join(timeout=3)
 
-    def _start_proxy(self, max_body_bytes=1024, stdlib_fallback=False):
+    def _start_proxy(
+        self,
+        max_body_bytes=1024,
+        stdlib_fallback=False,
+        *,
+        auto_tls=False,
+        bind_host="127.0.0.1",
+    ):
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
             proxy_port = listener.getsockname()[1]
@@ -270,15 +293,23 @@ class LanProxyHttpsIntegrationTests(unittest.TestCase):
         )
         runtime = LanProxyRuntime()
         absent_aiohttp = patch.dict(sys.modules, {"aiohttp": None}) if stdlib_fallback else nullcontext()
-        with absent_aiohttp:
+        container_env = (
+            patch.dict(os.environ, {
+                "SIMPLEOFFICE_LAN_PROXY_CONTAINER_MODE": "1",
+                "SIMPLEOFFICE_LAN_PROXY_PUBLIC_HOST": "127.0.0.1",
+                "SIMPLEOFFICE_LAN_PROXY_PUBLIC_PORT": str(proxy_port),
+            })
+            if bind_host == "0.0.0.0" else nullcontext()
+        )
+        with absent_aiohttp, container_env:
             result = runtime.start(
                 self.backend,
                 {
                     "enabled": True,
-                    "bind_host": "127.0.0.1",
+                    "bind_host": bind_host,
                     "port": proxy_port,
-                    "tls_cert": self.certificate.name,
-                    "tls_key": self.private_key.name,
+                    "tls_cert": "" if auto_tls else self.certificate.name,
+                    "tls_key": "" if auto_tls else self.private_key.name,
                 },
                 backend_host="127.0.0.1",
                 backend_port=self.backend_server.server_port,
@@ -287,6 +318,27 @@ class LanProxyHttpsIntegrationTests(unittest.TestCase):
         self.assertEqual("running", result["state"], result["message"])
         self.addCleanup(runtime.stop)
         return runtime, proxy_port
+
+    def test_auto_tls_starts_for_container_wildcard_and_is_trusted_by_configured_host(self):
+        from http.client import HTTPSConnection
+        import ssl
+        from cryptography import x509
+
+        _runtime, proxy_port = self._start_proxy(auto_tls=True, bind_host="0.0.0.0")
+        certificate_path = self.tls_directory / "lan-proxy-self-signed.crt"
+        certificate = x509.load_pem_x509_certificate(certificate_path.read_bytes())
+        self.assertIn(
+            x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
+            certificate.extensions.get_extension_for_class(x509.SubjectAlternativeName).value,
+        )
+        context = ssl.create_default_context(cafile=str(certificate_path))
+        connection = HTTPSConnection("127.0.0.1", proxy_port, context=context, timeout=5)
+        self.addCleanup(connection.close)
+        connection.request("POST", "/probe?source=generated", body="trusted")
+        response = connection.getresponse()
+        body = json.loads(response.read())
+        self.assertEqual(200, response.status)
+        self.assertEqual("trusted", body["payload"])
 
     def test_https_request_is_forwarded_with_trusted_origin_and_secure_cookie(self):
         from http.client import HTTPSConnection

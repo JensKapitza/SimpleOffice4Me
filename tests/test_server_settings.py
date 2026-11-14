@@ -314,6 +314,37 @@ class ServerAdminTests(unittest.TestCase):
         self.assertFalse(SettingsStore(self.root).settings()["lan_proxy"]["enabled"])
         stop_proxy.assert_called_once()
 
+    def test_admin_can_save_and_start_proxy_with_generated_tls_identity(self):
+        from app.settings_store import SettingsStore
+
+        settings = SettingsStore(self.root)
+        with patch("app.admin_server_settings._apply_lan_proxy", return_value={
+            "state": "running", "message": "running", "origin": "https://192.168.1.42:8443",
+        }) as apply_proxy:
+            saved = self.client.post("/admin/settings/server", data={
+                "lan_proxy_enabled": ["0", "1"],
+                "lan_proxy_host": "192.168.1.42",
+                "lan_proxy_port": "8443",
+                "lan_proxy_tls_cert": "",
+                "lan_proxy_tls_key": "",
+            })
+        self.assertEqual(302, saved.status_code)
+        proxy = settings.settings()["lan_proxy"]
+        self.assertTrue(proxy["enabled"])
+        self.assertEqual("", proxy["tls_cert"])
+        self.assertEqual("", proxy["tls_key"])
+        apply_proxy.assert_called_once()
+
+        with patch("app.admin_server_settings._apply_lan_proxy", return_value={
+            "state": "running", "message": "running", "origin": "https://192.168.1.42:8443",
+        }) as start_proxy:
+            started = self.client.post(
+                "/admin/settings/server/lan-proxy", data={"action": "start"},
+            )
+        self.assertEqual(302, started.status_code)
+        start_proxy.assert_called_once()
+        self.assertTrue(settings.settings()["lan_proxy"]["enabled"])
+
     def test_non_admin_cannot_control_lan_proxy(self):
         from app import app, db as database
 
