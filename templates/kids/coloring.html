@@ -1,0 +1,56 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block title %}{{ 'Coloring wall' if g.language == 'en' else 'Ausmalwand' }} · SimpleOffice{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/kids_coloring.css') }}">{% endblock %}
+{% block body %}
+<main id="main-content" class="container-fluid kids-coloring-page py-3 py-lg-4" data-kids-coloring data-api="{{ drawings_url }}" data-csrf="{{ csrf_token() }}">
+  <header class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
+    <div>
+      <h1 class="h2 mb-1">{{ 'Coloring wall' if g.language == 'en' else 'Ausmalwand' }}</h1>
+      <p class="text-secondary mb-0">{{ 'Choose a picture, tap its parts to color them, or draw freely. Your pictures are saved to your account.' if g.language == 'en' else 'Such dir ein Bild aus, tippe zum Ausmalen auf seine Flächen oder male frei. Deine Bilder werden in deinem Konto gespeichert.' }}</p>
+    </div>
+    <button class="btn btn-lg btn-outline-primary" type="button" data-new-drawing><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>{{ 'New picture' if g.language == 'en' else 'Neues Bild' }}</button>
+  </header>
+
+  <section class="kids-coloring-editor card shadow-sm mb-4" data-editor hidden aria-label="{{ 'Drawing tools' if g.language == 'en' else 'Malwerkzeuge' }}">
+    <div class="card-body kids-coloring-body p-2 p-md-3">
+      <div class="kids-focus-header d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+        <div class="d-flex align-items-center gap-2"><span class="kids-focus-icon" aria-hidden="true">🎨</span><strong class="kids-focus-title">{{ 'Let’s color!' if g.language == 'en' else 'Jetzt wird gemalt!' }}</strong></div>
+        <div class="d-flex align-items-center gap-2"><span class="small text-secondary" data-save-status role="status" aria-live="polite">{{ 'Saved automatically' if g.language == 'en' else 'Speichert automatisch' }}</span><button class="btn btn-success btn-lg kids-finish-button" type="button" data-finish><i class="fa-solid fa-bookmark me-1" aria-hidden="true"></i>{{ 'Save for me' if g.language == 'en' else 'Für mich speichern' }}</button></div>
+      </div>
+      <input type="hidden" id="kids-picture-title" data-title value="{{ 'My picture' if g.language == 'en' else 'Mein Bild' }}">
+
+      <div class="kids-coloring-tools d-flex flex-wrap align-items-center gap-2 mb-2">
+        <div class="btn-group kids-mode-buttons" role="group" aria-label="{{ 'Painting mode' if g.language == 'en' else 'Malmodus' }}">
+          <button type="button" class="btn btn-outline-primary" data-mode="fill" aria-pressed="false">{{ 'Color areas' if g.language == 'en' else 'Flächen färben' }}</button>
+          <button type="button" class="btn btn-outline-primary active" data-mode="draw" aria-pressed="true">{{ 'Draw' if g.language == 'en' else 'Freihand malen' }}</button>
+        </div>
+        <fieldset class="kids-palette d-flex flex-wrap align-items-center gap-2 border-0 p-0 m-0" aria-label="{{ 'Choose a color' if g.language == 'en' else 'Farbe auswählen' }}">
+          {% for color, label_de, label_en in [('#ef4444','Rot','Red'),('#f97316','Orange','Orange'),('#facc15','Gelb','Yellow'),('#22c55e','Grün','Green'),('#3b82f6','Blau','Blue'),('#8b5cf6','Violett','Purple'),('#ec4899','Rosa','Pink'),('#111827','Schwarz','Black'),('#ffffff','Weiß','White')] %}
+          <button class="kids-color-swatch {{ 'is-selected' if loop.first }}" type="button" data-color="{{ color }}" style="--swatch:{{ color }}" aria-label="{{ label_en if g.language == 'en' else label_de }}" aria-pressed="{{ 'true' if loop.first else 'false' }}"></button>
+          {% endfor %}
+        </fieldset>
+        <button class="btn btn-warning btn-lg kids-undo-button" type="button" data-undo disabled aria-label="{{ 'Undo last action' if g.language == 'en' else 'Letzte Aktion rückgängig' }}"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i><span class="ms-1">{{ 'Undo' if g.language == 'en' else 'Rückgängig' }}</span></button>
+      </div>
+
+      <div class="kids-canvas-wrap">
+        <svg class="kids-canvas" data-canvas viewBox="0 0 800 600" role="group" aria-label="{{ 'Coloring picture. Choose color areas or switch to free drawing.' if g.language == 'en' else 'Ausmalbild. Wähle Flächen zum Färben oder wechsle zu Freihand.' }}"></svg>
+      </div>
+      <p class="kids-canvas-help mt-2 mb-0">{{ 'Finger painting is on. Tap “Color areas” to fill a shape. Save for me keeps it private.' if g.language == 'en' else 'Freihand ist eingeschaltet. Tippe auf „Flächen färben“, um eine Form auszumalen. „Für mich speichern“ legt dein Bild privat ab.' }}</p>
+    </div>
+  </section>
+
+  <section class="mb-4" aria-labelledby="kids-template-heading">
+    <div class="d-flex flex-wrap align-items-end justify-content-between gap-2 mb-2">
+      <div><h2 class="h4 mb-0" id="kids-template-heading">{{ 'Choose a picture' if g.language == 'en' else 'Vorlage aussuchen' }}</h2><p class="small text-secondary mb-0">{{ 'Tap a picture to start coloring.' if g.language == 'en' else 'Tippe auf ein Bild und fang an zu malen.' }}</p></div>
+    </div>
+    <div class="kids-template-grid" data-template-list></div>
+  </section>
+
+  <section aria-labelledby="kids-saved-heading">
+    <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-2"><h2 class="h4 mb-0" id="kids-saved-heading">{{ 'My pictures' if g.language == 'en' else 'Meine Bilder' }}</h2><span class="small text-secondary" data-gallery-status role="status" aria-live="polite"></span></div>
+    <div class="kids-saved-grid" data-saved-list></div>
+  </section>
+</main>
+<script src="{{ url_for('static', filename='js/kids_coloring.js') }}" defer></script>
+{% endblock %}
