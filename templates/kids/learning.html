@@ -33,6 +33,8 @@
     <div class="kids-learning-search-modes-grid">
       <button type="button" class="kids-learning-subject" data-search-mode="objects"><span aria-hidden="true">🧩</span><strong>{{ 'Find the objects' if g.language == 'en' else 'Gegenstände suchen' }}</strong><small>{{ 'Find the named things in the picture.' if g.language == 'en' else 'Finde die genannten Dinge im Wimmelbild.' }}</small></button>
       <button type="button" class="kids-learning-subject" data-search-mode="letters"><span aria-hidden="true">🔤</span><strong>{{ 'German letters and words' if g.language == 'en' else 'Buchstaben & Wörter' }}</strong><small>{{ 'Complete the German word to match the picture.' if g.language == 'en' else 'Ergänze das Wort passend zum Bild.' }}</small></button>
+      <button type="button" class="kids-learning-subject" data-search-mode="directions"><span aria-hidden="true">⬅️➡️</span><strong>{{ 'Find the arrow' if g.language == 'en' else 'Pfeile finden' }}</strong><small>{{ 'Look and listen, then find the matching arrow.' if g.language == 'en' else 'Schau und höre: Finde den passenden Pfeil.' }}</small></button>
+      <button type="button" class="kids-learning-subject" data-search-mode="safety"><span aria-hidden="true">🚦</span><strong>{{ 'Road safety' if g.language == 'en' else 'Sicher im Verkehr' }}</strong><small>{{ 'Choose the safe picture.' if g.language == 'en' else 'Wähle das sichere Bild.' }}</small></button>
     </div>
     <button type="button" class="btn btn-outline-secondary btn-lg mt-3" data-search-modes-back>{{ 'Choose another game' if g.language == 'en' else 'Anderes Spiel wählen' }}</button>
   </section>
@@ -44,6 +46,8 @@
         <strong class="kids-learning-progress" data-search-progress></strong>
       </div>
       <h2 class="kids-learning-question" data-search-prompt tabindex="-1"></h2>
+      <button type="button" class="kids-speak-button" data-search-speak aria-label="{{ 'Listen to the question' if g.language == 'en' else 'Aufgabe anhören' }}" hidden>🔊</button>
+      <span class="kids-learning-feedback-icon" data-search-icon aria-hidden="true" hidden></span>
       <span class="kids-search-target-image mt-2" data-search-target-image aria-hidden="true" hidden></span>
       <div class="kids-search-scene mt-4" data-search-scene role="group" aria-label="{{ 'Picture with objects to find' if g.language == 'en' else 'Wimmelbild mit Suchgegenständen' }}" hidden></div>
       <div class="kids-search-letters mt-3" data-letter-play hidden>
@@ -52,7 +56,7 @@
         <p class="text-secondary mt-2">{{ 'Press the missing letter on the keyboard or tap a letter.' if g.language == 'en' else 'Drücke den fehlenden Buchstaben auf der Tastatur oder tippe ihn an.' }}</p>
         <div class="kids-learning-choices" data-letter-choices role="group" aria-label="{{ 'Choose the missing letter' if g.language == 'en' else 'Fehlenden Buchstaben auswählen' }}"></div>
       </div>
-      <p class="kids-learning-feedback mt-3 mb-0" data-search-feedback role="status" aria-live="polite"></p>
+      <p class="kids-learning-feedback mt-3 mb-0" data-search-feedback role="status" aria-live="polite"><span data-search-status-icon aria-hidden="true"></span><span data-search-status-text></span></p>
       <div class="d-flex flex-wrap gap-2 mt-4">
         <button type="button" class="btn btn-success btn-lg" data-search-next hidden>{{ 'Next' if g.language == 'en' else 'Weiter' }} ➡️</button>
         <button type="button" class="btn btn-outline-secondary btn-lg" data-search-back>{{ 'Choose another game' if g.language == 'en' else 'Anderes Spiel wählen' }}</button>
@@ -68,10 +72,11 @@
       </div>
       <div class="kids-learning-question-wrap">
         <h2 class="kids-learning-question" data-question tabindex="-1"></h2>
-        <button type="button" class="btn btn-outline-primary btn-lg kids-speak-button" data-speak hidden><span aria-hidden="true">🔊</span> {{ 'Listen' if g.language == 'en' else 'Wort anhören' }}</button>
+        <button type="button" class="btn btn-outline-primary btn-lg kids-speak-button" data-speak hidden aria-label="{{ 'Listen again' if g.language == 'en' else 'Noch einmal anhören' }}"><span aria-hidden="true">🔊</span> {{ 'Listen' if g.language == 'en' else 'Anhören' }}</button>
+        <span class="kids-learning-feedback-icon" data-feedback-icon aria-hidden="true" hidden></span>
       </div>
       <div class="kids-learning-choices mt-4" data-choices role="group" aria-label="{{ 'Answer choices' if g.language == 'en' else 'Antwortmöglichkeiten' }}"></div>
-      <p class="kids-learning-feedback mt-3 mb-0" data-feedback role="status" aria-live="polite"></p>
+      <p class="kids-learning-feedback mt-3 mb-0" data-feedback role="status" aria-live="polite"><span data-feedback-status-icon aria-hidden="true"></span><span data-feedback-status-text></span></p>
       <div class="d-flex flex-wrap gap-2 mt-4">
         <button type="button" class="btn btn-success btn-lg kids-learning-next" data-next hidden>{{ 'Next question' if g.language == 'en' else 'Nächste Frage' }} <span aria-hidden="true">➡️</span></button>
         <button type="button" class="btn btn-outline-secondary btn-lg" data-back>{{ 'Choose another game' if g.language == 'en' else 'Anderes Spiel wählen' }}</button>
@@ -81,7 +86,7 @@
 
   <section class="kids-learning-result card shadow-sm" data-result hidden aria-live="polite">
     <div class="card-body text-center p-4">
-      <div class="kids-learning-result-icon" aria-hidden="true">🌟</div>
+      <div class="kids-learning-result-icon" data-result-icon aria-hidden="true">🌟</div>
       <h2 class="h3" data-result-title tabindex="-1"></h2>
       <p class="lead" data-result-copy></p>
       <button type="button" class="btn btn-primary btn-lg" data-replay>{{ 'Play again' if g.language == 'en' else 'Nochmal spielen' }} 🔄</button>
