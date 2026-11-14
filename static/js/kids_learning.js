@@ -924,4 +924,5 @@
     if (selectedSubject === 'search') startSearch(selectedSearchMode);
     else start(selectedSubject);
   });
+  if (new URLSearchParams(window.location.search).get('game') === 'maze') startSearch('maze');
 })();

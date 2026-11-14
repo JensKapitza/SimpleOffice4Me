@@ -85,6 +85,7 @@
           <ul class="dropdown-menu" aria-labelledby="nav-kids">
             <li><a class="dropdown-item" href="{{ url_for('kids_coloring.index') }}">{{ 'Coloring wall' if g.language == 'en' else 'Ausmalwand' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('kids_learning.index') }}">{{ 'Learning games' if g.language == 'en' else 'Lernspiele' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('kids_learning.index', game='maze') }}">{{ 'Maze: find the way' if g.language == 'en' else 'Labyrinth: Finde den Weg' }}</a></li>
           </ul>
         </div>
 
