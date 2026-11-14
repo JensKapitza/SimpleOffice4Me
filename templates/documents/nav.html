@@ -84,6 +84,7 @@
           <a class="nav-link dropdown-toggle" href="#" id="nav-kids" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ 'Kids' if g.language == 'en' else 'Kinder' }}</a>
           <ul class="dropdown-menu" aria-labelledby="nav-kids">
             <li><a class="dropdown-item" href="{{ url_for('kids_coloring.index') }}">{{ 'Coloring wall' if g.language == 'en' else 'Ausmalwand' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('kids_learning.index') }}">{{ 'Learning games' if g.language == 'en' else 'Lernspiele' }}</a></li>
           </ul>
         </div>
 
