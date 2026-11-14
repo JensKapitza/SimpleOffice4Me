@@ -63,7 +63,7 @@
         </div>
 
         <div class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle" href="#" id="nav-tools" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ 'Tools' if g.language == 'en' else 'Werkzeuge' }}</a>
+          <a class="nav-link dropdown-toggle" href="#" id="nav-tools" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ 'Tools & services' if g.language == 'en' else 'Werkzeuge & Dienste' }}</a>
           <ul class="dropdown-menu" aria-labelledby="nav-tools">
             <li><a class="dropdown-item" href="{{ url_for('repository_workspace.index') }}">{{ 'Repository workspace' if g.language == 'en' else 'Repository-Arbeitszentrale' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('library.index') }}">{{ 'Library' if g.language == 'en' else 'Bibliothek' }}</a></li>
@@ -71,6 +71,12 @@
             <li><a class="dropdown-item" href="{{ url_for('printershare.index') }}">{{ 'Printers' if g.language == 'en' else 'Drucker' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('screen.index') }}">{{ 'Screens' if g.language == 'en' else 'Bildschirm' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('reader.shelf') }}">{{ 'Bookshelf' if g.language == 'en' else 'Bücherregal' }}</a></li>
+            {% if g.user['is_admin'] %}
+              <li><hr class="dropdown-divider"></li>
+              <li><h6 class="dropdown-header">{{ 'Services' if g.language == 'en' else 'Dienste' }}</h6></li>
+              <li><a class="dropdown-item" href="{{ url_for('mini_services_admin.index') }}">Mini Services</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('admin_server.server_settings') }}">{{ 'Server / LAN proxy' if g.language == 'en' else 'Server / LAN-Proxy' }}</a></li>
+            {% endif %}
           </ul>
         </div>
 
@@ -94,17 +100,6 @@
               <li><a class="dropdown-item" href="{{ url_for('software_admin.index') }}">Updates</a></li>
               <li><a class="dropdown-item" href="{{ url_for('licensing_admin.index') }}">{{ 'Licensing' if g.language == 'en' else 'Lizenzierung' }}</a></li>
               <li><a class="dropdown-item" href="{{ url_for('admin.users') }}">Administration</a></li>
-              <li><hr class="dropdown-divider"></li>
-              <li><h6 class="dropdown-header">System</h6></li>
-              <li><a class="dropdown-item" href="{{ url_for('remote_admin.index') }}">{{ 'Remote access' if g.language == 'en' else 'Fernzugriff' }}</a></li>
-              <li><a class="dropdown-item" href="{{ url_for('v3_health.index') }}">System Health 3.0</a></li>
-              <li><a class="dropdown-item" href="{{ url_for('v3_capabilities_admin.index') }}">Capabilities 3.0</a></li>
-              <li><a class="dropdown-item" href="{{ url_for('project_repo_admin.index') }}">{{ 'Project repositories' if g.language == 'en' else 'Projekt-Repositories' }}</a></li>
-              <li><a class="dropdown-item" href="{{ url_for('finance_admin.index') }}">{{ 'FinTS product' if g.language == 'en' else 'FinTS-Produkt' }}</a></li>
-              <li><a class="dropdown-item" href="{{ url_for('v3_extensions_admin.index') }}">Extensions 3.0</a></li>
-              <li><a class="dropdown-item" href="{{ url_for('s3_overlay.manage') }}">S3-Overlay</a></li>
-              {% if v3_android_offline_enabled|default(false) %}<li><a class="dropdown-item" href="{{ url_for('v3_android_offline.index') }}">Android Offline</a></li>{% endif %}
-              <li><a class="dropdown-item" href="{{ url_for('google_drive_admin.index') }}">Drive</a></li>
             {% else %}
               <li><a class="dropdown-item" href="{{ url_for('federation_status.shared_diagnostics') }}">{{ 'Federation status' if g.language == 'en' else 'Federation-Status' }}</a></li>
             {% endif %}
@@ -129,10 +124,17 @@
 
         {% if g.user['is_admin'] %}
           <div class="nav-item dropdown">
-            <a class="nav-link dropdown-toggle" href="#" id="nav-services" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ 'Services' if g.language == 'en' else 'Dienste' }}</a>
-            <ul class="dropdown-menu" aria-labelledby="nav-services">
-              <li><a class="dropdown-item" href="{{ url_for('mini_services_admin.index') }}">Mini Services</a></li>
-              <li><a class="dropdown-item" href="{{ url_for('admin_server.server_settings') }}">{{ 'Server / LAN proxy' if g.language == 'en' else 'Server / LAN-Proxy' }}</a></li>
+            <a class="nav-link dropdown-toggle" href="#" id="nav-system" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ 'System' if g.language == 'en' else 'System' }}</a>
+            <ul class="dropdown-menu" aria-labelledby="nav-system">
+              <li><a class="dropdown-item" href="{{ url_for('remote_admin.index') }}">{{ 'Remote access' if g.language == 'en' else 'Fernzugriff' }}</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('v3_health.index') }}">System Health 3.0</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('v3_capabilities_admin.index') }}">Capabilities 3.0</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('project_repo_admin.index') }}">{{ 'Project repositories' if g.language == 'en' else 'Projekt-Repositories' }}</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('finance_admin.index') }}">{{ 'FinTS product' if g.language == 'en' else 'FinTS-Produkt' }}</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('v3_extensions_admin.index') }}">Extensions 3.0</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('s3_overlay.manage') }}">S3-Overlay</a></li>
+              {% if v3_android_offline_enabled|default(false) %}<li><a class="dropdown-item" href="{{ url_for('v3_android_offline.index') }}">Android Offline</a></li>{% endif %}
+              <li><a class="dropdown-item" href="{{ url_for('google_drive_admin.index') }}">Drive</a></li>
             </ul>
           </div>
         {% endif %}
