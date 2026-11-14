@@ -230,11 +230,24 @@ def _iter_file_range(handle, start: int, end: int):
         yield chunk
 
 
-def _download_response(path: Path, username: str, document: dict, media_type: str, *, property_path: Path | None = None, modified_at: int | None = None) -> Response:
+def _download_response(
+    path: Path,
+    username: str,
+    document: dict,
+    media_type: str,
+    *,
+    property_path: Path | None = None,
+    modified_at: int | None = None,
+    managed_root: Path | None = None,
+) -> Response:
     """Return a conditional, range-capable response from one stable open-file snapshot."""
     try:
-        handle = path.open("rb")
-    except OSError:
+        handle = (
+            open_file_under(managed_root, path.relative_to(managed_root))
+            if managed_root is not None
+            else path.open("rb")
+        )
+    except (OSError, ValueError, RuntimeError):
         return Response("not found", 404)
     try:
         stat = os.fstat(handle.fileno())
@@ -501,7 +514,10 @@ def _portable_name_error(
 def _tree_document(path: Path) -> dict:
     if not path.is_file() or path.is_symlink():
         raise ValueError("document unavailable")
-    return _store().get_or_scan_document(path)
+    # WebDAV request paths must not trigger a path-based self-heal scan. Files
+    # become addressable after the normal document import/index path registers
+    # them, avoiding a second untrusted open of a client-selected filesystem path.
+    return _store().get_document(path)
 
 
 def _lock_key(path: Path, document: dict | None = None) -> str:

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import os
 import re
+import stat
 from pathlib import Path, PureWindowsPath
+from typing import BinaryIO
 
 from werkzeug.security import safe_join
 from werkzeug.utils import secure_filename
@@ -81,6 +83,53 @@ def resolve_file_under(root: str | Path, value: str | Path) -> Path:
     if not candidate.is_file():
         raise ValueError("path must name a regular file inside the configured root")
     return candidate
+
+
+def open_file_under(root: str | Path, value: str | Path) -> BinaryIO:
+    """Open one regular file below ROOT and bind later reads to that file.
+
+    The resolved target and opened descriptor are compared before the caller
+    can read content. This detects a symlink or parent-directory swap during
+    the path checks; reads after return stay on the checked descriptor even if
+    the directory entry changes again.
+    """
+    root_path = normalize_path(root, strict=True)
+    relative = _portable_relative(value)
+    if relative == Path("."):
+        raise ValueError("path must name a regular file inside the configured root")
+    requested = root_path / relative
+    candidate = resolve_file_under(root_path, relative)
+    if os.path.normcase(os.path.normpath(str(candidate))) != os.path.normcase(
+        os.path.normpath(str(requested))
+    ):
+        raise ValueError("symbolic links are not available for managed files")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(candidate, flags)
+    try:
+        handle = os.fdopen(descriptor, "rb")
+    except OSError:
+        os.close(descriptor)
+        raise
+    try:
+        opened = os.fstat(handle.fileno())
+        if not stat.S_ISREG(opened.st_mode):
+            raise ValueError("path must name a regular file inside the configured root")
+        resolved = candidate.resolve(strict=True)
+        resolved.relative_to(root_path)
+        if os.path.normcase(os.path.normpath(str(resolved))) != os.path.normcase(
+            os.path.normpath(str(candidate))
+        ):
+            raise ValueError("symbolic links are not available for managed files")
+        resolved_stat = resolved.stat()
+        if not stat.S_ISREG(resolved_stat.st_mode) or (
+            opened.st_dev,
+            opened.st_ino,
+        ) != (resolved_stat.st_dev, resolved_stat.st_ino):
+            raise ValueError("file changed while its path was being checked")
+        return handle
+    except (OSError, RuntimeError, ValueError):
+        handle.close()
+        raise
 
 
 def resolve_directory_under(root: str | Path, value: str | Path = ".") -> Path:

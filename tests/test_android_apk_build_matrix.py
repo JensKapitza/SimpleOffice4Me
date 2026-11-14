@@ -12,6 +12,11 @@ class AndroidApkBuildMatrixTest(unittest.TestCase):
         self.assertIn("abiFilters androidAbi", text)
         self.assertIn("version = pythonRuntimeVersion", text)
 
+    def test_android_apk_uses_audited_pdf_and_html_parser_dependencies(self):
+        gradle = Path("android/apk/app/build.gradle").read_text(encoding="utf-8")
+        self.assertIn("install 'pypdf==6.21.4'", gradle)
+        self.assertIn("install 'soupsieve==4.0.0'", gradle)
+
     def test_apk_version_comes_from_project_metadata(self):
         gradle = Path("android/apk/app/build.gradle").read_text(encoding="utf-8")
         project = Path("pyproject.toml").read_text(encoding="utf-8")

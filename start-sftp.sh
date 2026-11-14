@@ -132,7 +132,7 @@ for distribution_name, module_name in packages:
     print(f"  {distribution_name} {version(distribution_name)}: native Termux-Installation")
 PY
 
-  TERMUX_RUNTIME_REQUIREMENTS="Flask>=3.0,<4 argon2-cffi>=23.1,<26 beautifulsoup4>=4.12,<5 defusedxml>=0.7,<1 reportlab>=4.0,<6 pypdf>=5.0,<7 waitress>=3.0,<4 watchdog>=6,<7 tzdata>=2024.1"
+  TERMUX_RUNTIME_REQUIREMENTS="Flask>=3.0,<4 argon2-cffi>=23.1,<26 beautifulsoup4>=4.12,<5 soupsieve>=4.0.0,<5 defusedxml>=0.7,<1 reportlab>=4.0,<6 pypdf>=6.21.4,<7 waitress>=3.0,<4 watchdog>=6,<7 tzdata>=2024.1"
   echo "Termux: versuche zuerst fertige Wheels für die gemeinsame Laufzeit ..."
   # shellcheck disable=SC2086
   if ! "$VENV_PYTHON" -m pip install --disable-pip-version-check --only-binary=:all: $TERMUX_RUNTIME_REQUIREMENTS; then

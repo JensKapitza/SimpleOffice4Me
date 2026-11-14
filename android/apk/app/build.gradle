@@ -243,6 +243,7 @@ chaquopy {
             }
             install 'argon2-cffi==23.1.0'
             install 'beautifulsoup4==4.14.2'
+            install 'soupsieve==4.0.0'
             install 'defusedxml==0.7.1'
             if (localPillowWheel) {
                 install localPillowWheel.absolutePath
@@ -254,7 +255,7 @@ chaquopy {
             } else {
                 install 'reportlab==4.2.5'
             }
-            install 'pypdf==6.1.1'
+            install 'pypdf==6.21.4'
             if (localCryptographyWheel) {
                 install localCryptographyWheel.absolutePath
             } else {
