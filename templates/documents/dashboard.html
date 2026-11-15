@@ -13,6 +13,7 @@
       <div class="d-flex flex-wrap gap-2">
         <a class="btn btn-sm btn-outline-primary" href="{{ url_for('documents.calendar') }}"><i class="fas fa-calendar-days me-1" aria-hidden="true"></i>{{ 'Calendar' if g.language == 'en' else 'Kalender' }}</a>
         <a class="btn btn-sm btn-outline-primary" href="{{ url_for('tasks.board') }}"><i class="fas fa-list-check me-1" aria-hidden="true"></i>{{ 'Tasks' if g.language == 'en' else 'Aufgaben' }}</a>
+        {% if contextflow_enabled|default(false) %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('contextflow.dashboard') }}"><i class="fas fa-diagram-project me-1" aria-hidden="true"></i>{{ 'Linked work' if g.language == 'en' else 'Verknüpfte Vorgänge' }}</a>{% endif %}
       </div>
     </div>
     <div class="row g-2">
