@@ -1,5 +1,6 @@
 {% extends "layout.html" %}
 {% block title %}Einkaufen · SimpleOffice{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/shopping.css') }}">{% endblock %}
 {% block script %}<script defer src="{{ url_for('static', filename='js/camera_capture.js') }}"></script><script defer src="{{ url_for('static', filename='js/shopping.js') }}"></script>{% endblock %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
@@ -114,10 +115,18 @@
           </div>
         </div>
 
-        <div class="border-bottom px-3 py-2 d-flex flex-wrap justify-content-between align-items-center gap-2" aria-live="polite">
-          <div><strong>Geschätzte Summe der offenen Artikel:</strong> <span class="fs-5">{{ estimated_total }}</span></div>
-          {% if missing_prices %}<span class="small text-secondary">{{ missing_prices }} Artikel ohne Preis; {{ priced_items }} eingerechnet. Preis je Einheit/Packung × Menge.</span>{% else %}<span class="small text-secondary">Alle offenen Artikel mit Preis eingerechnet.</span>{% endif %}
-        </div>
+        <section class="shopping-total-banner mx-3 mt-3" aria-live="polite" aria-label="Geschätzter Gesamtpreis der offenen Artikel">
+          <div class="shopping-total-icon" aria-hidden="true"><i class="fa-solid fa-basket-shopping"></i></div>
+          <div class="shopping-total-copy">
+            <span class="shopping-total-label">Voraussichtlicher Gesamtpreis</span>
+            {% if missing_prices %}
+            <span class="shopping-total-note">{{ priced_items }} mit Preis eingerechnet · {{ missing_prices }} ohne Preis · gekaufte Artikel ausgenommen</span>
+            {% else %}
+            <span class="shopping-total-note">Alle offenen Artikel eingerechnet · gekaufte Artikel ausgenommen</span>
+            {% endif %}
+          </div>
+          <strong class="shopping-total-amount">{{ estimated_total }}</strong>
+        </section>
 
         {% if 'add' in permissions %}
         <div class="card-body border-bottom">
@@ -162,21 +171,21 @@
           <span class="form-text">Umsetzen über Menge anpassen + Duplikat als Gekauft markieren.</span>
         </div>
         {% endif %}
-        <div class="list-group list-group-flush">
+        <div class="shopping-items list-group list-group-flush">
           {% for item in items %}
-          <article class="list-group-item py-3" id="shopping-item-{{ item.item_id }}">
-            <div class="d-flex flex-wrap justify-content-between gap-2">
+          <article class="shopping-item-card list-group-item {{ 'is-bought' if item.status == 'bought' }}" id="shopping-item-{{ item.item_id }}">
+            <div class="shopping-item-layout">
               <div class="d-flex gap-3 flex-grow-1 align-items-start">
                 {% if item.photo_id %}
                 <img src="{{ url_for('shopping.product_photo', photo_id=item.photo_id) }}" alt="" width="72" height="72" loading="lazy" decoding="async" class="rounded border object-fit-cover flex-shrink-0">
                 {% endif %}
                 <div class="flex-grow-1">
-                <div class="d-flex flex-wrap align-items-center gap-2"><strong class="fs-5">{{ item.name }}</strong><span class="badge text-bg-{{ 'success' if item.status == 'bought' else 'primary' if item.status == 'taken' else 'secondary' }}">{{ status_labels.get(item.status, item.status) }}</span>{% if item.priority %}<span class="badge text-bg-warning">P{{ item.priority }}</span>{% endif %}</div>
-                <div class="small text-secondary mt-1">{% if item.quantity %}{{ item.quantity }} {{ item.unit }}{% endif %}{% if item.store %} · {{ item.store }}{% endif %}{% if item.assigned_to %} · {{ item.assigned_to }}{% endif %}</div>
-                {% if item.price %}<div class="small fw-semibold mt-1">{{ item.price }} € je Einheit / Packung{% if item.estimated_line_total %} · ca. {{ item.estimated_line_total }} für diese Menge{% endif %}</div>{% endif %}
-                <div class="d-flex flex-wrap gap-2 small mt-1"><a href="{{ item.amazon_search_url }}" target="_blank" rel="noopener noreferrer">Auf Amazon suchen</a><a href="{{ item.ebay_search_url }}" target="_blank" rel="noopener noreferrer">Auf eBay suchen</a></div>
+                <div class="d-flex flex-wrap align-items-center gap-2"><strong class="shopping-item-name">{{ item.name }}</strong><span class="badge text-bg-{{ 'success' if item.status == 'bought' else 'primary' if item.status == 'taken' else 'secondary' }}">{{ status_labels.get(item.status, item.status) }}</span>{% if item.priority %}<span class="badge text-bg-warning">Priorität {{ item.priority }}</span>{% endif %}</div>
+                <div class="small text-secondary mt-1">{% if item.quantity %}<span>{{ item.quantity }} {{ item.unit }}</span>{% endif %}{% if item.store %}<span> · {{ item.store }}</span>{% endif %}{% if item.assigned_to %}<span> · {{ item.assigned_to }}</span>{% endif %}</div>
+                {% if item.price %}<div class="shopping-item-price mt-2"><span>{{ item.price }} € je Einheit / Packung</span>{% if item.estimated_line_total %}<strong>ca. {{ item.estimated_line_total }}</strong>{% endif %}</div>{% endif %}
+                <div class="d-flex flex-wrap gap-3 small mt-2"><a href="{{ item.amazon_search_url }}" target="_blank" rel="noopener noreferrer"><i class="fa-brands fa-amazon me-1" aria-hidden="true"></i>Auf Amazon suchen</a><a href="{{ item.ebay_search_url }}" target="_blank" rel="noopener noreferrer">Auf eBay suchen</a></div>
                 {% if 'edit' in permissions %}
-                <form method="post" action="{{ url_for('shopping.item_quantity', item_id=item.item_id) }}" class="d-flex flex-wrap gap-1 align-items-end mt-2">
+                <form method="post" action="{{ url_for('shopping.item_quantity', item_id=item.item_id) }}" class="shopping-item-edit d-flex flex-wrap gap-2 align-items-end mt-3">
                   <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                   <input type="hidden" name="list_id" value="{{ selected.list_id }}">
                   <div>
@@ -199,7 +208,7 @@
                 </div>
               </div>
               {% if 'complete' in permissions %}
-              <div class="d-flex flex-wrap gap-1 align-content-start">
+              <div class="shopping-item-actions d-flex flex-wrap gap-2 align-content-start">
                 {% for status, label in [('taken','Übernehmen'),('bought','Gekauft'),('not_found','Nicht gefunden'),('unavailable','Nicht verfügbar'),('deferred','Zurückstellen'),('open','Wieder öffnen')] %}
                 {% if item.status != status %}<form method="post" action="{{ url_for('shopping.item_status', item_id=item.item_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="list_id" value="{{ selected.list_id }}"><input type="hidden" name="status" value="{{ status }}"><button class="btn btn-sm {{ 'btn-success' if status == 'bought' else 'btn-outline-secondary' }}" type="submit">{{ label }}</button></form>{% endif %}
                 {% endfor %}
