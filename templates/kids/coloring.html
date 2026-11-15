@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block title %}{{ 'Coloring wall' if g.language == 'en' else 'Ausmalwand' }} · SimpleOffice{% endblock %}
-{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/kids_coloring.css') }}">{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/kids_coloring.css', v=app_build.version) }}">{% endblock %}
 {% block body %}
 <main id="main-content" class="container-fluid kids-coloring-page py-3 py-lg-4" data-kids-coloring data-api="{{ drawings_url }}" data-csrf="{{ csrf_token() }}">
   <header class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
@@ -57,5 +57,5 @@
     <div class="kids-saved-grid" data-saved-list></div>
   </section>
 </main>
-<script src="{{ url_for('static', filename='js/kids_coloring.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/kids_coloring.js', v=app_build.version) }}" defer></script>
 {% endblock %}

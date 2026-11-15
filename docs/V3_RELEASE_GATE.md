@@ -1,5 +1,14 @@
 # SimpleOffice4Me 3.0 release-gate evidence
 
+## Version metadata preparation — 2026-11-15
+
+The project and desktop package metadata now identify the candidate as 3.0.0.
+This is a version-metadata change only: no release tag or package publication
+is created here. Release approval remains **not approved** while the external
+upgrade, client/device, representative-load and long-running evidence tracked
+by #505/#506 is outstanding. Historical entries below retain the metadata and
+release status recorded at their original dates.
+
 ## Runtime-support change in progress — 2026-10-23
 
 The dated snapshots below preserve the policy and evidence available when they

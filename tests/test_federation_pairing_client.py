@@ -49,7 +49,7 @@ class FederationPairingClientTests(unittest.TestCase):
     def profile(self, **changes):
         value = {
             **self.peer(),
-            "application": {"name": "SimpleOffice4Me", "version": "2.0.0"},
+            "application": {"name": "SimpleOffice4Me", "version": "3.0.0"},
             "federation": {
                 "name": "simpleoffice-federation",
                 "min_version": 1,

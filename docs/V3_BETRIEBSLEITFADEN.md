@@ -1,9 +1,9 @@
 # Version 3.0: Funktionen und Betrieb
 
-Stand der Dokumentationsprüfung: 2026-10-05, Codebasis
-`2abc3ef6a02c173304d6c23352f48497730b7068`. Die Paketversion in
-[`pyproject.toml`](../pyproject.toml) ist 2.0.0. „3.0“ bezeichnet hier die
-additiven Erweiterungen; die Release-Freigabe ist noch offen.
+Stand der fachlichen Dokumentationsprüfung: 2026-10-05, Codebasis
+`2abc3ef6a02c173304d6c23352f48497730b7068`. Die Paketmetadaten führen jetzt
+Version 3.0.0. „3.0“ bezeichnet die additiven Erweiterungen; die Release-
+Freigabe bleibt bis zum Abschluss der offenen Abnahmen weiterhin offen.
 
 ## Aktivieren und Berechtigungen
 

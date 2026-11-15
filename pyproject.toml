@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "simpleoffice4me"
-version = "2.0.0"
+version = "3.0.0"
 description = "Self-hosted, file-based document management"
 # Minimum supported CPython version; production policy is enforced by
 # simpleoffice_runtime_support.py.

@@ -459,6 +459,13 @@ def main() -> int:
                 "peer_to_peer": PEER_TO_PEER,
                 "p2p_checks": summary["peer_to_peer"]["checks"],  # type: ignore[index]
                 "console_errors": len(console_errors),
+                "console_error_details": [
+                    {
+                        "path": urlparse(error.get("url", "")).path,
+                        "message": (error.get("text", "").splitlines() or [""])[0][:300],
+                    }
+                    for error in console_errors[:10]
+                ],
                 "page_errors": len(page_errors),
                 "page_error_details": [
                     {

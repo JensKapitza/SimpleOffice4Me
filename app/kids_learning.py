@@ -1,6 +1,8 @@
 """Locally served learning games for children in the Kids area."""
 import base64
 import ipaddress
+import json
+from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from flask import Blueprint, abort, current_app, render_template, request, url_for
@@ -25,7 +27,12 @@ def _private_response(response):
 @bp.get("/")
 @login_required
 def index():
-    return render_template("kids/learning.html")
+    vocabulary_path = Path(current_app.static_folder) / "data" / "kids_language_vocabulary.json"
+    try:
+        language_vocabulary = json.loads(vocabulary_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        language_vocabulary = []
+    return render_template("kids/learning.html", language_vocabulary=language_vocabulary)
 
 
 @bp.get("/spielpause")
@@ -39,7 +46,9 @@ def mini_games():
 @login_required
 def share_game_qr():
     """Show a QR shortcut that opens the selected activity on another device."""
-    game = request.args.get("game", "")
+    # Keep the standalone QR page useful when opened directly. The game button
+    # supplies a selection, while a bare URL gets a safe preschool default.
+    game = (request.args.get("game") or "maze").strip()
     level = request.args.get("level", "preschool")
     subject = request.args.get("subject", "")
     valid_games = {"maze", "objects", "letters", "directions", "safety", "quiz"}

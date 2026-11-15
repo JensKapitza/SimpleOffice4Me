@@ -124,7 +124,7 @@ def build_sbom(
         included = set(unique_components)
         dependency_map = _python_edges(installed, included, extras, marker_environment)
         metadata_component = {"type": "application", "name": "SimpleOffice4Me",
-                             "version": str(build_info(PROJECT_ROOT).get("release_version") or "2.0.0")}
+                             "version": str(build_info(PROJECT_ROOT).get("release_version") or "3.0.0")}
     else:
         root_ref, root_distribution = project
         included, dependency_map = _python_runtime_graph(
