@@ -18,7 +18,7 @@
     if (cursor < String(value || '').length) segments.push({text: String(value).slice(cursor), language: mainLanguage});
     return segments.filter(segment => segment.text.trim());
   }
-  const {levels, subjects, bank, safetyCards, arrowCards, mazeFriends, generateMaze, searchObjects, wordCards} = window.KidsLearningContent(text, english, promptSpeechLanguage, splitQuotedSpeech);
+  const {levels, subjects, bank, safetyCards, logicCards, arrowCards, mazeFriends, generateMaze, searchObjects, wordCards} = window.KidsLearningContent(text, english, promptSpeechLanguage, splitQuotedSpeech);
   let mazeNodes = {};
 
   const setup = root.querySelector('[data-setup]');
@@ -377,8 +377,10 @@
       searchTargets = shuffle(mazeFriends).slice(0, 3);
       mazeDifficulty = 'easy';
       mazeListen = false;
+    } else if (mode === 'logic') {
+      searchTargets = shuffle(logicCards).slice(0, 3);
     } else {
-      searchTargets = safetyCards;
+      searchTargets = shuffle(safetyCards).slice(0, 3);
     }
     showSearchRound();
   }
@@ -472,14 +474,22 @@
       root.querySelector('[data-search-speak]').hidden = false;
       root.querySelector('[data-search-speak]').onclick = () => speak(prompt, english ? 'en-US' : 'de-DE');
       speak(prompt, english ? 'en-US' : 'de-DE');
-      card.choices.forEach(([emoji, label, unsafe]) => {
+      card.choices.forEach(([emoji, label, wrong]) => {
         const button = document.createElement('button');
         button.type = 'button';
-        button.className = 'kids-search-object kids-safety-choice';
-        button.dataset.unsafe = String(unsafe);
+        button.className = `kids-search-object kids-safety-choice ${selectedSearchMode === 'logic' ? 'kids-logic-choice' : ''}`;
+        button.dataset.wrong = String(wrong);
         button.setAttribute('aria-label', label);
-        button.textContent = emoji;
-        button.addEventListener('click', () => answerSafety(button));
+        const picture = document.createElement('span');
+        picture.textContent = emoji;
+        button.append(picture);
+        if (!['preschool','1','2'].includes(selectedLevel)) {
+          const caption = document.createElement('small');
+          caption.className = 'kids-safety-choice-label';
+          caption.textContent = label;
+          button.append(caption);
+        }
+        button.addEventListener('click', () => answerPictureChoice(button));
         searchScene.append(button);
       });
     }
@@ -698,13 +708,16 @@
       } else window.setTimeout(() => button.classList.remove('is-missed'), 500);
     }
   }
-  function answerSafety(button) {
+  function answerPictureChoice(button) {
     if (searchReadyForNext) return;
-    if (button.dataset.unsafe === 'false') {
+    if (button.dataset.wrong === 'false') {
       score += 1;
       button.classList.add('is-found');
       searchScene.querySelectorAll('button').forEach(option => { option.disabled = true; });
-      setSearchFeedback('right', text('Richtig und sicher!', 'That is safe!'));
+      const correctMessage = selectedSearchMode === 'safety'
+        ? text('Richtig und sicher!', 'That is safe!')
+        : text('Richtig gelöst!', 'You solved it!');
+      setSearchFeedback('right', correctMessage);
       searchReadyForNext = true;
       searchNext.hidden = false;
       searchNext.focus();
@@ -712,13 +725,16 @@
     }
     wrongAttempts += 1;
     fadeWrongChoice(button);
-    setSearchFeedback('wrong', wrongAttempts >= maxWrongAttempts
+    const revealMessage = selectedSearchMode === 'safety'
       ? text('Schau: Das ist die sichere Wahl.', 'Look: this is the safe choice.')
+      : text('Schau auf Muster und Richtung. Das ist die Lösung.', 'Look at the pattern and direction. This is the answer.');
+    setSearchFeedback('wrong', wrongAttempts >= maxWrongAttempts
+      ? revealMessage
       : text(`Versuch ${wrongAttempts} von ${maxWrongAttempts}.`, `Try ${wrongAttempts} of ${maxWrongAttempts}.`));
     if (wrongAttempts >= maxWrongAttempts) {
       searchScene.querySelectorAll('button').forEach(option => {
         option.disabled = true;
-        if (option.dataset.unsafe === 'false') option.classList.add('is-found');
+        if (option.dataset.wrong === 'false') option.classList.add('is-found');
         else option.hidden = true;
       });
       searchReadyForNext = true;
@@ -951,5 +967,5 @@
   }
   const launchGame = launch.get('game');
   if (launchGame === 'quiz' && Object.hasOwn(subjects, launch.get('subject'))) start(launch.get('subject'));
-  else if (['maze','objects','letters','directions','safety'].includes(launchGame)) startSearch(launchGame);
+  else if (['maze','objects','letters','directions','safety','logic'].includes(launchGame)) startSearch(launchGame);
 })();
