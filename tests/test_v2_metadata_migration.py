@@ -61,7 +61,17 @@ class V2MetadataMigrationTests(unittest.TestCase):
         self.assertEqual(1, len(envelope.federated))
         self.assertEqual(MetadataSource.FEDERATED, envelope.federated[0].provenance.source)
         self.assertEqual("peer:peer-a", envelope.federated[0].provenance.source_ref)
-        self.assertEqual(digest, envelope.sidecar["legacy_metadata_sha256"])
+        metadata_digest = hashlib.sha256(
+            json.dumps(
+                metadata,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        self.assertEqual(
+            metadata_digest, envelope.sidecar["legacy_metadata_sha256"]
+        )
 
     def test_projection_store_is_idempotent_and_uses_hashed_filename(self):
         digest = hashlib.sha256(b"payload").hexdigest()
