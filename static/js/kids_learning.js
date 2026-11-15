@@ -66,9 +66,9 @@
   let mazeWrongTurns = {};
   let mazeHappy = false;
   let mazeHappyTimer = 0;
-  let activeAudio = null;
-  let audioSequence = 0;
   const maxWrongAttempts = 5;
+  const audio = window.KidsLanguageAudio({text, speechStatus, selectedVoices:selectedSpeechVoices});
+  const {speak, readQuestion, playSolution} = audio;
 
   function setQuizFeedback(kind, message) {
     root.querySelector('[data-feedback-status-icon]').textContent = kind === 'wrong' ? '😟 ' : kind === 'right' ? '🌼😊 ' : '';
@@ -833,99 +833,8 @@
       if (wrongAttempts >= maxWrongAttempts) revealQuizAnswer(item);
     }
   }
-  function speak(word, language = 'en-US') {
-    if (!('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) {
-      speechStatus.textContent = text('Vorlesestimme auf diesem Gerät nicht verfügbar.','Read-aloud speech is not available on this device.');
-      return Promise.resolve(false);
-    }
-    const segments = Array.isArray(word) ? word : [{text:word, language}];
-    window.speechSynthesis.cancel();
-    const queue = segments.filter(segment => String(segment.text || '').trim());
-    return new Promise(resolve => {
-      let index = 0;
-      const next = () => {
-        if (index >= queue.length) { resolve(true); return; }
-        const segment = queue[index++];
-        const spokenText = String(segment.text || '').trim();
-        const utterance = new SpeechSynthesisUtterance(spokenText);
-        utterance.lang = segment.language || language;
-        utterance.rate = .86;
-        utterance.pitch = 1.04;
-        const languageKey = utterance.lang.toLocaleLowerCase().startsWith('de') ? 'de' : 'en';
-        const available = window.speechSynthesis.getVoices().filter(voice => voice.lang.toLocaleLowerCase().startsWith(languageKey));
-        const requested = available.find(voice => voiceId(voice) === selectedSpeechVoices[languageKey]);
-        const qualityScore = voice => (voice.lang.toLocaleLowerCase() === utterance.lang.toLocaleLowerCase() ? 100 : 50)
-          + (voice.localService ? 8 : 0)
-          + (/natural|neural|premium|enhanced/i.test(voice.name) ? 12 : 0)
-          + (voice.default ? 1 : 0);
-        const chosen = requested || [...available].sort((a, b) => qualityScore(b) - qualityScore(a))[0];
-        if (chosen) utterance.voice = chosen;
-        utterance.onerror = event => {
-          if (event.error !== 'canceled' && event.error !== 'interrupted') {
-            speechStatus.textContent = text('Die Stimme konnte nicht abgespielt werden. Wähle eine andere Stimme.','The voice could not be played. Choose another voice.');
-          }
-          resolve(false);
-        };
-        utterance.onstart = () => { speechStatus.textContent = ''; };
-        utterance.onend = next;
-        window.speechSynthesis.speak(utterance);
-      };
-      next();
-    });
-  }
-  function readQuestion(item, promptSpeech) {
-    const sequence = ++audioSequence;
-    if (activeAudio) { activeAudio.pause(); activeAudio = null; }
-    const language = item.promptLang || item.speechLang || 'en-US';
-    const promptPlayback = item.questionAudioUrl
-      ? playRecordedWord(item.questionAudioUrl, promptSpeech, language, sequence)
-      : speak(promptSpeech, language);
-    Promise.resolve(promptPlayback).then(() => {
-      if (sequence === audioSequence && item.pronunciationAudioUrl) {
-        playRecordedWord(item.pronunciationAudioUrl, item.speak, item.speechLang || language, sequence);
-      }
-    });
-  }
-  function playRecordedWord(url, fallbackText, language, sequence = audioSequence) {
-    if (!url || typeof window.Audio !== 'function') return speak(fallbackText, language);
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-    if (activeAudio) activeAudio.pause();
-    const player = new Audio(url);
-    activeAudio = player;
-    return new Promise(resolve => {
-      let settled = false;
-      const finish = value => { if (!settled) { settled = true; resolve(value); } };
-      const fallback = () => {
-        if (settled) return;
-        settled = true;
-        if (activeAudio === player) activeAudio = null;
-        if (sequence !== audioSequence) { resolve(false); return; }
-        speak(fallbackText, language).then(resolve);
-      };
-      player.addEventListener('ended', () => { if (activeAudio === player) activeAudio = null; finish(true); }, {once:true});
-      player.addEventListener('error', fallback, {once:true});
-      player.addEventListener('pause', () => { if (sequence !== audioSequence) finish(false); }, {once:true});
-      player.play().catch(fallback);
-    });
-  }
-  function playSolution(item) {
-    const sequence = ++audioSequence;
-    const clips = [
-      [item.pronunciationAudioUrl, item.speak, item.speechLang || 'en-US'],
-      [item.solutionAudioUrl, item.a, 'de-DE'],
-    ].filter(([url], index, items) => url && items.findIndex(candidate => candidate[0] === url) === index);
-    if (!clips.length) return speak(item.solutionWord || item.a, item.speechLang || 'en-US');
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-    if (activeAudio) { activeAudio.pause(); activeAudio = null; }
-    return clips.reduce((chain, [url, fallback, language]) => chain.then(() => {
-      if (sequence !== audioSequence) return false;
-      return playRecordedWord(url, fallback, language, sequence);
-    }), Promise.resolve());
-  }
   function showSetup() {
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-    audioSequence += 1;
-    if (activeAudio) { activeAudio.pause(); activeAudio = null; }
+    audio.stop();
     window.clearTimeout(mazeHappyTimer);
     game.hidden = true;
     searchGame.hidden = true;
