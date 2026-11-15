@@ -192,7 +192,8 @@
   }
   const vocabularyNode = document.getElementById('kids-language-vocabulary');
   const languageVocabulary = vocabularyNode ? JSON.parse(vocabularyNode.textContent || '[]') : [];
-  const audioBase = root.dataset.audioBase || '';
+  const audioBase = (root.dataset.audioBase || '').replace(/\/de\/apple\.mp3(?:\?.*)?$/, '');
+  const audioUrl = path => `${audioBase}/${path}?v=${encodeURIComponent(root.dataset.audioVersion || '')}`;
   function vocabularyForLevel(cards, level) {
     const maxGrade = level === 'preschool' ? 0 : Number(level);
     return cards.filter(item => Number(item.grade) <= maxGrade);
@@ -204,8 +205,8 @@
     const answer = word[0].toLocaleUpperCase();
     const letters = [...new Set(cards.map(entry => entry.german[0].toLocaleUpperCase()))].filter(letter => letter !== answer);
     const prompt = text(card.german_question_de, card.german_question_en);
-    const pronunciationAudioUrl = `${audioBase}/de/${id}.mp3`;
-    const questionAudioUrl = `${audioBase}/prompts/german/${english?'en':'de'}/full/${id}.mp3`;
+    const pronunciationAudioUrl = audioUrl(`de/${id}.mp3`);
+    const questionAudioUrl = audioUrl(`prompts/german/${english?'en':'de'}/full/${id}.mp3`);
     return {
       q:prompt, visual:['preschool','1','2'].includes(level)?image:null, a:answer,
       c:shuffle([answer,...shuffle(letters).slice(0,3)]), audioPrompt:prompt,
@@ -231,8 +232,8 @@
     const prompt = early
       ? text(card.english_early_de, card.english_early_en)
       : text(card.english_question_de, card.english_question_en);
-    const pronunciationAudioUrl = `${audioBase}/en/${id}.mp3`;
-    const questionAudioUrl = `${audioBase}/prompts/english/${english?'en':'de'}/${early?'early':'full'}/${id}.mp3`;
+    const pronunciationAudioUrl = audioUrl(`en/${id}.mp3`);
+    const questionAudioUrl = audioUrl(`prompts/english/${english?'en':'de'}/${early?'early':'full'}/${id}.mp3`);
     return {
       q:prompt, visual:early?'🔊':null, a:translation, c:answers,
       choiceImages:early?imageByAnswer:null, audioPrompt:prompt,
@@ -240,7 +241,7 @@
       promptLang:english?'en-US':'de-DE', speak:word, speechLang:'en-US',
       solutionWord:`${word.toLocaleUpperCase()} = ${translation.toLocaleUpperCase()}`,
       solutionText:text(`Das englische Wort ${word.toLocaleUpperCase()} heißt ${translation.toLocaleUpperCase()}.`,`The English word ${word.toLocaleUpperCase()} means ${translation.toLocaleUpperCase()}.`),
-      questionAudioUrl, pronunciationAudioUrl, solutionAudioUrl:`${audioBase}/de/${id}.mp3`,
+      questionAudioUrl, pronunciationAudioUrl, solutionAudioUrl:audioUrl(`de/${id}.mp3`),
     };
   }
   function buildEnglishRound(level) {

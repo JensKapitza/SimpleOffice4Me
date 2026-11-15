@@ -3,7 +3,7 @@
 {% block title %}{{ 'Learning games' if g.language == 'en' else 'Lernspiele' }} · SimpleOffice{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/kids_learning.css', v=app_build.version) }}">{% endblock %}
 {% block body %}
-<main id="main-content" class="kids-learning-page container py-3 py-lg-4" data-kids-learning data-language="{{ g.language }}" data-share-url="{{ url_for('kids_learning.share_game_qr') }}" data-audio-base="{{ url_for('static', filename='audio/kids/language') }}">
+<main id="main-content" class="kids-learning-page container py-3 py-lg-4" data-kids-learning data-language="{{ g.language }}" data-share-url="{{ url_for('kids_learning.share_game_qr') }}" data-audio-base="{{ url_for('static', filename='audio/kids/language/de/apple.mp3', v=app_build.version) }}" data-audio-version="{{ app_build.version }}">
   <script type="application/json" id="kids-language-vocabulary">{{ language_vocabulary|tojson }}</script>
   <header class="mb-4">
     <h1 class="h2 mb-1">{{ 'Learning games' if g.language == 'en' else 'Lernspiele' }} 🎲</h1>
