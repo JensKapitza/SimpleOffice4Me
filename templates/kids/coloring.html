@@ -45,7 +45,7 @@
       <div><h2 class="h4 mb-0" id="kids-template-heading" tabindex="-1">{{ 'Choose a picture' if g.language == 'en' else 'Vorlage aussuchen' }}</h2><p class="small text-secondary mb-0">{{ 'Tap a picture to start coloring.' if g.language == 'en' else 'Tippe auf ein Bild und fang an zu malen.' }}</p></div>
     </div>
     <div class="kids-template-filters d-flex flex-wrap gap-2 mb-3" data-template-filters role="group" aria-label="{{ 'Template type' if g.language == 'en' else 'Vorlagenart' }}">
-      {% for kind, de, en in [('picture','Bilder','Pictures'),('uppercase','Großbuchstaben','Capital letters'),('lowercase','Kleinbuchstaben','Lowercase letters'),('number','Zahlen','Numbers'),('all','Alle','All')] %}
+      {% for kind, de, en in [('picture','Bilder','Pictures'),('writing','Buchstaben & Zahlen','Letters & numbers'),('uppercase','Großbuchstaben','Capital letters'),('lowercase','Kleinbuchstaben','Lowercase letters'),('number','Zahlen','Numbers'),('all','Alle','All')] %}
       <button type="button" class="btn btn-outline-secondary {{ 'active' if kind == 'picture' }}" data-template-filter="{{ kind }}" aria-pressed="{{ 'true' if kind == 'picture' else 'false' }}">{{ en if g.language == 'en' else de }}</button>
       {% endfor %}
     </div>

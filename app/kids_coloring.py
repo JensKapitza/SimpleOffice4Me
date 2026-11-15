@@ -27,6 +27,15 @@ TEMPLATE_ZONES = {
     "apple": frozenset({"fruit", "leaf"}),
     "turtle": frozenset({"head", "shell", "leg-front-left", "leg-front-right", "leg-back-left", "leg-back-right", "tail"}),
     "rainbow": frozenset({"band-red", "band-orange", "band-yellow", "band-green", "cloud-left", "cloud-right"}),
+    "ball": frozenset({"ball", "patch-center", "patch-top", "patch-left", "patch-right", "patch-bottom"}),
+    "star": frozenset({"star"}),
+    "heart": frozenset({"heart"}),
+    "car": frozenset({"body", "window-front", "window-back", "wheel-left", "wheel-right"}),
+    "tree": frozenset({"crown", "trunk"}),
+    "balloon": frozenset({"balloon", "knot"}),
+    "kite": frozenset({"kite-top", "kite-left", "kite-right", "kite-bottom", "tail-bow-one", "tail-bow-two"}),
+    "mushroom": frozenset({"cap", "stem", "spot-one", "spot-two", "spot-three"}),
+    "duck": frozenset({"body", "head", "beak", "wing", "leg-left", "leg-right"}),
     "blank": frozenset(),
 }
 for _letter in "abcdefghijklmnopqrstuvwxyz":

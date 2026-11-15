@@ -18,7 +18,8 @@
     if (cursor < String(value || '').length) segments.push({text: String(value).slice(cursor), language: mainLanguage});
     return segments.filter(segment => segment.text.trim());
   }
-  const {levels, subjects, bank, safetyCards, arrowCards, mazeNodes, mazeFriends, searchObjects, wordCards} = window.KidsLearningContent(text, english, promptSpeechLanguage, splitQuotedSpeech);
+  const {levels, subjects, bank, safetyCards, arrowCards, mazeFriends, generateMaze, searchObjects, wordCards} = window.KidsLearningContent(text, english, promptSpeechLanguage, splitQuotedSpeech);
+  let mazeNodes = {};
 
   const setup = root.querySelector('[data-setup]');
   const game = root.querySelector('[data-game]');
@@ -59,6 +60,8 @@
   let mazeListen = false;
   let mazeCompleted = false;
   let mazeFriend = mazeFriends[0];
+  let mazeWord = '';
+  let mazeCollected = new Set();
   let mazeVisited = new Set();
   let mazeWrongTurns = {};
   let mazeHappy = false;
@@ -105,6 +108,7 @@
     }
     return shuffled;
   };
+
   const randomInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
   function randomMathChoices(answer, minimum = 0) {
     const distractors = new Set();
@@ -345,7 +349,7 @@
     } else if (mode === 'directions') {
       searchTargets = shuffle(arrowCards).slice(0, 3);
     } else if (mode === 'maze') {
-      searchTargets = mazeFriends;
+      searchTargets = shuffle(mazeFriends).slice(0, 3);
       mazeDifficulty = 'easy';
       mazeListen = false;
     } else {
@@ -500,6 +504,8 @@
   function showMazeRound() {
     window.clearTimeout(mazeHappyTimer);
     mazeFriend = searchTargets[searchIndex];
+    ({nodes:mazeNodes, word:mazeWord} = generateMaze(mazeFriend));
+    mazeCollected = new Set();
     mazeCurrentNode = 'start';
     mazePreviousNode = '';
     mazeVisited = new Set(['start']);
@@ -512,9 +518,9 @@
     root.querySelector('[data-search-target-image]').hidden = true;
     root.querySelector('[data-search-speak]').hidden = true;
     searchPrompt.textContent = '';
-    const task = text(`Führe ${mazeFriend.character} zum ${mazeFriend.de}.`, `Guide ${mazeFriend.character} to the ${mazeFriend.en}.`);
+    const task = text(`Führe ${mazeFriend.character} zum ${mazeFriend.de} und sammle unterwegs die Buchstaben.`, `Guide ${mazeFriend.character} to the ${mazeFriend.en} and collect the letters along the way.`);
     searchPrompt.setAttribute('aria-label', task);
-    mazeTask.textContent = `${mazeFriend.character}  ➜  ${mazeFriend.goal}`;
+    updateMazeTask();
     mazeTask.setAttribute('aria-label', task);
     mazeListenButton.setAttribute('aria-pressed', String(mazeListen));
     mazeListenButton.textContent = `🔊 ${mazeListen ? text('Hörmodus an','Listen mode on') : text('Hörmodus aus','Listen mode off')}`;
@@ -523,6 +529,10 @@
     mazePanel.focus();
     drawMaze();
     if (mazeListen) speakMazeRoute();
+  }
+  function updateMazeTask() {
+    const letters = [...mazeWord].map((letter,index) => mazeCollected.has(index) ? letter : '＿').join(' ');
+    mazeTask.textContent = `${mazeFriend.character}  ➜  ${mazeFriend.goal}   ·   ${letters}`;
   }
   function drawMaze() {
     mazeMap.replaceChildren();
@@ -556,6 +566,18 @@
       circle.setAttribute('stroke', node === 'goal' ? '#f0ad00' : '#697586');
       circle.setAttribute('stroke-width', '4');
       mazeMap.append(circle);
+      if (mazeNodes[node].letter) {
+        const letter = document.createElementNS(svg, 'text');
+        letter.setAttribute('x', String(x));
+        letter.setAttribute('y', String(y - 29));
+        letter.setAttribute('text-anchor', 'middle');
+        letter.setAttribute('dominant-baseline', 'central');
+        letter.setAttribute('font-size', '27');
+        letter.setAttribute('font-weight', '800');
+        letter.setAttribute('fill', '#26364a');
+        letter.textContent = mazeNodes[node].letter;
+        mazeMap.append(letter);
+      }
     });
     const addIcon = (node, icon, label, offsetX = 0) => {
       const {x,y} = point(node);
@@ -601,6 +623,11 @@
     if (!closerToGoal && next !== mazePreviousNode && (!mazeVisited.has(next) || mazeWrongTurns[wrongKey])) fadeMazeChoice(direction);
     mazePreviousNode = previous;
     mazeCurrentNode = next;
+    const letterIndex = mazeNodes[next].letterIndex;
+    if (letterIndex >= 0) {
+      mazeCollected.add(letterIndex);
+      updateMazeTask();
+    }
     mazeVisited.add(next);
     mazeHappy = closerToGoal;
     drawMaze();
@@ -907,5 +934,22 @@
     if (selectedSubject === 'search') startSearch(selectedSearchMode);
     else start(selectedSubject);
   });
-  if (new URLSearchParams(window.location.search).get('game') === 'maze') startSearch('maze');
+  root.querySelector('[data-share-game]').addEventListener('click', () => {
+    const params = new URLSearchParams();
+    params.set('level', selectedLevel);
+    if (selectedSubject === 'search') params.set('game', selectedSearchMode);
+    else {
+      params.set('game', 'quiz');
+      params.set('subject', selectedSubject);
+    }
+    window.open(`${root.dataset.shareUrl}?${params.toString()}`, '_blank', 'noopener');
+  });
+  const launch = new URLSearchParams(window.location.search);
+  if (Object.hasOwn(levels, launch.get('level'))) {
+    selectedLevel = launch.get('level');
+    root.querySelectorAll('[data-level]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.level === selectedLevel)));
+  }
+  const launchGame = launch.get('game');
+  if (launchGame === 'quiz' && Object.hasOwn(subjects, launch.get('subject'))) start(launch.get('subject'));
+  else if (['maze','objects','letters','directions','safety'].includes(launchGame)) startSearch(launchGame);
 })();

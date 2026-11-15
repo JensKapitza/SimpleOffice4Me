@@ -199,22 +199,84 @@
     {prompt:text('Du gehst über die Straße. Was ist sicher?','You cross the road. What is safe?'), image:'🚸', choices:[['👀','Schauen und warten',false],['📱','Auf das Handy schauen',true]]}
   ];
   const arrowCards = [['⬆️','oben','up'],['➡️','rechts','right'],['⬇️','unten','down'],['⬅️','links','left']].map(([emoji,de,en])=>({emoji,name:text(de,en)}));
-  const mazeNodes = {
-    start:{col:0,row:1,exits:{right:'crossA'}},
-    crossA:{col:1,row:1,exits:{left:'start',up:'deadTop',down:'crossB'}},
-    deadTop:{col:1,row:0,exits:{down:'crossA'}},
-    crossB:{col:1,row:2,exits:{up:'crossA',left:'deadLeft',right:'crossC'}},
-    deadLeft:{col:0,row:2,exits:{right:'crossB'}},
-    crossC:{col:2,row:2,exits:{left:'crossB',right:'goal',down:'deadBottom'}},
-    goal:{col:3,row:2,exits:{left:'crossC'}},
-    deadBottom:{col:2,row:3,exits:{up:'crossC',right:'deadEnd'}},
-    deadEnd:{col:3,row:3,exits:{left:'deadBottom'}}
-  };
   const mazeFriends = [
-    {character:'🐶',goal:'🦴',de:'Knochen',en:'bone'},
-    {character:'🐝',goal:'🍯',de:'Bienenstock',en:'beehive'},
-    {character:'🐱',goal:'🛏️',de:'Bett',en:'bed'}
+    {character:'🐶',goal:'🦴',de:'Knochen',en:'bone',lettersDe:'HUND',lettersEn:'DOG'},
+    {character:'🐝',goal:'🍯',de:'Bienenstock',en:'beehive',lettersDe:'BIENE',lettersEn:'BEE'},
+    {character:'🐱',goal:'🛏️',de:'Bett',en:'bed',lettersDe:'KATZE',lettersEn:'CAT'},
+    {character:'🐰',goal:'🥕',de:'Möhre',en:'carrot',lettersDe:'HASE',lettersEn:'BUNNY'},
+    {character:'🐟',goal:'🫧',de:'Blase',en:'bubble',lettersDe:'FISCH',lettersEn:'FISH'},
+    {character:'🦆',goal:'🏠',de:'Teich',en:'pond',lettersDe:'ENTE',lettersEn:'DUCK'},
+    {character:'🐭',goal:'🧀',de:'Käse',en:'cheese',lettersDe:'MAUS',lettersEn:'MOUSE'},
+    {character:'🐻',goal:'🍯',de:'Honig',en:'honey',lettersDe:'BAER',lettersEn:'BEAR'}
   ];
+  function generateMaze(friend) {
+    const word = (english ? friend.lettersEn : friend.lettersDe).toUpperCase();
+    const edgeCount = word.length + 1 + (word.length % 2 === 0 ? 1 : 0);
+    const start = {col:0,row:1};
+    const goal = {col:3,row:2};
+    const shuffle = values => values.sort(() => Math.random() - .5);
+    const directionFor = (from, to) => to.col > from.col ? 'right' : to.col < from.col ? 'left' : to.row > from.row ? 'down' : 'up';
+    let path = null;
+    const findPath = (node, route, occupied) => {
+      if (path) return;
+      const remaining = edgeCount - (route.length - 1);
+      const distance = Math.abs(node.col - goal.col) + Math.abs(node.row - goal.row);
+      if (distance > remaining || ((remaining - distance) % 2)) return;
+      if (node.col === goal.col && node.row === goal.row) {
+        if (remaining === 0) path = route;
+        return;
+      }
+      if (remaining <= 0) return;
+      const neighbors = shuffle([
+        {col:node.col + 1,row:node.row},{col:node.col - 1,row:node.row},
+        {col:node.col,row:node.row + 1},{col:node.col,row:node.row - 1},
+      ].filter(next => next.col >= 0 && next.col < 4 && next.row >= 0 && next.row < 4
+        && !occupied.has(`${next.col},${next.row}`)));
+      neighbors.forEach(next => {
+        if (!path) {
+          const nextOccupied = new Set(occupied);
+          nextOccupied.add(`${next.col},${next.row}`);
+          findPath(next, [...route, next], nextOccupied);
+        }
+      });
+    };
+    findPath(start, [start], new Set([`${start.col},${start.row}`]));
+    if (!path) path = edgeCount === 6
+      ? [start,{col:0,row:0},{col:1,row:0},{col:2,row:0},{col:3,row:0},{col:3,row:1},goal]
+      : [start,{col:1,row:1},{col:1,row:2},{col:2,row:2},goal];
+    const nodes = {};
+    path.forEach((point,index) => {
+      const id = index === 0 ? 'start' : index === path.length - 1 ? 'goal' : `letter-${index}`;
+      nodes[id] = {...point, exits:{}, letter:index > 0 && index <= word.length ? word[index - 1] : '', letterIndex:index > 0 && index <= word.length ? index - 1 : -1};
+    });
+    const connect = (fromId, toId) => {
+      const from = nodes[fromId];
+      const to = nodes[toId];
+      from.exits[directionFor(from,to)] = toId;
+      to.exits[directionFor(to,from)] = fromId;
+    };
+    for (let index = 0; index < path.length - 1; index += 1) {
+      connect(index === 0 ? 'start' : `letter-${index}`, index + 1 === path.length - 1 ? 'goal' : `letter-${index + 1}`);
+    }
+    const occupied = new Set(path.map(point => `${point.col},${point.row}`));
+    let branchCount = 0;
+    path.slice(1, -1).forEach((point,index) => {
+      if (Math.random() > .62 || branchCount >= 5) return;
+      const options = shuffle([
+        {col:point.col + 1,row:point.row},{col:point.col - 1,row:point.row},
+        {col:point.col,row:point.row + 1},{col:point.col,row:point.row - 1},
+      ].filter(next => next.col >= 0 && next.col < 4 && next.row >= 0 && next.row < 4
+        && !occupied.has(`${next.col},${next.row}`)));
+      const branch = options[0];
+      if (!branch) return;
+      const parentId = `letter-${index + 1}`;
+      const branchId = `branch-${branchCount++}`;
+      nodes[branchId] = {...branch, exits:{}, letter:'', letterIndex:-1};
+      occupied.add(`${branch.col},${branch.row}`);
+      connect(parentId,branchId);
+    });
+    return {nodes,word};
+  }
   const searchObjects = {
     preschool: [
       ['Apfel','Apple','🍎'],['Ball','Ball','⚽'],['Katze','Cat','🐱'],['Sonne','Sun','☀️'],['Fisch','Fish','🐟'],['Haus','House','🏠'],
@@ -261,6 +323,6 @@
       {word:'Kompass',image:'🧭',missing:3}, {word:'Teleskop',image:'🔭',missing:5}, {word:'Fahrrad',image:'🚲',missing:4}
     ]
   };
-    return {levels, subjects, bank, safetyCards, arrowCards, mazeNodes, mazeFriends, searchObjects, wordCards};
+    return {levels, subjects, bank, safetyCards, arrowCards, mazeFriends, generateMaze, searchObjects, wordCards};
   };
 })();

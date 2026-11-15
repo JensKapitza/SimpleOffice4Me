@@ -3,10 +3,11 @@
 {% block title %}{{ 'Learning games' if g.language == 'en' else 'Lernspiele' }} · SimpleOffice{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/kids_learning.css') }}">{% endblock %}
 {% block body %}
-<main id="main-content" class="kids-learning-page container py-3 py-lg-4" data-kids-learning data-language="{{ g.language }}">
+<main id="main-content" class="kids-learning-page container py-3 py-lg-4" data-kids-learning data-language="{{ g.language }}" data-share-url="{{ url_for('kids_learning.share_game_qr') }}">
   <header class="mb-4">
     <h1 class="h2 mb-1">{{ 'Learning games' if g.language == 'en' else 'Lernspiele' }} 🎲</h1>
     <p class="text-secondary mb-0">{{ 'Short, friendly quiz rounds. No timers and no pressure. Questions and scores stay on this device.' if g.language == 'en' else 'Kurze, freundliche Quizrunden. Ohne Zeitdruck und ohne Noten. Fragen und Punkte bleiben auf diesem Gerät.' }}</p>
+    <button class="btn btn-outline-primary mt-3" type="button" data-share-game>🔳 {{ 'Share this game by QR' if g.language == 'en' else 'Spiel per QR-Code öffnen' }}</button>
   </header>
   <p class="small text-warning-emphasis mb-2" data-speech-status role="status" aria-live="polite"></p>
 
