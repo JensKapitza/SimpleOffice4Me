@@ -1,0 +1,23 @@
+{% extends "layout.html" %}
+{% block title %}Einkaufsliste teilen · SimpleOffice{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container py-4" data-shopping-share>
+  <a href="{{ url_for('shopping.index') }}">← Zur Einkaufsliste</a>
+  <h1 class="h3 mt-3">{{ list_name }} teilen</h1>
+  <p class="text-secondary">Dieser QR-Link zeigt die offenen Artikel schreibgeschützt. Jeder, der den Link hat, kann die Liste ansehen. Ein neuer Link widerruft den vorherigen.</p>
+  <section class="card shadow-sm" aria-labelledby="shopping-share-qr-title">
+    <div class="card-body text-center">
+      <h2 id="shopping-share-qr-title" class="h5">Mit dem Handy scannen</h2>
+      <img class="img-fluid border rounded p-2 bg-white" width="300" height="300" src="data:image/svg+xml;base64,{{ qr_data }}" alt="QR-Code für die schreibgeschützte Einkaufsliste" loading="eager" decoding="async" fetchpriority="high">
+      <label class="form-label d-block text-start mt-3" for="shopping-share-url">Freigabelink</label>
+      <div class="input-group">
+        <input class="form-control font-monospace" id="shopping-share-url" value="{{ share_url }}" readonly data-shopping-share-url>
+        <button class="btn btn-outline-primary" type="button" data-shopping-copy>Link kopieren</button>
+      </div>
+      <p class="small text-secondary mt-3 mb-0">Der QR-Code nutzt die Adresse, über die du diese Seite geöffnet hast. Für ein anderes Gerät muss diese Adresse im lokalen Netzwerk erreichbar sein.</p>
+    </div>
+  </section>
+</main>
+<script src="{{ url_for('static', filename='js/shopping_share.js') }}" defer></script>
+{% endblock %}

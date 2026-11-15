@@ -238,9 +238,46 @@ class ShoppingStoreTests(unittest.TestCase):
         self.assertEqual(["Alt"], [row["name"] for row in self.store.lists("alice")])
         self.store.add_item("legacy", "Pfeffer", "alice")
         raw = json.loads(self.store.path.read_text(encoding="utf-8"))
-        self.assertEqual(3, raw["schema_version"])
+        self.assertEqual(4, raw["schema_version"])
         self.assertEqual({"Salz", "Pfeffer"}, {row["name"] for row in raw["items"]})
         self.assertIn("products", raw)
+        self.assertIn("public_links", raw)
+
+    def test_public_read_link_stores_only_token_hash_and_can_be_revoked(self):
+        self.store.create_list("Familie", "alice", list_id="public")
+        self.store.add_item("public", "Milch", "alice", {"quantity": "2", "price": "1,49"})
+        bought = self.store.add_item("public", "Brot", "alice")
+        self.store.update_item(bought["item_id"], "alice", {"status": "bought"})
+
+        link = self.store.create_public_read_link("public", "alice")
+        shared = self.store.public_read_list(link["token"])
+        self.assertEqual("Familie", shared["name"])
+        self.assertEqual(["Milch"], [row["name"] for row in shared["items"]])
+        self.assertNotIn(link["token"], self.store.path.read_text(encoding="utf-8"))
+        self.assertEqual(self.store._token_hash(link["token"]), json.loads(self.store.path.read_text(encoding="utf-8"))["public_links"][0]["token_hash"])
+
+        self.store.revoke_public_read_link("public", "alice")
+        self.assertIsNone(self.store.public_read_list(link["token"]))
+
+    def test_public_read_link_requires_list_management_permission(self):
+        self.store.create_list("Familie", "alice", list_id="public-permission")
+        self.store.share_list("public-permission", "alice", "bob", ["read"])
+        with self.assertRaisesRegex(ValueError, "not found"):
+            self.store.create_public_read_link("public-permission", "bob")
+
+    def test_restock_product_increments_and_reopens_existing_matching_row(self):
+        self.store.create_list("Woche", "alice", list_id="restock")
+        original = self.store.add_item(
+            "restock", "Haferdrink", "alice", {"quantity": "1", "unit": "l", "barcode": "4006381333931"}
+        )
+        self.store.update_item(original["item_id"], "alice", {"status": "bought"})
+        product = self.store.products("alice")[0]
+
+        updated = self.store.restock_product(product["product_id"], "restock", "alice", "2")
+        self.assertEqual(original["item_id"], updated["item_id"])
+        self.assertEqual("3", updated["quantity"])
+        self.assertEqual("open", updated["status"])
+        self.assertEqual(1, len(self.store.items("alice", list_id="restock")))
 
     def test_request_id_makes_reconnect_add_idempotent(self):
         self.store.create_list("Offline", "alice", list_id="offline")

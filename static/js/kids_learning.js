@@ -4,255 +4,22 @@
 
   const english = root.dataset.language === 'en';
   const text = (de, en) => english ? en : de;
-  const levels = {
-    preschool: text('Kita & Vorschule', 'Preschool'),
-    1: text('Klasse 1', 'Grade 1'), 2: text('Klasse 2', 'Grade 2'),
-    3: text('Klasse 3', 'Grade 3'), 4: text('Klasse 4', 'Grade 4'), 5: text('Klasse 5', 'Grade 5')
-  };
-  const subjects = {
-    math: text('Mathe', 'Math'), german: text('Deutsch', 'German'),
-    english: text('Englisch', 'English'), world: text('Natur & Welt', 'Nature & world'),
-    search: text('Suchbild & Buchstaben', 'Search & letters')
-  };
-  const bank = {
-    preschool: {
-      german: [
-        { q: text('Welcher Buchstabe beginnt „Ball“?', 'Which letter starts “Ball” in German?'), a: 'B', c: ['A', 'B', 'D'] },
-        { q: text('Welches Wort reimt sich auf „Haus“?', 'Which German word rhymes with “Haus”?'), a: 'Maus', c: ['Maus', 'Ball', 'Bett'] },
-        { q: text('Wie viele Silben hat „Mama“?', 'How many syllables does “Mama” have?'), a: '2', c: ['1', '2', '3'] }
-      ],
-      english: [
-        { q: text('Was heißt „cat“ auf Deutsch?', 'What does “cat” mean in German?'), a: 'Katze', c: ['Hund', 'Katze', 'Maus'], speak: 'cat' },
-        { q: text('Was heißt „red“ auf Deutsch?', 'What does “red” mean in German?'), a: 'rot', c: ['blau', 'grün', 'rot'], speak: 'red' },
-        { q: text('Was heißt „sun“ auf Deutsch?', 'What does “sun” mean in German?'), a: 'Sonne', c: ['Mond', 'Sonne', 'Stern'], speak: 'sun' }
-      ],
-      world: [
-        { q: text('Welches Tier sagt „miau“?', 'Which animal says “meow”?'), a: text('Katze', 'Cat'), c: [text('Katze', 'Cat'), text('Kuh', 'Cow'), text('Ente', 'Duck')] },
-        { q: text('Was brauchen Pflanzen zum Wachsen?', 'What do plants need to grow?'), a: text('Wasser und Licht', 'Water and light'), c: [text('Schuhe', 'Shoes'), text('Wasser und Licht', 'Water and light'), text('Spielzeug', 'Toys')] },
-        { q: text('Welches Tier kann fliegen?', 'Which animal can fly?'), a: text('Vogel', 'Bird'), c: [text('Fisch', 'Fish'), text('Vogel', 'Bird'), text('Hund', 'Dog')] }
-      ]
+  const promptSpeechLanguage = english ? 'en-US' : 'de-DE';
+  function splitQuotedSpeech(value, mainLanguage, quotedLanguage) {
+    const segments = [];
+    const pattern = /[“„"]([^“”„"]+)[””“"]/g;
+    let cursor = 0;
+    let match;
+    while ((match = pattern.exec(String(value || ''))) !== null) {
+      if (match.index > cursor) segments.push({text: value.slice(cursor, match.index), language: mainLanguage});
+      segments.push({text: match[1], language: quotedLanguage});
+      cursor = pattern.lastIndex;
     }
-  };
-  const gradeQuestions = {
-    german: [
-      [
-        { q: text('Welches Wort ist ein Nomen?', 'Which word is a noun?'), a: 'Hund', c: ['laufen', 'Hund', 'schnell'] },
-        { q: text('Welcher Buchstabe fehlt: K _ tze?', 'Which letter is missing: K _ tze?'), a: 'a', c: ['e', 'a', 'i'] },
-        { q: text('Welches Wort beginnt mit „Sch“?', 'Which word starts with “Sch”?'), a: 'Schule', c: ['Tisch', 'Schule', 'Apfel'] }
-      ],
-      [
-        { q: text('Was ist die Mehrzahl von „Kind“?', 'What is the plural of “Kind” (child)?'), a: 'Kinder', c: ['Kinde', 'Kindern', 'Kinder'] },
-        { q: text('Welches Wort ist ein Verb?', 'Which word is a verb?'), a: 'springen', c: ['Baum', 'springen', 'gelb'] },
-        { q: text('Welches Satzzeichen kommt ans Ende einer Frage?', 'Which punctuation mark ends a question?'), a: '?', c: ['.', '?', '!'] }
-      ],
-      [
-        { q: text('Was ist das Gegenteil von „laut“?', 'What is the opposite of “loud”?'), a: 'leise', c: ['hell', 'leise', 'schnell'] },
-        { q: text('Welches Wort ist richtig geschrieben?', 'Which word is spelled correctly?'), a: 'Fahrrad', c: ['Farad', 'Fahrrad', 'Farrad'] },
-        { q: text('Welches Wort ist ein Adjektiv?', 'Which word is an adjective?'), a: 'fröhlich', c: ['singen', 'fröhlich', 'Tasche'] }
-      ],
-      [
-        { q: text('Welche Zeitform beschreibt „ich ging“?', 'Which tense is “ich ging” (I went)?'), a: 'Vergangenheit', c: ['Gegenwart', 'Vergangenheit', 'Zukunft'] },
-        { q: text('Welches Wort ist ein Pronomen?', 'Which word is a pronoun?'), a: 'wir', c: ['Tisch', 'wir', 'lesen'] },
-        { q: text('Was ist die Mehrzahl von „Maus“?', 'What is the plural of “Maus” (mouse)?'), a: 'Mäuse', c: ['Mause', 'Mäuse', 'Mausen'] }
-      ],
-      [
-        { q: text('Welches Wort ist ein Nomen?', 'Which word is a noun?'), a: 'Abenteuer', c: ['erleben', 'Abenteuer', 'spannend'] },
-        { q: text('Was ist die Grundform von „lief“?', 'What is the infinitive of “lief” (ran)?'), a: 'laufen', c: ['laufen', 'laufenes', 'gelaufen'] },
-        { q: text('Welches Wort ist ein Adverb?', 'Which word is an adverb?'), a: 'gestern', c: ['gestern', 'Freund', 'malen'] }
-      ]
-    ],
-    english: [
-      [
-        { q: text('Was heißt „dog“ auf Deutsch?', 'What does “dog” mean in German?'), a: 'Hund', c: ['Hund', 'Katze', 'Vogel'], speak: 'dog' },
-        { q: text('Was heißt „blue“ auf Deutsch?', 'What does “blue” mean in German?'), a: 'blau', c: ['rot', 'blau', 'gelb'], speak: 'blue' },
-        { q: text('Was heißt „book“ auf Deutsch?', 'What does “book” mean in German?'), a: 'Buch', c: ['Buch', 'Haus', 'Baum'], speak: 'book' }
-      ],
-      [
-        { q: text('Was heißt „apple“ auf Deutsch?', 'What does “apple” mean in German?'), a: 'Apfel', c: ['Apfel', 'Birne', 'Brot'], speak: 'apple' },
-        { q: text('Was heißt „happy“ auf Deutsch?', 'What does “happy” mean in German?'), a: 'glücklich', c: ['traurig', 'glücklich', 'müde'], speak: 'happy' },
-        { q: text('Was heißt „school“ auf Deutsch?', 'What does “school” mean in German?'), a: 'Schule', c: ['Schule', 'Straße', 'Stadt'], speak: 'school' }
-      ],
-      [
-        { q: text('Was heißt „to swim“ auf Deutsch?', 'What does “to swim” mean in German?'), a: 'schwimmen', c: ['schwimmen', 'springen', 'schlafen'], speak: 'to swim' },
-        { q: text('Was heißt „green“ auf Deutsch?', 'What does “green” mean in German?'), a: 'grün', c: ['grün', 'grau', 'groß'], speak: 'green' },
-        { q: text('Was heißt „friend“ auf Deutsch?', 'What does “friend” mean in German?'), a: 'Freund', c: ['Freund', 'Familie', 'Lehrer'], speak: 'friend' }
-      ],
-      [
-        { q: text('Was heißt „yesterday“ auf Deutsch?', 'What does “yesterday” mean in German?'), a: 'gestern', c: ['morgen', 'gestern', 'heute'], speak: 'yesterday' },
-        { q: text('Was heißt „beautiful“ auf Deutsch?', 'What does “beautiful” mean in German?'), a: 'wunderschön', c: ['wunderschön', 'winzig', 'langsam'], speak: 'beautiful' },
-        { q: text('Was heißt „because“ auf Deutsch?', 'What does “because” mean in German?'), a: 'weil', c: ['aber', 'weil', 'oder'], speak: 'because' }
-      ],
-      [
-        { q: text('Was heißt „to borrow“ auf Deutsch?', 'What does “to borrow” mean in German?'), a: 'ausleihen', c: ['ausleihen', 'verkaufen', 'verlieren'], speak: 'to borrow' },
-        { q: text('Was heißt „carefully“ auf Deutsch?', 'What does “carefully” mean in German?'), a: 'vorsichtig', c: ['vorsichtig', 'plötzlich', 'gemeinsam'], speak: 'carefully' },
-        { q: text('Was heißt „journey“ auf Deutsch?', 'What does “journey” mean in German?'), a: 'Reise', c: ['Frage', 'Reise', 'Antwort'], speak: 'journey' }
-      ]
-    ],
-    world: [
-      [
-        { q: text('Wo lebt ein Fisch?', 'Where does a fish live?'), a: text('Im Wasser', 'In water'), c: [text('Im Wasser', 'In water'), text('Im Baum', 'In a tree'), text('In der Wüste', 'In the desert')] },
-        { q: text('Welche Jahreszeit kommt nach dem Winter?', 'Which season comes after winter?'), a: text('Frühling', 'Spring'), c: [text('Herbst', 'Autumn'), text('Frühling', 'Spring'), text('Winter', 'Winter')] },
-        { q: text('Womit hören wir?', 'Which body part do we hear with?'), a: text('Ohren', 'Ears'), c: [text('Ohren', 'Ears'), text('Nase', 'Nose'), text('Knie', 'Knees')] }
-      ],
-      [
-        { q: text('Was wird aus einer Raupe?', 'What does a caterpillar become?'), a: text('Schmetterling', 'Butterfly'), c: [text('Frosch', 'Frog'), text('Schmetterling', 'Butterfly'), text('Spinne', 'Spider')] },
-        { q: text('Welches Tier ist ein Säugetier?', 'Which animal is a mammal?'), a: text('Delfin', 'Dolphin'), c: [text('Delfin', 'Dolphin'), text('Forelle', 'Trout'), text('Biene', 'Bee')] },
-        { q: text('Was zeigt ein Thermometer?', 'What does a thermometer show?'), a: text('Temperatur', 'Temperature'), c: [text('Temperatur', 'Temperature'), text('Uhrzeit', 'Time'), text('Entfernung', 'Distance')] }
-      ],
-      [
-        { q: text('Welcher Planet ist unser Zuhause?', 'Which planet is our home?'), a: text('Erde', 'Earth'), c: ['Mars', text('Erde', 'Earth'), 'Venus'] },
-        { q: text('Was brauchen Menschen zum Atmen?', 'What do people need to breathe?'), a: text('Luft', 'Air'), c: [text('Luft', 'Air'), text('Sand', 'Sand'), text('Holz', 'Wood')] },
-        { q: text('Welche Himmelsrichtung liegt gegenüber von Norden?', 'Which direction is opposite north?'), a: text('Süden', 'South'), c: [text('Osten', 'East'), text('Westen', 'West'), text('Süden', 'South')] }
-      ],
-      [
-        { q: text('Wie heißt der Stern, der uns am Tag wärmt?', 'What is the star that warms us during the day?'), a: text('Sonne', 'Sun'), c: [text('Sonne', 'Sun'), text('Mond', 'Moon'), text('Polarstern', 'North Star')] },
-        { q: text('Welches Organ pumpt Blut durch den Körper?', 'Which organ pumps blood around the body?'), a: text('Herz', 'Heart'), c: [text('Herz', 'Heart'), text('Lunge', 'Lung'), text('Magen', 'Stomach')] },
-        { q: text('Was entsteht, wenn Wasser gefriert?', 'What forms when water freezes?'), a: text('Eis', 'Ice'), c: [text('Dampf', 'Steam'), text('Eis', 'Ice'), text('Salz', 'Salt')] }
-      ],
-      [
-        { q: text('Wie nennt man Tiere, die nur Pflanzen fressen?', 'What do you call animals that eat only plants?'), a: text('Pflanzenfresser', 'Herbivores'), c: [text('Raubtiere', 'Predators'), text('Pflanzenfresser', 'Herbivores'), text('Allesfresser', 'Omnivores')] },
-        { q: text('Welches Gas nehmen Pflanzen aus der Luft auf?', 'Which gas do plants take in from the air?'), a: text('Kohlenstoffdioxid', 'Carbon dioxide'), c: [text('Sauerstoff', 'Oxygen'), text('Kohlenstoffdioxid', 'Carbon dioxide'), text('Helium', 'Helium')] },
-        { q: text('Wie viele Beine hat ein Insekt?', 'How many legs does an insect have?'), a: '6', c: ['4', '6', '8'] }
-      ]
-    ]
-  };
-  const extras = [
-    [
-      { q: text('Wie viele Ecken hat ein Dreieck?', 'How many corners does a triangle have?'), a: '3', c: ['2', '3', '4'] },
-      { q: text('Was ist die Hälfte von 10?', 'What is half of 10?'), a: '5', c: ['2', '5', '8'] },
-      { q: text('Wie viele Tage hat eine Woche?', 'How many days are in a week?'), a: '7', c: ['5', '6', '7'] }
-    ],
-    [
-      { q: text('Was ist 8 + 7?', 'What is 8 + 7?'), a: '15', c: ['14', '15', '16'] },
-      { q: text('Was ist 20 − 6?', 'What is 20 − 6?'), a: '14', c: ['12', '14', '16'] },
-      { q: text('Welche Zahl ist gerade?', 'Which number is even?'), a: '18', c: ['13', '17', '18'] }
-    ],
-    [
-      { q: text('Was ist 6 × 4?', 'What is 6 × 4?'), a: '24', c: ['20', '24', '28'] },
-      { q: text('Was ist 45 ÷ 5?', 'What is 45 ÷ 5?'), a: '9', c: ['8', '9', '10'] },
-      { q: text('Welche Zahl ist ein Vielfaches von 7?', 'Which number is a multiple of 7?'), a: '35', c: ['32', '35', '37'] }
-    ],
-    [
-      { q: text('Was ist 125 + 75?', 'What is 125 + 75?'), a: '200', c: ['190', '200', '210'] },
-      { q: text('Was ist 9 × 8?', 'What is 9 × 8?'), a: '72', c: ['63', '72', '81'] },
-      { q: text('Wie viele Minuten hat eine Stunde?', 'How many minutes are in an hour?'), a: '60', c: ['30', '60', '100'] }
-    ],
-      [
-        { q: text('Was ist ¾ als Dezimalzahl?', 'What is ¾ as a decimal?'), a: text('0,75', '0.75'), c: [text('0,25', '0.25'), text('0,5', '0.5'), text('0,75', '0.75')] },
-      { q: text('Was ist 12 × 12?', 'What is 12 × 12?'), a: '144', c: ['124', '134', '144'] },
-      { q: text('Wie viel sind 25 % von 80?', 'What is 25% of 80?'), a: '20', c: ['15', '20', '25'] }
-    ]
-  ];
-  bank.preschool.math = [
-    { q: text('Wie viele Äpfel sind hier? 🍎🍎🍎', 'How many apples are here? 🍎🍎🍎'), a: '3', c: ['2', '3', '4'] },
-    { q: text('Welche Zahl kommt nach 4?', 'Which number comes after 4?'), a: '5', c: ['3', '5', '7'] },
-    { q: text('Was ist 2 + 1?', 'What is 2 + 1?'), a: '3', c: ['2', '3', '4'] }
-  ];
-  ['1','2','3','4','5'].forEach((grade, index) => {
-    bank[grade] = {
-      german: gradeQuestions.german[index], english: gradeQuestions.english[index],
-      world: gradeQuestions.world[index], math: extras[index]
-    };
-  });
-  const visualEarlyGames = {
-    math: [
-      {q:text('Wie viele Äpfel siehst du?','How many apples can you see?'), visual:'🍎🍎🍎', a:'3', c:['2','3','4'], audioPrompt:text('Wie viele Äpfel siehst du?','How many apples can you see?'), speechLang:english?'en-US':'de-DE'},
-      {q:text('Wie viele Bälle siehst du?','How many balls can you see?'), visual:'⚽⚽⚽⚽', a:'4', c:['3','4','5'], audioPrompt:text('Wie viele Bälle siehst du?','How many balls can you see?'), speechLang:english?'en-US':'de-DE'},
-      {q:text('Wie viele Sterne siehst du?','How many stars can you see?'), visual:'⭐ ⭐ ⭐ ⭐ ⭐', a:'5', c:['4','5','6'], audioPrompt:text('Wie viele Sterne siehst du?','How many stars can you see?'), speechLang:english?'en-US':'de-DE'}
-    ],
-    german: [
-      {q:text('Welcher Laut beginnt Apfel?','Which sound starts Apfel (apple)?'), visual:'🍎', a:'A', c:['A','B','M'], audioPrompt:text('Welcher Laut beginnt Apfel?','Which sound starts Apfel (apple)?'), speak:'Apfel', speechLang:'de-DE'},
-      {q:text('Welcher Laut beginnt Ball?','Which sound starts Ball (ball)?'), visual:'⚽', a:'B', c:['B','A','S'], audioPrompt:text('Welcher Laut beginnt Ball?','Which sound starts Ball (ball)?'), speak:'Ball', speechLang:'de-DE'},
-      {q:text('Welcher Laut beginnt Maus?','Which sound starts Maus (mouse)?'), visual:'🐭', a:'M', c:['M','H','K'], audioPrompt:text('Welcher Laut beginnt Maus?','Which sound starts Maus (mouse)?'), speak:'Maus', speechLang:'de-DE'}
-    ],
-    english: [
-      {q:text('Finde die Katze.','Find the cat.'), visual:'🔊', a:'Katze', c:['Katze','Hund','Ente'], choiceImages:{Katze:'🐱',Hund:'🐶',Ente:'🦆'}, audioPrompt:'Find the cat.', speak:'cat', speechLang:'en-US'},
-      {q:text('Finde den Ball.','Find the ball.'), visual:'🔊', a:'Ball', c:['Ball','Sonne','Fisch'], choiceImages:{Ball:'⚽',Sonne:'☀️',Fisch:'🐟'}, audioPrompt:'Find the ball.', speak:'ball', speechLang:'en-US'},
-      {q:text('Finde den Apfel.','Find the apple.'), visual:'🔊', a:'Apfel', c:['Apfel','Haus','Blume'], choiceImages:{Apfel:'🍎',Haus:'🏠',Blume:'🌼'}, audioPrompt:'Find the apple.', speak:'apple', speechLang:'en-US'}
-    ],
-    world: [
-      {q:text('Welches Tier lebt im Wasser?','Which animal lives in water?'), visual:'🌊', a:'Fisch', c:['Fisch','Hund','Vogel'], choiceImages:{Fisch:'🐟',Hund:'🐶',Vogel:'🐦'}, audioPrompt:text('Welches Tier lebt im Wasser?','Which animal lives in water?'), speechLang:english?'en-US':'de-DE'},
-      {q:text('Was wächst auf einer Wiese?','What grows in a meadow?'), visual:'🌱', a:'Blume', c:['Blume','Auto','Schuh'], choiceImages:{Blume:'🌼',Auto:'🚗',Schuh:'👟'}, audioPrompt:text('Was wächst auf einer Wiese?','What grows in a meadow?'), speechLang:english?'en-US':'de-DE'},
-      {q:text('Was tragen wir auf dem Kopf?','What do we wear on our head?'), visual:'🧢', a:'Mütze', c:['Mütze','Socke','Tasse'], choiceImages:{Mütze:'🧢',Socke:'🧦',Tasse:'☕'}, audioPrompt:text('Was tragen wir auf dem Kopf?','What do we wear on our head?'), speechLang:english?'en-US':'de-DE'}
-    ]
-  };
-  ['preschool','1','2'].forEach(level => { Object.entries(visualEarlyGames).forEach(([subject, items]) => { bank[level][subject] = items; }); });
-  Object.values(bank).forEach(levelBank => {
-    levelBank.german.forEach(item => {
-      item.audioPrompt ||= item.q;
-      item.speechLang = 'de-DE';
-      item.promptLang = english ? 'en-US' : 'de-DE';
-      item.speak ||= item.a;
-    });
-  });
-  const safetyCards = [
-    {prompt:text('Die Ampel ist rot. Was machst du?','The light is red. What do you do?'), image:'🚦🔴', choices:[['🛑','Warten',false],['🏃','Loslaufen',true]]},
-    {prompt:text('Du fährst Fahrrad. Was schützt deinen Kopf?','You ride a bicycle. What protects your head?'), image:'🚲', choices:[['🪖','Helm',false],['🎩','Hut',true]]},
-    {prompt:text('Du gehst über die Straße. Was ist sicher?','You cross the road. What is safe?'), image:'🚸', choices:[['👀','Schauen und warten',false],['📱','Auf das Handy schauen',true]]}
-  ];
-  const arrowCards = [['⬆️','oben','up'],['➡️','rechts','right'],['⬇️','unten','down'],['⬅️','links','left']].map(([emoji,de,en])=>({emoji,name:text(de,en)}));
-  const mazeNodes = {
-    start:{col:0,row:1,exits:{right:'crossA'}},
-    crossA:{col:1,row:1,exits:{left:'start',up:'deadTop',down:'crossB'}},
-    deadTop:{col:1,row:0,exits:{down:'crossA'}},
-    crossB:{col:1,row:2,exits:{up:'crossA',left:'deadLeft',right:'crossC'}},
-    deadLeft:{col:0,row:2,exits:{right:'crossB'}},
-    crossC:{col:2,row:2,exits:{left:'crossB',right:'goal',down:'deadBottom'}},
-    goal:{col:3,row:2,exits:{left:'crossC'}},
-    deadBottom:{col:2,row:3,exits:{up:'crossC',right:'deadEnd'}},
-    deadEnd:{col:3,row:3,exits:{left:'deadBottom'}}
-  };
-  const mazeFriends = [
-    {character:'🐶',goal:'🦴',de:'Knochen',en:'bone'},
-    {character:'🐝',goal:'🍯',de:'Bienenstock',en:'beehive'},
-    {character:'🐱',goal:'🛏️',de:'Bett',en:'bed'}
-  ];
-  const searchObjects = {
-    preschool: [
-      ['Apfel','Apple','🍎'],['Ball','Ball','⚽'],['Katze','Cat','🐱'],['Sonne','Sun','☀️'],['Fisch','Fish','🐟'],['Haus','House','🏠'],
-      ['Buch','Book','📘'],['Blume','Flower','🌼'],['Auto','Car','🚗'],['Banane','Banana','🍌'],['Hund','Dog','🐶'],['Stern','Star','⭐']
-    ],
-    1: [
-      ['Apfel','Apple','🍎'],['Ball','Ball','⚽'],['Katze','Cat','🐱'],['Sonne','Sun','☀️'],['Fisch','Fish','🐟'],['Haus','House','🏠'],
-      ['Buch','Book','📘'],['Blume','Flower','🌼'],['Auto','Car','🚗'],['Banane','Banana','🍌'],['Hund','Dog','🐶'],['Stern','Star','⭐']
-    ],
-    2: [
-      ['Schule','School','🏫'],['Regen','Rain','🌧️'],['Pferd','Horse','🐴'],['Brille','Glasses','👓'],['Tasse','Cup','☕'],['Mond','Moon','🌙'],
-      ['Schiff','Ship','🚢'],['Baum','Tree','🌳'],['Kuchen','Cake','🍰'],['Zug','Train','🚂'],['Ente','Duck','🦆'],['Uhr','Clock','🕒']
-    ],
-    3: [
-      ['Regenbogen','Rainbow','🌈'],['Dinosaurier','Dinosaur','🦕'],['Schmetterling','Butterfly','🦋'],['Rucksack','Backpack','🎒'],['Fußball','Football','⚽'],['Erdbeere','Strawberry','🍓'],
-      ['Gitarre','Guitar','🎸'],['Leuchtturm','Lighthouse','🗼'],['Kamera','Camera','📷'],['Schildkröte','Turtle','🐢'],['Zahnbürste','Toothbrush','🪥'],['Wolke','Cloud','☁️']
-    ],
-    4: [
-      ['Fernglas','Binoculars','🔭'],['Ananas','Pineapple','🍍'],['Feuerwehr','Fire engine','🚒'],['Schneemann','Snowman','⛄'],['Pflanze','Plant','🪴'],['Koffer','Suitcase','🧳'],
-      ['Mikrofon','Microphone','🎤'],['Leiter','Ladder','🪜'],['Schlüssel','Key','🔑'],['Pinguin','Penguin','🐧'],['Kaktus','Cactus','🌵'],['Kronleuchter','Chandelier','💡']
-    ],
-    5: [
-      ['Kompass','Compass','🧭'],['Teleskop','Telescope','🔭'],['Fahrrad','Bicycle','🚲'],['Berg','Mountain','⛰️'],['Papagei','Parrot','🦜'],['Muschel','Shell','🐚'],
-      ['Schlagzeug','Drum kit','🥁'],['Schloss','Castle','🏰'],['Fallschirm','Parachute','🪂'],['Rakete','Rocket','🚀'],['Kopfhörer','Headphones','🎧'],['Regenschirm','Umbrella','☂️']
-    ]
-  };
-  const wordCards = {
-    preschool: [
-      {word:'Katze',image:'🐱',missing:1}, {word:'Ball',image:'⚽',missing:0}, {word:'Hund',image:'🐶',missing:1}
-    ],
-    1: [
-      {word:'Apfel',image:'🍎',missing:1}, {word:'Sonne',image:'☀️',missing:1}, {word:'Blume',image:'🌼',missing:2}
-    ],
-    2: [
-      {word:'Schule',image:'🏫',missing:3}, {word:'Pferd',image:'🐴',missing:2}, {word:'Regen',image:'🌧️',missing:1}
-    ],
-    3: [
-      {word:'Regenbogen',image:'🌈',missing:5}, {word:'Schildkröte',image:'🐢',missing:4}, {word:'Rucksack',image:'🎒',missing:3}
-    ],
-    4: [
-      {word:'Fernglas',image:'🔭',missing:4}, {word:'Schneemann',image:'⛄',missing:5}, {word:'Erdbeere',image:'🍓',missing:3}
-    ],
-    5: [
-      {word:'Kompass',image:'🧭',missing:3}, {word:'Teleskop',image:'🔭',missing:5}, {word:'Fahrrad',image:'🚲',missing:4}
-    ]
-  };
+    if (cursor < String(value || '').length) segments.push({text: String(value).slice(cursor), language: mainLanguage});
+    return segments.filter(segment => segment.text.trim());
+  }
+  const {levels, subjects, bank, safetyCards, arrowCards, mazeFriends, generateMaze, searchObjects, wordCards} = window.KidsLearningContent(text, english, promptSpeechLanguage, splitQuotedSpeech);
+  let mazeNodes = {};
 
   const setup = root.querySelector('[data-setup]');
   const game = root.querySelector('[data-game]');
@@ -272,6 +39,9 @@
   const choicesNode = root.querySelector('[data-choices]');
   const progress = root.querySelector('[data-progress]');
   const speakButton = root.querySelector('[data-speak]');
+  const speechVoiceSelects = [...root.querySelectorAll('[data-speech-voice]')];
+  const speechStatus = root.querySelector('[data-speech-status]');
+  const selectedSpeechVoices = {de:'',en:''};
   let selectedLevel = 'preschool';
   let selectedSubject = 'math';
   let selectedSearchMode = 'objects';
@@ -290,6 +60,8 @@
   let mazeListen = false;
   let mazeCompleted = false;
   let mazeFriend = mazeFriends[0];
+  let mazeWord = '';
+  let mazeCollected = new Set();
   let mazeVisited = new Set();
   let mazeWrongTurns = {};
   let mazeHappy = false;
@@ -336,12 +108,203 @@
     }
     return shuffled;
   };
+
+  const randomInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+  function randomMathChoices(answer, minimum = 0) {
+    const distractors = new Set();
+    for (let offset = 1; distractors.size < 3; offset += 1) {
+      shuffle([answer + offset, answer - offset]).forEach(value => {
+        if (value >= minimum && value !== answer && distractors.size < 3) distractors.add(value);
+      });
+    }
+    return shuffle([String(answer), ...[...distractors].map(String)]);
+  }
+  function createMathQuestion(level) {
+    if (level === 'preschool') {
+      const count = randomInt(1, 8);
+      const prompt = text('Wie viele Äpfel siehst du?','How many apples can you see?');
+      return {q:prompt, visual:Array(count).fill('🍎').join(' '), a:String(count), c:randomMathChoices(count, 1), audioPrompt:prompt, speechLang:english?'en-US':'de-DE'};
+    }
+
+    let left;
+    let right;
+    let answer;
+    let symbol;
+    let spokenOperator;
+    let minimum = 0;
+    if (['1','2'].includes(level)) {
+      const max = level === '1' ? 5 : 8;
+      symbol = Math.random() < .5 ? '+' : '−';
+      left = randomInt(1, max);
+      right = randomInt(1, max);
+      if (symbol === '−' && right > left) [left, right] = [right, left];
+      answer = symbol === '+' ? left + right : left - right;
+      spokenOperator = symbol === '+' ? text('plus','plus') : text('minus','minus');
+      minimum = 0;
+    } else if (level === '3') {
+      const operation = shuffle(['+','−','×'])[0];
+      symbol = operation;
+      left = randomInt(2, operation === '×' ? 10 : 50);
+      right = randomInt(2, operation === '×' ? 10 : 50);
+      if (operation === '−' && right > left) [left, right] = [right, left];
+      answer = operation === '+' ? left + right : operation === '−' ? left - right : left * right;
+      spokenOperator = operation === '×' ? text('mal','times') : operation === '+' ? text('plus','plus') : text('minus','minus');
+    } else {
+      const operation = shuffle(['+','−','×','÷'])[0];
+      symbol = operation === '÷' ? '÷' : operation;
+      if (operation === '÷') {
+        right = randomInt(2, 12);
+        answer = randomInt(2, 12);
+        left = right * answer;
+      } else if (operation === '×') {
+        left = randomInt(2, 12);
+        right = randomInt(2, 12);
+        answer = left * right;
+      } else {
+        left = randomInt(level === '4' ? 20 : 50, level === '4' ? 500 : 1000);
+        right = randomInt(2, level === '4' ? 99 : 500);
+        if (operation === '−' && right > left) [left, right] = [right, left];
+        answer = operation === '+' ? left + right : left - right;
+      }
+      spokenOperator = operation === '÷' ? text('geteilt durch','divided by') : operation === '×' ? text('mal','times') : operation === '+' ? text('plus','plus') : text('minus','minus');
+    }
+
+    const visual = ['1','2'].includes(level)
+      ? `${Array(left).fill('🍎').join(' ')} ${symbol} ${Array(right).fill('🍎').join(' ')}` : null;
+    const prompt = text(`Was ist ${left} ${spokenOperator} ${right}?`, `What is ${left} ${spokenOperator} ${right}?`);
+    return {q:prompt, visual, a:String(answer), c:randomMathChoices(answer, minimum), audioPrompt:prompt, speechLang:english?'en-US':'de-DE'};
+  }
+  function buildMathRound(level) {
+    const questionsForRound = [];
+    const seen = new Set();
+    while (questionsForRound.length < 3) {
+      const item = createMathQuestion(level);
+      const signature = item.visual || item.q;
+      if (seen.has(signature)) continue;
+      seen.add(signature);
+      questionsForRound.push(item);
+    }
+    return questionsForRound;
+  }
+  const germanWordCards = [
+    ['Apfel','🍎'],['Ball','⚽'],['Maus','🐭'],['Sonne','☀️'],['Haus','🏠'],['Fisch','🐟'],['Hund','🐶'],['Blume','🌼'],['Auto','🚗'],['Banane','🍌'],['Stern','⭐'],['Schule','🏫'],['Pferd','🐴'],['Regen','🌧️'],['Katze','🐱'],['Ente','🦆']
+  ];
+  function createGermanQuestion(level = selectedLevel) {
+    const [word, image] = shuffle(germanWordCards)[0];
+    const answer = word[0].toLocaleUpperCase();
+    const letters = [...new Set(germanWordCards.map(([entry]) => entry[0].toLocaleUpperCase()))].filter(letter => letter !== answer);
+    const prompt = text(`Welcher Laut beginnt ${word}?`, `Which sound starts the German word ${word}?`);
+    return {q:prompt, visual:['preschool','1','2'].includes(level)?image:null, a:answer, c:shuffle([answer,...shuffle(letters).slice(0,3)]), audioPrompt:prompt, promptLang:english?'en-US':'de-DE', speak:word, speechLang:'de-DE'};
+  }
+  function buildGermanRound(level) {
+    const generated = Array.from({length:16}, () => createGermanQuestion(level));
+    const existing = bank[level].german || [];
+    return shuffle([...new Map([...existing,...generated].map(item=>[item.q,item])).values()]).slice(0,3);
+  }
+  const englishWordCards = [
+    ['cat','Katze','🐱'],['dog','Hund','🐶'],['apple','Apfel','🍎'],['ball','Ball','⚽'],['sun','Sonne','☀️'],['fish','Fisch','🐟'],['house','Haus','🏠'],['flower','Blume','🌼'],['banana','Banane','🍌'],['star','Stern','⭐'],['book','Buch','📘'],['school','Schule','🏫'],['horse','Pferd','🐴'],['rain','Regen','🌧️'],['duck','Ente','🦆'],['moon','Mond','🌙']
+  ];
+  function createEnglishQuestion(level = selectedLevel) {
+    const [word, translation] = shuffle(englishWordCards)[0];
+    const options = shuffle(englishWordCards.filter(([, german]) => german !== translation)).slice(0,3);
+    const selectedWords = [[word,translation,englishWordCards.find(([,german])=>german===translation)?.[2]],...options];
+    const answers = selectedWords.map(([,german])=>german);
+    const imageByAnswer = Object.fromEntries(selectedWords.map(([,german,emoji])=>[german,emoji]));
+    const early = ['preschool','1','2'].includes(level);
+    const prompt = early ? text('Höre das englische Wort und finde das Bild.','Listen to the English word and find the picture.')
+      : text(`Was heißt „${word}“ auf Deutsch?`,`What does “${word}” mean in German?`);
+    return {q:prompt, visual:early?'🔊':null, a:translation, c:answers, choiceImages:early?imageByAnswer:null, audioPrompt:early?word:prompt, promptLang:early?'en-US':english?'en-US':'de-DE', speak:word, speechLang:'en-US'};
+  }
+  function buildEnglishRound(level) {
+    const generated = Array.from({length:16}, () => createEnglishQuestion(level));
+    const existing = bank[level].english || [];
+    // Early word-finding rounds deliberately reuse a spoken prompt, so use the
+    // vocabulary item as the deduplication key instead of collapsing the round
+    // to one generated question.
+    return shuffle([...new Map([...existing,...generated].map(item=>[`${item.q}|${item.speak || item.a}`,item])).values()]).slice(0,3);
+  }
+  const worldQuestionCards = [
+    ['Welches Tier sagt Miau?','Which animal says meow?','🐱',[['Katze','Cat','🐱'],['Kuh','Cow','🐄'],['Ente','Duck','🦆']]],
+    ['Welches Tier lebt im Wasser?','Which animal lives in water?','🌊',[['Fisch','Fish','🐟'],['Hund','Dog','🐶'],['Vogel','Bird','🐦']]],
+    ['Welches Tier kann fliegen?','Which animal can fly?','☁️',[['Vogel','Bird','🐦'],['Fisch','Fish','🐟'],['Katze','Cat','🐱']]],
+    ['Was braucht eine Pflanze?','What does a plant need?','🌱',[['Wasser','Water','💧'],['Schuhe','Shoes','👟'],['Spielzeug','Toys','🧸']]],
+    ['Was tragen wir auf dem Kopf?','What do we wear on our head?','🧢',[['Mütze','Hat','🧢'],['Socke','Sock','🧦'],['Tasse','Cup','☕']]],
+    ['Womit hören wir?','Which body part do we hear with?','👂',[['Ohren','Ears','👂'],['Nase','Nose','👃'],['Knie','Knees','🦵']]],
+    ['Welches Tier gibt Milch?','Which animal gives milk?','🥛',[['Kuh','Cow','🐄'],['Fisch','Fish','🐟'],['Frosch','Frog','🐸']]],
+    ['Was wächst am Baum?','What grows on a tree?','🌳',[['Apfel','Apple','🍎'],['Auto','Car','🚗'],['Ball','Ball','⚽']]],
+    ['Was wird aus Wasser bei Frost?','What does water become when it freezes?','❄️',[['Eis','Ice','🧊'],['Dampf','Steam','♨️'],['Sand','Sand','🏖️']]],
+    ['Was macht die Biene?','What does a bee make?','🐝',[['Honig','Honey','🍯'],['Saft','Juice','🧃'],['Brot','Bread','🍞']]],
+    ['Welche Jahreszeit kommt nach dem Winter?','Which season comes after winter?','🌷',[['Frühling','Spring','🌷'],['Herbst','Autumn','🍂'],['Sommer','Summer','☀️']]],
+    ['Wie viele Beine hat ein Insekt?','How many legs does an insect have?','🐞',[['Sechs','Six','6️⃣'],['Vier','Four','4️⃣'],['Acht','Eight','8️⃣']]]
+  ];
+  function buildWorldRound(level) {
+    const generated = worldQuestionCards.map(([de,en,visual,options]) => {
+      const choices = options.map(([optionDe,optionEn,emoji])=>text(optionDe,optionEn));
+      const choiceImages = Object.fromEntries(options.map(([optionDe,optionEn,emoji])=>[text(optionDe,optionEn),emoji]));
+      const prompt = text(de,en);
+      return {q:prompt, visual:['preschool','1','2'].includes(level)?visual:null, a:choices[0], c:choices, choiceImages, audioPrompt:prompt, promptLang:english?'en-US':'de-DE'};
+    });
+    const existing = ['preschool','1','2'].includes(level) ? bank[level].world : (bank[level].world || []);
+    return shuffle([...new Map([...existing,...generated].map(item=>[item.q,item])).values()]).slice(0,3);
+  }
+  function buildSubjectRound(subject, level) {
+    if (subject === 'math') return buildMathRound(level);
+    if (subject === 'german') return buildGermanRound(level);
+    if (subject === 'english') return buildEnglishRound(level);
+    if (subject === 'world') return buildWorldRound(level);
+    return [];
+  }
+  function buildMixedRound(level) {
+    return shuffle(['math','german','english','world']).slice(0,3).map(subject => shuffle(buildSubjectRound(subject,level))[0]);
+  }
+  function voiceId(voice) {
+    return voice.voiceURI || `${voice.name}|${voice.lang}`;
+  }
+  function renderSpeechVoices() {
+    if (!('speechSynthesis' in window)) return;
+    const voices = window.speechSynthesis.getVoices();
+    speechVoiceSelects.forEach(select => {
+      const language = select.dataset.speechVoice;
+      const matching = voices.filter(voice => voice.lang.toLocaleLowerCase().startsWith(language));
+      if (!matching.length) return;
+      select.replaceChildren();
+      const automatic = document.createElement('option');
+      automatic.value = '';
+      automatic.textContent = text('Automatisch – beste passende Stimme','Automatic – best matching voice');
+      select.append(automatic);
+      matching.sort((a,b)=>a.name.localeCompare(b.name)).forEach(voice=>{
+        const option = document.createElement('option');
+        option.value = voiceId(voice);
+        option.textContent = `${voice.name} (${voice.lang}) · ${voice.localService ? text('Gerät','Device') : text('Online','Online')}`;
+        select.append(option);
+      });
+      select.value = selectedSpeechVoices[language];
+      if (select.value !== selectedSpeechVoices[language]) {
+        selectedSpeechVoices[language] = '';
+        select.value = '';
+      }
+      select.hidden = false;
+    });
+  }
+  speechVoiceSelects.forEach(select => {
+    const language = select.dataset.speechVoice;
+    try { selectedSpeechVoices[language] = window.localStorage.getItem(`kids-learning.voice.${language}`) || ''; } catch {}
+    select.addEventListener('change', () => {
+      selectedSpeechVoices[language] = select.value;
+      try { window.localStorage.setItem(`kids-learning.voice.${language}`, select.value); } catch {}
+    });
+  });
+  if ('speechSynthesis' in window) {
+    renderSpeechVoices();
+    if (typeof window.speechSynthesis.addEventListener === 'function') window.speechSynthesis.addEventListener('voiceschanged', renderSpeechVoices);
+    else window.speechSynthesis.onvoiceschanged = renderSpeechVoices;
+  }
   function start(subject) {
     selectedSubject = subject;
     searchModes.hidden = true;
     searchGame.hidden = true;
     mazePanel.hidden = true;
-    questions = shuffle(bank[selectedLevel][subject]).slice(0, 3);
+    questions = subject === 'mixed' ? buildMixedRound(selectedLevel) : buildSubjectRound(subject, selectedLevel);
     index = 0;
     score = 0;
     setup.hidden = true;
@@ -386,7 +349,7 @@
     } else if (mode === 'directions') {
       searchTargets = shuffle(arrowCards).slice(0, 3);
     } else if (mode === 'maze') {
-      searchTargets = mazeFriends;
+      searchTargets = shuffle(mazeFriends).slice(0, 3);
       mazeDifficulty = 'easy';
       mazeListen = false;
     } else {
@@ -447,8 +410,12 @@
       searchPrompt.textContent = ['preschool','1','2'].includes(selectedLevel) ? '' : prompt;
       searchPrompt.setAttribute('aria-label', prompt);
       root.querySelector('[data-search-speak]').hidden = false;
-      root.querySelector('[data-search-speak]').onclick = () => speak(prompt, english ? 'en-US' : 'de-DE');
-      if (['preschool','1','2'].includes(selectedLevel)) speak(prompt, english ? 'en-US' : 'de-DE');
+      const wordPrompt = [
+        {text:prompt, language:promptSpeechLanguage},
+        {text:card.word, language:'de-DE'}
+      ];
+      root.querySelector('[data-search-speak]').onclick = () => speak(wordPrompt);
+      if (['preschool','1','2'].includes(selectedLevel)) speak(wordPrompt);
       searchPrompt.focus();
       root.querySelector('[data-search-target-image]').hidden = true;
       searchScene.hidden = true;
@@ -537,6 +504,8 @@
   function showMazeRound() {
     window.clearTimeout(mazeHappyTimer);
     mazeFriend = searchTargets[searchIndex];
+    ({nodes:mazeNodes, word:mazeWord} = generateMaze(mazeFriend));
+    mazeCollected = new Set();
     mazeCurrentNode = 'start';
     mazePreviousNode = '';
     mazeVisited = new Set(['start']);
@@ -549,9 +518,9 @@
     root.querySelector('[data-search-target-image]').hidden = true;
     root.querySelector('[data-search-speak]').hidden = true;
     searchPrompt.textContent = '';
-    const task = text(`Führe ${mazeFriend.character} zum ${mazeFriend.de}.`, `Guide ${mazeFriend.character} to the ${mazeFriend.en}.`);
+    const task = text(`Führe ${mazeFriend.character} zum ${mazeFriend.de} und sammle unterwegs die Buchstaben.`, `Guide ${mazeFriend.character} to the ${mazeFriend.en} and collect the letters along the way.`);
     searchPrompt.setAttribute('aria-label', task);
-    mazeTask.textContent = `${mazeFriend.character}  ➜  ${mazeFriend.goal}`;
+    updateMazeTask();
     mazeTask.setAttribute('aria-label', task);
     mazeListenButton.setAttribute('aria-pressed', String(mazeListen));
     mazeListenButton.textContent = `🔊 ${mazeListen ? text('Hörmodus an','Listen mode on') : text('Hörmodus aus','Listen mode off')}`;
@@ -560,6 +529,10 @@
     mazePanel.focus();
     drawMaze();
     if (mazeListen) speakMazeRoute();
+  }
+  function updateMazeTask() {
+    const letters = [...mazeWord].map((letter,index) => mazeCollected.has(index) ? letter : '＿').join(' ');
+    mazeTask.textContent = `${mazeFriend.character}  ➜  ${mazeFriend.goal}   ·   ${letters}`;
   }
   function drawMaze() {
     mazeMap.replaceChildren();
@@ -593,6 +566,18 @@
       circle.setAttribute('stroke', node === 'goal' ? '#f0ad00' : '#697586');
       circle.setAttribute('stroke-width', '4');
       mazeMap.append(circle);
+      if (mazeNodes[node].letter) {
+        const letter = document.createElementNS(svg, 'text');
+        letter.setAttribute('x', String(x));
+        letter.setAttribute('y', String(y - 29));
+        letter.setAttribute('text-anchor', 'middle');
+        letter.setAttribute('dominant-baseline', 'central');
+        letter.setAttribute('font-size', '27');
+        letter.setAttribute('font-weight', '800');
+        letter.setAttribute('fill', '#26364a');
+        letter.textContent = mazeNodes[node].letter;
+        mazeMap.append(letter);
+      }
     });
     const addIcon = (node, icon, label, offsetX = 0) => {
       const {x,y} = point(node);
@@ -638,6 +623,11 @@
     if (!closerToGoal && next !== mazePreviousNode && (!mazeVisited.has(next) || mazeWrongTurns[wrongKey])) fadeMazeChoice(direction);
     mazePreviousNode = previous;
     mazeCurrentNode = next;
+    const letterIndex = mazeNodes[next].letterIndex;
+    if (letterIndex >= 0) {
+      mazeCollected.add(letterIndex);
+      updateMazeTask();
+    }
     mazeVisited.add(next);
     mazeHappy = closerToGoal;
     drawMaze();
@@ -776,8 +766,9 @@
     setQuizFeedback('', '');
     root.querySelector('[data-next]').hidden = true;
     speakButton.hidden = !item.speak && !item.audioPrompt;
-    speakButton.onclick = () => speak(item.audioPrompt || item.speak, item.promptLang || item.speechLang || 'en-US');
-    if (item.audioPrompt) speak(item.audioPrompt, item.promptLang || item.speechLang || 'en-US');
+    const promptSpeech = item.audioParts?.length ? item.audioParts : item.audioPrompt || item.speak;
+    speakButton.onclick = () => speak(promptSpeech, item.promptLang || item.speechLang || 'en-US');
+    if (item.audioPrompt || item.audioParts?.length) speak(promptSpeech, item.promptLang || item.speechLang || 'en-US');
     choicesNode.replaceChildren();
     shuffle(item.c).forEach(choice => {
       const button = document.createElement('button');
@@ -816,15 +807,34 @@
   }
   function speak(word, language = 'en-US') {
     if (!('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) {
-      const message = text('Die Vorlesestimme ist auf diesem Gerät nicht verfügbar.', 'A read-aloud voice is not available on this device.');
-      if (searchGame.hidden) setQuizFeedback('', message);
-      else setSearchFeedback('', message);
+      speechStatus.textContent = text('Vorlesestimme auf diesem Gerät nicht verfügbar.','Read-aloud speech is not available on this device.');
       return;
     }
+    const segments = Array.isArray(word) ? word : [{text:word, language}];
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(word);
-    utterance.lang = language;
-    window.speechSynthesis.speak(utterance);
+    segments.forEach(segment => {
+      const spokenText = String(segment.text || '').trim();
+      if (!spokenText) return;
+      const utterance = new SpeechSynthesisUtterance(spokenText);
+      utterance.lang = segment.language || language;
+      utterance.rate = .86;
+      utterance.pitch = 1.04;
+      const languageKey = utterance.lang.toLocaleLowerCase().startsWith('de') ? 'de' : 'en';
+      const available = window.speechSynthesis.getVoices().filter(voice => voice.lang.toLocaleLowerCase().startsWith(languageKey));
+      const requested = available.find(voice => voiceId(voice) === selectedSpeechVoices[languageKey]);
+      const qualityScore = voice => (voice.lang.toLocaleLowerCase() === utterance.lang.toLocaleLowerCase() ? 100 : 50)
+        + (voice.localService ? 8 : 0)
+        + (/natural|neural|premium|enhanced/i.test(voice.name) ? 12 : 0)
+        + (voice.default ? 1 : 0);
+      const chosen = requested || [...available].sort((a, b) => qualityScore(b) - qualityScore(a))[0];
+      if (chosen) utterance.voice = chosen;
+      utterance.onerror = event => {
+        if (event.error === 'canceled' || event.error === 'interrupted') return;
+        speechStatus.textContent = text('Die Stimme konnte nicht abgespielt werden. Wähle eine andere Stimme.','The voice could not be played. Choose another voice.');
+      };
+      utterance.onstart = () => { speechStatus.textContent = ''; };
+      window.speechSynthesis.speak(utterance);
+    });
   }
   function showSetup() {
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
@@ -924,4 +934,22 @@
     if (selectedSubject === 'search') startSearch(selectedSearchMode);
     else start(selectedSubject);
   });
+  root.querySelector('[data-share-game]').addEventListener('click', () => {
+    const params = new URLSearchParams();
+    params.set('level', selectedLevel);
+    if (selectedSubject === 'search') params.set('game', selectedSearchMode);
+    else {
+      params.set('game', 'quiz');
+      params.set('subject', selectedSubject);
+    }
+    window.open(`${root.dataset.shareUrl}?${params.toString()}`, '_blank', 'noopener');
+  });
+  const launch = new URLSearchParams(window.location.search);
+  if (Object.hasOwn(levels, launch.get('level'))) {
+    selectedLevel = launch.get('level');
+    root.querySelectorAll('[data-level]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.level === selectedLevel)));
+  }
+  const launchGame = launch.get('game');
+  if (launchGame === 'quiz' && Object.hasOwn(subjects, launch.get('subject'))) start(launch.get('subject'));
+  else if (['maze','objects','letters','directions','safety'].includes(launchGame)) startSearch(launchGame);
 })();

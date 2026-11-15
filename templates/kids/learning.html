@@ -3,13 +3,29 @@
 {% block title %}{{ 'Learning games' if g.language == 'en' else 'Lernspiele' }} · SimpleOffice{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/kids_learning.css') }}">{% endblock %}
 {% block body %}
-<main id="main-content" class="kids-learning-page container py-3 py-lg-4" data-kids-learning data-language="{{ g.language }}">
+<main id="main-content" class="kids-learning-page container py-3 py-lg-4" data-kids-learning data-language="{{ g.language }}" data-share-url="{{ url_for('kids_learning.share_game_qr') }}">
   <header class="mb-4">
     <h1 class="h2 mb-1">{{ 'Learning games' if g.language == 'en' else 'Lernspiele' }} 🎲</h1>
     <p class="text-secondary mb-0">{{ 'Short, friendly quiz rounds. No timers and no pressure. Questions and scores stay on this device.' if g.language == 'en' else 'Kurze, freundliche Quizrunden. Ohne Zeitdruck und ohne Noten. Fragen und Punkte bleiben auf diesem Gerät.' }}</p>
+    <button class="btn btn-outline-primary mt-3" type="button" data-share-game>🔳 {{ 'Share this game by QR' if g.language == 'en' else 'Spiel per QR-Code öffnen' }}</button>
   </header>
+  <p class="small text-warning-emphasis mb-2" data-speech-status role="status" aria-live="polite"></p>
 
   <section class="kids-learning-setup" data-setup aria-labelledby="kids-learning-level-heading">
+    <a class="kids-mini-promo d-flex flex-wrap align-items-center justify-content-between gap-2 p-3 mb-4 rounded border text-decoration-none" href="{{ url_for('kids_learning.mini_games') }}">
+      <span><strong class="d-block">{{ 'Need a little play break?' if g.language == 'en' else 'Lust auf eine kleine Spielpause?' }}</strong><span>{{ 'Try animal pairs, counting and picture puzzles.' if g.language == 'en' else 'Probiere Tierpaare, Zählen und Bilderrätsel.' }}</span></span>
+      <span class="btn btn-primary">{{ 'Play' if g.language == 'en' else 'Spielen' }} 🎲</span>
+    </a>
+    <details class="kids-learning-voice-settings mb-4">
+      <summary>{{ 'Voice settings' if g.language == 'en' else 'Stimme einstellen' }}</summary>
+      <div class="pt-3">
+        <label class="form-label fw-semibold" for="kids-learning-voice-de">{{ 'German voice' if g.language == 'en' else 'Deutsche Stimme' }}</label>
+        <select id="kids-learning-voice-de" class="form-select mb-2" data-speech-voice="de" hidden aria-describedby="kids-learning-voice-help"></select>
+        <label class="form-label fw-semibold" for="kids-learning-voice-en">{{ 'English voice' if g.language == 'en' else 'Englische Stimme' }}</label>
+        <select id="kids-learning-voice-en" class="form-select" data-speech-voice="en" hidden aria-describedby="kids-learning-voice-help"></select>
+        <p id="kids-learning-voice-help" class="form-text mb-1">{{ 'Choose a voice installed in your browser/device. Online voices may send speech to a network service.' if g.language == 'en' else 'Wähle eine Stimme deines Browsers oder Geräts. Online-Stimmen können Sprache über einen Netzwerkdienst verarbeiten.' }}</p>
+      </div>
+    </details>
     <h2 class="h4" id="kids-learning-level-heading">{{ 'Choose an age group' if g.language == 'en' else 'Für welches Alter?' }}</h2>
     <div class="kids-learning-levels mb-4" role="group" aria-label="{{ 'Age group' if g.language == 'en' else 'Altersgruppe' }}">
       {% for key, de, en, icon in [('preschool','Kita & Vorschule','Preschool','🧸'),('1','Klasse 1','Grade 1','1️⃣'),('2','Klasse 2','Grade 2','2️⃣'),('3','Klasse 3','Grade 3','3️⃣'),('4','Klasse 4','Grade 4','4️⃣'),('5','Klasse 5','Grade 5','5️⃣')] %}
@@ -23,9 +39,10 @@
       <button type="button" class="kids-learning-subject" data-subject="german"><span aria-hidden="true">🔤</span><strong>{{ 'German' if g.language == 'en' else 'Deutsch' }}</strong><small>{{ 'Letters, words and reading' if g.language == 'en' else 'Buchstaben, Wörter und Lesen' }}</small></button>
       <button type="button" class="kids-learning-subject" data-subject="english"><span aria-hidden="true">🗣️</span><strong>{{ 'English' if g.language == 'en' else 'Englisch' }}</strong><small>{{ 'Hear and learn words' if g.language == 'en' else 'Wörter hören und lernen' }}</small></button>
       <button type="button" class="kids-learning-subject" data-subject="world"><span aria-hidden="true">🌱</span><strong>{{ 'Nature and the world' if g.language == 'en' else 'Natur & Welt' }}</strong><small>{{ 'Animals, plants and everyday life' if g.language == 'en' else 'Tiere, Pflanzen und Alltag' }}</small></button>
+      <button type="button" class="kids-learning-subject" data-subject="mixed"><span aria-hidden="true">🎲</span><strong>{{ 'Surprise me' if g.language == 'en' else 'Überrasch mich' }}</strong><small>{{ 'A random mix of subjects' if g.language == 'en' else 'Eine zufällige Mischung der Fächer' }}</small></button>
       <button type="button" class="kids-learning-subject" data-subject="search"><span aria-hidden="true">🔎</span><strong>{{ 'Search and letters' if g.language == 'en' else 'Suchbild & Buchstaben' }}</strong><small>{{ 'Find things and complete words' if g.language == 'en' else 'Dinge finden und Wörter ergänzen' }}</small></button>
     </div>
-    <p class="small text-secondary mt-3 mb-0">{{ 'English words can be played aloud with a voice available on your device.' if g.language == 'en' else 'Englische Wörter kann eine auf deinem Gerät verfügbare Stimme vorlesen.' }}</p>
+    <p class="small text-secondary mt-3 mb-0">{{ 'The app selects an installed English or German voice. Pronunciation quality depends on the voices available on your device.' if g.language == 'en' else 'Die App wählt eine installierte deutsche oder englische Stimme. Die Aussprachequalität hängt von den auf deinem Gerät verfügbaren Stimmen ab.' }}</p>
   </section>
 
   <section class="kids-learning-search-modes" data-search-modes hidden aria-labelledby="kids-search-mode-heading">
@@ -52,7 +69,7 @@
       <span class="kids-search-target-image mt-2" data-search-target-image aria-hidden="true" hidden></span>
       <div class="kids-search-scene mt-4" data-search-scene role="group" aria-label="{{ 'Picture with objects to find' if g.language == 'en' else 'Wimmelbild mit Suchgegenständen' }}" hidden></div>
       <div class="kids-learning-maze mt-3" data-maze-panel tabindex="-1" hidden>
-        <p class="kids-learning-maze-task" data-maze-task></p>
+        <div class="kids-learning-maze-task" data-maze-task role="img"></div>
         <div class="kids-learning-maze-options" role="group" aria-label="{{ 'Maze options' if g.language == 'en' else 'Labyrinth-Einstellungen' }}">
           <button type="button" class="btn btn-outline-primary btn-lg" data-maze-difficulty="easy" aria-pressed="true">🐢 {{ 'Easy' if g.language == 'en' else 'Leicht' }}</button>
           <button type="button" class="btn btn-outline-primary btn-lg" data-maze-difficulty="hard" aria-pressed="false">🐇 {{ 'Hard' if g.language == 'en' else 'Schwer' }}</button>
@@ -110,5 +127,6 @@
     </div>
   </section>
 </main>
+<script src="{{ url_for('static', filename='js/kids_learning_content.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/kids_learning.js') }}" defer></script>
 {% endblock %}

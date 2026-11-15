@@ -1,7 +1,9 @@
 import io
+import re
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from flask import Flask, g
 from PIL import Image
@@ -84,7 +86,7 @@ class ShoppingWebTests(unittest.TestCase):
         self.assertNotIn("URL.createObjectURL", script)
         self.assertIn("Produktfoto ausgewählt:", script)
         self.assertIn("product_photo", script)
-        self.assertIn("Nachlegen", template)
+        self.assertIn("Zur Liste nachlegen", template)
         self.assertIn("Anzahl / Menge", template)
         self.assertIn("repeat-quantity-", template)
         self.assertIn("shopping.item_quantity", template)
@@ -213,6 +215,32 @@ class ShoppingWebTests(unittest.TestCase):
         )
         self.assertEqual(302, response.status_code)
         self.assertTrue(store.products("alice")[0]["favorite"])
+
+    def test_public_qr_route_renders_a_read_only_link(self):
+        store = ShoppingStore(self.root)
+        store.create_list("Woche", "alice", list_id="qr")
+        store.add_item("qr", "Äpfel", "alice", {"price": "2,50"})
+
+        def render_stub(template, **context):
+            if template == "shopping/share_qr.html":
+                return f'{context["share_url"]} data:image/svg+xml;base64,{context["qr_data"]}'
+            return context["shared"]["items"][0]["name"]
+
+        with patch("app.shopping_web.render_template", side_effect=render_stub):
+            response = self.client.post("/shopping/lists/qr/share-qr")
+            self.assertEqual(200, response.status_code)
+            self.assertIn("data:image/svg+xml;base64,", response.get_data(as_text=True))
+            self.assertIn("no-store", response.headers["Cache-Control"])
+            self.assertIn("no-referrer", response.headers["Referrer-Policy"])
+
+            match = re.search(r"/shopping/s/([A-Za-z0-9_-]+)", response.get_data(as_text=True))
+            self.assertIsNotNone(match)
+            public = self.client.get(f"/shopping/s/{match.group(1)}")
+            self.assertEqual(200, public.status_code)
+            self.assertEqual("Äpfel", public.get_data(as_text=True))
+
+            self.client.post("/shopping/lists/qr/share-qr/revoke")
+            self.assertEqual(404, self.client.get(f"/shopping/s/{match.group(1)}").status_code)
 
     def test_barcode_lookup_uses_private_product_memory_after_list_archive(self):
         store = ShoppingStore(self.root)
