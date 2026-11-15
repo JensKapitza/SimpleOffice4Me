@@ -211,9 +211,14 @@
     deadEnd:{col:3,row:3,exits:{left:'deadBottom'}}
   };
   const mazeFriends = [
-    {character:'🐶',goal:'🦴',de:'Knochen',en:'bone'},
-    {character:'🐝',goal:'🍯',de:'Bienenstock',en:'beehive'},
-    {character:'🐱',goal:'🛏️',de:'Bett',en:'bed'}
+    {character:'🐶',goal:'🦴',de:'Knochen',en:'bone',lettersDe:'HUND',lettersEn:'DOG'},
+    {character:'🐝',goal:'🍯',de:'Bienenstock',en:'beehive',lettersDe:'BIENE',lettersEn:'BEE'},
+    {character:'🐱',goal:'🛏️',de:'Bett',en:'bed',lettersDe:'KATZE',lettersEn:'CAT'},
+    {character:'🐰',goal:'🥕',de:'Möhre',en:'carrot',lettersDe:'HASE',lettersEn:'BUNNY'},
+    {character:'🐟',goal:'🫧',de:'Blase',en:'bubble',lettersDe:'FISCH',lettersEn:'FISH'},
+    {character:'🦆',goal:'🏠',de:'Teich',en:'pond',lettersDe:'ENTE',lettersEn:'DUCK'},
+    {character:'🐭',goal:'🧀',de:'Käse',en:'cheese',lettersDe:'MAUS',lettersEn:'MOUSE'},
+    {character:'🐻',goal:'🍯',de:'Honig',en:'honey',lettersDe:'BAER',lettersEn:'BEAR'}
   ];
   const searchObjects = {
     preschool: [

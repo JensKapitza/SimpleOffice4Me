@@ -83,6 +83,56 @@
       ['cloud-left','M125 480 C95 480 85 458 99 440 C110 425 129 426 143 438 C154 410 196 408 211 439 C239 443 245 480 214 487 L125 487 Z'],
       ['cloud-right','M586 480 C555 480 549 458 562 440 C573 425 592 426 606 438 C617 410 659 408 674 439 C702 443 708 480 677 487 L586 487 Z'],
     ],details:['M126 466 L208 466','M587 466 L671 466']},
+    {id:'ball',emoji:'⚽',de:'Ball',en:'Ball',zones:[
+      ['ball','M400 110 A220 220 0 1 0 400 550 A220 220 0 1 0 400 110 Z'],
+      ['patch-center','M400 260 L448 295 L430 350 L370 350 L352 295 Z'],
+      ['patch-top','M400 130 L455 150 L448 210 L400 235 L352 210 L345 150 Z'],
+      ['patch-left','M190 270 L250 250 L295 290 L280 350 L220 370 L180 330 Z'],
+      ['patch-right','M610 270 L550 250 L505 290 L520 350 L580 370 L620 330 Z'],
+      ['patch-bottom','M400 480 L455 460 L448 400 L400 375 L352 400 L345 460 Z'],
+    ],details:['M345 150 L352 210 L295 290 L280 350 L345 460','M455 150 L448 210 L505 290 L520 350 L455 460','M220 370 L280 350 L352 350 L370 350','M580 370 L520 350 L448 350 L430 350']},
+    {id:'star',emoji:'⭐',de:'Stern',en:'Star',zones:[
+      ['star','M400 100 L470 292 L675 300 L515 425 L570 620 L400 505 L230 620 L285 425 L125 300 L330 292 Z'],
+    ],details:[]},
+    {id:'heart',emoji:'❤️',de:'Herz',en:'Heart',zones:[
+      ['heart','M400 520 C350 462 165 330 165 230 C165 118 300 100 400 220 C500 100 635 118 635 230 C635 330 450 462 400 520 Z'],
+    ],details:[]},
+    {id:'car',emoji:'🚗',de:'Auto',en:'Car',zones:[
+      ['body','M135 355 L185 320 L245 215 Q260 190 295 190 L495 190 Q520 190 540 220 L605 320 L650 350 L650 450 L135 450 Z'],
+      ['window-front','M270 225 L375 225 L375 310 L220 310 Z'],
+      ['window-back','M395 225 L490 225 L550 310 L395 310 Z'],
+      ['wheel-left','M220 410 m-58 0 a58 58 0 1 0 116 0 a58 58 0 1 0 -116 0'],
+      ['wheel-right','M555 410 m-58 0 a58 58 0 1 0 116 0 a58 58 0 1 0 -116 0'],
+    ],details:['M135 355 H650','M375 220 V355','M395 220 V355','M145 378 H190','M605 378 H645']},
+    {id:'tree',emoji:'🌳',de:'Baum',en:'Tree',zones:[
+      ['crown','M400 100 C330 100 295 150 300 205 C220 190 175 250 205 310 C135 350 175 430 250 430 L550 430 C625 430 665 350 595 310 C625 250 580 190 500 205 C505 150 470 100 400 100 Z'],
+      ['trunk','M350 390 L450 390 L470 555 L330 555 Z'],
+    ],details:['M400 230 V390','M400 320 L315 260','M400 340 L495 255']},
+    {id:'balloon',emoji:'🎈',de:'Luftballon',en:'Balloon',zones:[
+      ['balloon','M400 100 C285 100 220 190 220 295 C220 395 305 450 400 450 C495 450 580 395 580 295 C580 190 515 100 400 100 Z'],
+      ['knot','M380 448 L420 448 L400 480 Z'],
+    ],details:['M400 480 C360 515 440 535 400 570 C365 590 430 600 400 620']},
+    {id:'kite',emoji:'🪁',de:'Drachen',en:'Kite',zones:[
+      ['kite-top','M400 100 L565 300 L400 300 Z'],
+      ['kite-left','M400 100 L400 300 L235 300 Z'],
+      ['kite-right','M565 300 L400 500 L400 300 Z'],
+      ['kite-bottom','M235 300 L400 300 L400 500 Z'],
+      ['tail-bow-one','M372 535 L428 535 L400 575 Z'],['tail-bow-two','M372 595 L428 595 L400 635 Z'],
+    ],details:['M400 100 V500','M235 300 H565','M400 500 C420 530 380 550 400 575 C420 590 380 610 400 635']},
+    {id:'mushroom',emoji:'🍄',de:'Pilz',en:'Mushroom',zones:[
+      ['cap','M160 315 C170 180 265 110 400 110 C535 110 630 180 640 315 Z'],
+      ['stem','M300 315 L500 315 L470 540 L330 540 Z'],
+      ['spot-one','M300 225 m-28 0 a28 28 0 1 0 56 0 a28 28 0 1 0 -56 0'],
+      ['spot-two','M425 185 m-24 0 a24 24 0 1 0 48 0 a24 24 0 1 0 -48 0'],
+      ['spot-three','M520 260 m-30 0 a30 30 0 1 0 60 0 a30 30 0 1 0 -60 0'],
+    ],details:['M350 370 V500','M450 370 V500']},
+    {id:'duck',emoji:'🦆',de:'Ente',en:'Duck',zones:[
+      ['body','M230 350 C235 275 305 235 405 250 C480 260 525 300 545 350 C525 420 465 455 370 455 C285 455 230 415 230 350 Z'],
+      ['head','M390 255 C385 170 430 120 495 125 C560 130 590 185 565 235 C540 280 465 290 420 270 Z'],
+      ['beak','M555 185 L680 220 L565 250 Z'],
+      ['wing','M300 330 C350 275 450 300 470 360 C425 405 350 410 300 370 Z'],
+      ['leg-left','M330 435 L365 435 L355 520 L325 520 Z'],['leg-right','M430 435 L465 435 L475 520 L445 520 Z'],
+    ],details:['M530 170 Q540 160 550 170','M330 520 L300 535 H370','M450 520 L430 535 H500']},
     {id:'blank',emoji:'🎨',de:'Leeres Blatt',en:'Blank page',zones:[],details:[]},
   ];
   const writingLetters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'Ä', 'Ö', 'Ü', 'ẞ'];
@@ -118,6 +168,9 @@
   let previewPath = null;
   let saveTimer = 0;
   let saveQueue = Promise.resolve();
+
+  // Keep category controls and the visible grid in sync, including dynamically
+  // generated letter and number templates.
 
   const blankDrawing = (templateId) => ({templateId, fills:{}, strokes:[]});
   const copy = (value) => JSON.parse(JSON.stringify(value));
@@ -499,7 +552,10 @@
   function applyTemplateFilter(kind) {
     templateGrid.dataset.filter = kind;
     templateGrid.querySelectorAll('[data-template]').forEach((card) => {
-      card.hidden = kind !== 'all' && card.dataset.templateKind !== kind;
+      const cardKind = card.dataset.templateKind;
+      const visible = kind === 'all' || cardKind === kind
+        || (kind === 'writing' && ['uppercase','lowercase','number'].includes(cardKind));
+      card.hidden = !visible;
     });
     templateFilters.forEach((button) => {
       const selected = button.dataset.templateFilter === kind;
