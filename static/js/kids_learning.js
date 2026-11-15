@@ -942,7 +942,9 @@
       params.set('game', 'quiz');
       params.set('subject', selectedSubject);
     }
-    window.open(`${root.dataset.shareUrl}?${params.toString()}`, '_blank', 'noopener');
+    // Navigate in the current tab so mobile browsers and installed PWAs do not
+    // silently block the QR page as a popup. The QR page links back to the games.
+    window.location.assign(`${root.dataset.shareUrl}?${params.toString()}`);
   });
   const launch = new URLSearchParams(window.location.search);
   if (Object.hasOwn(levels, launch.get('level'))) {

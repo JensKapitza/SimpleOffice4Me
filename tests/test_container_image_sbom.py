@@ -15,9 +15,9 @@ def _sbom(*purls: str) -> dict:
 
 class ContainerImageSbomTests(unittest.TestCase):
     def test_accepts_image_inventory_with_python_and_debian_components(self):
-        python_sbom = _sbom("pkg:pypi/flask@3.1.0", "pkg:pypi/simpleoffice4me@2.0.0")
+        python_sbom = _sbom("pkg:pypi/flask@3.1.0", "pkg:pypi/simpleoffice4me@3.0.0")
         image_sbom = _sbom(
-            "pkg:pypi/flask@3.1.0", "pkg:pypi/simpleoffice4me@2.0.0",
+            "pkg:pypi/flask@3.1.0", "pkg:pypi/simpleoffice4me@3.0.0",
             "pkg:deb/debian/libc6@2.36-9",
         )
         image_sbom["components"].append({"name": "unidentified image artifact"})

@@ -12,9 +12,9 @@
 - [Bestehender MCP-Zugang für ChatGPT und andere Clients](CHATGPT_MCP.md)
 - [Dokumentationslogo und Gestaltung](assets/README.md)
 
-Die Paketversion ist derzeit 2.0.0; die additive 3.0-Release ist noch nicht
-freigegeben. Einzelne geschlossene Funktions-Issues ersetzen das Release Gate
-nicht. Funktions-, Benutzer-/Rollen- und Objektfreigaben bleiben maßgeblich.
+Die Paketmetadaten führen Version 3.0.0. Die additive 3.0-Release ist noch
+nicht freigegeben. Einzelne geschlossene Funktions-Issues ersetzen das Release
+Gate nicht. Funktions-, Benutzer-/Rollen- und Objektfreigaben bleiben maßgeblich.
 
 ## Benutzer und Freigaben
 

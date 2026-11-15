@@ -6,8 +6,9 @@
 
 Die 3.0-Erweiterungen bauen auf dem bestehenden V2/Post-V2-System auf. Ihre
 16 registrierten Capabilities sind standardmäßig deaktiviert. Die Paketversion
-ist derzeit weiterhin **2.0.0**; die 3.0-Release-Freigabe in
-[#506](https://github.com/JensKapitza/SimpleOffice4Me/issues/506) ist offen.
+ist auf **3.0.0** angehoben. Die 3.0-Release-Freigabe in
+[#506](https://github.com/JensKapitza/SimpleOffice4Me/issues/506) bleibt offen;
+die Versionsnummer bereitet Metadaten vor und bedeutet keine Veröffentlichung.
 Ein geschlossenes Funktions-Issue bedeutet daher keine Gesamtfreigabe für 3.0.
 
 - [Dokumentationsübersicht mit vollständigem Markdown-Dateiregister](docs/README.md)

@@ -34,7 +34,7 @@ def local_features() -> dict[str, int]:
 @lru_cache(maxsize=1)
 def _application_identity() -> tuple[str, str]:
     info = build_info()
-    return "SimpleOffice4Me", str(info.get("release_version") or "2.0.0")[:64]
+    return "SimpleOffice4Me", str(info.get("release_version") or "3.0.0")[:64]
 
 
 def local_application() -> dict[str, str]:

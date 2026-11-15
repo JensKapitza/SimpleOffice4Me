@@ -32,7 +32,7 @@ RUNTIME_DEPENDENCIES = [
 
 setup(
     name="simpleoffice4me",
-    version="2.0.0",
+    version="3.0.0",
     description="Self-hosted, file-based document management",
     # Syntax floor only; vendor security policy is checked above.
     python_requires=">=3.11",

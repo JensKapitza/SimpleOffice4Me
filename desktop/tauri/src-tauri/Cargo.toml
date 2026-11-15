@@ -1,6 +1,6 @@
 [package]
 name = "simpleoffice4me_tauri"
-version = "2.0.0"
+version = "3.0.0"
 description = "SimpleOffice4Me Tauri companion"
 authors = ["SimpleOffice4Me contributors"]
 edition = "2021"
