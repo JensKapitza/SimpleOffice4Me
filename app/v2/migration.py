@@ -548,7 +548,10 @@ def verify_migration_transfer(root: str | Path) -> dict[str, Any]:
         blockers.append("V2 blob store is missing after migration transfer")
     if not catalog_path.is_file():
         blockers.append("V2 object catalog is missing after migration transfer")
-    if not metadata_path.is_dir():
+    # A migration with no V1 documents has no metadata projections to write,
+    # so the store directory is legitimately absent until the first object is
+    # imported. For non-empty migrations it must have been created by transfer.
+    if int(plan["documents"]) > 0 and not metadata_path.is_dir():
         blockers.append("V2 metadata projection is missing after migration transfer")
     if not transfer or blockers:
         return {
