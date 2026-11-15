@@ -419,6 +419,44 @@ class DocumentStoreTest(unittest.TestCase):
             self.assertEqual("inbox/rechnung.txt", moved["location_history"][-1]["from"])
             self.assertEqual(moved["document_id"], store.get_document(moved["last_path"])["document_id"])
 
+    def test_document_move_rolls_back_when_metadata_save_fails(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "inbox" / "rechnung.txt"
+            source.parent.mkdir()
+            source.write_text("Rechnung", encoding="utf-8")
+            store = DocumentStore(root)
+            store.scan()
+            document = store.get_document(source)
+            share = store.create_share(document["document_id"], "langes-test-passwort", 1, "admin")
+            original_save = store._save_document
+            fail_once = True
+
+            def fail_destination_save(metadata):
+                nonlocal fail_once
+                if fail_once and metadata.get("last_path", "").startswith("Archiv/"):
+                    fail_once = False
+                    raise OSError("simulated metadata write failure")
+                return original_save(metadata)
+
+            with patch.object(store, "_save_document", side_effect=fail_destination_save):
+                with self.assertRaisesRegex(OSError, "simulated metadata write failure"):
+                    store.move_document(document["document_id"], "Archiv", "admin")
+
+            self.assertTrue((root / "inbox" / "rechnung.txt").is_file())
+            self.assertFalse((root / "Archiv" / "rechnung.txt").exists())
+            restored = store.get_document(document["document_id"])
+            self.assertEqual("inbox/rechnung.txt", restored["last_path"])
+            opened = store.open_share(share["share_id"], "langes-test-passwort")
+            self.assertEqual("inbox/rechnung.txt", store.relative(opened["path"]))
+            events = [
+                json.loads(line)
+                for line in store.events.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertFalse(any(
+                event.get("type") == "share_revoked_on_move" for event in events
+            ))
+
     def test_accesses_and_persistent_share_links_are_audited(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); source = root / "angebot.txt"; source.write_text("Intern", encoding="utf-8")
