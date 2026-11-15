@@ -46,7 +46,9 @@ def mini_games():
 @login_required
 def share_game_qr():
     """Show a QR shortcut that opens the selected activity on another device."""
-    game = request.args.get("game", "")
+    # Keep the standalone QR page useful when opened directly. The game button
+    # supplies a selection, while a bare URL gets a safe preschool default.
+    game = (request.args.get("game") or "maze").strip()
     level = request.args.get("level", "preschool")
     subject = request.args.get("subject", "")
     valid_games = {"maze", "objects", "letters", "directions", "safety", "quiz"}
