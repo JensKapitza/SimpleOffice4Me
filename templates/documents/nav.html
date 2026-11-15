@@ -18,6 +18,7 @@
             <li><a class="dropdown-item" href="{{ url_for('site_visits.index') }}">{{ 'Site visits' if g.language == 'en' else 'Ortstermine' }}</a></li>
             {% if contextflow_enabled|default(false) %}<li><a class="dropdown-item" href="{{ url_for('contextflow.dashboard') }}">{{ 'Office angel' if g.language == 'en' else 'Büroengel' }}</a></li>{% endif %}
             {% if feature_enabled('projects') %}<li><a class="dropdown-item" href="{{ url_for('tasks.board') }}">{{ 'Tasks' if g.language == 'en' else 'Aufgaben' }}</a></li>{% endif %}
+            <li><a class="dropdown-item" href="{{ url_for('documents.notes_wiki') }}">{{ tr('notes') }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('shopping.index') }}">{{ 'Shopping' if g.language == 'en' else 'Einkaufen' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('documents.objects') }}">{{ 'Objects' if g.language == 'en' else 'Objekte' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('documents.forms') }}">{{ 'Forms' if g.language == 'en' else 'Formulare' }}</a></li>
@@ -87,6 +88,7 @@
             <li><a class="dropdown-item" href="{{ url_for('kids_learning.mini_games') }}">{{ 'Quick play break' if g.language == 'en' else 'Kurze Spielpause' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('kids_learning.index') }}">{{ 'Learning games' if g.language == 'en' else 'Lernspiele' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('kids_learning.index', game='maze') }}">{{ 'Maze: find the way' if g.language == 'en' else 'Labyrinth: Finde den Weg' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('electrical_learning.index', audience='kids') }}">{{ 'Electricity safety' if g.language == 'en' else 'Strom sicher erkennen' }}</a></li>
           </ul>
         </div>
 
@@ -112,9 +114,9 @@
         <div class="nav-item dropdown">
           <a class="nav-link dropdown-toggle" href="#" id="nav-more" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ 'More' if g.language == 'en' else 'Mehr' }}</a>
           <ul class="dropdown-menu" aria-labelledby="nav-more">
+            <li><a class="dropdown-item" href="{{ url_for('electrical_learning.index') }}">{{ 'Electrical learning' if g.language == 'en' else 'E‑Technik lernen' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('gamification.index') }}">{{ 'Data roulette' if g.language == 'en' else 'Daten-Roulette' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('datalogger.index') }}">{{ 'Data logger' if g.language == 'en' else 'Datenlogger' }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('documents.notes_wiki') }}">{{ tr('notes') }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('documents.logbook') }}">{{ tr('logbook') }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('documents.first_run_setup') }}">{{ 'Setup' if g.language == 'en' else 'Einrichten' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('documents.settings') }}">{{ tr('settings') }}</a></li>
