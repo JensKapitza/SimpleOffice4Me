@@ -66,6 +66,8 @@
   let mazeWrongTurns = {};
   let mazeHappy = false;
   let mazeHappyTimer = 0;
+  let activeAudio = null;
+  let audioSequence = 0;
   const maxWrongAttempts = 5;
 
   function setQuizFeedback(kind, message) {
@@ -94,8 +96,10 @@
       if (option.dataset.answer === String(item.a)) option.classList.add('is-correct');
       else option.hidden = true;
     });
-    const answer = item.choiceImages?.[item.a] || item.a;
-    setQuizFeedback('wrong', text(`Die Lösung ist: ${answer}`, `The answer is: ${answer}`));
+    const answer = item.solutionText || item.choiceImages?.[item.a] || item.a;
+    setQuizFeedback('wrong', item.solutionText || text(`Die Lösung ist: ${answer}`, `The answer is: ${answer}`));
+    if (item.solutionText) playSolution(item);
+    if (item.solutionText) speakButton.onclick = () => playSolution(item);
     root.querySelector('[data-next]').hidden = false;
     root.querySelector('[data-next]').focus();
   }
@@ -186,42 +190,62 @@
     }
     return questionsForRound;
   }
-  const germanWordCards = [
-    ['Apfel','🍎'],['Ball','⚽'],['Maus','🐭'],['Sonne','☀️'],['Haus','🏠'],['Fisch','🐟'],['Hund','🐶'],['Blume','🌼'],['Auto','🚗'],['Banane','🍌'],['Stern','⭐'],['Schule','🏫'],['Pferd','🐴'],['Regen','🌧️'],['Katze','🐱'],['Ente','🦆']
-  ];
-  function createGermanQuestion(level = selectedLevel) {
-    const [word, image] = shuffle(germanWordCards)[0];
+  const vocabularyNode = document.getElementById('kids-language-vocabulary');
+  const languageVocabulary = vocabularyNode ? JSON.parse(vocabularyNode.textContent || '[]') : [];
+  const audioBase = root.dataset.audioBase || '';
+  function vocabularyForLevel(cards, level) {
+    const maxGrade = level === 'preschool' ? 0 : Number(level);
+    return cards.filter(item => Number(item.grade) <= maxGrade);
+  }
+  function createGermanQuestion(level = selectedLevel, selectedCard = null) {
+    const cards = vocabularyForLevel(languageVocabulary, level);
+    const card = selectedCard || shuffle(cards)[0];
+    const {german:word, image, id} = card;
     const answer = word[0].toLocaleUpperCase();
-    const letters = [...new Set(germanWordCards.map(([entry]) => entry[0].toLocaleUpperCase()))].filter(letter => letter !== answer);
-    const prompt = text(`Welcher Laut beginnt ${word}?`, `Which sound starts the German word ${word}?`);
-    return {q:prompt, visual:['preschool','1','2'].includes(level)?image:null, a:answer, c:shuffle([answer,...shuffle(letters).slice(0,3)]), audioPrompt:prompt, promptLang:english?'en-US':'de-DE', speak:word, speechLang:'de-DE'};
+    const letters = [...new Set(cards.map(entry => entry.german[0].toLocaleUpperCase()))].filter(letter => letter !== answer);
+    const prompt = text(card.german_question_de, card.german_question_en);
+    const pronunciationAudioUrl = `${audioBase}/de/${id}.mp3`;
+    const questionAudioUrl = `${audioBase}/prompts/german/${english?'en':'de'}/full/${id}.mp3`;
+    return {
+      q:prompt, visual:['preschool','1','2'].includes(level)?image:null, a:answer,
+      c:shuffle([answer,...shuffle(letters).slice(0,3)]), audioPrompt:prompt,
+      audioParts:splitQuotedSpeech(prompt, english?'en-US':'de-DE', 'de-DE'),
+      promptLang:english?'en-US':'de-DE', speak:word, speechLang:'de-DE',
+      solutionWord:word.toLocaleUpperCase(), solutionText:text(`Das Lösungswort ist ${word.toLocaleUpperCase()}. Der Anfangslaut ist ${answer}.`,`The word is ${word.toLocaleUpperCase()}. Its first sound is ${answer}.`),
+      questionAudioUrl, pronunciationAudioUrl, solutionAudioUrl:pronunciationAudioUrl,
+    };
   }
   function buildGermanRound(level) {
-    const generated = Array.from({length:16}, () => createGermanQuestion(level));
-    const existing = bank[level].german || [];
-    return shuffle([...new Map([...existing,...generated].map(item=>[item.q,item])).values()]).slice(0,3);
+    const cards = vocabularyForLevel(languageVocabulary, level);
+    return shuffle(cards.map(card => createGermanQuestion(level, card))).slice(0,3);
   }
-  const englishWordCards = [
-    ['cat','Katze','🐱'],['dog','Hund','🐶'],['apple','Apfel','🍎'],['ball','Ball','⚽'],['sun','Sonne','☀️'],['fish','Fisch','🐟'],['house','Haus','🏠'],['flower','Blume','🌼'],['banana','Banane','🍌'],['star','Stern','⭐'],['book','Buch','📘'],['school','Schule','🏫'],['horse','Pferd','🐴'],['rain','Regen','🌧️'],['duck','Ente','🦆'],['moon','Mond','🌙']
-  ];
-  function createEnglishQuestion(level = selectedLevel) {
-    const [word, translation] = shuffle(englishWordCards)[0];
-    const options = shuffle(englishWordCards.filter(([, german]) => german !== translation)).slice(0,3);
-    const selectedWords = [[word,translation,englishWordCards.find(([,german])=>german===translation)?.[2]],...options];
-    const answers = selectedWords.map(([,german])=>german);
-    const imageByAnswer = Object.fromEntries(selectedWords.map(([,german,emoji])=>[german,emoji]));
+  function createEnglishQuestion(level = selectedLevel, selectedCard = null) {
+    const cards = vocabularyForLevel(languageVocabulary, level);
+    const card = selectedCard || shuffle(cards)[0];
+    const {english:word, german:translation, id} = card;
+    const options = shuffle(cards.filter(entry => entry.german !== translation)).slice(0,3);
+    const selectedWords = [card,...options];
+    const answers = selectedWords.map(entry => entry.german);
+    const imageByAnswer = Object.fromEntries(selectedWords.map(entry => [entry.german,entry.image]));
     const early = ['preschool','1','2'].includes(level);
-    const prompt = early ? text('Höre das englische Wort und finde das Bild.','Listen to the English word and find the picture.')
-      : text(`Was heißt „${word}“ auf Deutsch?`,`What does “${word}” mean in German?`);
-    return {q:prompt, visual:early?'🔊':null, a:translation, c:answers, choiceImages:early?imageByAnswer:null, audioPrompt:early?word:prompt, promptLang:early?'en-US':english?'en-US':'de-DE', speak:word, speechLang:'en-US'};
+    const prompt = early
+      ? text(card.english_early_de, card.english_early_en)
+      : text(card.english_question_de, card.english_question_en);
+    const pronunciationAudioUrl = `${audioBase}/en/${id}.mp3`;
+    const questionAudioUrl = `${audioBase}/prompts/english/${english?'en':'de'}/${early?'early':'full'}/${id}.mp3`;
+    return {
+      q:prompt, visual:early?'🔊':null, a:translation, c:answers,
+      choiceImages:early?imageByAnswer:null, audioPrompt:prompt,
+      audioParts:splitQuotedSpeech(prompt, english?'en-US':'de-DE', 'en-US'),
+      promptLang:english?'en-US':'de-DE', speak:word, speechLang:'en-US',
+      solutionWord:`${word.toLocaleUpperCase()} = ${translation.toLocaleUpperCase()}`,
+      solutionText:text(`Das englische Wort ${word.toLocaleUpperCase()} heißt ${translation.toLocaleUpperCase()}.`,`The English word ${word.toLocaleUpperCase()} means ${translation.toLocaleUpperCase()}.`),
+      questionAudioUrl, pronunciationAudioUrl, solutionAudioUrl:`${audioBase}/de/${id}.mp3`,
+    };
   }
   function buildEnglishRound(level) {
-    const generated = Array.from({length:16}, () => createEnglishQuestion(level));
-    const existing = bank[level].english || [];
-    // Early word-finding rounds deliberately reuse a spoken prompt, so use the
-    // vocabulary item as the deduplication key instead of collapsing the round
-    // to one generated question.
-    return shuffle([...new Map([...existing,...generated].map(item=>[`${item.q}|${item.speak || item.a}`,item])).values()]).slice(0,3);
+    const cards = vocabularyForLevel(englishWordCards, level);
+    return shuffle(cards.map(card => createEnglishQuestion(level, card))).slice(0,3);
   }
   const worldQuestionCards = [
     ['Welches Tier sagt Miau?','Which animal says meow?','🐱',[['Katze','Cat','🐱'],['Kuh','Cow','🐄'],['Ente','Duck','🦆']]],
@@ -765,10 +789,10 @@
     questionNode.focus();
     setQuizFeedback('', '');
     root.querySelector('[data-next]').hidden = true;
-    speakButton.hidden = !item.speak && !item.audioPrompt;
+    speakButton.hidden = !item.speak && !item.audioPrompt && !item.questionAudioUrl && !item.pronunciationAudioUrl;
     const promptSpeech = item.audioParts?.length ? item.audioParts : item.audioPrompt || item.speak;
-    speakButton.onclick = () => speak(promptSpeech, item.promptLang || item.speechLang || 'en-US');
-    if (item.audioPrompt || item.audioParts?.length) speak(promptSpeech, item.promptLang || item.speechLang || 'en-US');
+    speakButton.onclick = () => readQuestion(item, promptSpeech);
+    if (item.audioPrompt || item.audioParts?.length) readQuestion(item, promptSpeech);
     choicesNode.replaceChildren();
     shuffle(item.c).forEach(choice => {
       const button = document.createElement('button');
@@ -790,9 +814,13 @@
         option.disabled = true;
         if (option.dataset.answer === String(item.a)) option.classList.add('is-correct');
       });
-      setQuizFeedback('right', text('Richtig! Super gemacht!', 'That’s right! Well done!'));
+      setQuizFeedback('right', item.solutionText || text('Richtig! Super gemacht!', 'That’s right! Well done!'));
       root.querySelector('[data-next]').hidden = false;
-      if (item.speak) {
+      if (item.pronunciationAudioUrl || item.solutionAudioUrl) {
+        speakButton.hidden = false;
+        speakButton.onclick = () => playSolution(item);
+        playSolution(item);
+      } else if (item.speak) {
         speakButton.onclick = () => speak(item.speak, item.speechLang || 'en-US');
         speak(item.speak, item.speechLang || 'en-US');
       }
@@ -808,36 +836,96 @@
   function speak(word, language = 'en-US') {
     if (!('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) {
       speechStatus.textContent = text('Vorlesestimme auf diesem Gerät nicht verfügbar.','Read-aloud speech is not available on this device.');
-      return;
+      return Promise.resolve(false);
     }
     const segments = Array.isArray(word) ? word : [{text:word, language}];
     window.speechSynthesis.cancel();
-    segments.forEach(segment => {
-      const spokenText = String(segment.text || '').trim();
-      if (!spokenText) return;
-      const utterance = new SpeechSynthesisUtterance(spokenText);
-      utterance.lang = segment.language || language;
-      utterance.rate = .86;
-      utterance.pitch = 1.04;
-      const languageKey = utterance.lang.toLocaleLowerCase().startsWith('de') ? 'de' : 'en';
-      const available = window.speechSynthesis.getVoices().filter(voice => voice.lang.toLocaleLowerCase().startsWith(languageKey));
-      const requested = available.find(voice => voiceId(voice) === selectedSpeechVoices[languageKey]);
-      const qualityScore = voice => (voice.lang.toLocaleLowerCase() === utterance.lang.toLocaleLowerCase() ? 100 : 50)
-        + (voice.localService ? 8 : 0)
-        + (/natural|neural|premium|enhanced/i.test(voice.name) ? 12 : 0)
-        + (voice.default ? 1 : 0);
-      const chosen = requested || [...available].sort((a, b) => qualityScore(b) - qualityScore(a))[0];
-      if (chosen) utterance.voice = chosen;
-      utterance.onerror = event => {
-        if (event.error === 'canceled' || event.error === 'interrupted') return;
-        speechStatus.textContent = text('Die Stimme konnte nicht abgespielt werden. Wähle eine andere Stimme.','The voice could not be played. Choose another voice.');
+    const queue = segments.filter(segment => String(segment.text || '').trim());
+    return new Promise(resolve => {
+      let index = 0;
+      const next = () => {
+        if (index >= queue.length) { resolve(true); return; }
+        const segment = queue[index++];
+        const spokenText = String(segment.text || '').trim();
+        const utterance = new SpeechSynthesisUtterance(spokenText);
+        utterance.lang = segment.language || language;
+        utterance.rate = .86;
+        utterance.pitch = 1.04;
+        const languageKey = utterance.lang.toLocaleLowerCase().startsWith('de') ? 'de' : 'en';
+        const available = window.speechSynthesis.getVoices().filter(voice => voice.lang.toLocaleLowerCase().startsWith(languageKey));
+        const requested = available.find(voice => voiceId(voice) === selectedSpeechVoices[languageKey]);
+        const qualityScore = voice => (voice.lang.toLocaleLowerCase() === utterance.lang.toLocaleLowerCase() ? 100 : 50)
+          + (voice.localService ? 8 : 0)
+          + (/natural|neural|premium|enhanced/i.test(voice.name) ? 12 : 0)
+          + (voice.default ? 1 : 0);
+        const chosen = requested || [...available].sort((a, b) => qualityScore(b) - qualityScore(a))[0];
+        if (chosen) utterance.voice = chosen;
+        utterance.onerror = event => {
+          if (event.error !== 'canceled' && event.error !== 'interrupted') {
+            speechStatus.textContent = text('Die Stimme konnte nicht abgespielt werden. Wähle eine andere Stimme.','The voice could not be played. Choose another voice.');
+          }
+          resolve(false);
+        };
+        utterance.onstart = () => { speechStatus.textContent = ''; };
+        utterance.onend = next;
+        window.speechSynthesis.speak(utterance);
       };
-      utterance.onstart = () => { speechStatus.textContent = ''; };
-      window.speechSynthesis.speak(utterance);
+      next();
     });
+  }
+  function readQuestion(item, promptSpeech) {
+    const sequence = ++audioSequence;
+    if (activeAudio) { activeAudio.pause(); activeAudio = null; }
+    const language = item.promptLang || item.speechLang || 'en-US';
+    const promptPlayback = item.questionAudioUrl
+      ? playRecordedWord(item.questionAudioUrl, promptSpeech, language, sequence)
+      : speak(promptSpeech, language);
+    Promise.resolve(promptPlayback).then(() => {
+      if (sequence === audioSequence && item.pronunciationAudioUrl) {
+        playRecordedWord(item.pronunciationAudioUrl, item.speak, item.speechLang || language, sequence);
+      }
+    });
+  }
+  function playRecordedWord(url, fallbackText, language, sequence = audioSequence) {
+    if (!url || typeof window.Audio !== 'function') return speak(fallbackText, language);
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    if (activeAudio) activeAudio.pause();
+    const player = new Audio(url);
+    activeAudio = player;
+    return new Promise(resolve => {
+      let settled = false;
+      const finish = value => { if (!settled) { settled = true; resolve(value); } };
+      const fallback = () => {
+        if (settled) return;
+        settled = true;
+        if (activeAudio === player) activeAudio = null;
+        if (sequence !== audioSequence) { resolve(false); return; }
+        speak(fallbackText, language).then(resolve);
+      };
+      player.addEventListener('ended', () => { if (activeAudio === player) activeAudio = null; finish(true); }, {once:true});
+      player.addEventListener('error', fallback, {once:true});
+      player.addEventListener('pause', () => { if (sequence !== audioSequence) finish(false); }, {once:true});
+      player.play().catch(fallback);
+    });
+  }
+  function playSolution(item) {
+    const sequence = ++audioSequence;
+    const clips = [
+      [item.pronunciationAudioUrl, item.speak, item.speechLang || 'en-US'],
+      [item.solutionAudioUrl, item.a, 'de-DE'],
+    ].filter(([url], index, items) => url && items.findIndex(candidate => candidate[0] === url) === index);
+    if (!clips.length) return speak(item.solutionWord || item.a, item.speechLang || 'en-US');
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    if (activeAudio) { activeAudio.pause(); activeAudio = null; }
+    return clips.reduce((chain, [url, fallback, language]) => chain.then(() => {
+      if (sequence !== audioSequence) return false;
+      return playRecordedWord(url, fallback, language, sequence);
+    }), Promise.resolve());
   }
   function showSetup() {
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    audioSequence += 1;
+    if (activeAudio) { activeAudio.pause(); activeAudio = null; }
     window.clearTimeout(mazeHappyTimer);
     game.hidden = true;
     searchGame.hidden = true;

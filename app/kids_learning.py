@@ -1,6 +1,8 @@
 """Locally served learning games for children in the Kids area."""
 import base64
 import ipaddress
+import json
+from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from flask import Blueprint, abort, current_app, render_template, request, url_for
@@ -25,7 +27,12 @@ def _private_response(response):
 @bp.get("/")
 @login_required
 def index():
-    return render_template("kids/learning.html")
+    vocabulary_path = Path(current_app.static_folder) / "data" / "kids_language_vocabulary.json"
+    try:
+        language_vocabulary = json.loads(vocabulary_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        language_vocabulary = []
+    return render_template("kids/learning.html", language_vocabulary=language_vocabulary)
 
 
 @bp.get("/spielpause")

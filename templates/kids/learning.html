@@ -3,7 +3,8 @@
 {% block title %}{{ 'Learning games' if g.language == 'en' else 'Lernspiele' }} · SimpleOffice{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/kids_learning.css', v=app_build.version) }}">{% endblock %}
 {% block body %}
-<main id="main-content" class="kids-learning-page container py-3 py-lg-4" data-kids-learning data-language="{{ g.language }}" data-share-url="{{ url_for('kids_learning.share_game_qr') }}">
+<main id="main-content" class="kids-learning-page container py-3 py-lg-4" data-kids-learning data-language="{{ g.language }}" data-share-url="{{ url_for('kids_learning.share_game_qr') }}" data-audio-base="{{ url_for('static', filename='audio/kids/language') }}">
+  <script type="application/json" id="kids-language-vocabulary">{{ language_vocabulary|tojson }}</script>
   <header class="mb-4">
     <h1 class="h2 mb-1">{{ 'Learning games' if g.language == 'en' else 'Lernspiele' }} 🎲</h1>
     <p class="text-secondary mb-0">{{ 'Short, friendly quiz rounds. No timers and no pressure. Questions and scores stay on this device.' if g.language == 'en' else 'Kurze, freundliche Quizrunden. Ohne Zeitdruck und ohne Noten. Fragen und Punkte bleiben auf diesem Gerät.' }}</p>
@@ -23,7 +24,7 @@
         <select id="kids-learning-voice-de" class="form-select mb-2" data-speech-voice="de" hidden aria-describedby="kids-learning-voice-help"></select>
         <label class="form-label fw-semibold" for="kids-learning-voice-en">{{ 'English voice' if g.language == 'en' else 'Englische Stimme' }}</label>
         <select id="kids-learning-voice-en" class="form-select" data-speech-voice="en" hidden aria-describedby="kids-learning-voice-help"></select>
-        <p id="kids-learning-voice-help" class="form-text mb-1">{{ 'Choose a voice installed in your browser/device. Online voices may send speech to a network service.' if g.language == 'en' else 'Wähle eine Stimme deines Browsers oder Geräts. Online-Stimmen können Sprache über einen Netzwerkdienst verarbeiten.' }}</p>
+        <p id="kids-learning-voice-help" class="form-text mb-1">{{ 'Recorded lesson voices are fixed. These settings control browser voice fallbacks and other read-aloud games. Online voices may send speech to a network service.' if g.language == 'en' else 'Die vorgesprochenen Lernstimmen sind fest. Diese Einstellungen steuern Browser-Stimmen als Ersatz und andere Vorlese-Spiele. Online-Stimmen können Sprache über einen Netzwerkdienst verarbeiten.' }}</p>
       </div>
     </details>
     <h2 class="h4" id="kids-learning-level-heading">{{ 'Choose an age group' if g.language == 'en' else 'Für welches Alter?' }}</h2>
@@ -36,13 +37,13 @@
     <h2 class="h4">{{ 'Choose a game' if g.language == 'en' else 'Was möchtest du spielen?' }}</h2>
     <div class="kids-learning-subjects" role="group" aria-label="{{ 'Choose a learning game' if g.language == 'en' else 'Lernspiel auswählen' }}">
       <button type="button" class="kids-learning-subject" data-subject="math"><span aria-hidden="true">➕</span><strong>{{ 'Math' if g.language == 'en' else 'Mathe' }}</strong><small>{{ 'Numbers and puzzles' if g.language == 'en' else 'Zahlen und Knobeln' }}</small></button>
-      <button type="button" class="kids-learning-subject" data-subject="german"><span aria-hidden="true">🔤</span><strong>{{ 'German' if g.language == 'en' else 'Deutsch' }}</strong><small>{{ 'Letters, words and reading' if g.language == 'en' else 'Buchstaben, Wörter und Lesen' }}</small></button>
-      <button type="button" class="kids-learning-subject" data-subject="english"><span aria-hidden="true">🗣️</span><strong>{{ 'English' if g.language == 'en' else 'Englisch' }}</strong><small>{{ 'Hear and learn words' if g.language == 'en' else 'Wörter hören und lernen' }}</small></button>
+      <button type="button" class="kids-learning-subject" data-subject="german"><span aria-hidden="true">🔤</span><strong>{{ 'German' if g.language == 'en' else 'Deutsch' }}</strong><small>{{ 'Hear 100 German words and their first sounds' if g.language == 'en' else '100 deutsche Wörter und ihre Anfangslaute hören' }}</small></button>
+      <button type="button" class="kids-learning-subject" data-subject="english"><span aria-hidden="true">🗣️</span><strong>{{ 'English' if g.language == 'en' else 'Englisch' }}</strong><small>{{ 'Hear and learn 100 English words' if g.language == 'en' else '100 englische Wörter hören und lernen' }}</small></button>
       <button type="button" class="kids-learning-subject" data-subject="world"><span aria-hidden="true">🌱</span><strong>{{ 'Nature and the world' if g.language == 'en' else 'Natur & Welt' }}</strong><small>{{ 'Animals, plants and everyday life' if g.language == 'en' else 'Tiere, Pflanzen und Alltag' }}</small></button>
       <button type="button" class="kids-learning-subject" data-subject="mixed"><span aria-hidden="true">🎲</span><strong>{{ 'Surprise me' if g.language == 'en' else 'Überrasch mich' }}</strong><small>{{ 'A random mix of subjects' if g.language == 'en' else 'Eine zufällige Mischung der Fächer' }}</small></button>
       <button type="button" class="kids-learning-subject" data-subject="search"><span aria-hidden="true">🔎</span><strong>{{ 'Search and letters' if g.language == 'en' else 'Suchbild & Buchstaben' }}</strong><small>{{ 'Find things and complete words' if g.language == 'en' else 'Dinge finden und Wörter ergänzen' }}</small></button>
     </div>
-    <p class="small text-secondary mt-3 mb-0">{{ 'The app selects an installed English or German voice. Pronunciation quality depends on the voices available on your device.' if g.language == 'en' else 'Die App wählt eine installierte deutsche oder englische Stimme. Die Aussprachequalität hängt von den auf deinem Gerät verfügbaren Stimmen ab.' }}</p>
+    <p class="small text-secondary mt-3 mb-0">{{ 'All 100 words and complete questions have pre-recorded voices. Audio is served locally and cached after you play it.' if g.language == 'en' else 'Alle 100 Wörter und vollständigen Fragen sind vorgesprochen. Die Audios kommen aus der App und werden beim Abspielen lokal zwischengespeichert.' }}</p>
   </section>
 
   <section class="kids-learning-search-modes" data-search-modes hidden aria-labelledby="kids-search-mode-heading">
