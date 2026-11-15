@@ -7,7 +7,7 @@
   <header class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
     <div>
       <h1 class="h2 mb-1">{{ 'Coloring wall' if g.language == 'en' else 'Ausmalwand' }}</h1>
-      <p class="text-secondary mb-0">{{ 'Choose a picture, tap its parts to color them, or draw freely. Your pictures are saved to your account.' if g.language == 'en' else 'Such dir ein Bild aus, tippe zum Ausmalen auf seine Flächen oder male frei. Deine Bilder werden in deinem Konto gespeichert.' }}</p>
+      <p class="text-secondary mb-0">{{ 'Choose a picture, practice dotted letters and numbers, or draw freely. Your pictures are saved to your account.' if g.language == 'en' else 'Such dir ein Bild aus, male Buchstaben und Zahlen nach oder zeichne frei. Deine Bilder werden in deinem Konto gespeichert.' }}</p>
     </div>
     <button class="btn btn-lg btn-outline-primary" type="button" data-new-drawing><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>{{ 'New picture' if g.language == 'en' else 'Neues Bild' }}</button>
   </header>
@@ -36,7 +36,7 @@
       <div class="kids-canvas-wrap">
         <svg class="kids-canvas" data-canvas viewBox="0 0 800 600" role="group" aria-label="{{ 'Coloring picture. Choose color areas or switch to free drawing.' if g.language == 'en' else 'Ausmalbild. Wähle Flächen zum Färben oder wechsle zu Freihand.' }}"></svg>
       </div>
-      <p class="kids-canvas-help mt-2 mb-0">{{ 'Finger painting is on. Tap “Color areas” to fill a shape. Save for me keeps it private.' if g.language == 'en' else 'Freihand ist eingeschaltet. Tippe auf „Flächen färben“, um eine Form auszumalen. „Für mich speichern“ legt dein Bild privat ab.' }}</p>
+      <p class="kids-canvas-help mt-2 mb-0" data-canvas-help>{{ 'Finger painting is on. Tap “Color areas” to fill a shape. Save for me keeps it private.' if g.language == 'en' else 'Freihand ist eingeschaltet. Tippe auf „Flächen färben“, um eine Form auszumalen. „Für mich speichern“ legt dein Bild privat ab.' }}</p>
     </div>
   </section>
 
@@ -44,7 +44,12 @@
     <div class="d-flex flex-wrap align-items-end justify-content-between gap-2 mb-2">
       <div><h2 class="h4 mb-0" id="kids-template-heading" tabindex="-1">{{ 'Choose a picture' if g.language == 'en' else 'Vorlage aussuchen' }}</h2><p class="small text-secondary mb-0">{{ 'Tap a picture to start coloring.' if g.language == 'en' else 'Tippe auf ein Bild und fang an zu malen.' }}</p></div>
     </div>
-    <div class="kids-template-grid" data-template-list></div>
+    <div class="kids-template-filters d-flex flex-wrap gap-2 mb-3" data-template-filters role="group" aria-label="{{ 'Template type' if g.language == 'en' else 'Vorlagenart' }}">
+      {% for kind, de, en in [('picture','Bilder','Pictures'),('uppercase','Großbuchstaben','Capital letters'),('lowercase','Kleinbuchstaben','Lowercase letters'),('number','Zahlen','Numbers'),('all','Alle','All')] %}
+      <button type="button" class="btn btn-outline-secondary {{ 'active' if kind == 'picture' }}" data-template-filter="{{ kind }}" aria-pressed="{{ 'true' if kind == 'picture' else 'false' }}">{{ en if g.language == 'en' else de }}</button>
+      {% endfor %}
+    </div>
+    <div class="kids-template-grid" data-template-list data-filter="picture"></div>
   </section>
 
   <section aria-labelledby="kids-saved-heading">

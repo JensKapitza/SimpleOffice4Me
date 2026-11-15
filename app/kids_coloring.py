@@ -29,6 +29,14 @@ TEMPLATE_ZONES = {
     "rainbow": frozenset({"band-red", "band-orange", "band-yellow", "band-green", "cloud-left", "cloud-right"}),
     "blank": frozenset(),
 }
+for _letter in "abcdefghijklmnopqrstuvwxyz":
+    TEMPLATE_ZONES[f"letter-upper-{_letter}"] = frozenset()
+    TEMPLATE_ZONES[f"letter-lower-{_letter}"] = frozenset()
+for _suffix in ("ae", "oe", "ue", "eszett"):
+    TEMPLATE_ZONES[f"letter-upper-{_suffix}"] = frozenset()
+    TEMPLATE_ZONES[f"letter-lower-{_suffix}"] = frozenset()
+for _digit in "0123456789":
+    TEMPLATE_ZONES[f"number-{_digit}"] = frozenset()
 PALETTE = frozenset({"#ef4444", "#f97316", "#facc15", "#22c55e", "#06b6d4", "#3b82f6", "#8b5cf6", "#ec4899", "#92400e", "#111827", "#ffffff"})
 MAX_REQUEST_BYTES = 128 * 1024
 MAX_STROKES = 160
