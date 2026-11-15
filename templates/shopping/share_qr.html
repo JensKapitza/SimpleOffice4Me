@@ -9,7 +9,7 @@
   <section class="card shadow-sm" aria-labelledby="shopping-share-qr-title">
     <div class="card-body text-center">
       <h2 id="shopping-share-qr-title" class="h5">Mit dem Handy scannen</h2>
-      <img class="img-fluid border rounded p-2 bg-white" width="300" height="300" src="data:image/svg+xml;base64,{{ qr_data }}" alt="QR-Code für die schreibgeschützte Einkaufsliste" decoding="async">
+      <img class="img-fluid border rounded p-2 bg-white" width="300" height="300" src="data:image/svg+xml;base64,{{ qr_data }}" alt="QR-Code für die schreibgeschützte Einkaufsliste" loading="eager" decoding="async" fetchpriority="high">
       <label class="form-label d-block text-start mt-3" for="shopping-share-url">Freigabelink</label>
       <div class="input-group">
         <input class="form-control font-monospace" id="shopping-share-url" value="{{ share_url }}" readonly data-shopping-share-url>

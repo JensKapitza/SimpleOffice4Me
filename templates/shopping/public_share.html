@@ -4,7 +4,7 @@
 <main id="main-content" class="container py-4">
   <h1 class="h2">{{ shared.name }}</h1>
   <p class="text-secondary">Geteilte Einkaufsliste · schreibgeschützt</p>
-  <div class="alert alert-info">Nur offene Artikel werden angezeigt. Diese Freigabe erlaubt keinen Zugriff auf andere Listen.</div>
+  <div class="alert alert-info" role="status" aria-live="polite">Nur offene Artikel werden angezeigt. Diese Freigabe erlaubt keinen Zugriff auf andere Listen.</div>
   <section class="border rounded p-3 mb-3" aria-live="polite">
     <strong>Geschätzte Summe:</strong> <span class="fs-5">{{ estimated_total }}</span>
     {% if missing_prices %}<span class="small text-secondary d-block">{{ missing_prices }} Artikel ohne Preis wurden nicht eingerechnet.</span>{% else %}<span class="small text-secondary d-block">Alle offenen Artikel mit Preis eingerechnet.</span>{% endif %}
