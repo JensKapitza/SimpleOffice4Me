@@ -97,6 +97,7 @@
   {% if g.user and v3_search_enabled %}<script src="{{ url_for('static', filename='js/v3_command_palette.js') }}"></script>{% endif %}
   <script src="{{ url_for('static', filename='js/mobile_viewport.js') }}"></script>
   <script src="{{ url_for('static', filename='js/pwa.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/password_toggle.js') }}" defer></script>
   {% if license_ui.state.bad_client %}<script>(() => { const key = 'simpleoffice-license-blocked-{{ license_ui.state.updated_at|default(0) }}'; if (!sessionStorage.getItem(key)) { sessionStorage.setItem(key, '1'); const el = document.getElementById('licenseBlockedModal'); if (el && window.bootstrap) new bootstrap.Modal(el).show(); } })();</script>{% endif %}
 </body>
 </html>
