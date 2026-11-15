@@ -24,6 +24,10 @@ class ObjectVisionPackagingTests(unittest.TestCase):
         self.assertIsNotNone(project_pin)
         self.assertIsNotNone(setup_pin)
         self.assertEqual(project_pin.group(1), setup_pin.group(1))
+        web_extra = optional_dependencies.split("web-export = [", 1)[1].split("]", 1)[0]
+        playwright_pins = re.findall(r'"(playwright==[0-9]+[.][0-9]+[.][0-9]+)"', web_extra)
+        self.assertEqual(1, len(playwright_pins), "Web export needs one explicit Playwright pin")
+        self.assertIn(f'"{playwright_pins[0]}"', setup_source, "setup.py web extra must match pyproject.toml")
         self.assertIn("onnxruntime", ocr_extra.casefold())
         self.assertIn("onnxruntime==1.31.1", ocr_extra)
 
