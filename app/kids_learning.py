@@ -1,10 +1,13 @@
 """Locally served learning games for children in the Kids area."""
 import base64
+import ipaddress
+from urllib.parse import urlsplit, urlunsplit
 
-from flask import Blueprint, abort, render_template, request, url_for
+from flask import Blueprint, abort, current_app, render_template, request, url_for
 
 from .auth import login_required
 from .federation_qr_image import render_qr_svg
+from .settings_store import SettingsStore
 
 
 bp = Blueprint("kids_learning", __name__, url_prefix="/kids/lernen")
@@ -45,5 +48,23 @@ def share_game_qr():
     if game not in valid_games or level not in valid_levels or (game == "quiz" and subject not in valid_subjects):
         abort(400)
     game_url = url_for("kids_learning.index", game=game, level=level, **({"subject": subject} if game == "quiz" else {}), _external=True)
+    parts = urlsplit(game_url)
+    hostname = (parts.hostname or "").casefold()
+    is_loopback = hostname == "localhost"
+    try:
+        is_loopback = is_loopback or ipaddress.ip_address(hostname).is_loopback
+    except ValueError:
+        pass
+    if is_loopback:
+        proxy = SettingsStore(current_app.config["DOCUMENT_ROOT"]).settings()["lan_proxy"]
+        try:
+            proxy_address = ipaddress.ip_address(proxy["bind_host"])
+        except (KeyError, ValueError):
+            proxy_address = ipaddress.ip_address("127.0.0.1")
+        if proxy.get("enabled") and not proxy_address.is_loopback and not proxy_address.is_unspecified:
+            authority = f"[{proxy_address.compressed}]" if proxy_address.version == 6 else proxy_address.compressed
+            scheme = "https" if proxy.get("tls_cert") else "http"
+            game_url = urlunsplit((scheme, f"{authority}:{proxy['port']}", parts.path, parts.query, ""))
+            is_loopback = False
     qr_data = base64.b64encode(render_qr_svg(game_url).encode("utf-8")).decode("ascii")
-    return render_template("kids/share_qr.html", game_url=game_url, qr_data=qr_data)
+    return render_template("kids/share_qr.html", game_url=game_url, qr_data=qr_data, local_only=is_loopback)
