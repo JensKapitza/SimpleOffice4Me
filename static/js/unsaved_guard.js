@@ -1,47 +1,64 @@
 (() => {
   "use strict";
 
-  const trackedForms = new WeakSet();
-  let dirtyForms = 0;
+  const dirtyForms = new Set();
+  let unloadHandlerAttached = false;
 
   const shouldTrack = (form) => form instanceof HTMLFormElement
     && String(form.method || "get").toLowerCase() === "post"
     && form.dataset.noUnsavedGuard !== "true"
     && !form.matches('[role="search"]');
 
+  const beforeUnload = (event) => {
+    if (dirtyForms.size === 0) return;
+    event.preventDefault();
+    event.returnValue = "";
+  };
+
+  const syncUnloadHandler = () => {
+    const shouldWarn = dirtyForms.size > 0;
+    if (shouldWarn && !unloadHandlerAttached) {
+      window.addEventListener("beforeunload", beforeUnload);
+      unloadHandlerAttached = true;
+    } else if (!shouldWarn && unloadHandlerAttached) {
+      window.removeEventListener("beforeunload", beforeUnload);
+      unloadHandlerAttached = false;
+    }
+  };
+
   const markDirty = (form) => {
-    if (!shouldTrack(form) || form.dataset.soDirty === "1") return;
+    if (!shouldTrack(form) || dirtyForms.has(form)) return;
+    dirtyForms.add(form);
     form.dataset.soDirty = "1";
-    dirtyForms += 1;
+    syncUnloadHandler();
   };
 
   const markClean = (form) => {
-    if (!(form instanceof HTMLFormElement) || form.dataset.soDirty !== "1") return;
+    if (!(form instanceof HTMLFormElement) || !dirtyForms.delete(form)) return;
     delete form.dataset.soDirty;
-    dirtyForms = Math.max(0, dirtyForms - 1);
+    syncUnloadHandler();
   };
 
-  const bind = (form) => {
-    if (!shouldTrack(form) || trackedForms.has(form)) return;
-    trackedForms.add(form);
-    form.addEventListener("input", () => markDirty(form), {passive: true});
-    form.addEventListener("change", () => markDirty(form), {passive: true});
-    form.addEventListener("reset", () => window.requestAnimationFrame(() => markClean(form)));
-    form.addEventListener("submit", () => markClean(form));
+  const formFor = (target) => {
+    if (!(target instanceof Element)) return null;
+    const form = target.closest("form");
+    return shouldTrack(form) ? form : null;
   };
 
-  document.querySelectorAll("form").forEach(bind);
-  new MutationObserver((mutations) => {
-    mutations.forEach((mutation) => mutation.addedNodes.forEach((node) => {
-      if (!(node instanceof Element)) return;
-      if (node.matches("form")) bind(node);
-      node.querySelectorAll?.("form").forEach(bind);
-    }));
-  }).observe(document.documentElement, {subtree: true, childList: true});
+  document.addEventListener("input", (event) => {
+    const form = formFor(event.target);
+    if (form) markDirty(form);
+  }, {passive: true});
 
-  window.addEventListener("beforeunload", (event) => {
-    if (dirtyForms < 1) return;
-    event.preventDefault();
-    event.returnValue = "";
+  document.addEventListener("change", (event) => {
+    const form = formFor(event.target);
+    if (form) markDirty(form);
+  }, {passive: true});
+
+  document.addEventListener("reset", (event) => {
+    const form = event.target;
+    if (form instanceof HTMLFormElement) window.requestAnimationFrame(() => markClean(form));
   });
+
+  document.addEventListener("submit", (event) => markClean(event.target));
 })();

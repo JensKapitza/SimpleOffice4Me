@@ -93,6 +93,7 @@
   <script src="{{ url_for('static', filename='js/i18n.js') }}"></script>
   <script src="{{ url_for('static', filename='js/global_ui.js') }}"></script>
   <script src="{{ url_for('static', filename='js/global_quickwins.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/unsaved_guard.js') }}" defer></script>
   {% if g.user and v3_search_enabled %}<script src="{{ url_for('static', filename='js/v3_command_palette.js') }}"></script>{% endif %}
   <script src="{{ url_for('static', filename='js/mobile_viewport.js') }}"></script>
   <script src="{{ url_for('static', filename='js/pwa.js') }}"></script>
