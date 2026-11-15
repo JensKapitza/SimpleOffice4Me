@@ -8,7 +8,7 @@
       <h1 class="h3">{{ 'Open this game on another device' if g.language == 'en' else 'Spiel auf einem anderen Gerät öffnen' }}</h1>
       <p class="text-secondary">{{ 'Scan this QR code while the other device can reach this server over your local network.' if g.language == 'en' else 'Scanne den QR-Code, wenn das andere Gerät diesen Server im lokalen Netzwerk erreichen kann.' }}</p>
       {% if local_only %}<p class="alert alert-warning">{{ 'This address only works on this device. Enable the LAN proxy with a network address to share it.' if g.language == 'en' else 'Diese Adresse funktioniert nur auf diesem Gerät. Aktiviere den LAN-Proxy mit einer Netzwerkadresse, um das Spiel zu teilen.' }}</p>{% endif %}
-      <img class="img-fluid" width="300" height="300" src="data:image/svg+xml;base64,{{ qr_data }}" alt="{{ 'QR code for the selected learning game' if g.language == 'en' else 'QR-Code für das ausgewählte Lernspiel' }}">
+      <img class="img-fluid" width="300" height="300" loading="eager" fetchpriority="high" decoding="async" src="data:image/svg+xml;base64,{{ qr_data }}" alt="{{ 'QR code for the selected learning game' if g.language == 'en' else 'QR-Code für das ausgewählte Lernspiel' }}">
       <p class="small text-break mt-3"><a href="{{ game_url }}">{{ game_url }}</a></p>
       <a class="btn btn-primary" href="{{ url_for('kids_learning.index') }}">{{ 'Back to games' if g.language == 'en' else 'Zurück zu den Spielen' }}</a>
     </div>
