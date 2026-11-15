@@ -1,12 +1,14 @@
 """Read-only daily summary assembled from existing local office stores."""
 from __future__ import annotations
 
+import sqlite3
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .capture_inbox_store import CaptureInboxIndexError, CaptureInboxStore
+from .document_store import CONTROL_DIR
 from .shopping_pricing import display_eur, estimated_total
 from .shopping_store import ShoppingStore
 
@@ -84,6 +86,97 @@ def _shopping_summary(root: Path, actor: str) -> dict[str, Any] | None:
     return None
 
 
+def _add_months(value: date, months: int, day: int) -> date:
+    absolute = value.year * 12 + value.month - 1 + months
+    year, month_index = divmod(absolute, 12)
+    month = month_index + 1
+    month_end = (date(year + (month == 12), month % 12 + 1, 1) - timedelta(days=1)).day
+    return date(year, month, min(max(1, day), month_end))
+
+
+def _next_obligation_date(row: dict[str, Any], today: date) -> date | None:
+    start = _due_date(row.get("starts_on"))
+    if start is None:
+        return None
+    try:
+        interval = max(1, int(row.get("interval_count") or 1))
+    except (TypeError, ValueError):
+        return None
+    unit = str(row.get("recurrence_unit") or "monthly").casefold()
+    try:
+        due_day = int(row.get("due_day") or start.day)
+    except (TypeError, ValueError):
+        due_day = start.day
+    if unit == "weekly":
+        period_days = interval * 7
+        elapsed = max(0, (today - start).days)
+        periods = (elapsed + period_days - 1) // period_days
+        candidate = start + timedelta(days=periods * period_days)
+    elif unit in {"monthly", "quarterly"}:
+        period_months = interval * (3 if unit == "quarterly" else 1)
+        elapsed_months = max(0, (today.year - start.year) * 12 + today.month - start.month)
+        periods = elapsed_months // period_months
+        candidate = _add_months(start, periods * period_months, due_day)
+        if candidate < max(today, start):
+            candidate = _add_months(start, (periods + 1) * period_months, due_day)
+    elif unit == "yearly":
+        periods = max(0, today.year - start.year) // interval
+        candidate_year = start.year + periods * interval
+        candidate = _add_months(date(candidate_year, start.month, 1), 0, due_day)
+        if candidate < max(today, start):
+            candidate_year += interval
+            candidate = _add_months(date(candidate_year, start.month, 1), 0, due_day)
+    else:
+        return None
+    ends_on = _due_date(row.get("ends_on"))
+    return candidate if ends_on is None or candidate <= ends_on else None
+
+
+def _financial_reminders(root: Path, actor: str, today: date) -> tuple[list[dict[str, str]], bool]:
+    """Read upcoming finance obligations without creating or migrating a DB."""
+    path = root / CONTROL_DIR / "finance.sqlite3"
+    if not path.is_file():
+        return [], False
+    try:
+        with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True) as db:
+            db.row_factory = sqlite3.Row
+            rows = db.execute(
+                "SELECT name, direction, amount_cents, currency, recurrence_unit, "
+                "interval_count, due_day, starts_on, ends_on "
+                "FROM finance_obligation WHERE owner=? AND active=1",
+                (actor,),
+            ).fetchall()
+    except sqlite3.OperationalError as exc:
+        if "no such table" in str(exc).casefold():
+            return [], False
+        return [], True
+    except sqlite3.DatabaseError:
+        return [], True
+
+    result: list[dict[str, str]] = []
+    horizon = today + timedelta(days=7)
+    expiry_horizon = today + timedelta(days=30)
+    for source in rows:
+        row = dict(source)
+        due = _next_obligation_date(row, today)
+        cents = int(row.get("amount_cents") or 0)
+        whole = cents // 100
+        currency = str(row.get("currency") or "EUR")
+        display = {
+            "name": str(row.get("name") or "Regelmäßige Verpflichtung"),
+            "amount_en": f"{whole:,}.{cents % 100:02d} {currency}",
+            "amount_de": f"{whole:,}".replace(",", ".") + f",{cents % 100:02d} {currency}",
+            "direction": str(row.get("direction") or "expense"),
+        }
+        if due is not None and due <= horizon:
+            result.append({**display, "due": due.isoformat(), "kind": "recurrence"})
+        expires = _due_date(row.get("ends_on"))
+        if expires is not None and today <= expires <= expiry_horizon:
+            result.append({**display, "due": expires.isoformat(), "kind": "end"})
+    result.sort(key=lambda item: (item["due"], item["name"].casefold(), item["kind"]))
+    return result[:6], False
+
+
 def build_dashboard_briefing(
     root: str | Path,
     actor: str,
@@ -119,6 +212,7 @@ def build_dashboard_briefing(
             recurring += 1
 
     root_path = Path(root).expanduser().resolve()
+    obligations, finance_error = _financial_reminders(root_path, actor, today)
     capture_error = False
     try:
         capture_count = len(CaptureInboxStore(root_path).list(actor, status="unassigned"))
@@ -151,6 +245,8 @@ def build_dashboard_briefing(
         "due_today_tasks": due_today[:5],
         "due_soon_count": len(due_soon),
         "recurring_task_count": recurring,
+        "obligations": obligations,
+        "finance_error": finance_error,
         "shopping": _shopping_summary(root_path, actor),
         "capture_count": capture_count,
         "capture_error": capture_error,
