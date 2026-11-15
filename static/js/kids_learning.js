@@ -474,7 +474,7 @@
       root.querySelector('[data-search-speak]').hidden = false;
       root.querySelector('[data-search-speak]').onclick = () => speak(prompt, english ? 'en-US' : 'de-DE');
       speak(prompt, english ? 'en-US' : 'de-DE');
-      card.choices.forEach(([emoji, label, wrong]) => {
+      shuffle(card.choices).forEach(([emoji, label, wrong]) => {
         const button = document.createElement('button');
         button.type = 'button';
         button.className = `kids-search-object kids-safety-choice ${selectedSearchMode === 'logic' ? 'kids-logic-choice' : ''}`;
