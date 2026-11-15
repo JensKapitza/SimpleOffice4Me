@@ -575,13 +575,19 @@ def appointment_invoice_candidates(contact_id: str):
 def contact_letter(contact_id:str):
     root,actor=_root(),_actor();contacts=ContactStore(root);contact=contacts.get(contact_id,actor)
     if not contacts.can_manage(contact_id,actor):abort(403)
-    crm=ContactCRMStore(root).record(contact_id);selected=request.form.get("address","") if request.method=="POST" else request.args.get("address","");address,addresses=address_labels(contact,crm,selected);letter_templates=_business_template_choices(root,"letter");selected_template_id=preferred_template_id(crm,"letter",letter_templates,explicit_id=request.form.get("template_id","") if request.method=="POST" else "")
+    crm=ContactCRMStore(root).record(contact_id)
+    selected=request.form.get("address","") if request.method=="POST" else request.args.get("address","")
+    saved_address,addresses=address_labels(contact,crm,selected)
+    selected_address_id=selected or next((item["id"] for item in addresses if item["label"]==saved_address),"")
+    recipient=request.form.get("recipient",saved_address).strip() if request.method=="POST" else saved_address
+    letter_templates=_business_template_choices(root,"letter")
+    selected_template_id=preferred_template_id(crm,"letter",letter_templates,explicit_id=request.form.get("template_id","") if request.method=="POST" else "")
     if request.method=="POST" and request.form.get("body","").strip():
         try:
-            if not address:raise ValueError("recipient address is required")
-            tpl=_business_template(root,selected_template_id,"letter");subject=request.form.get("subject","").strip();pdf=_render_letter_with_template(root,tpl,recipient=address,subject=subject,body=request.form.get("body","").strip(),cover=request.form.get("cover")=="1",customer=letter_customer_context(contact,crm));document=_store_generated_pdf(root,contact_id,subject or "Brief",pdf,actor,"letter",tpl["template_id"]);flash("Brief erzeugt und mit dem CRM-Kontakt verknüpft.");return redirect(url_for("documents.detail",document_id=document["document_id"]))
+            if len(recipient)>5000:raise ValueError("recipient text is too long")
+            tpl=_business_template(root,selected_template_id,"letter");subject=request.form.get("subject","").strip();pdf=_render_letter_with_template(root,tpl,recipient=recipient,subject=subject,body=request.form.get("body","").strip(),cover=request.form.get("cover")=="1",customer=letter_customer_context(contact,crm));document=_store_generated_pdf(root,contact_id,subject or "Brief",pdf,actor,"letter",tpl["template_id"]);flash("Brief erzeugt und mit dem CRM-Kontakt verknüpft.");return redirect(url_for("documents.detail",document_id=document["document_id"]))
         except ValueError as exc:flash(str(exc))
-    return render_template("documents/contact_letter.html",contact=contact,crm=crm,address=address,addresses=addresses,templates=letter_templates,selected_template_id=selected_template_id,links=contact_links(root,contact_id))
+    return render_template("documents/contact_letter.html",contact=contact,crm=crm,address=recipient,addresses=addresses,selected_address_id=selected_address_id,templates=letter_templates,selected_template_id=selected_template_id,links=contact_links(root,contact_id))
 
 def _invoice_task(root: Path, task_id: str, actor: str, contact_id: str, *, required: bool = True):
     if not task_id:
