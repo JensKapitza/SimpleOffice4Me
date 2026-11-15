@@ -32,7 +32,9 @@
 .kids-search-object.is-found{border-color:#198754;background:#d1e7dd}
 .kids-search-object.is-missed{border-color:#dc3545;animation:kids-search-shake .2s linear 2}
 .kids-search-object.is-wrong{border-color:#dc3545;background:#f8d7da;text-decoration:line-through;filter:grayscale(.5);transition:opacity .35s ease,transform .35s ease}
-.kids-safety-choice{font-size:3rem}
+.kids-safety-choice{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.15rem;font-size:3rem;line-height:1.1}
+.kids-logic-choice{border-color:#6f42c1}
+.kids-safety-choice-label{max-width:100%;font-size:.8rem;line-height:1.15;overflow-wrap:anywhere}
 .kids-search-letters{text-align:center}
 .kids-search-word-image{display:block;font-size:4rem}
 .kids-search-word{display:block;font-size:clamp(2rem,7vw,3rem);letter-spacing:.2em;margin-top:.25rem}

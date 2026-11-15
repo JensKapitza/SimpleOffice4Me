@@ -51,7 +51,7 @@ def share_game_qr():
     game = (request.args.get("game") or "maze").strip()
     level = request.args.get("level", "preschool")
     subject = request.args.get("subject", "")
-    valid_games = {"maze", "objects", "letters", "directions", "safety", "quiz"}
+    valid_games = {"maze", "objects", "letters", "directions", "safety", "logic", "quiz"}
     valid_levels = {"preschool", "1", "2", "3", "4", "5"}
     valid_subjects = {"math", "german", "english", "world", "mixed"}
     if game not in valid_games or level not in valid_levels or (game == "quiz" and subject not in valid_subjects):
