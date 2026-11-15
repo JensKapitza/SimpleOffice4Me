@@ -74,6 +74,7 @@ PERSISTENCE_COVERAGE = {
     "v2.authorization": "excluded:authorization grants are internal security state",
     "v2.blob_store": "excluded:physical storage catalog is not a user-facing read model",
     "v2.catalog": "excluded:storage catalog internals",
+    "v2.metadata_migration": "excluded: migration projections are internal metadata and have no user-facing S3 authorization policy",
     "v2.encrypted_blob_store": "excluded:encrypted blob and key metadata",
     "v2.encrypted_recovery_fragments": "excluded:encrypted recovery fragments and key material",
     "v2.master_keys": "excluded:master encryption key profiles",
