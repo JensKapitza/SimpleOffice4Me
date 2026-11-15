@@ -6,6 +6,7 @@ from flask import Blueprint, abort, current_app, flash, g, redirect, render_temp
 from .access_control import audit, is_admin
 from .auth import login_required
 from .companion_agent import install, start, status, stop
+from .db import get_db
 from .remote_app_catalog import RemoteAppCatalog
 from .translations import translate
 
@@ -37,7 +38,10 @@ def _redirect():
 @bp.get("")
 @admin_required
 def index():
-    return render_template("admin/remote.html", agent=status(_root()), apps=_catalog().all())
+    users = [dict(row) for row in get_db().execute(
+        "SELECT id,username,display_name FROM user WHERE is_disabled=0 ORDER BY username COLLATE NOCASE"
+    ).fetchall()]
+    return render_template("admin/remote.html", agent=status(_root()), apps=_catalog().all(), users=users)
 
 
 @bp.post("/agent/install")
@@ -76,10 +80,20 @@ def stop_agent():
 @admin_required
 def publish_app():
     try:
+        active_ids = {
+            str(row["id"]) for row in get_db().execute(
+                "SELECT id FROM user WHERE is_disabled=0"
+            ).fetchall()
+        }
+        allowed_user_ids = [
+            user_id for user_id in request.form.getlist("allowed_user_ids")
+            if user_id in active_ids
+        ]
         row = _catalog().publish(
             label=request.form.get("label", ""),
             executable=request.form.get("executable", ""),
             description=request.form.get("description", ""),
+            allowed_user_ids=allowed_user_ids,
             favorite=request.form.get("favorite") == "1",
         )
     except Exception as exc:
