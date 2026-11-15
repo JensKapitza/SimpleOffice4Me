@@ -7,6 +7,57 @@
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3"><div><h1 class="h3 mb-0">{{ 'Overview' if g.language == 'en' else 'Übersicht' }}</h1><small class="text-secondary">{{ system.time }}</small></div><div class="d-flex flex-wrap gap-2"><span class="badge text-bg-light border">{{ inbox_total }} Inbox</span><span class="badge text-bg-light border">{{ open_todos|length }} {{ 'open tasks' if g.language == 'en' else 'offene Aufgaben' }}</span><span class="badge text-bg-light border">{{ (system.storage.free / 1024 / 1024 / 1024)|round(1) }} GB {{ 'free' if g.language == 'en' else 'frei' }}</span></div></div>
   {% if not setup_status.completed %}<div class="alert alert-primary py-2 d-flex justify-content-between align-items-center"><span><strong>{{ 'Welcome.' if g.language == 'en' else 'Willkommen.' }}</strong> {{ 'Set up desktop access, calendars and contacts.' if g.language == 'en' else 'Richte Dateizugriff, Kalender und Kontakte ein.' }}</span><a class="btn btn-sm btn-primary" href="{{ url_for('documents.first_run_setup') }}">{{ 'Start setup' if g.language == 'en' else 'Erststart beginnen' }}</a></div>{% endif %}
   {% if scan_status.state == 'starting' %}<div class="alert alert-info py-2" role="status" aria-live="polite">{{ 'The index service is starting; the application remains usable.' if g.language == 'en' else 'Der Indexdienst startet; die Anwendung bleibt nutzbar.' }}</div>{% elif scan_status.state == 'running' %}<div class="alert alert-info py-2" role="status" aria-live="polite">{{ 'Indexing' if g.language == 'en' else 'Indexierung' }}: {{ scan_status.files|default(0) }} {{ 'files' if g.language == 'en' else 'Dateien' }}, {{ scan_status.new_files|default(0) }} {{ 'new' if g.language == 'en' else 'neu' }}, {{ scan_status.errors|default(0) }} {{ 'errors' if g.language == 'en' else 'Fehler' }}.</div>{% elif scan_status.state == 'failed' %}<div class="alert alert-warning py-2">{{ 'Indexing failed' if g.language == 'en' else 'Indexierung fehlgeschlagen' }}: {{ scan_status.error }}</div>{% elif scan_status.state == 'completed' %}<div class="alert alert-success py-2">{{ 'Index complete' if g.language == 'en' else 'Index abgeschlossen' }}: {{ scan_status.files }} {{ 'files' if g.language == 'en' else 'Dateien' }}.</div>{% endif %}
+  <section class="mb-3" aria-labelledby="today-title">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+      <div><h2 class="h5 mb-0" id="today-title">{{ 'Today and next' if g.language == 'en' else 'Heute & als Nächstes' }}</h2><span class="small text-secondary">{{ briefing.today }}</span></div>
+      <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('documents.calendar') }}"><i class="fas fa-calendar-days me-1" aria-hidden="true"></i>{{ 'Calendar' if g.language == 'en' else 'Kalender' }}</a>
+        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('tasks.board') }}"><i class="fas fa-list-check me-1" aria-hidden="true"></i>{{ 'Tasks' if g.language == 'en' else 'Aufgaben' }}</a>
+      </div>
+    </div>
+    <div class="row g-2">
+      <div class="col-12 col-lg-6">
+        <div class="card h-100"><div class="card-header d-flex justify-content-between align-items-center"><strong>{{ 'Next 7 days' if g.language == 'en' else 'Termine · nächste 7 Tage' }}</strong><span class="badge text-bg-light border">{{ briefing.events|length }}</span></div>
+          <div class="list-group list-group-flush">
+            {% for event in briefing.events %}<div class="list-group-item d-flex gap-2 align-items-baseline"><time class="small text-secondary text-nowrap">{{ event.when }}</time><strong class="text-break">{{ event.title }}</strong>{% if event.calendar %}<span class="small text-secondary ms-auto">{{ event.calendar }}</span>{% endif %}</div>
+            {% else %}<div class="list-group-item text-secondary">{% if briefing.calendar_error %}{{ 'Appointments could not be loaded.' if g.language == 'en' else 'Termine konnten gerade nicht geladen werden.' }}{% else %}{{ 'No upcoming appointments.' if g.language == 'en' else 'Keine anstehenden Termine.' }}{% endif %}</div>{% endfor %}
+          </div>
+        </div>
+      </div>
+      <div class="col-12 col-lg-6">
+        <div class="card h-100"><div class="card-header d-flex justify-content-between align-items-center"><strong>{{ 'Reminders and recurring work' if g.language == 'en' else 'Fälliges & Wiederkehrendes' }}</strong><a class="small" href="#todo">{{ 'Open tasks' if g.language == 'en' else 'Aufgaben öffnen' }}</a></div>
+          <div class="card-body d-flex flex-wrap gap-2 align-content-start">
+            <span class="badge rounded-pill text-bg-danger">{{ briefing.overdue_tasks|length }} {{ 'overdue' if g.language == 'en' else 'überfällig' }}</span>
+            <span class="badge rounded-pill text-bg-warning">{{ briefing.due_today_tasks|length }} {{ 'due today' if g.language == 'en' else 'heute fällig' }}</span>
+            <span class="badge rounded-pill text-bg-light border">{{ briefing.due_soon_count }} {{ 'within 7 days' if g.language == 'en' else 'in 7 Tagen' }}</span>
+            {% if briefing.recurring_task_count %}<span class="badge rounded-pill text-bg-info">{{ briefing.recurring_task_count }} {{ 'recurring reminders' if g.language == 'en' else 'wiederkehrende Erinnerungen' }}</span>{% endif %}
+            {% if briefing.calendar_reminder_count %}<span class="badge rounded-pill text-bg-info">{{ briefing.calendar_reminder_count }} {{ 'calendar reminders' if g.language == 'en' else 'Kalendererinnerungen' }}</span>{% endif %}
+            <p class="w-100 small text-secondary mb-0">{{ 'Recurring inspection tasks and calendar alarms remain in their existing lists and sync through CalDAV.' if g.language == 'en' else 'Wiederkehrende Prüfaufgaben und Kalendererinnerungen bleiben in ihren Listen und synchronisieren über CalDAV.' }}</p>
+            <div class="d-flex flex-wrap gap-2"><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('inventory.index') }}">{{ 'Equipment and inspections' if g.language == 'en' else 'Geräte & Prüfungen' }}</a><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('finance.index') }}">{{ 'Finances and recurring costs' if g.language == 'en' else 'Finanzen & regelmäßige Kosten' }}</a></div>
+          </div>
+        </div>
+      </div>
+      <div class="col-12 col-lg-6">
+        <div class="card h-100"><div class="card-header d-flex justify-content-between align-items-center"><strong>{{ 'Shopping' if g.language == 'en' else 'Einkauf' }}</strong><a class="small" href="{{ url_for('shopping.index') }}">{{ 'All lists' if g.language == 'en' else 'Alle Listen' }}</a></div>
+          {% if briefing.shopping %}<div class="card-body">
+            <a class="fw-semibold" href="{{ url_for('shopping.index', list_id=briefing.shopping.list_id) }}">{{ briefing.shopping.name }}</a>
+            <div class="d-flex flex-wrap justify-content-between gap-2 mt-1"><span>{{ briefing.shopping.item_count }} {{ 'items open' if g.language == 'en' else 'Artikel offen' }}</span><strong>{{ briefing.shopping.estimated_total }}</strong></div>
+            <ul class="small text-secondary mb-0 mt-2">{% for item in briefing.shopping.items %}<li>{{ item.name }}{% if item.quantity %} · {{ item.quantity }}{% endif %}</li>{% endfor %}</ul>
+            {% if briefing.shopping.missing_prices %}<div class="small text-secondary mt-2">{{ briefing.shopping.missing_prices }} {{ 'items without price are excluded from the estimate.' if g.language == 'en' else 'Artikel ohne Preis sind nicht in der Summe enthalten.' }}</div>{% endif %}
+          </div>{% else %}<div class="card-body text-secondary">{{ 'No open shopping items.' if g.language == 'en' else 'Keine offenen Einkaufsartikel.' }}</div>{% endif %}
+        </div>
+      </div>
+      <div class="col-12 col-lg-6">
+        <div class="card h-100"><div class="card-header d-flex justify-content-between align-items-center"><strong>{{ 'Capture and share' if g.language == 'en' else 'Erfassen & Teilen' }}</strong><span class="badge text-bg-light border">{{ briefing.capture_count }} {{ 'to sort' if g.language == 'en' else 'zuordnen' }}</span></div>
+          <div class="card-body d-flex flex-column align-items-start gap-2">
+            {% if briefing.capture_error %}<div class="small text-warning" role="status">{{ 'The photo inbox cannot be read right now. Open it to inspect the problem.' if g.language == 'en' else 'Der Fotoeingang ist gerade nicht lesbar. Öffne ihn, um den Fehler zu prüfen.' }}</div>{% endif %}
+            <p class="small text-secondary mb-0">{{ 'Capture a document or item from your phone, then classify it when convenient. The inbox stays in this installation.' if g.language == 'en' else 'Dokument oder Gegenstand direkt am Handy fotografieren und später zuordnen. Der Fotoeingang bleibt in dieser Installation.' }}</p>
+            <div class="d-flex flex-wrap gap-2"><a class="btn btn-sm btn-primary" href="{{ url_for('inventory.capture_inbox') }}"><i class="fas fa-camera me-1" aria-hidden="true"></i>{{ 'Capture item' if g.language == 'en' else 'Gegenstand erfassen' }}</a><a class="btn btn-sm btn-outline-primary" href="{{ url_for('documents.index') }}#capture-first"><i class="fas fa-file-arrow-up me-1" aria-hidden="true"></i>{{ 'Capture document' if g.language == 'en' else 'Dokument erfassen' }}</a><a class="btn btn-sm btn-outline-primary" href="{{ url_for('quick_share.index') }}"><i class="fas fa-qrcode me-1" aria-hidden="true"></i>{{ 'Quick QR share' if g.language == 'en' else 'Schnell per QR teilen' }}</a></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
   <div class="row g-3">
     {% if dashboard_clock %}
     <section class="col-12" id="stempeluhr">
