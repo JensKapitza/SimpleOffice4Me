@@ -20,3 +20,10 @@ def _private_response(response):
 @login_required
 def index():
     return render_template("kids/learning.html")
+
+
+@bp.get("/spielpause")
+@login_required
+def mini_games():
+    """Short, touch-friendly games for a quick break in the Kids area."""
+    return render_template("kids/mini_games.html")

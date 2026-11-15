@@ -104,6 +104,10 @@
     const date = new Date(value || "");
     return Number.isNaN(date.valueOf()) ? "unbekannt" : date.toLocaleString("de-DE", {dateStyle: "medium", timeStyle: "short"});
   }
+  function machineDateTime(value) {
+    const date = new Date(value || "");
+    return Number.isNaN(date.valueOf()) ? "" : date.toISOString();
+  }
   function empty(text) { return element("p", "rw-empty mb-0", text); }
   function sourceLink(label, value) {
     const url = safeRepositoryUrl(value);
@@ -436,7 +440,9 @@
     const box = $("source-list"); box.replaceChildren();
     (state.snapshot?.sources || []).forEach((source) => {
       const row = element("article", "rw-source"), title = element("div", "fw-semibold", source.label);
-      const time = element("time", "", dateText(source.checked_at)); if (source.checked_at) time.dateTime = source.checked_at; title.append(time);
+      title.append(element("span", "", dateText(source.checked_at)));
+      const machineTime = machineDateTime(source.checked_at);
+      if (machineTime) { const time = element("time", "visually-hidden", machineTime); time.dateTime = machineTime; title.append(time); }
       row.append(title, badge(SOURCE_STATES[source.state] || "Ungeprüft", source.state === "ok" ? "rw-badge-readonly" : "rw-priority-p2"), element("p", "mb-0", source.message || "Keine weiteren Angaben.")); box.append(row);
     });
     if (!box.childNodes.length) box.append(empty("Noch kein Quellenabruf bestätigt."));
