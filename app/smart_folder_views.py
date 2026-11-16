@@ -27,6 +27,7 @@ MAX_EXTRACTED_FILE_BYTES = 256 * 1024
 MAX_EXTRACTED_TOTAL_BYTES = 8 * 1024 * 1024
 MAX_EXTRACTED_RULES = 20
 MAX_EXTRACTED_VALUE_CHARS = 500
+MAX_EXTRACTED_TEXT_LINES = 5_000
 MAX_MERGE_EVENTS = 10_000
 MAX_MERGED_FOLDER_TASK_IDS = 10_000
 MAX_MERGED_PREVIEW_GROUPS = 10_000
@@ -437,7 +438,7 @@ class SmartFolderViews:
             self._save(data)
 
     def extract_rows(self, folder: str) -> list[dict]:
-        """Extract bounded JSON, CSV and XML fields from integrity-checked objects."""
+        """Extract bounded JSON, CSV, XML and key/value text fields."""
         folder = self.normalize(folder)
         rules = self.rules_for(folder)
         if not rules:
@@ -496,6 +497,19 @@ class SmartFolderViews:
                     parsed = next(iter(csv.DictReader(io.StringIO(content))), {})
                 elif suffix == ".xml":
                     parsed = ET.fromstring(content)
+                elif suffix in {".txt", ".text"}:
+                    parsed = {"text": content[:MAX_EXTRACTED_VALUE_CHARS]}
+                    for line in content.splitlines()[:MAX_EXTRACTED_TEXT_LINES]:
+                        line = line.strip()
+                        if not line or line.startswith(("#", ";")):
+                            continue
+                        delimiter = "=" if "=" in line else ":" if ":" in line else None
+                        if delimiter is None:
+                            continue
+                        key, value = line.split(delimiter, 1)
+                        key = key.strip()
+                        if key and len(key) <= 120 and not any(ord(char) < 32 for char in key):
+                            parsed[key] = value.strip()
                 else:
                     continue
                 row = {"document_id": doc["document_id"], "path": path}

@@ -197,16 +197,19 @@
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="folder" value="{{ selected.path }}">
           <div class="col"><input class="form-control" name="name" maxlength="80" placeholder="{{ 'Column name' if g.language == 'en' else 'Spaltenname' }}" required></div>
-          <div class="col"><input class="form-control" name="field" maxlength="120" placeholder="{{ 'JSON key / CSV column / XML path' if g.language == 'en' else 'JSON-Schlüssel / CSV-Spalte / XML-Pfad' }}" required></div>
+          <div class="col"><input class="form-control" name="field" maxlength="120" placeholder="{{ 'JSON key / CSV column / XML path / text key' if g.language == 'en' else 'JSON-Schlüssel / CSV-Spalte / XML-Pfad / Textschlüssel' }}" required></div>
           <div class="col-auto"><button type="submit" class="btn btn-outline-primary">{{ 'Save rule' if g.language == 'en' else 'Regel speichern' }}</button></div>
         </form>
         {% else %}<p class="small text-secondary">{{ 'Activate the collection folder before saving extraction rules.' if g.language == 'en' else 'Aktiviere den Sammelordner, bevor du Extraktionsregeln speicherst.' }}</p>{% endif %}
         {% if rules %}
         <p class="small text-secondary mt-2">{% for name, field in rules.items() %}{{ name }}: {{ field }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
         <a href="{{ url_for('documents.export_smart_folder', folder=selected.path) }}">{{ 'Export CSV' if g.language == 'en' else 'CSV exportieren' }}</a>
-        <div class="table-responsive"><table class="table table-sm">
+        <label class="form-label mt-2" for="smart-folder-table-filter">{{ 'Filter rows' if g.language == 'en' else 'Zeilen filtern' }}</label>
+        <input class="form-control form-control-sm mb-2" id="smart-folder-table-filter" type="search" data-smart-folder-table-filter="smart-folder-extracted-table" placeholder="{{ 'Search extracted values' if g.language == 'en' else 'Extrahierte Werte durchsuchen' }}">
+        <p class="small text-secondary" data-smart-folder-table-count aria-live="polite"></p>
+        <div class="table-responsive"><table id="smart-folder-extracted-table" class="table table-sm" data-smart-folder-sort-filter>
           <caption>{{ ('Extracted fields for documents in ' ~ selected.path) if g.language == 'en' else ('Extrahierte Felder für Dokumente in ' ~ selected.path) }}</caption>
-          <thead><tr><th scope="col">{{ 'File' if g.language == 'en' else 'Datei' }}</th>{% for name in rules %}<th scope="col">{{ name }}</th>{% endfor %}</tr></thead>
+          <thead><tr><th scope="col" aria-sort="none"><button type="button" class="btn btn-link btn-sm p-0 text-reset fw-semibold" data-smart-folder-sort>{{ 'File' if g.language == 'en' else 'Datei' }} <span aria-hidden="true">↕</span></button></th>{% for name in rules %}<th scope="col" aria-sort="none"><button type="button" class="btn btn-link btn-sm p-0 text-reset fw-semibold" data-smart-folder-sort>{{ name }} <span aria-hidden="true">↕</span></button></th>{% endfor %}</tr></thead>
           <tbody>{% for row in rows %}<tr><td><a href="{{ url_for('documents.detail', document_id=row.document_id) }}">{{ row.path }}</a></td>{% for name in rules %}<td>{{ row.get(name, '') }}</td>{% endfor %}</tr>{% endfor %}</tbody>
         </table></div>
         {% endif %}
@@ -271,4 +274,5 @@
 {% if contextflow_enabled|default(false) and feature_enabled('documents') %}
 <script src="{{ url_for('static', filename='js/smart_folder_engel.js') }}" defer></script>
 {% endif %}
+<script src="{{ url_for('static', filename='js/smart_folder_table.js') }}" defer></script>
 {% endblock %}
