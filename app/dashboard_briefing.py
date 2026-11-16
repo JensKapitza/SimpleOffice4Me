@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import date, datetime, time, timedelta, timezone
+from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -133,11 +134,60 @@ def _next_obligation_date(row: dict[str, Any], today: date) -> date | None:
     return candidate if ends_on is None or candidate <= ends_on else None
 
 
-def _financial_reminders(root: Path, actor: str, today: date) -> tuple[list[dict[str, str]], bool]:
+def _monthly_obligation_summary(rows: list[dict[str, Any]], today: date) -> list[dict[str, str]]:
+    totals: dict[str, dict[str, Decimal]] = {}
+    for row in rows:
+        starts = _due_date(row.get("starts_on"))
+        ends = _due_date(row.get("ends_on"))
+        if starts is None or starts > today or (ends is not None and ends < today):
+            continue
+        try:
+            interval = max(1, int(row.get("interval_count") or 1))
+            cents = int(row.get("amount_cents") or 0)
+            unit = str(row.get("recurrence_unit") or "monthly").casefold()
+            if unit == "weekly":
+                monthly_cents = Decimal(cents * 52) / Decimal(12 * interval)
+            elif unit == "monthly":
+                monthly_cents = Decimal(cents) / Decimal(interval)
+            elif unit == "quarterly":
+                monthly_cents = Decimal(cents) / Decimal(3 * interval)
+            elif unit == "yearly":
+                monthly_cents = Decimal(cents) / Decimal(12 * interval)
+            else:
+                continue
+            direction = str(row.get("direction") or "expense").casefold()
+            if direction not in {"income", "expense"} or cents <= 0:
+                continue
+            currency = str(row.get("currency") or "EUR")
+            totals.setdefault(currency, {"income": Decimal(0), "expense": Decimal(0)})[direction] += monthly_cents
+        except (TypeError, ValueError, ArithmeticError):
+            continue
+
+    def format_amount(cents: Decimal, currency: str) -> tuple[str, str]:
+        rounded = int(cents.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        sign = "−" if rounded < 0 else ""
+        value = abs(rounded)
+        whole, remainder = divmod(value, 100)
+        de = f"{sign}{whole:,}".replace(",", ".") + f",{remainder:02d} {currency}"
+        en = sign + f"{whole:,}.{remainder:02d} {currency}"
+        return de, en
+
+    result = []
+    for currency, amounts in sorted(totals.items()):
+        income_de, income_en = format_amount(amounts["income"], currency)
+        expense_de, expense_en = format_amount(amounts["expense"], currency)
+        net_de, net_en = format_amount(amounts["income"] - amounts["expense"], currency)
+        result.append({"currency": currency, "income_de": income_de, "income_en": income_en,
+                       "expense_de": expense_de, "expense_en": expense_en,
+                       "net_de": net_de, "net_en": net_en})
+    return result
+
+
+def _financial_reminders(root: Path, actor: str, today: date) -> tuple[list[dict[str, str]], list[dict[str, str]], bool]:
     """Read upcoming finance obligations without creating or migrating a DB."""
     path = root / CONTROL_DIR / "finance.sqlite3"
     if not path.is_file():
-        return [], False
+        return [], [], False
     try:
         with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True) as db:
             db.row_factory = sqlite3.Row
@@ -149,12 +199,13 @@ def _financial_reminders(root: Path, actor: str, today: date) -> tuple[list[dict
             ).fetchall()
     except sqlite3.OperationalError as exc:
         if "no such table" in str(exc).casefold():
-            return [], False
-        return [], True
+            return [], [], False
+        return [], [], True
     except sqlite3.DatabaseError:
-        return [], True
+        return [], [], True
 
     result: list[dict[str, str]] = []
+    monthly_summary = _monthly_obligation_summary([dict(row) for row in rows], today)
     horizon = today + timedelta(days=7)
     expiry_horizon = today + timedelta(days=30)
     for source in rows:
@@ -175,7 +226,7 @@ def _financial_reminders(root: Path, actor: str, today: date) -> tuple[list[dict
         if expires is not None and today <= expires <= expiry_horizon:
             result.append({**display, "due": expires.isoformat(), "kind": "end"})
     result.sort(key=lambda item: (item["due"], item["name"].casefold(), item["kind"]))
-    return result[:6], False
+    return result[:6], monthly_summary, False
 
 
 def _inventory_expirations(root: Path, today: date) -> list[dict[str, str]]:
@@ -245,7 +296,7 @@ def build_dashboard_briefing(
             recurring += 1
 
     root_path = Path(root).expanduser().resolve()
-    obligations, finance_error = _financial_reminders(root_path, actor, today)
+    obligations, monthly_obligations, finance_error = _financial_reminders(root_path, actor, today)
     capture_error = False
     try:
         capture_count = len(CaptureInboxStore(root_path).list(actor, status="unassigned"))
@@ -279,6 +330,7 @@ def build_dashboard_briefing(
         "due_soon_count": len(due_soon),
         "recurring_task_count": recurring,
         "obligations": obligations,
+        "monthly_obligations": monthly_obligations,
         "finance_error": finance_error,
         "inventory_expirations": _inventory_expirations(root_path, today),
         "shopping": _shopping_summary(root_path, actor),
