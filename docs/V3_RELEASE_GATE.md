@@ -1,13 +1,31 @@
 # SimpleOffice4Me 3.0 release-gate evidence
 
+## Owner acceptance waiver — 2026-11-16
+
+The project owner directed that the remaining practical acceptance items be
+treated as okay and that any later-reported defects be handled as follow-up
+work. This is an explicit owner waiver of the remaining external test evidence,
+not a claim that this review ran on real devices, production data, external
+clients or representative workloads. The external rows below remain accurate
+about the evidence that was not collected.
+
+On this basis the owner accepts the 3.0 release gate. The repository-side
+roadmap issues #489–#504 are closed. Current main contains the 3.0.0 metadata
+change and the merged daily-office and dependency/PDF fixes (#1045, #1046); the
+PR CI completed with 35 and 56 passing checks respectively. This decision
+creates no release tag or published package. Issue #679 remains open for real
+LAN/external-peer follow-up; its practical acceptance is covered by this waiver,
+not represented as completed peer evidence. Future defects reported by the
+owner should reopen the relevant implementation issue.
+
 ## Version metadata preparation — 2026-11-15
 
 The project and desktop package metadata now identify the candidate as 3.0.0.
-This is a version-metadata change only: no release tag or package publication
-is created here. Release approval remains **not approved** while the external
-upgrade, client/device, representative-load and long-running evidence tracked
-by #505/#506 is outstanding. Historical entries below retain the metadata and
-release status recorded at their original dates.
+This was a version-metadata change only: no release tag or package publication
+was created. At that snapshot, release approval remained **not approved**
+pending the external evidence tracked by #505/#506. The owner waiver above
+records the later decision; historical entries below retain the status recorded
+at their original dates.
 
 ## Runtime-support change in progress — 2026-10-23
 
@@ -536,9 +554,19 @@ The 15 skipped tests are optional integration checks. A local raw-interpreter ru
 - **PARTIAL** — code and fixtures show that deactivation need not delete the new data, but the full independent disable sequence has not been performed on an upgraded installation.
 - **OPEN (external)** — separately disable 3.0 UI, automation, plugins, Android offline and Federation v3 on an upgraded system; confirm old domain stores and CardDAV/CalDAV/VTODO, document and invoice paths remain usable without deleting new data.
 
-## Required to approve #506
+## Evidence required for an evidence-backed approval
 
-Attach dated evidence for each external item above to the intended release commit, including the tested build/commit, deployment configuration, client/device/peer versions, dataset/workload characteristics, results, failures, and recovery actions. Keep #506 open until all open and partial items are closed with that evidence. Keep roadmap #505 open until its own Definition of Done and the selected 3.0 release gate are both satisfied.
+Attach dated evidence for each external item above to the intended release commit, including the tested build/commit, deployment configuration, client/device/peer versions, dataset/workload characteristics, results, failures, and recovery actions.
+
+## Closure decision for #505/#506 — 2026-11-16
+
+The evidence requirements above describe the normal release process. The
+project owner explicitly waived the remaining practical runs for this release
+candidate and accepted them by assumption. No real upgrade/rollback, client,
+device, peer, production-data, load or endurance result is asserted here. This
+waiver permits closing #506 and its coordination issue #505; it does not change
+the factual **OPEN (external)** labels in the historical matrix or turn them
+into test results. Reopen the affected issue if a defect is reported.
 
 Runtime support after upstream 3.10 EOL is defined in [PYTHON_RUNTIME_SUPPORT.md](PYTHON_RUNTIME_SUPPORT.md).
 Historical 3.10 runs below are compatibility evidence, not upstream security support.

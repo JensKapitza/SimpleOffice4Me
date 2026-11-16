@@ -1,6 +1,31 @@
 # Mini Services: Abnahmestand nach den Änderungen
 
-Stand: 05.10.2026, geprüft gegen `main` `f90087b0c421e6ed05f7e94222ced23d47c53956`.
+## Owner acceptance waiver — 2026-11-16
+
+The project owner directed that the remaining practical acceptance checks for
+issue #330 be treated as okay and that any later-reported defects be handled as
+follow-up work. This accepts the remaining external rows by owner waiver; it is
+not a claim that this review ran real Linux/Windows/Android installations,
+LAN/Gateway traffic, audio/PXE/DLNA hardware, accessibility sessions or load
+and endurance tests. The technical boundaries below remain documented.
+
+The repository-side implementation and regression work listed in this document
+remains in main, including the security, recovery and socket-permission fixes
+through PR #683. Current main also contains the 3.0.0 metadata and passed the
+full CI attached to PR #1046 (56 checks). Issue #330 is accepted for closure
+under the owner's instruction; future reported defects should reopen a focused
+follow-up issue.
+
+This disposition does not upgrade the matrix's factual T/? entries or claim
+unsupported capabilities. The documented boundaries—such as no virtual Windows
+microphone, no discovery for foreign RTP players, IPv4-only DHCP/Gateway, no
+confirmed remote playback, and no separate ALSA receiver output—remain explicit
+limitations. The suggested Windows Gateway atomicity and targeted output work
+remain future enhancements rather than prerequisites for the accepted release.
+
+Historical matrix snapshot: 05.10.2026, checked against `main`
+`f90087b0c421e6ed05f7e94222ced23d47c53956`. It is retained as a dated
+baseline; the owner decision above is the current issue disposition.
 Der Abgleich aktualisiert den Stand vom 01.10. und berücksichtigt insbesondere
 die danach integrierten SFTP-Änderungen #553, #569, #572–#574 sowie die
 Federation-Änderung #571.
