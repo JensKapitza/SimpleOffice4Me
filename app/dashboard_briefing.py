@@ -1,6 +1,7 @@
 """Read-only daily summary assembled from existing local office stores."""
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
@@ -177,6 +178,38 @@ def _financial_reminders(root: Path, actor: str, today: date) -> tuple[list[dict
     return result[:6], False
 
 
+def _inventory_expirations(root: Path, today: date) -> list[dict[str, str]]:
+    """Read upcoming expiry dates from the shared object register without writes."""
+    directory = root / CONTROL_DIR / "objects"
+    if not directory.is_dir():
+        return []
+    horizon = today + timedelta(days=30)
+    result: list[dict[str, str]] = []
+    for path in directory.glob("*.json"):
+        if path.name == "sequence.json" or path.is_symlink() or not path.is_file():
+            continue
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                item = json.load(handle)
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(item, dict) or item.get("status", "active") != "active":
+            continue
+        expires = _due_date(item.get("expires_at"))
+        if expires is None or not today <= expires <= horizon:
+            continue
+        object_id = str(item.get("object_id") or "").strip()
+        if not object_id or object_id != path.stem:
+            continue
+        result.append({
+            "object_id": object_id,
+            "name": str(item.get("name") or "Inventargegenstand").strip()[:200],
+            "expires": expires.isoformat(),
+        })
+    result.sort(key=lambda item: (item["expires"], item["name"].casefold()))
+    return result[:5]
+
+
 def build_dashboard_briefing(
     root: str | Path,
     actor: str,
@@ -247,6 +280,7 @@ def build_dashboard_briefing(
         "recurring_task_count": recurring,
         "obligations": obligations,
         "finance_error": finance_error,
+        "inventory_expirations": _inventory_expirations(root_path, today),
         "shopping": _shopping_summary(root_path, actor),
         "capture_count": capture_count,
         "capture_error": capture_error,
