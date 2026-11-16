@@ -22,7 +22,7 @@ RUNTIME_DEPENDENCIES = [
     "defusedxml>=0.7,<1",
     "Pillow>=13.0.0,<14",
     "reportlab>=4.0,<6",
-    "pypdf>=6.21.4,<7",
+    "pypdf>=6.21.4,<8",
     "waitress>=3.0,<4",
     "cryptography>=50.0.2,<51",
     "watchdog>=6,<8",
@@ -64,10 +64,10 @@ setup(
     ],
     install_requires=RUNTIME_DEPENDENCIES,
     extras_require={
-        "web-export": ["playwright==1.64.1"],
+        "web-export": ["playwright==1.65.1"],
         "security": ["pip-audit>=2.7,<3"],
         "sbom": ["packaging>=26.3,<27"],
-        "quality": ["ruff==0.17.4"],
+        "quality": ["ruff==0.17.5"],
         "ocr": [
             "rapidocr==3.10.0",
             "onnxruntime==1.31.1",

@@ -253,7 +253,7 @@ chaquopy {
             } else {
                 install 'reportlab==4.2.5'
             }
-            install 'pypdf==6.21.4'
+            install 'pypdf==7.0.1'
             if (localCryptographyWheel) {
                 install localCryptographyWheel.absolutePath
             } else {

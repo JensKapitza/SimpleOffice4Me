@@ -479,7 +479,7 @@ requirements = {
     "defusedxml": ">=0.7,<1",
     "Pillow": ">=13.0.0,<14",
     "reportlab": ">=4.0,<6",
-    "pypdf": ">=6.21.4,<7",
+    "pypdf": ">=6.21.4,<8",
     "waitress": ">=3.0,<4",
     "cryptography": ">=50.0.2,<51",
     "watchdog": ">=6,<7",
@@ -698,7 +698,7 @@ if [ "$IS_TERMUX" -eq 1 ]; then
     'argon2-cffi>=23.1,<26'
     'defusedxml>=0.7,<1'
     'reportlab>=4.0,<6'
-    'pypdf>=6.21.4,<7'
+    'pypdf>=6.21.4,<8'
     'waitress>=3.0,<4'
     'watchdog>=6,<7'
     'tzdata>=2024.1'
@@ -730,7 +730,7 @@ fi
 if [ "$IS_TERMUX" -eq 0 ] && [ "${SIMPLEOFFICE_WEB_EXPORT_INSTALL:-1}" != "0" ]; then
   echo "Webseitenexport: prüfe Playwright/Chromium in $VENV ..."
   if ! "$VENV/bin/python" -c 'import playwright.sync_api' >/dev/null 2>&1; then
-    if ! "$VENV/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: 'playwright==1.64.1'; then
+    if ! "$VENV/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: 'playwright==1.65.1'; then
       echo "WARNUNG: Playwright konnte nicht installiert werden; PDF/PNG-Webexport bleibt deaktiviert." >&2
     fi
   fi

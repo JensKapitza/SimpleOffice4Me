@@ -418,9 +418,11 @@ def _background_page(root: Path, template_row: dict[str, Any], index: int):
 def _merge_content_with_template(root: Path, template_row: dict[str, Any], content_pdf: bytes, *, cover: bool = False, cover_title: str = "", cover_recipient: str = "") -> bytes:
     content = PdfReader(io.BytesIO(content_pdf)); writer = PdfWriter()
     if cover:
-        page = _background_page(root, template_row, 0); page.merge_page(PdfReader(io.BytesIO(_cover_overlay(cover_title or "Dokument", cover_recipient))).pages[0]); writer.add_page(page)
+        writer.add_page(_background_page(root, template_row, 0))
+        writer.pages[-1].merge_page(PdfReader(io.BytesIO(_cover_overlay(cover_title or "Dokument", cover_recipient))).pages[0])
     for index, overlay in enumerate(content.pages):
-        page = _background_page(root, template_row, 1 if index == 0 else 2); page.merge_page(overlay); writer.add_page(page)
+        writer.add_page(_background_page(root, template_row, 1 if index == 0 else 2))
+        writer.pages[-1].merge_page(overlay)
     total = len(writer.pages)
     if total > 1:
         for index, page in enumerate(writer.pages, 1): page.merge_page(PdfReader(io.BytesIO(_number_overlay(index, total))).pages[0])
