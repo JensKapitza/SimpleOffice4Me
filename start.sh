@@ -479,7 +479,7 @@ requirements = {
     "defusedxml": ">=0.7,<1",
     "Pillow": ">=13.0.0,<14",
     "reportlab": ">=4.0,<6",
-    "pypdf": ">=6.21.4,<7",
+    "pypdf": ">=6.21.4,<8",
     "waitress": ">=3.0,<4",
     "cryptography": ">=50.0.2,<51",
     "watchdog": ">=6,<7",
@@ -698,7 +698,7 @@ if [ "$IS_TERMUX" -eq 1 ]; then
     'argon2-cffi>=23.1,<26'
     'defusedxml>=0.7,<1'
     'reportlab>=4.0,<6'
-    'pypdf>=6.21.4,<7'
+    'pypdf>=6.21.4,<8'
     'waitress>=3.0,<4'
     'watchdog>=6,<7'
     'tzdata>=2024.1'

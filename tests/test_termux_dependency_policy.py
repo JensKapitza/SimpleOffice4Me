@@ -54,7 +54,7 @@ class TermuxDependencyPolicyTests(unittest.TestCase):
         for requirement in (
             "Flask>=3.0,<4",
             "reportlab>=4.0,<6",
-            "pypdf>=6.21.4,<7",
+            "pypdf>=6.21.4,<8",
             "waitress>=3.0,<4",
             "watchdog>=6,<7",
             "tzdata>=2024.1",

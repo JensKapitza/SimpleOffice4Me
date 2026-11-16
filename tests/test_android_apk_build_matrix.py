@@ -14,7 +14,7 @@ class AndroidApkBuildMatrixTest(unittest.TestCase):
 
     def test_android_apk_uses_audited_pdf_and_no_selector_engine(self):
         gradle = Path("android/apk/app/build.gradle").read_text(encoding="utf-8")
-        self.assertIn("install 'pypdf==6.21.4'", gradle)
+        self.assertIn("install 'pypdf==7.0.1'", gradle)
         self.assertNotIn("soupsieve", gradle)
         self.assertNotIn("beautifulsoup4", gradle)
 
