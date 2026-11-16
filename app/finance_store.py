@@ -576,6 +576,62 @@ class FinanceStore:
         sql += " ORDER BY name COLLATE NOCASE,obligation_id"
         with self._db() as db: return [dict(row) for row in db.execute(sql, params).fetchall()]
 
+    def update_obligation(self, obligation_id: str, values: dict[str, Any], actor: str) -> dict[str, Any]:
+        """Update one actor-owned recurring commitment without changing its history."""
+        actor = self._actor(actor)
+        kind = text(values.get("kind", "other"), 30).casefold()
+        recurrence = text(values.get("recurrence_unit", "monthly"), 20).casefold()
+        direction = text(values.get("direction", "expense"), 20).casefold()
+        if kind not in OBLIGATION_KINDS: raise ValueError("obligation kind is invalid")
+        if recurrence not in RECURRENCE_UNITS: raise ValueError("recurrence unit is invalid")
+        if direction not in {"income", "expense"}: raise ValueError("obligation direction is invalid")
+        name = text(values.get("name"), 200)
+        if not name: raise ValueError("obligation name is required")
+        try: interval_count = int(values.get("interval_count", 1) or 1)
+        except (TypeError, ValueError) as exc: raise ValueError("interval_count must be a number") from exc
+        if not 1 <= interval_count <= 120: raise ValueError("interval_count is outside the supported range")
+        due_raw = values.get("due_day")
+        try: due_day = None if due_raw in {None, ""} else int(due_raw)
+        except (TypeError, ValueError) as exc: raise ValueError("due_day must be a number") from exc
+        if due_day is not None and not 1 <= due_day <= 31: raise ValueError("due_day is outside the supported range")
+        starts_on = iso_date(values.get("starts_on"), "starts_on")
+        ends_on = iso_date(values.get("ends_on"), "ends_on", allow_empty=True)
+        if ends_on and ends_on < starts_on: raise ValueError("ends_on cannot be before starts_on")
+        row = {"obligation_id": text(obligation_id, 100), "name": name, "kind": kind,
+               "direction": direction, "amount_cents": positive_cents(values.get("amount_cents")),
+               "currency": currency(values.get("currency", "EUR")), "recurrence_unit": recurrence,
+               "interval_count": interval_count, "due_day": due_day, "starts_on": starts_on,
+               "ends_on": ends_on, "category": text(values.get("category"), 120),
+               "counterparty_name": text(values.get("counterparty_name"), 300),
+               "counterparty_iban": normalize_iban(values.get("counterparty_iban")),
+               "reference": text(values.get("reference"), 300),
+               "contract_document_id": text(values.get("contract_document_id"), 200), "updated_at": _now()}
+        with self._db() as db:
+            existing = db.execute("SELECT * FROM finance_obligation WHERE obligation_id=?", (row["obligation_id"],)).fetchone()
+            if not existing or str(existing["owner"]) != actor: raise ValueError("obligation not found")
+            # These two optional links are intentionally omitted from the simple edit form;
+            # preserve them unless an explicit value is submitted.
+            if "counterparty_iban" not in values: row["counterparty_iban"] = existing["counterparty_iban"]
+            if "contract_document_id" not in values: row["contract_document_id"] = existing["contract_document_id"]
+            db.execute("""UPDATE finance_obligation SET name=:name,kind=:kind,direction=:direction,
+                       amount_cents=:amount_cents,currency=:currency,recurrence_unit=:recurrence_unit,
+                       interval_count=:interval_count,due_day=:due_day,starts_on=:starts_on,ends_on=:ends_on,
+                       category=:category,counterparty_name=:counterparty_name,counterparty_iban=:counterparty_iban,
+                       reference=:reference,contract_document_id=:contract_document_id,updated_at=:updated_at
+                       WHERE obligation_id=:obligation_id AND owner=:owner""", {**row, "owner": actor})
+            self._audit(db, actor, "obligation_updated", "obligation", row["obligation_id"], {"kind": kind, "recurrence": recurrence})
+            updated = db.execute("SELECT * FROM finance_obligation WHERE obligation_id=? AND owner=?", (row["obligation_id"], actor)).fetchone()
+        return dict(updated)
+
+    def set_obligation_active(self, obligation_id: str, active: bool, actor: str) -> None:
+        actor = self._actor(actor)
+        obligation_id = text(obligation_id, 100)
+        with self._db() as db:
+            existing = db.execute("SELECT active FROM finance_obligation WHERE obligation_id=? AND owner=?", (obligation_id, actor)).fetchone()
+            if not existing: raise ValueError("obligation not found")
+            db.execute("UPDATE finance_obligation SET active=?,updated_at=? WHERE obligation_id=? AND owner=?", (int(bool(active)), _now(), obligation_id, actor))
+            self._audit(db, actor, "obligation_activated" if active else "obligation_deactivated", "obligation", obligation_id, {})
+
     def confirm_transaction_match(self, transaction_id: str, source_type: str, source_id: str, actor: str, *, score: int = 0, allocated_cents: int = 0, note: str = "") -> dict[str, Any]:
         actor = self._actor(actor); source_type = text(source_type, 40).casefold(); source_id = text(source_id, 200)
         if source_type not in SOURCE_TYPES or source_type in {"manual", "bank_transaction", "internal_allocation"}:
