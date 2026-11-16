@@ -8,8 +8,10 @@ import os
 import time
 from pathlib import Path
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from datetime import datetime
 from urllib.parse import urlsplit
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import Blueprint, abort, current_app, flash, g, make_response, redirect, render_template, request, url_for
 
@@ -53,6 +55,15 @@ def _root() -> Path:
 
 def _actor() -> str:
     return str(g.user["username"])
+
+
+def _local_today_iso() -> str:
+    timezone_name = SettingsStore(_root()).settings().get("interface", {}).get("timezone", "Europe/Berlin")
+    try:
+        zone = ZoneInfo(str(timezone_name or "Europe/Berlin"))
+    except (ZoneInfoNotFoundError, ValueError):
+        zone = ZoneInfo("Europe/Berlin")
+    return datetime.now(zone).date().isoformat()
 
 
 def _store() -> FinanceStore:
@@ -131,6 +142,7 @@ def index():
     _cleanup_staging(actor, staging_ttl)
     store = _store()
     accounts = store.accounts(actor)
+    obligations = store.obligations(actor, active_only=False)
     connections = store.bank_connections(actor)
     bank_account_mappings = {
         connection["connection_id"]: store.bank_account_mappings(connection["connection_id"], actor)
@@ -143,6 +155,8 @@ def index():
     return render_template(
         "finance/index.html",
         accounts=accounts,
+        obligations=obligations,
+        today_iso=_local_today_iso(),
         bank_connections=connections,
         bank_account_mappings=bank_account_mappings,
         selected_account_id=selected,
@@ -167,6 +181,54 @@ def create_account():
         return redirect(url_for(".index"))
     flash(translate(g.language, "finweb.account.created").format(name=account['name']))
     return redirect(url_for(".index", account_id=account["account_id"]))
+
+
+def _obligation_form_values() -> dict[str, Any]:
+    values = request.form.to_dict()
+    try:
+        amount = Decimal(str(values.pop("amount", "")).strip().replace(" ", "").replace(",", "."))
+        cents = int((amount * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError("Betrag muss eine gültige Zahl sein") from exc
+    values["amount_cents"] = cents
+    return values
+
+
+@bp.post("/obligations")
+@login_required
+def create_obligation():
+    try:
+        obligation = _store().create_obligation(_obligation_form_values(), _actor())
+    except ValueError as exc:
+        flash(f"Regelmäßigen Posten nicht gespeichert: {exc}")
+        return redirect(url_for(".index") + "#obligations")
+    flash(f"Regelmäßiger Posten „{obligation['name']}“ wurde gespeichert.")
+    return redirect(url_for(".index") + "#obligations")
+
+
+@bp.post("/obligations/<obligation_id>")
+@login_required
+def update_obligation(obligation_id: str):
+    try:
+        obligation = _store().update_obligation(obligation_id, _obligation_form_values(), _actor())
+    except ValueError as exc:
+        flash(f"Regelmäßigen Posten nicht geändert: {exc}")
+        return redirect(url_for(".index") + "#obligations")
+    flash(f"Änderungen für „{obligation['name']}“ gespeichert.")
+    return redirect(url_for(".index") + "#obligations")
+
+
+@bp.post("/obligations/<obligation_id>/active")
+@login_required
+def set_obligation_active(obligation_id: str):
+    active = request.form.get("active") == "1"
+    try:
+        _store().set_obligation_active(obligation_id, active, _actor())
+    except ValueError as exc:
+        flash(f"Status nicht geändert: {exc}")
+    else:
+        flash("Regelmäßiger Posten aktiviert." if active else "Regelmäßiger Posten pausiert.")
+    return redirect(url_for(".index") + "#obligations")
 
 
 def _bank_browser_setting() -> bool:

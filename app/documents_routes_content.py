@@ -295,14 +295,26 @@ def refresh_document_search():
 @login_required
 def dashboard():
     from .business_documents import customer_account_overview
+    from .dashboard_briefing import build_dashboard_briefing
 
-    inbox = _store().inbox_page(page=1, page_size=8)
+    store = _store()
+    actor = str(g.user["username"])
+    todos = _todos().items(actor)
+    timezone_name = _settings().settings().get("interface", {}).get("timezone", "Europe/Berlin")
+    inbox = store.inbox_page(page=1, page_size=8)
     return render_template(
         "documents/dashboard.html",
         system=_system_overview(),
         inbox=inbox["documents"],
         inbox_total=inbox["total"],
-        todos=_todos().items(str(g.user["username"])),
+        todos=todos,
+        briefing=build_dashboard_briefing(
+            store.root,
+            actor,
+            _calendar(),
+            todos,
+            timezone_name=timezone_name,
+        ),
         pending=_calendar().pending_bookings(),
         scan_status=_store().scan_status(),
         setup_status=_setup().status(str(g.user["username"])),

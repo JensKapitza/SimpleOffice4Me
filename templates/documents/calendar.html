@@ -116,7 +116,7 @@
     try { storedCalendarPane = window.sessionStorage.getItem('simpleoffice.calendar.workspace') || ''; } catch (_error) {}
     const hashTarget = window.location.hash ? document.getElementById(decodeURIComponent(window.location.hash.slice(1))) : null;
     const hashPane = hashTarget?.closest('[data-calendar-pane]')?.dataset.calendarPane || '';
-    activateCalendarPane(hashPane || storedCalendarPane || 'calendar', {remember: false});
+    activateCalendarPane(hashPane || storedCalendarPane || 'calendar', {remember: false, focus: hashTarget?.id === 'calendar-actions'});
 
     const bookingUrl = document.getElementById('external-booking-url');
     const copyBookingUrl = document.getElementById('copy-external-booking-url');
