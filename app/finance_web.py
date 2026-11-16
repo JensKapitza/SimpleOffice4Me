@@ -8,9 +8,10 @@ import os
 import time
 from pathlib import Path
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
-from datetime import date
+from datetime import datetime
 from urllib.parse import urlsplit
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import Blueprint, abort, current_app, flash, g, make_response, redirect, render_template, request, url_for
 
@@ -54,6 +55,15 @@ def _root() -> Path:
 
 def _actor() -> str:
     return str(g.user["username"])
+
+
+def _local_today_iso() -> str:
+    timezone_name = SettingsStore(_root()).settings().get("interface", {}).get("timezone", "Europe/Berlin")
+    try:
+        zone = ZoneInfo(str(timezone_name or "Europe/Berlin"))
+    except (ZoneInfoNotFoundError, ValueError):
+        zone = ZoneInfo("Europe/Berlin")
+    return datetime.now(zone).date().isoformat()
 
 
 def _store() -> FinanceStore:
@@ -146,7 +156,7 @@ def index():
         "finance/index.html",
         accounts=accounts,
         obligations=obligations,
-        today_iso=date.today().isoformat(),
+        today_iso=_local_today_iso(),
         bank_connections=connections,
         bank_account_mappings=bank_account_mappings,
         selected_account_id=selected,
