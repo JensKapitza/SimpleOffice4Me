@@ -22,7 +22,7 @@ dependencies = [
   "defusedxml>=0.7,<1",
   "Pillow>=13.0.0,<14",
   "reportlab>=4.0,<6",
-  "pypdf>=6.21.4,<7",
+  "pypdf>=6.21.4,<8",
   "waitress>=3.0,<4",
   "cryptography>=50.0.2,<51",
   "watchdog>=6,<8",
@@ -31,7 +31,7 @@ dependencies = [
 
 [project.optional-dependencies]
 web-export = [
-  "playwright==1.64.1",
+  "playwright==1.65.1",
 ]
 ocr = [
   "rapidocr==3.10.0",
@@ -44,7 +44,7 @@ sbom = [
   "packaging>=26.3,<27",
 ]
 quality = [
-  "ruff==0.17.4",
+  "ruff==0.17.5",
 ]
 sftp = [
   "paramiko>=3.5,<6",
