@@ -112,9 +112,9 @@ class CalDavTest(unittest.TestCase):
             "Dokument prüfen",
             "admin",
             {
-                "source_document_id": "source-document",
                 "document_ids": ["related-document"],
             },
+            source_document_id="source-document",
         )
         resource = "/caldav/calendars/admin/tasks/" + store.resource(task)
         original = self.client.get(resource, headers=self.auth)

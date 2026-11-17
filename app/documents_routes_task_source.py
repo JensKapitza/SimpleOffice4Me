@@ -19,7 +19,8 @@ def create_document_task(document_id: str):
         )
         _todos().add(
             title, str(g.user["username"]),
-            {**request.form.to_dict(), "description": description, "source_document_id": document_id},
+            {**request.form.to_dict(), "description": description},
+            source_document_id=document_id,
         )
         flash("Aufgabe mit dem Dokument verknüpft. / Task linked to document.")
     except ValueError as exc:

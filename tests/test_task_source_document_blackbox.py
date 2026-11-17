@@ -3,6 +3,7 @@ import io
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from bs4 import BeautifulSoup
 
@@ -62,17 +63,66 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
             self.assertIn("Legacy task", page.get_data(as_text=True))
             self.assertNotIn("Quelldatei öffnen", page.get_data(as_text=True))
 
-    def test_unknown_source_id_does_not_produce_broken_link(self):
+    def test_generic_legacy_task_creation_cannot_forge_source_provenance(self):
         created = self.client.post("/documents/todo", data={
             "title": "Missing document", "source_document_id": "nonexistent-source-id",
         })
         self.assertEqual(302, created.status_code)
-        for url in ("/documents/tasks", "/tasks/"):
-            response = self.client.get(url)
-            self.assertEqual(200, response.status_code)
-            body = response.get_data(as_text=True)
-            self.assertIn("Quelldatei nicht verfügbar oder Zugriff verweigert", body)
-            self.assertNotIn("Quelldatei öffnen", body)
+        task = TodoStore(self.root).items("jens")[0]
+        self.assertEqual("", task["source_document_id"])
+
+    def test_generic_board_cannot_forge_source_provenance(self):
+        response = self.client.post(
+            "/tasks/", data={"title": "Forged task", "source_document_id": "forged-document"},
+        )
+        self.assertEqual(302, response.status_code)
+        task = next(row for row in TodoStore(self.root).items("jens") if row["title"] == "Forged task")
+        self.assertFalse(task.get("source_document_id"))
+
+    def test_board_update_cannot_replace_source_provenance(self):
+        document_id = self._create_document_task()
+        task = next(
+            row for row in TodoStore(self.root).items("jens")
+            if row.get("source_document_id") == document_id
+        )
+        response = self.client.post(
+            f"/tasks/{task['id']}/update",
+            data={"title": "Updated task", "source_document_id": "forged-document"},
+        )
+        self.assertEqual(302, response.status_code)
+        updated = next(row for row in TodoStore(self.root).items("jens") if row["id"] == task["id"])
+        self.assertEqual(document_id, updated.get("source_document_id"))
+        self._source_link("/tasks/", document_id)
+
+    def test_revoked_document_access_prevents_new_source_task(self):
+        document = DocumentStore(self.root).import_upload(io.BytesIO(b"protected fixture"), "protected.txt", "jens")
+        document_id = document["document_id"]
+        original_get_document = DocumentStore.get_document
+
+        def deny_source(store, reference):
+            if str(reference) == document_id:
+                raise ValueError("document access revoked")
+            return original_get_document(store, reference)
+
+        before = len(TodoStore(self.root).items("jens"))
+        with patch.object(DocumentStore, "get_document", deny_source):
+            response = self.client.post(
+                f"/documents/{document_id}/tasks",
+                data={"title": "Must not be created"},
+            )
+        self.assertEqual(404, response.status_code)
+        self.assertEqual(before, len(TodoStore(self.root).items("jens")))
+
+    def test_document_task_list_survives_document_storage_io_error(self):
+        self._create_document_task()
+
+        def storage_unavailable(_store, _reference):
+            raise OSError("simulated storage unavailable")
+
+        with patch.object(DocumentStore, "get_document", storage_unavailable):
+            response = self.client.get("/documents/tasks")
+
+        self.assertEqual(200, response.status_code)
 
     def test_default_source_task_text_does_not_disclose_the_filename(self):
         filename = "private-customer-contract.pdf"

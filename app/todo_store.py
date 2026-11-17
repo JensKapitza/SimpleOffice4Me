@@ -96,9 +96,15 @@ class TodoStore:
         values: dict[str, Any] | None = None,
         *,
         smart_folder_id: str = "",
+        source_document_id: str = "",
     ) -> dict[str, Any]:
         values = dict(values or {})
         if not title.strip() or not actor.strip(): raise ValueError("to-do title and user are required")
+        # Source-document provenance is assigned only by the authorized
+        # document task route, never by client-controlled task fields.
+        values.pop("source_document_id", None)
+        if source_document_id:
+            values["source_document_id"] = source_document_id
         # This relation is local-only; federation and other integrations may
         # round-trip the normalized field, but only the authorized folder
         # route may set it through the explicit keyword.
@@ -122,7 +128,9 @@ class TodoStore:
         with exclusive_file_lock(self.lock):
             data = self._read(); item = self._owned(data, item_id, actor); self._list(data, item.get("list_id") or self.default_list_id(actor), actor, "edit")
             before = self._normalized(item, actor)
-            merged = {**item, **values}; merged["sequence"] = int(item.get("sequence", 0)) + 1; merged["ical_dtstamp"] = self._ical_now(); merged["ical_last_modified"] = merged["ical_dtstamp"]
+            merged = {**item, **values}
+            merged["source_document_id"] = item.get("source_document_id", "")
+            merged["sequence"] = int(item.get("sequence", 0)) + 1; merged["ical_dtstamp"] = self._ical_now(); merged["ical_last_modified"] = merged["ical_dtstamp"]
             updated = self._task(item_id, str(values.get("title", item.get("title", ""))), str(item.get("owner") or actor), merged, created_at=item.get("created_at", ""))
             updated["smart_folder_id"] = self._validated_smart_folder_id(item.get("smart_folder_id", ""))
             updated.update({"created_by": item.get("created_by", actor), "caldav_resource": item.get("caldav_resource", ""), "uid": item.get("uid") or updated["uid"], "updated_at": utc_now(), "updated_by": actor})
@@ -364,10 +372,12 @@ class TodoStore:
             item_id = existing.get("id", "") if existing else str(uuid.uuid4())
             owner = str(existing.get("owner") if existing else self._list(data, list_id, actor, "edit").get("owner") or actor)
             task_values = dict(values)
+            # CalDAV clients cannot create or replace the local trusted source.
+            task_values["source_document_id"] = existing.get("source_document_id", "") if existing else ""
             if existing is not None:
                 # CalDAV clients may strip unknown VTODO properties from PUTs.
                 # Preserve stable document links rather than silently clearing them.
-                for key, default in (("document_ids", []), ("source_document_id", ""), ("email_document_id", "")):
+                for key, default in (("document_ids", []), ("email_document_id", "")):
                     if not task_values.get(key):
                         task_values[key] = existing.get(key, default)
                 task_values["smart_folder_id"] = existing.get("smart_folder_id", "")

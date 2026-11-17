@@ -37,9 +37,9 @@ class TodoStoreTest(unittest.TestCase):
 
     def test_source_document_id_survives_updates_and_legacy_tasks(self):
         task = self.store.add("Review source", "admin", {
-            "source_document_id": "stable-doc-123",
+            "source_document_id": "forged-doc-123",
             "document_ids": ["stable-doc-123", "related-doc-456"],
-        })
+        }, source_document_id="stable-doc-123")
         self.assertEqual("stable-doc-123", task["source_document_id"])
         self.assertEqual(["related-doc-456"], task["document_ids"])
         self.assertEqual("stable-doc-123", self.store.items("admin")[0]["source_document_id"])
@@ -50,13 +50,21 @@ class TodoStoreTest(unittest.TestCase):
         self.assertEqual("", legacy["source_document_id"])
 
     def test_source_document_id_remains_stable_when_other_task_fields_change(self):
-        task = self.store.add("Document task", "admin", {"source_document_id": "doc-1"})
-        updated = self.store.update(task["id"], {"due": "2026-11-01", "status": "in-process"}, "admin")
+        task = self.store.add("Document task", "admin", {"source_document_id": "forged-doc"}, source_document_id="doc-1")
+        updated = self.store.update(
+            task["id"],
+            {"due": "2026-11-01", "status": "in-process", "source_document_id": "attacker-doc"},
+            "admin",
+        )
         self.assertEqual("doc-1", updated["source_document_id"])
 
     def test_source_document_id_rejects_path_like_values(self):
         with self.assertRaisesRegex(ValueError, "invalid source document identifier"):
-            self.store.add("Document task", "admin", {"source_document_id": "../private/file.pdf"})
+            self.store.add("Document task", "admin", source_document_id="../private/file.pdf")
+
+    def test_untrusted_task_creation_cannot_set_source_document_id(self):
+        task = self.store.add("Generic task", "admin", {"source_document_id": "forged-document"})
+        self.assertEqual("", task["source_document_id"])
 
     def test_smart_folder_task_link_requires_authorized_creation_and_survives_updates(self):
         folder_id = "a" * 32
@@ -90,10 +98,10 @@ class TodoStoreTest(unittest.TestCase):
     def test_caldav_partial_put_preserves_source_and_related_document_ids(self):
         task = self.store.add("Source document", "admin", {
             "uid": "source-document@example.test",
-            "source_document_id": "source-1",
+            "source_document_id": "attacker-source",
             "document_ids": ["source-1", "related-1"],
             "email_document_id": "email-1",
-        })
+        }, source_document_id="source-1")
         changed, created = self.store.put_resource(
             self.store.resource(task),
             {"uid": task["uid"], "title": "Review the source", "status": "in-process"},
@@ -105,6 +113,26 @@ class TodoStoreTest(unittest.TestCase):
         self.assertEqual("source-1", changed["source_document_id"])
         self.assertEqual(["related-1"], changed["document_ids"])
         self.assertEqual("email-1", changed["email_document_id"])
+
+    def test_caldav_cannot_forge_or_replace_source_document_id(self):
+        created, was_created = self.store.put_resource(
+            "forged-source.ics",
+            {"uid": "forged-source@example.test", "title": "Imported task", "source_document_id": "attacker-doc"},
+            "admin",
+            create_only=True,
+        )
+        self.assertTrue(was_created)
+        self.assertEqual("", created["source_document_id"])
+
+        trusted = self.store.add("Document task", "admin", source_document_id="trusted-doc")
+        changed, was_created = self.store.put_resource(
+            self.store.resource(trusted),
+            {"uid": trusted["uid"], "title": "Updated task", "source_document_id": "attacker-doc"},
+            "admin",
+            expected_etag=self.store.etag(trusted),
+        )
+        self.assertFalse(was_created)
+        self.assertEqual("trusted-doc", changed["source_document_id"])
 
     def test_resource_etag_sync_and_tombstone(self):
         values = {"uid": "task-1@example.test", "title": "CalDAV", "status": "needs-action", "due": "2026-09-02"}
