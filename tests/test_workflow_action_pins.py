@@ -211,7 +211,11 @@ class WorkflowActionPinTests(unittest.TestCase):
             "- name: Audit Electron npm dependencies", 1,
         )[1].split("- name:", 1)[0]
         self.assertIn("if: matrix.os == 'ubuntu-24.04'", audit_step)
-        self.assertIn("npm audit --audit-level=moderate", audit_step)
+        self.assertIn("python ../../tools/electron_npm_audit.py", audit_step)
+        audit_helper = (root / "tools/electron_npm_audit.py").read_text(
+            encoding="utf-8",
+        )
+        self.assertIn('["npm", "audit", "--json"]', audit_helper)
 
     def test_browser_test_tools_are_hash_locked_in_consuming_workflows(self):
         root = Path(__file__).resolve().parents[1]
