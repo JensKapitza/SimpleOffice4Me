@@ -98,6 +98,21 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
         task = TodoStore(self.root).items("jens")[0]
         self.assertEqual("", task["source_document_id"])
 
+    def test_legacy_stale_source_id_does_not_produce_broken_link(self):
+        TodoStore(self.root).add(
+            "Missing document",
+            "jens",
+            source_document_id="nonexistent-source-id",
+        )
+
+        for url in ("/documents/tasks", "/tasks/"):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertEqual(200, response.status_code)
+                body = response.get_data(as_text=True)
+                self.assertIn("Quelldatei nicht verfügbar oder Zugriff verweigert", body)
+                self.assertNotIn("Quelldatei öffnen", body)
+
     def test_generic_board_cannot_forge_source_provenance(self):
         response = self.client.post(
             "/tasks/", data={"title": "Forged task", "source_document_id": "forged-document"},
