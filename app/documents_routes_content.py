@@ -721,7 +721,10 @@ def run_restic(repository_id: str, action: str):
 @bp.post("/todo")
 @login_required
 def add_todo():
-    try: _todos().add(request.form.get("title", ""), str(g.user["username"]), request.form.to_dict())
+    try:
+        values = request.form.to_dict()
+        values.pop("source_document_id", None)
+        _todos().add(request.form.get("title", ""), str(g.user["username"]), values)
     except ValueError as exc: flash(str(exc))
     return redirect(url_for("documents.tasks") if request.form.get("return_to") == "tasks" else url_for("documents.dashboard"))
 
@@ -768,7 +771,7 @@ def tasks():
     for document_id in document_ids:
         try:
             document = _store().get_document(document_id)
-        except ValueError:
+        except (OSError, ValueError):
             continue
         if not document.get("last_path") or document.get("system_state") == "webdav_deleted":
             continue
