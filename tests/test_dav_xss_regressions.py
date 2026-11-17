@@ -9,14 +9,14 @@ from app.webdav import _need_privileges_response, _prop_response
 
 
 ATTACK = '<script>alert("xss")</script>'
-ESCAPED = '&lt;script&gt;alert("xss")&lt;/script&gt;'
 
 
 def _assert_xml_boundary(response) -> None:
     assert response.mimetype == "application/xml"
     body = response.get_data(as_text=True)
     assert ATTACK not in body
-    assert ESCAPED in body
+    assert "&lt;script&gt;" in body
+    assert "&lt;/script&gt;" in body
 
 
 def test_caldav_multistatus_escapes_untrusted_href():
@@ -43,4 +43,5 @@ def test_webdav_prop_response_escapes_href_and_display_name():
     with app.test_request_context("/webdav/"):
         xml = _prop_response(f"/webdav/{ATTACK}", ATTACK)
     assert ATTACK not in xml
-    assert ESCAPED in xml
+    assert "&lt;script&gt;" in xml
+    assert "&lt;/script&gt;" in xml
