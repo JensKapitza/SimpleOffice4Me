@@ -54,6 +54,33 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
                 detail = self.client.get(links[0]["href"])
                 self.assertEqual(200, detail.status_code)
 
+    def test_anonymous_browser_cannot_read_task_views_or_source(self):
+        document_id = self._create_document_task()
+        anonymous = app.test_client()
+
+        for url in ("/documents/tasks", "/tasks/", f"/documents/{document_id}"):
+            with self.subTest(url=url):
+                response = anonymous.get(url)
+                self.assertNotEqual(200, response.status_code)
+                self.assertNotIn("Quelldatei öffnen", response.get_data(as_text=True))
+
+    def test_anonymous_browser_cannot_create_document_source_task(self):
+        document = DocumentStore(self.root).import_upload(
+            io.BytesIO(b"protected fixture"), "protected.txt", "jens",
+        )
+        anonymous = app.test_client()
+
+        response = anonymous.post(
+            f"/documents/{document['document_id']}/tasks",
+            data={"title": "Unauthorized task"},
+        )
+
+        self.assertIn(response.status_code, (302, 401, 403))
+        self.assertFalse(any(
+            task["title"] == "Unauthorized task"
+            for task in TodoStore(self.root).items("jens")
+        ))
+
     def test_legacy_task_without_source_still_renders(self):
         created = self.client.post("/documents/todo", data={"title": "Legacy task"})
         self.assertEqual(302, created.status_code)
@@ -94,6 +121,129 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
         self.assertEqual(document_id, updated.get("source_document_id"))
         self._source_link("/tasks/", document_id)
 
+    def test_legacy_task_update_cannot_forge_source_provenance(self):
+        self.client.post("/documents/todo", data={"title": "Unlinked task"})
+        task = next(row for row in TodoStore(self.root).items("jens") if row["title"] == "Unlinked task")
+
+        response = self.client.post(
+            f"/documents/todo/{task['id']}",
+            data={
+                "title": "Still unlinked",
+                "status": "in-process",
+                "return_to": "tasks",
+                "source_document_id": "forged-source",
+            },
+        )
+
+        self.assertEqual(302, response.status_code)
+        updated = next(row for row in TodoStore(self.root).items("jens") if row["id"] == task["id"])
+        self.assertFalse(updated.get("source_document_id"))
+
+    def test_invalid_document_id_cannot_create_source_task(self):
+        before = len(TodoStore(self.root).items("jens"))
+
+        response = self.client.post(
+            "/documents/not-a-real-document/tasks",
+            data={"title": "Orphaned task"},
+        )
+
+        self.assertEqual(404, response.status_code)
+        self.assertEqual(before, len(TodoStore(self.root).items("jens")))
+
+    def test_filtered_task_views_preserve_source_link(self):
+        document_id = self._create_document_task()
+        task = next(
+            row for row in TodoStore(self.root).items("jens")
+            if row.get("source_document_id") == document_id
+        )
+        status = task.get("status", "needs-action")
+
+        for url in (f"/documents/tasks?status={status}", f"/tasks/?status={status}"):
+            with self.subTest(url=url):
+                self._source_link(url, document_id)
+
+    def test_task_board_subtask_does_not_inherit_source_provenance(self):
+        document_id = self._create_document_task()
+        parent = next(
+            row for row in TodoStore(self.root).items("jens")
+            if row.get("source_document_id") == document_id
+        )
+
+        response = self.client.post(
+            f"/tasks/{parent['id']}/subtasks",
+            data={"title": "Independent subtask", "source_document_id": "forged-document"},
+        )
+
+        self.assertEqual(302, response.status_code)
+        child = next(
+            row for row in TodoStore(self.root).items("jens")
+            if row["title"] == "Independent subtask"
+        )
+        self.assertFalse(child.get("source_document_id"))
+        self.assertEqual(parent["uid"], child.get("parent_uid"))
+
+    def test_task_status_change_preserves_source_document(self):
+        document_id = self._create_document_task()
+        task = next(
+            row for row in TodoStore(self.root).items("jens")
+            if row.get("source_document_id") == document_id
+        )
+
+        response = self.client.post(
+            f"/tasks/{task['id']}/move",
+            data={"status": "in-process"},
+        )
+
+        self.assertEqual(302, response.status_code)
+        saved = next(row for row in TodoStore(self.root).items("jens") if row["id"] == task["id"])
+        self.assertEqual("in-process", saved["status"])
+        self.assertEqual(document_id, saved["source_document_id"])
+
+    def test_invalid_board_move_keeps_source_and_status(self):
+        document_id = self._create_document_task()
+        task = next(
+            row for row in TodoStore(self.root).items("jens")
+            if row.get("source_document_id") == document_id
+        )
+        original_status = task["status"]
+
+        response = self.client.post(
+            f"/tasks/{task['id']}/move",
+            data={"status": "not-a-valid-status", "source_document_id": "forged-document"},
+        )
+
+        self.assertEqual(302, response.status_code)
+        saved = next(row for row in TodoStore(self.root).items("jens") if row["id"] == task["id"])
+        self.assertEqual(original_status, saved["status"])
+        self.assertEqual(document_id, saved["source_document_id"])
+
+    def test_document_task_ignores_forged_source_id_and_retains_link_after_update(self):
+        document_id = self._create_document_task()
+        forged = self.client.post(
+            f"/documents/{document_id}/tasks",
+            data={"title": "Forged source", "source_document_id": "attacker-document"},
+        )
+        self.assertEqual(302, forged.status_code)
+        task = next(row for row in TodoStore(self.root).items("jens") if row["title"] == "Forged source")
+        self.assertEqual(document_id, task["source_document_id"])
+
+        updated = self.client.post(
+            f"/documents/todo/{task['id']}",
+            data={
+                "title": "Updated task",
+                "status": "in-process",
+                "return_to": "tasks",
+                "source_document_id": "attacker-document",
+            },
+        )
+
+        self.assertEqual(302, updated.status_code)
+        saved = next(row for row in TodoStore(self.root).items("jens") if row["id"] == task["id"])
+        self.assertEqual(document_id, saved["source_document_id"])
+        for url in ("/documents/tasks", "/tasks/"):
+            with self.subTest(url=url):
+                self._source_link(url, document_id)
+
     def test_revoked_document_access_prevents_new_source_task(self):
         document = DocumentStore(self.root).import_upload(io.BytesIO(b"protected fixture"), "protected.txt", "jens")
         document_id = document["document_id"]
@@ -120,9 +270,45 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
             raise OSError("simulated storage unavailable")
 
         with patch.object(DocumentStore, "get_document", storage_unavailable):
-            response = self.client.get("/documents/tasks")
+            for url in ("/documents/tasks", "/tasks/"):
+                with self.subTest(url=url):
+                    self.assertEqual(200, self.client.get(url).status_code)
 
-        self.assertEqual(200, response.status_code)
+    def test_revoked_document_access_hides_source_navigation(self):
+        document_id = self._create_document_task()
+
+        def deny_source(store, reference):
+            if str(reference) == document_id:
+                raise ValueError("document access revoked")
+            raise ValueError("unknown document")
+
+        with patch.object(DocumentStore, "get_document", deny_source):
+            for url in ("/documents/tasks", "/tasks/"):
+                with self.subTest(url=url):
+                    response = self.client.get(url)
+                    self.assertEqual(200, response.status_code)
+                    body = response.get_data(as_text=True)
+                    self.assertIn("Quelldatei nicht verfügbar oder Zugriff verweigert", body)
+                    self.assertNotIn(f'href="/documents/{document_id}"', body)
+
+    def test_source_without_last_path_does_not_offer_broken_link(self):
+        document_id = self._create_document_task()
+        original_get_document = DocumentStore.get_document
+
+        def document_without_path(store, reference):
+            result = original_get_document(store, reference)
+            if str(reference) == document_id:
+                result = {**result, "last_path": ""}
+            return result
+
+        with patch.object(DocumentStore, "get_document", document_without_path):
+            for url in ("/documents/tasks", "/tasks/"):
+                with self.subTest(url=url):
+                    response = self.client.get(url)
+                    self.assertEqual(200, response.status_code)
+                    body = response.get_data(as_text=True)
+                    self.assertIn("Quelldatei nicht verfügbar oder Zugriff verweigert", body)
+                    self.assertNotIn(f'href="/documents/{document_id}"', body)
 
     def test_default_source_task_text_does_not_disclose_the_filename(self):
         filename = "private-customer-contract.pdf"
