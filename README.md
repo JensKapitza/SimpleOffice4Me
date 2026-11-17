@@ -42,7 +42,7 @@ vor (Foto-Befunde, Kontakt- und Objektvorschläge, Aufgaben mit Freigabe):
 Menschen prüfen und übernehmen ausdrücklich – keine automatische Buchung,
 keine automatische Mail, keine Geld- oder Außenaktion ohne Freigabe.
 
-Die Wettbewerbsfassung (Branch `hackathon/contextflow-mvp`) läuft
+Die Wettbewerbsfassung, wie im [ContextFlow-Hackathon-README](docs/hackathon/contextflow/README.md) dokumentiert, läuft
 ausschließlich mit Meta-Modellen: Cloud-Pin exakt
 `muse-spark-1.3-contributor` über die Meta Model API (nur synthetische
 Demo-Daten, nur mit Einwilligung); lokal nur allowlist-gelockte
