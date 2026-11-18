@@ -47,7 +47,7 @@
           {% if briefing.shopping %}<div class="card-body">
             <a class="fw-semibold" href="{{ url_for('shopping.index', list_id=briefing.shopping.list_id) }}">{{ briefing.shopping.name }}</a>
             <div class="d-flex flex-wrap justify-content-between gap-2 mt-1"><span>{{ briefing.shopping.item_count }} {{ 'items open' if g.language == 'en' else 'Artikel offen' }}</span><strong>{{ briefing.shopping.estimated_total }}</strong></div>
-            <ul class="small text-secondary mb-0 mt-2">{% for item in briefing.shopping.items %}<li>{{ item.name }}{% if item.quantity %} · {{ item.quantity }}{% endif %}</li>{% endfor %}</ul>
+            <ul class="small text-secondary mb-0 mt-2">{% for item in briefing.shopping['items'] %}<li>{{ item.name }}{% if item.quantity %} · {{ item.quantity }}{% endif %}</li>{% endfor %}</ul>
             {% if briefing.shopping.missing_prices %}<div class="small text-secondary mt-2">{{ briefing.shopping.missing_prices }} {{ 'items without price are excluded from the estimate.' if g.language == 'en' else 'Artikel ohne Preis sind nicht in der Summe enthalten.' }}</div>{% endif %}
           </div>{% else %}<div class="card-body text-secondary">{{ 'No open shopping items.' if g.language == 'en' else 'Keine offenen Einkaufsartikel.' }}</div>{% endif %}
         </div>
