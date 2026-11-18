@@ -145,12 +145,12 @@ class RemoteAppCatalogSecurityTests(unittest.TestCase):
             "unsupported": {**active, "platform": "linux"},
             "unknown": OSError("private runtime probe details"),
         }
-        for expected, status in cases.items():
+        for expected, agent_state in cases.items():
             with self.subTest(expected=expected):
-                if isinstance(status, Exception):
-                    mocked_status = patch("app.remote_apps.status", side_effect=status)
+                if isinstance(agent_state, Exception):
+                    mocked_status = patch("app.remote_apps.status", side_effect=agent_state)
                 else:
-                    mocked_status = patch("app.remote_apps.status", return_value=status)
+                    mocked_status = patch("app.remote_apps.status", return_value=agent_state)
                 with mocked_status:
                     response = self.client.get("/remote/apps")
                 self.assertEqual(200, response.status_code)
