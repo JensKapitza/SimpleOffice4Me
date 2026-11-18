@@ -6,6 +6,8 @@ Basis ist `main@e5088f18`. Bei der Vergabe lieferte `gh pr list --limit 100` kei
 
 Das Inventar umfasst 4.760 versionierte Dateien, darunter 627 unter `app/`, 224 Templates, 732 Testdateien und 2.664 statische Dateien. Die Sichtung über das Repository umfasst Struktur, Dateigrößen, lokale Webressourcen und Testlandschaft. Die fachliche Tiefenprüfung dieser Runde konzentriert sich auf Dokumente, Lesezeichen und Chat. Native Clients, Installationsskripte und weitere Fachmodule sind im Inventar erfasst. Ihre Laufzeitfunktionen sind in dieser Runde nicht abgenommen.
 
+Die zusätzliche Python-Strukturanalyse lief mit `ast.parse` über alle 1.421 Python-Dateipfade der Basisrevision im bearbeiteten Worktree. 1.420 Dateien ließen sich mit Python 3.12 parsen. 35 davon enthalten mindestens einen Sternimport. Eine mitgelieferte Datei, `libs/jbig2enc/pdf.py`, verwendet Python-2-Printsyntax. Vor einer Änderung ist zu klären, ob Packaging oder OCR-Werkzeuge dieses Drittanbieterskript ausführen. Der Parserbefund allein belegt keinen Fehler im laufenden OCR.
+
 ## Vergabe und Reihenfolge
 
 |Priorität|Paket und Zuständigkeit|Arbeitsgrenze und Abnahmekriterium|
@@ -77,3 +79,6 @@ Jede Übergabe enthält Paket-ID, Status, Ist, Soll, Dateien, Schritte, Zwischen
 - Der Folgeauftrag an mesh_arch prüfte die lokal geladene Chat-CSS und das tatsächliche Senden in einem angemeldeten Raum mit Chromium bei 390 × 844. Die Nachricht erschien nach dem Senden im Verlauf. Der Desktopvergleich lief bei 1365 × 900. Den realen Geräteabstand am unteren Displayrand konnte die Emulation nur mit 0 px prüfen.
 - `python -m unittest tests.test_frontend_route_contract -v` ergab **21 bestanden**. Playwright protokollierte beim Beenden einzelner Verbindungen Warnungen. Der separate Browserlauf mit System-Chromium konnte den Chat dennoch über HTTP bedienen.
 - Projekt-Policy, Datei- und Funktionsgröße, CRA-Prüfung und die betroffenen Python-Dateien mit Ruff wurden lokal geprüft. Gesamt-CI und Freigabe erfolgen auf dem PR. Für diese Runde wurde kein Merge ausgelöst.
+- Der separate Unit-Test `python -m unittest tests.test_browser_bookmarks` bestand für `%`, `_`, `!` und ihre Kombination. Der unabhängige Prüfer hat die endgültige Abbruchbedingung für beide Dokumentlisten, die Sichtbarkeitsfilter und den mobilen CSS-Grenzfall kontrolliert. Er meldete keinen lokalen Freigabeblocker. Sehr hohe angeforderte Seitennummern können weiterhin einen Durchlauf bis zum Ende des Katalogs erfordern.
+- Gemeinsamer Änderungsstand und laufende CI sind in [PR #1080](https://github.com/JensKapitza/SimpleOffice4Me/pull/1080) einsehbar.
+- Mobile Abschlussprüfung der Dateiverwaltung mit `python -m unittest tests.test_document_list_pagination_browser` bestanden. Im echten Flask-Frontend bei 375 × 812 sah ein normaler Benutzer von 120 Testdateien in Übersicht und Eingang jeweils den Bereich 1–100. Nach Antippen von „Weiter“ erschien der Bereich 101–118 mit insgesamt 118 sichtbaren Dateien. Beide privaten Chat-Dateien blieben verborgen. Der Test prüft auch horizontalen Überlauf.
