@@ -82,3 +82,17 @@ Jede Übergabe enthält Paket-ID, Status, Ist, Soll, Dateien, Schritte, Zwischen
 - Der separate Unit-Test `python -m unittest tests.test_browser_bookmarks` bestand für `%`, `_`, `!` und ihre Kombination. Der unabhängige Prüfer hat die endgültige Abbruchbedingung für beide Dokumentlisten, die Sichtbarkeitsfilter und den mobilen CSS-Grenzfall kontrolliert. Er meldete keinen lokalen Freigabeblocker. Sehr hohe angeforderte Seitennummern können weiterhin einen Durchlauf bis zum Ende des Katalogs erfordern.
 - Gemeinsamer Änderungsstand und laufende CI sind in [PR #1080](https://github.com/JensKapitza/SimpleOffice4Me/pull/1080) einsehbar.
 - Mobile Abschlussprüfung der Dateiverwaltung mit `python -m unittest tests.test_document_list_pagination_browser` bestanden. Im echten Flask-Frontend bei 375 × 812 sah ein normaler Benutzer von 120 Testdateien in Übersicht und Eingang jeweils den Bereich 1–100. Nach Antippen von „Weiter“ erschien der Bereich 101–118 mit insgesamt 118 sichtbaren Dateien. Beide privaten Chat-Dateien blieben verborgen. Der Test prüft auch horizontalen Überlauf.
+
+## Folgeauftrag · Sichtbare Suchtreffer · 18. November 2026
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Auf Basis von `main@92a24452` geprüft. Die bisherige Suche wandte die Rechteprüfung erst auf eine fertige Indexseite an. Auch die Schnell- und Projektsuche verwenden diesen Einstieg. Der vorherige PR #1080 war nach erfolgreichen Pflichtprüfungen gemergt. |
+| Planung | `search_impl` übernimmt die Store-Implementierung, `search_test` eine separate Regression mit privaten Chat-Dokumenten, `search_review` die unabhängige Prüfung. Alle drei arbeiten mit GPT-6 Luna. Der Integrator prüft den echten Handy-Browserablauf. |
+| Implementierung | Sichtbarkeit vor dem Seitenschnitt prüfen und beim ersten zusätzlichen sichtbaren Treffer stoppen. Die Zwischenfassung verwendete mehrere Indexabfragen mit Offset. Im Review wurde ein gemeinsamer Cursor für die Dauer einer Suche gefordert, damit der Index innerhalb eines Aufrufs konsistent gelesen wird. |
+| Tests | `python -m unittest tests.test_document_search_visibility tests.test_document_store tests.test_index_performance tests.test_search_query tests.test_document_list_pagination_browser`. Enthalten sind private Chat-Dokumente zwischen sichtbaren Treffern, eine leere Suche, eine extrem hohe Seitennummer, XOR und eine SQLite-Tabelle ohne FTS. |
+| Soll-Ist-Vergleich | In Chromium bei 375 × 812 wurden alle 118 sichtbaren Dateien aus 120 Testdateien über die regulären Weiter-Links gefunden. Die Seiten enthielten 25, 25, 25, 25 und 18 Treffer. Beide privaten Dateien blieben verborgen. Auf der letzten Seite gab es keinen Weiter-Link. |
+| Review | Der unabhängige Prüfer kontrollierte Berechtigungen, Speicherverbrauch und beide Abfragepfade. Die Endfassung sortiert explizit nach Index-Zeilen-ID. Ohne Benutzerkontext bleiben Limit und Offset in SQLite. Bei bestehenden Indizes ohne FTS ist der SQL-Ersatz separat getestet. |
+| Abschluss und Folgearbeit | Für tiefe Seiten muss die Suche die Leserechte der vorangehenden Treffer erneut prüfen. Ein Folgeauftrag für Performance-Messungen soll abhängig vom Anteil privater Dokumente die Metadatenzugriffe und Laufzeiten auf Seite 1 und auf tiefen Seiten vergleichen. |
+
+Der kombinierte lokale Lauf bestand alle 72 Tests. Ruff, Projekt-Policy, Datei- und Funktionsgrößen, CRA und `git diff --check` waren erfolgreich.
