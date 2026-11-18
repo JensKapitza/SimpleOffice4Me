@@ -8,7 +8,8 @@ settle, renumber, rewrite, or regenerate either invoice or PDF. They are shown
 from either invoice, may be removed by a user who can manage the customer, and
 soft-removal plus creation events remain in the invoice relationship store.
 Self-links, duplicate active links, and directed cycles are rejected.
-The invoice overview can filter by project or by a linked invoice and includes
+Under **Finance → Invoices → Advanced filters**, the overview can filter by
+project or by a linked invoice and includes
 project and related invoice numbers in its text search. Only invoices and
 relationships accessible to the current user are offered as filter choices.
 

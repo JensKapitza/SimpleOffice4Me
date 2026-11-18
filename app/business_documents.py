@@ -32,10 +32,10 @@ from .business_template_dispatch import (
 from .invoice_addresses import parse_free_text_invoice_address as _parse_free_text_invoice_address
 from .invoice_access import _managed_invoice  # noqa: F401 (re-exported facade for invoice_relation_routes)
 from .invoice_display import _display_zugferd
+from .invoice_overview_routes import invoice_overview
 from .invoice_relations import (
     INVOICE_RELATION_TYPES,
     INVOICE_RELATION_TYPES_EN,
-    invoice_overview_data,
     invoice_reference_candidates,
     invoice_relationship_context,
 )
@@ -806,26 +806,7 @@ def customer_document_archive_download(contact_id: str):
     response.call_on_close(target.close)
     return response
 
-@bp.get("/invoices")
-@login_required
-def invoice_overview():
-    root, actor = _root(), _actor()
-    query = request.args.get("q", "").strip()
-    selected_status = request.args.get("status", "").strip()
-    selected_project_id = request.args.get("project_id", "").strip()
-    selected_related_invoice_id = request.args.get("related_invoice_id", "").strip()
-    rows, project_options, related_options, relation_error = invoice_overview_data(
-        root, actor, query, selected_status, selected_project_id,
-        selected_related_invoice_id,
-    )
-    stats={"total":len(rows),"open":sum(row["payment_state"]["status"] in {"open","partial"} for row in rows),"overdue":sum(row["payment_state"]["status"]=="overdue" for row in rows),"paid":sum(row["payment_state"]["status"] in {"paid","credited"} for row in rows),"written_off":sum(row["payment_state"]["status"]=="written_off" for row in rows)}
-    from .invoice_collection import suggest_collection
-    return render_template(
-        "documents/invoice_overview.html", rows=rows, stats=stats, query=query,
-        selected_status=selected_status, project_options=project_options,
-        selected_project_id=selected_project_id, related_options=related_options,
-        selected_related_invoice_id=selected_related_invoice_id, relation_error=relation_error,
-        collection_suggestions=suggest_collection(rows))
+bp.add_url_rule("/invoices", view_func=invoice_overview, methods=["GET"])
 
 @bp.route("/invoices/new", methods=("GET", "POST"))
 @login_required

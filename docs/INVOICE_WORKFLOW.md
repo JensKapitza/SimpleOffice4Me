@@ -1,6 +1,6 @@
 # Invoice creation workflow
 
-Invoices can be started from **Documents → Invoices → Create invoice** or from
+Invoices can be started from **Finance → Invoices → Create invoice** or from
 an open task on that task's contact page. The customer selector searches
 contacts the signed-in user may manage. A task-started invoice stays scoped to
 the task's customer.
@@ -23,6 +23,14 @@ Creating an invoice never completes the task automatically.
 If a draft changes after an editor was opened elsewhere, saving the stale form is
 rejected with HTTP 409; reload the latest draft before continuing to prevent
 one session from silently replacing another session's changes.
+
+The invoice overview has a text search and a payment status filter. Open
+**Advanced filters** to select a project, a linked invoice, or an inclusive
+range of invoice issue dates. Status shortcuts keep the other filters.
+**Export results as CSV** downloads the current results as UTF-8 with a
+semicolon delimiter. The download uses the same contact permissions and
+contains the invoice number, customer, issue date, due date, status, currency,
+gross amount and outstanding amount.
 
 Invoice and task access is checked server-side. The invoice draft editor and
 finalization routes retain the application's authenticated mutation/CSRF

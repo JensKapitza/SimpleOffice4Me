@@ -1,14 +1,26 @@
 # Dokumentenverwaltung nach Paperless-Prinzip
 
-## 1. Bestandsaufnahme
+## Aktueller Einstieg
 
-SimpleOffice4Me ist derzeit ein Flask- und SQLite-Grundgerüst:
+SimpleOffice4Me bietet heute einen Dokumenteneingang, eine Dokumentliste,
+Metadaten, lokale Texterkennung und Volltextsuche. Für den Betrieb und die
+Bedienung gelten die aktuellen Anleitungen zu [Einlesen und OCR](DIGITALES_BUECHERREGAL.md),
+[Dokumentsuche](DOKUMENTSUCHE_RETRIEVAL.md), [Smart Views](SMART_VIEWS.md)
+und dem optionalen [3.0-Eingangskorb](V3_INBOX.md).
+
+Die folgenden Abschnitte halten den ursprünglichen Entwurf fest. Die Übersicht
+zum geprüften Funktionsstand verlinkt die dazugehörigen Codepfade und offenen
+Aufgaben. [Funktionsabgleich](FUNKTIONSABGLEICH.md)
+
+## 1. Bestandsaufnahme des ursprünglichen Entwurfs
+
+Zu Beginn dieses Entwurfs bestand SimpleOffice4Me aus einem Flask- und SQLite-Grundgerüst:
 
 - Benutzerregistrierung und Anmeldung sind vorhanden.
 - `database/files` ist als lokaler Dateispeicher vorgesehen.
 - CLI-Kommandos importieren Bild- und PDF-Dateien und verwenden bereits
   `unpaper`, `ocrmypdf`, Tesseract, `unoconv` und `pdftk`.
-- Die Startseite ist ein Platzhalter. Es gibt kein Dokumentmodell, keine
+- Die Startseite war ein Platzhalter. Es gab kein Dokumentmodell, keine
   Dokumentliste, keine Volltextsuche, keine Metadaten und keinen automatischen
   Eingang.
 

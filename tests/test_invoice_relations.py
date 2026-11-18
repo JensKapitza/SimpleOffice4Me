@@ -1,3 +1,4 @@
+import csv
 import hashlib
 import json
 import secrets
@@ -5,7 +6,7 @@ import tempfile
 import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
-from io import BytesIO
+from io import BytesIO, StringIO
 from pathlib import Path
 
 from app import app
@@ -335,7 +336,13 @@ class InvoiceRelationshipRouteTests(unittest.TestCase):
 
         project_response = self.client.get("/documents/business/invoices?project_id=project-a")
         self.assertEqual(200, project_response.status_code)
-        project_rows = project_response.get_data(as_text=True).partition("<tbody>")[2].partition("</tbody>")[0]
+        project_html = project_response.get_data(as_text=True)
+        self.assertIn('name="project_id"', project_html)
+        self.assertIn('value="project-a" selected', project_html)
+        self.assertIn('name="related_invoice_id"', project_html)
+        self.assertIn('value="invoice-b"', project_html)
+        self.assertIn('format=csv&amp;project_id=project-a', project_html)
+        project_rows = project_html.partition("<tbody>")[2].partition("</tbody>")[0]
         self.assertIn("2026-0001", project_rows)
         self.assertNotIn("2026-0002", project_rows)
 
@@ -347,6 +354,47 @@ class InvoiceRelationshipRouteTests(unittest.TestCase):
         self.assertIn("2026-0001", table_rows)
         self.assertNotIn("2026-0002", table_rows)
         self.assertNotIn("2026-0003", table_rows)
+
+    def test_invoice_csv_uses_the_same_filters_and_scope_as_the_overview(self):
+        self.invoice_a["buyer"]["name"] = "  =1+1"
+        self.invoice_b["issue_date"] = "2026-10-02"
+        for row in (self.invoice_a, self.invoice_b):
+            path = self.root / CONTROL_DIR / "invoices" / f"{row['invoice_id']}.json"
+            path.write_text(json.dumps(row), encoding="utf-8")
+        InvoiceRelationStore(self.root).add_relationship(
+            "invoice-a", "invoice-b", "follow_up", "invoice-owner",
+        )
+        filters = {"date_from": "2026-10-01", "date_to": "2026-10-01", "related_invoice_id": "invoice-b"}
+        overview = self.client.get("/documents/business/invoices", query_string=filters)
+        self.assertEqual(200, overview.status_code)
+        table = overview.get_data(as_text=True).partition("<tbody>")[2]
+        self.assertIn("2026-0001", table)
+        self.assertNotIn("2026-0002", table)
+        self.assertNotIn("2026-0003", table)
+
+        response = self.client.get("/documents/business/invoices", query_string={**filters, "format": "csv"})
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("text/csv", response.mimetype)
+        self.assertEqual('attachment; filename="invoices.csv"', response.headers["Content-Disposition"])
+        self.assertEqual("private, no-store", response.headers["Cache-Control"])
+        rows = list(csv.DictReader(StringIO(response.data.decode("utf-8-sig")), delimiter=";"))
+        self.assertEqual(["2026-0001"], [row["invoice_number"] for row in rows])
+        self.assertEqual("'  =1+1", rows[0]["customer"])
+        self.assertEqual("119.00", rows[0]["gross"])
+
+        outsider = self.outsider.get("/documents/business/invoices?format=csv")
+        self.assertEqual(200, outsider.status_code)
+        self.assertEqual([], list(csv.DictReader(StringIO(outsider.data.decode("utf-8-sig")), delimiter=";")))
+        anonymous = app.test_client().get("/documents/business/invoices?format=csv")
+        self.assertEqual(302, anonymous.status_code)
+
+    def test_invoice_overview_rejects_an_invalid_or_reversed_date_range(self):
+        for filters in ({"date_from": "2026-02-30"}, {"date_from": "2026-10-02", "date_to": "2026-10-01"}):
+            with self.subTest(filters=filters):
+                response = self.client.get("/documents/business/invoices", query_string={**filters, "format": "csv"})
+                self.assertEqual(400, response.status_code)
+                self.assertNotIn("Content-Disposition", response.headers)
+                self.assertIn('role="alert"', response.get_data(as_text=True))
 
     def test_internal_annotation_can_be_revised_through_versioned_route(self):
         self.client.post(
