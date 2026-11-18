@@ -7,9 +7,43 @@
   <p class="text-secondary">{{ 'Created by' if g.language == 'en' else 'Erstellt von' }} {{ record.created_by }} · {{ 'last changed by' if g.language == 'en' else 'zuletzt geändert von' }} {{ record.updated_by }}</p>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   <div class="card"><div class="card-header">{{ form.name }} {{ 'edit' if g.language == 'en' else 'bearbeiten' }}</div><div class="card-body"><form method="post" class="row g-3">
-    {% for field in form.fields if not (form.layout|default('') == 'invoice' and field.key in ['net_amount', 'tax_amount', 'gross_amount']) %}<div class="{{ 'col-12' if field.type == 'textarea' else 'col-md-6' }}"><label class="form-label">{{ field.label }}{% if field.required %} *{% endif %}</label>{% if field.type == 'textarea' %}<textarea class="form-control" name="{{ field.key }}" {% if field.required %}required{% endif %}>{{ record['values'].get(field.key, '') }}</textarea>{% elif field.type == 'select' or field.type == 'relation' %}<select class="form-select" name="{{ field.key }}" {% if field.required %}required{% endif %}><option value=""></option>{% for option in (relation_choices.get(field.key, []) if field.type == 'relation' else field.options) %}{% set value = option[0] if field.type == 'relation' else option %}{% set label = option[1] if field.type == 'relation' else option %}<option value="{{ value }}" {% if record['values'].get(field.key) == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>{% else %}<input class="form-control" type="{{ 'number' if field.type in ['number','currency'] else field.type }}" {% if field.type == 'currency' %}step="0.01"{% endif %} name="{{ field.key }}" value="{{ record['values'].get(field.key, '') }}" {% if field.required %}required{% endif %}>{% endif %}</div>{% endfor %}
+    <input type="hidden" name="_expected_updated_at" value="{{ record.updated_at }}">
+    {% for field in form.fields if not (form.layout|default('') == 'invoice' and field.key in ['net_amount', 'tax_amount', 'gross_amount']) %}
+    <div class="{{ 'col-12' if field.type == 'textarea' else 'col-md-6' }}">
+      <label class="form-label" for="field-{{ field.key }}">{{ field.label }}{% if field.required %} *{% endif %}</label>
+      {% if form.form_id == 'product' and field.key == 'stock' %}
+        <input class="form-control" id="field-{{ field.key }}" value="{{ record['values'].get(field.key, '') }}" readonly aria-describedby="stock-help">
+        <div id="stock-help" class="form-text">{{ 'Adjust stock below so every change has a reason and history.' if g.language == 'en' else 'Bestand unten ändern, damit Grund und jede Bewegung nachvollziehbar bleiben.' }}</div>
+      {% elif field.type == 'textarea' %}
+        <textarea class="form-control" id="field-{{ field.key }}" name="{{ field.key }}" {% if field.required %}required{% endif %}>{{ record['values'].get(field.key, '') }}</textarea>
+      {% elif field.type == 'select' or field.type == 'relation' %}
+        <select class="form-select" id="field-{{ field.key }}" name="{{ field.key }}" {% if field.required %}required{% endif %}><option value=""></option>{% for option in (relation_choices.get(field.key, []) if field.type == 'relation' else field.options) %}{% set value = option[0] if field.type == 'relation' else option %}{% set label = option[1] if field.type == 'relation' else option %}<option value="{{ value }}" {% if record['values'].get(field.key) == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+      {% else %}
+        <input class="form-control" id="field-{{ field.key }}" type="{{ 'number' if field.type in ['number','currency'] else field.type }}" {% if field.type == 'currency' %}step="0.01"{% endif %} name="{{ field.key }}" value="{{ record['values'].get(field.key, '') }}" {% if field.required %}required{% endif %}>
+      {% endif %}
+    </div>
+    {% endfor %}
     {% if form.layout|default('') == 'invoice' %}{% include 'documents/invoice_positions.html' %}{% endif %}
     <div class="col-12"><button type="submit" class="btn btn-primary">{{ 'Save changes' if g.language == 'en' else 'Änderungen speichern' }}</button></div>
   </form></div></div>
+
+  {% if form.form_id == 'product' and form.fields|selectattr('key', 'equalto', 'stock')|selectattr('type', 'equalto', 'number')|list %}
+  <section class="card mt-4" aria-labelledby="stock-adjustment-heading">
+    <div class="card-header"><h2 class="h5 mb-0" id="stock-adjustment-heading">{{ 'Stock adjustment' if g.language == 'en' else 'Lagerbestand korrigieren' }}</h2></div>
+    <div class="card-body">
+      <p>{{ 'Current stock:' if g.language == 'en' else 'Aktueller Bestand:' }} <strong>{{ record['values'].get('stock', '') or '0' }}</strong></p>
+      <form method="post" action="{{ url_for('documents.adjust_product_stock', record_id=record.record_id) }}" class="row g-3">
+        <input type="hidden" name="_expected_updated_at" value="{{ record.updated_at }}">
+        <input type="hidden" name="_request_id" value="{{ stock_request_id }}">
+        <div class="col-sm-3"><label class="form-label" for="stock-direction">{{ 'Movement' if g.language == 'en' else 'Bewegung' }}</label><select class="form-select" id="stock-direction" name="direction" required><option value="add">{{ 'Add' if g.language == 'en' else 'Zugang' }}</option><option value="remove">{{ 'Remove' if g.language == 'en' else 'Abgang' }}</option><option value="set">{{ 'Set counted stock (inventory correction)' if g.language == 'en' else 'Gezählten Bestand setzen (Inventurkorrektur)' }}</option></select></div>
+        <div class="col-sm-3"><label class="form-label" for="stock-magnitude">{{ 'Quantity / counted stock' if g.language == 'en' else 'Menge / gezählter Bestand' }}</label><input class="form-control" id="stock-magnitude" name="magnitude" type="number" min="0" step="any" required></div>
+        <div class="col-sm-6"><label class="form-label" for="stock-reason">{{ 'Reason' if g.language == 'en' else 'Grund' }}</label><input class="form-control" id="stock-reason" name="reason" maxlength="500" required></div>
+        <div class="col-12"><div class="form-text">{{ 'Add/remove requires a positive quantity; a counted-stock correction may be zero. Every change needs a reason.' if g.language == 'en' else 'Zugang/Abgang benötigt eine positive Menge; eine Inventurkorrektur darf null sein. Jede Änderung braucht einen Grund.' }}</div><button class="btn btn-primary mt-2" type="submit">{{ 'Save stock movement' if g.language == 'en' else 'Lagerbewegung speichern' }}</button></div>
+      </form>
+    </div>
+    {% set movements = record.get('stock_adjustments', []) %}
+    {% if movements %}<div class="table-responsive"><table class="table table-sm mb-0"><caption class="visually-hidden">{{ 'Stock movement history' if g.language == 'en' else 'Lagerbewegungshistorie' }}</caption><thead><tr><th>{{ 'Date' if g.language == 'en' else 'Zeitpunkt' }}</th><th>{{ 'Movement' if g.language == 'en' else 'Bewegung' }}</th><th>{{ 'Stock after' if g.language == 'en' else 'Bestand danach' }}</th><th>{{ 'Reason' if g.language == 'en' else 'Grund' }}</th><th>{{ 'User' if g.language == 'en' else 'Benutzer' }}</th></tr></thead><tbody>{% for movement in movements|reverse %}<tr><td>{{ movement.occurred_at }}</td><td>{% if movement.direction == 'add' %}+{{ movement.amount }}{% elif movement.direction == 'remove' %}−{{ movement.amount }}{% else %}{{ 'Counted stock' if g.language == 'en' else 'Inventur' }}: {{ movement.amount }}{% endif %}</td><td>{{ movement.after }}</td><td>{{ movement.reason }}</td><td>{{ movement.actor }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+  </section>
+  {% endif %}
 </main>
 {% endblock %}
