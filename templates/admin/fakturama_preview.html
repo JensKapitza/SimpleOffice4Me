@@ -1,0 +1,86 @@
+{% extends "layout.html" %}
+{% block title %}Fakturama{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+{% set en = g.language == 'en' %}
+{% set statuses = {'recognized': ('Recognized' if en else 'Erkannt'), 'unmapped': ('Mapping needed' if en else 'Zuordnung offen'), 'rejected': ('Rejected' if en else 'Abgelehnt')} %}
+<main id="main-content" class="container-xl py-4">
+  <a href="{{ url_for('admin.integration_settings') }}">{{ 'Integrations & services' if en else 'Integrationen & Dienste' }}</a>
+  <h1 class="h2 mt-2">{{ 'Fakturama invoice preview' if en else 'Vorschau für Fakturama-Rechnungen' }}</h1>
+  <p class="text-secondary">{{ 'Check a prepared Fakturama 2.2.0 invoice CSV projection before migration. The preview records no invoices or contacts.' if en else 'Prüfe eine vorbereitete CSV-Projektion aus Fakturama 2.2.0 vor der Migration. Die Vorschau legt keine Rechnungen oder Kontakte an.' }}</p>
+  {% set errors = {
+    'file_missing': 'Select a CSV file.' if en else 'Bitte eine CSV-Datei auswählen.',
+    'file_size': 'The CSV file is limited to 256 KiB.' if en else 'Die CSV-Datei darf höchstens 256 KiB groß sein.',
+    'encoding': 'Save the CSV in UTF-8.' if en else 'Speichere die CSV in UTF-8.',
+    'syntax': 'Check the CSV structure and quoted fields.' if en else 'Prüfe den Aufbau der CSV und die Anführungszeichen in Feldern.',
+    'profile': 'Use the invoice projection template for Fakturama 2.2.0, version 1.' if en else 'Verwende die Vorlage für Fakturama 2.2.0 in Version 1.',
+    'header': 'Check the column names against the template. Use each name only once.' if en else 'Vergleiche die Spaltennamen mit der Vorlage. Verwende jeden Namen genau einmal.',
+    'row_limit': 'Split the CSV into files with at most 200 rows each.' if en else 'Teile die CSV in Dateien mit jeweils höchstens 200 Datensätzen auf.',
+    'empty': 'Add at least one invoice row to the template.' if en else 'Füge der Vorlage mindestens eine Rechnungszeile hinzu.'
+  } %}
+  {% if error %}<p class="alert alert-warning" role="alert">{{ errors[error] }}</p>{% endif %}
+  <form method="post" enctype="multipart/form-data" action="{{ url_for('fakturama_admin.preview') }}" class="card card-body mb-4">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <label class="form-label" for="fakturama-file">{{ 'CSV file' if en else 'CSV-Datei' }}</label>
+    <input class="form-control" id="fakturama-file" type="file" name="invoice_csv" accept=".csv,text/csv" aria-describedby="fakturama-file-help" required>
+    <p class="form-text" id="fakturama-file-help">{{ 'UTF-8, semicolon delimited, up to 200 invoice rows and 256 KiB.' if en else 'UTF-8, mit Semikolon getrennt, bis zu 200 Rechnungszeilen und 256 KiB.' }}</p>
+    <div class="d-flex flex-wrap gap-2">
+      <button class="btn btn-primary" type="submit">{{ 'Check file' if en else 'Datei prüfen' }}</button>
+      <a class="btn btn-outline-secondary" href="{{ url_for('fakturama_admin.download_profile') }}" download>{{ 'Download CSV template' if en else 'CSV-Vorlage herunterladen' }}</a>
+    </div>
+  </form>
+  {% if result %}
+  <section aria-labelledby="fakturama-result-heading">
+    <h2 class="h4" id="fakturama-result-heading">{{ 'Result' if en else 'Ergebnis' }}</h2>
+    <div role="status">
+      <ul class="list-inline">
+        {% for key, label in statuses.items() %}<li class="list-inline-item me-3"><strong>{{ result.counts.get(key, 0) }}</strong> {{ label }}</li>{% endfor %}
+      </ul>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead><tr>
+          <th scope="col">{{ 'Row' if en else 'Zeile' }}</th>
+          <th scope="col">{{ 'Source document' if en else 'Quellbeleg' }}</th>
+          <th scope="col">{{ 'Buyer snapshot' if en else 'Empfänger-Snapshot' }}</th>
+          <th scope="col">{{ 'Amounts' if en else 'Beträge' }}</th>
+          <th scope="col">{{ 'Check' if en else 'Prüfung' }}</th>
+        </tr></thead>
+        <tbody>
+          {% for row in result.rows %}
+          {% set v = row.values %}
+          <tr>
+            <th scope="row">{{ row.line }}</th>
+            <td class="text-break">
+              <strong>{{ v.get('document_number', '') }}</strong> {{ v.get('document_date', '') }}<br>
+              <span class="small">ID {{ v.get('document_id') or '—' }}</span>
+              {% if v.get('source_document_id') %}<br><span class="small">{{ 'Source' if en else 'Quelle' }} {{ v['source_document_id'] }}</span>{% endif %}
+              {% if v.get('invoice_reference_id') %}<br><span class="small">{{ 'Reference' if en else 'Referenz' }} {{ v['invoice_reference_id'] }}</span>{% endif %}
+            </td>
+            <td class="text-break">
+              {{ v.get('buyer_name', '') }}<br>
+              {{ v.get('buyer_street', '') }}<br>
+              {{ v.get('buyer_postal_code', '') }} {{ v.get('buyer_city', '') }} {{ v.get('buyer_country', '') }}<br>
+              <span class="small">ID {{ v.get('receiver_id') or '—' }}</span>
+              {% if v.get('origin_contact_id') %}<br><span class="small">{{ 'Contact' if en else 'Kontakt' }} {{ v['origin_contact_id'] }}</span>{% endif %}
+              {% if v.get('origin_address_id') %}<br><span class="small">{{ 'Address' if en else 'Adresse' }} {{ v['origin_address_id'] }}</span>{% endif %}
+            </td>
+            <td>
+              {% if 'total_value' in row.amounts %}{{ row.amounts['total_value'] }} {{ v.get('currency', '') }}{% endif %}
+              {% if 'paid_value' in row.amounts %}<br><span class="small">{{ 'Paid' if en else 'Bezahlt' }} {{ row.amounts['paid_value'] }} {{ v.get('currency', '') }}</span>{% endif %}
+            </td>
+            <td class="text-break">
+              <strong>{{ statuses[row.status] }}</strong>
+              {% if row.invalid %}<br><span class="small">{{ 'Invalid' if en else 'Ungültig' }} <code>{{ row.invalid|join(', ') }}</code></span>{% endif %}
+              {% if row.unmapped %}<br><span class="small">{{ 'Unmapped' if en else 'Ohne Zuordnung' }} <code>{{ row.unmapped|join(', ') }}</code></span>{% endif %}
+              {% if row.duplicate %}<br><span class="small">{{ 'Duplicate source ID' if en else 'Doppelte Quell-ID' }}</span>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+</main>
+{% endblock %}

@@ -127,6 +127,7 @@ Release-Zusage. Dieses Register ergänzt die thematischen Einstiegspunkte oben.
 - [Einstellungen](EINSTELLUNGEN.md) — `EINSTELLUNGEN.md`
 - [Erster Start](ERSTER_START.md) — `ERSTER_START.md`
 - [Erststart und Desktop-Einrichtung](ERSTSTART_UND_DESKTOP_SETUP.md) — `ERSTSTART_UND_DESKTOP_SETUP.md`
+- [Fakturama-Rechnungen vor der Migration prüfen](FAKTURAMA_IMPORTVORSCHAU.md) — `FAKTURAMA_IMPORTVORSCHAU.md`
 - [Externe Kontaktupdates und CardDAV-Datenerhalt](EXTERNE_KONTAKTUPDATES_UND_CARDDAV.md) — `EXTERNE_KONTAKTUPDATES_UND_CARDDAV.md`
 - [Federation Discovery und Vertrauen](FEDERATION_DISCOVERY_TRUST.md) — `FEDERATION_DISCOVERY_TRUST.md`
 - [Peer-Verwaltung, Meldungen und signierte Blacklists](FEDERATION_PEER_VERWALTUNG.md) — `FEDERATION_PEER_VERWALTUNG.md`
