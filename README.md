@@ -118,6 +118,10 @@ covers both the live image flow and agent tool loop.
 - einfache EÜR-Belegerfassung für Einnahmen und Ausgaben mit Originaldatei,
   Vollständigkeitsprüfung, EUR-/Umsatzsteuerberechnung, Prüfstatus,
   Jahresübersicht und CSV-/ZIP-Übergabe an den Steuerberater
+- Fakturama-2-Quellanalyse und offene Migrations-Checkliste
+  ([technische Referenz](docs/fakturama/FAKTURAMA_2_QUELLANALYSE.md),
+  [Migrationsumfang](docs/fakturama/FAKTURAMA_MIGRATION.md)); ein
+  Fakturama-Importer ist nicht implementiert
 - datensparsame zentrale Fehlerberichte mit stabilem Fingerprint,
   Deduplizierung und optionalem eingeschränktem Error-Relay
 - Offline-Installer-Cache für fertige Windows-, macOS-, Linux-, Android- und
