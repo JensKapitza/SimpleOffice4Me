@@ -61,7 +61,20 @@
         <form method="post" action="{{ url_for('v3_finance.convert',lifecycle_id=item.lifecycle_id) }}">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <select class="form-select mb-2" name="target_kind" aria-label="{{ 'Target kind' if g.language == 'en' else 'Zielart' }}">{% for kind in successor_kinds %}<option value="{{ kind }}">{{ kind }}</option>{% endfor %}</select>
-          <label class="form-label">{{ 'Invoice draft ID (only for target invoice)' if g.language == 'en' else 'Rechnungsentwurf-ID (nur bei Ziel invoice)' }}</label><input class="form-control mb-2" name="invoice_id">
+          {% if 'invoice' in successor_kinds %}
+          <label class="form-label" for="invoice-id">{{ 'Existing invoice draft' if g.language == 'en' else 'Vorhandener Rechnungsentwurf' }}</label>
+          {% if invoice_drafts %}
+          <select class="form-select mb-2" id="invoice-id" name="invoice_id" aria-describedby="invoice-draft-help">
+            <option value="">{{ 'Choose a draft' if g.language == 'en' else 'Entwurf auswählen' }}</option>
+            {% for draft in invoice_drafts %}<option value="{{ draft.invoice_id }}">{{ draft.invoice_number }} · {{ draft.issue_date }} · {{ draft.totals.gross|default('—') }} {{ draft.currency|default('EUR') }}</option>{% endfor %}
+          </select>
+          <div class="form-text mb-2" id="invoice-draft-help">{{ 'Only unlinked drafts for this contact are available.' if g.language == 'en' else 'Angezeigt werden nur unverknüpfte Entwürfe dieses Kontakts.' }}</div>
+          {% elif invoice_draft_create_url %}
+          <div class="alert alert-info py-2" role="status" aria-live="polite">{{ 'No available invoice draft for this contact yet.' if g.language == 'en' else 'Für diesen Kontakt gibt es noch keinen verfügbaren Rechnungsentwurf.' }} <a href="{{ invoice_draft_create_url }}">{{ 'Create an invoice draft' if g.language == 'en' else 'Rechnungsentwurf erstellen' }}</a></div>
+          {% else %}
+          <div class="alert alert-secondary py-2" role="status">{{ 'Assign a manageable contact before linking an invoice.' if g.language == 'en' else 'Zum Verknüpfen einer Rechnung muss zuerst ein verwaltbarer Kontakt zugeordnet sein.' }}</div>
+          {% endif %}
+          {% endif %}
           <button type="submit" class="btn btn-outline-success w-100"><i class="fa-solid fa-link me-1" aria-hidden="true"></i>{{ 'Create successor' if g.language == 'en' else 'Nachfolger anlegen' }}</button>
         </form>
       </div></div>

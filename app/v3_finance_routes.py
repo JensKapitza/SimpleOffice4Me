@@ -1,14 +1,16 @@
 """Optional V3 business-document lifecycle routes."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, url_for
 
 from .access_control import has_feature
 from .auth import login_required
-from .business_document_generation import invoice
+from .business_document_generation import invoice, invoices
 from .contact_store import ContactStore
 from .v3_capabilities import enabled
-from .v3_finance import FinanceLifecycleStore, GENERIC_KINDS, KINDS, SUCCESSORS, TRANSITIONS
+from .v3_finance import CONVERSION_READY, FinanceLifecycleStore, GENERIC_KINDS, KINDS, SUCCESSORS, TRANSITIONS
 from .translations import translate
 
 
@@ -119,12 +121,39 @@ def create():
 def detail(lifecycle_id: str):
     _require_finance()
     row = _require_document(lifecycle_id)
+    invoice_drafts = []
+    invoice_draft_create_url = ""
+    if (
+        "invoice" in SUCCESSORS.get(row.kind, set())
+        and row.status in CONVERSION_READY.get(row.kind, set())
+        and row.contact_id
+    ):
+        if _can_manage_contact(row.contact_id):
+            invoice_draft_create_url = url_for(
+                "contact_audit.business_documents.contact_invoice",
+                contact_id=row.contact_id,
+            )
+            invoice_lifecycle = _store().invoice_lifecycle_records()
+            for candidate in invoices(Path(current_app.config["DOCUMENT_ROOT"])):
+                if candidate.get("status") != "draft" or candidate.get("contact_id") != row.contact_id:
+                    continue
+                attached = invoice_lifecycle.get(str(candidate.get("invoice_id", "")))
+                if attached and (attached.status != "draft" or attached.predecessor_id):
+                    continue
+                if (
+                    attached
+                    and attached.project_id
+                    and row.project_id
+                    and attached.project_id != row.project_id
+                ):
+                    continue
+                invoice_drafts.append(candidate)
     attempts = []
     legacy_invoice = None
     if row.kind == "invoice" and row.external_id:
         try:
             legacy_invoice = invoice(
-                current_app.config["DOCUMENT_ROOT"],
+                Path(current_app.config["DOCUMENT_ROOT"]),
                 row.external_id,
             )
         except ValueError:
@@ -140,9 +169,15 @@ def detail(lifecycle_id: str):
         allowed_transitions=sorted(
             TRANSITIONS.get(row.kind, {}).get(row.status, set())
         ),
-        successor_kinds=sorted(SUCCESSORS.get(row.kind, set())),
+        successor_kinds=(
+            sorted(SUCCESSORS.get(row.kind, set()))
+            if row.status in CONVERSION_READY.get(row.kind, set())
+            else []
+        ),
         legacy_invoice=legacy_invoice,
         attempts=attempts,
+        invoice_drafts=invoice_drafts,
+        invoice_draft_create_url=invoice_draft_create_url,
     )
 
 
@@ -198,14 +233,17 @@ def convert(lifecycle_id: str):
     source = _require_document(lifecycle_id)
     target_kind = request.form.get("target_kind", "").strip()
     if target_kind == "invoice":
+        if not source.contact_id or not _can_manage_contact(source.contact_id):
+            abort(403)
         invoice_id = request.form.get("invoice_id", "").strip()
         try:
-            invoice_row = invoice(current_app.config["DOCUMENT_ROOT"], invoice_id)
+            invoice_row = invoice(Path(current_app.config["DOCUMENT_ROOT"]), invoice_id)
         except ValueError:
             flash(translate(g.language, "v3fin.draft.missing"))
             return redirect(url_for("v3_finance.detail", lifecycle_id=lifecycle_id))
-        if not _can_manage_contact(str(invoice_row.get("contact_id", ""))):
-            abort(403)
+        if str(invoice_row.get("contact_id", "")) != source.contact_id:
+            flash(translate(g.language, "v3fin.draft.missing"))
+            return redirect(url_for("v3_finance.detail", lifecycle_id=lifecycle_id))
     else:
         invoice_id = ""
     try:
