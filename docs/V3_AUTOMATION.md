@@ -9,3 +9,7 @@ Conditions use a fixed operator set (\`eq\`, \`ne\`, \`in\`, \`contains\`, \`gt\
 Execution records contain no action result payloads or secrets. Correlation/idempotency keys prevent repeated mutation of the same rule version, recursion is bounded, and actions stop after the first failure. Dry-run validates matching, permissions and the planned action list without mutation.
 
 The feature is disabled by default through \`v3.automation\`. Disabling it leaves rules and domain data intact.
+
+The admin page lets administrators define rules and run a preview. Domain event
+hooks, scheduled execution, and live runs from this page are open work. The
+engine and the registered task action are available for those integrations.

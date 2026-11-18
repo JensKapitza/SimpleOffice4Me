@@ -8,6 +8,7 @@ import re
 import sqlite3
 import uuid
 from contextlib import contextmanager
+from datetime import date
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -96,6 +97,7 @@ def filter_invoice_overview(
     project_titles: dict[str, str], related_invoice_ids: dict[str, set[str]],
     query: str, selected_status: str, selected_project_id: str,
     selected_related_invoice_id: str,
+    date_from: date | None = None, date_to: date | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]], list[dict[str, str]]]:
     visible = [
         {**row, "contact": contact_map[row.get("contact_id", "")]}
@@ -144,6 +146,13 @@ def filter_invoice_overview(
             continue
         if selected_project_id and selected_project_id not in project_ids_for_row:
             continue
+        if date_from is not None or date_to is not None:
+            try:
+                issue_date = date.fromisoformat(str(row.get("issue_date", "")))
+            except ValueError:
+                continue
+            if (date_from is not None and issue_date < date_from) or (date_to is not None and issue_date > date_to):
+                continue
         linked_ids = link_index.get(str(row.get("invoice_id", "")), set())
         accessible_links = {
             linked_id for linked_id in linked_ids
@@ -179,6 +188,7 @@ def filter_invoice_overview(
 def invoice_overview_data(
     root: str | Path, actor: str, query: str, selected_status: str,
     selected_project_id: str, selected_related_invoice_id: str,
+    date_from: date | None = None, date_to: date | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]], list[dict[str, str]], bool]:
     from .business_document_generation import invoices
     from .contact_store import ContactStore
@@ -216,6 +226,7 @@ def invoice_overview_data(
     rows, projects, related = filter_invoice_overview(
         invoice_rows, contact_map, project_titles, relation_index, query,
         selected_status, selected_project_id, selected_related_invoice_id,
+        date_from, date_to,
     )
     return rows, projects, related, relation_error
 
