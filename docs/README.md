@@ -80,6 +80,7 @@ verlinkt.
 ## Projekte und Abrechnung
 
 - [Minutengenaue Projektzeiten und private Abrechnungsgruppen](PROJEKTZEITEN_UND_ABRECHNUNGSGRUPPEN.md)
+- [Fakturama 2: technische Quellanalyse und offene Migrations-Checkliste](fakturama/FAKTURAMA_MIGRATION.md) — die Analyse bleibt als [separate Referenz](fakturama/FAKTURAMA_2_QUELLANALYSE.md) erhalten; Fakturama-Import ist derzeit nicht implementiert.
 
 ## Betrieb
 
@@ -128,6 +129,8 @@ Release-Zusage. Dieses Register ergänzt die thematischen Einstiegspunkte oben.
 - [Erster Start](ERSTER_START.md) — `ERSTER_START.md`
 - [Erststart und Desktop-Einrichtung](ERSTSTART_UND_DESKTOP_SETUP.md) — `ERSTSTART_UND_DESKTOP_SETUP.md`
 - [Externe Kontaktupdates und CardDAV-Datenerhalt](EXTERNE_KONTAKTUPDATES_UND_CARDDAV.md) — `EXTERNE_KONTAKTUPDATES_UND_CARDDAV.md`
+- [Fakturama 2: technische Quellanalyse](fakturama/FAKTURAMA_2_QUELLANALYSE.md) — `fakturama/FAKTURAMA_2_QUELLANALYSE.md`
+- [Fakturama-Kompatibilität und Migration](fakturama/FAKTURAMA_MIGRATION.md) — `fakturama/FAKTURAMA_MIGRATION.md`
 - [Federation Discovery und Vertrauen](FEDERATION_DISCOVERY_TRUST.md) — `FEDERATION_DISCOVERY_TRUST.md`
 - [Peer-Verwaltung, Meldungen und signierte Blacklists](FEDERATION_PEER_VERWALTUNG.md) — `FEDERATION_PEER_VERWALTUNG.md`
 - [SimpleOffice4Me Federation Protocol (SOFP) v1](FEDERATION_PROTOCOL.md) — `FEDERATION_PROTOCOL.md`
