@@ -35,6 +35,32 @@ class TodoStoreTest(unittest.TestCase):
         self.assertEqual(50, updated["percent_complete"])
         self.assertEqual("in-process", updated["status"])
 
+    def test_automation_add_retries_atomically_without_duplicate_tasks(self):
+        operation_id = "a" * 64
+        first = self.store.add("Automation task", "admin", {"description": "review"}, automation_operation_id=operation_id)
+        revision_before = self.store.sync_changes("admin", list_id=first["list_id"])[1]
+        replay = self.store.add("Automation task", "admin", {"description": "review"}, automation_operation_id=operation_id)
+        revision_after = self.store.sync_changes("admin", list_id=first["list_id"])[1]
+        self.assertEqual(first["id"], replay["id"])
+        self.assertEqual(revision_before, revision_after)
+        self.assertEqual(1, len(self.store.items("admin")))
+        with self.assertRaisesRegex(ValueError, "already used"):
+            self.store.add("Changed task", "admin", {"description": "review"}, automation_operation_id=operation_id)
+
+    def test_automation_replay_rechecks_task_list_permission(self):
+        shared = self.store.create_list({"name": "Shared"}, "admin", "shared-automation")
+        self.store.update_list(shared["list_id"], {"permissions": {"bob": ["create"]}}, "admin")
+        operation_id = "b" * 64
+        item = self.store.add(
+            "Shared task", "bob", {"list_id": shared["list_id"]}, automation_operation_id=operation_id
+        )
+        self.store.update_list(shared["list_id"], {"permissions": {"bob": ["read"]}}, "admin")
+        with self.assertRaisesRegex(ValueError, "permission"):
+            self.store.add(
+                "Shared task", "bob", {"list_id": shared["list_id"]}, automation_operation_id=operation_id
+            )
+        self.assertEqual("Shared task", next(row for row in self.store.items("admin", include_deleted=True) if row["id"] == item["id"])["title"])
+
     def test_source_document_id_survives_updates_and_legacy_tasks(self):
         task = self.store.add("Review source", "admin", {
             "source_document_id": "forged-doc-123",

@@ -2,14 +2,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import logging
 from pathlib import Path
+import re
 import sqlite3
 import uuid
 from typing import Any, Callable, Mapping
 
+from .file_lock import exclusive_file_lock
 from .sqlite_utils import connect as sqlite_connect
 
 
@@ -76,7 +79,12 @@ def _condition_matches(condition: Mapping[str, Any], context: Mapping[str, Any])
     if operator == "in":
         return isinstance(expected, (list, tuple, set)) and actual in expected
     if operator == "contains":
-        return isinstance(actual, (str, list, tuple, set, dict)) and expected in actual
+        if not isinstance(actual, (str, list, tuple, set, dict)):
+            return False
+        try:
+            return expected in actual
+        except TypeError:
+            return False
     try:
         if operator == "gt":
             return actual > expected
@@ -178,6 +186,13 @@ class AutomationStore:
         db.row_factory = sqlite3.Row
         return db
 
+    def rule_lock(self, rule_id: str):
+        value = str(rule_id)
+        if not re.fullmatch(r"[0-9a-f]{32}", value):
+            raise ValueError("invalid automation rule identifier")
+        lock_id = hashlib.sha256(value.encode("utf-8")).hexdigest()[:32]
+        return exclusive_file_lock(self.path.parent / f".automation-rule-{lock_id}.lock")
+
     def _initialize(self) -> None:
         with self._db() as db:
             db.executescript(
@@ -215,6 +230,18 @@ class AutomationStore:
                 );
                 CREATE INDEX IF NOT EXISTS ix_v3_automation_execution_rule
                     ON v3_automation_execution(rule_id, created_at DESC);
+                CREATE TABLE IF NOT EXISTS v3_automation_confirmation(
+                    token_hash TEXT PRIMARY KEY,
+                    rule_id TEXT NOT NULL,
+                    rule_version INTEGER NOT NULL,
+                    principal TEXT NOT NULL,
+                    event_json TEXT NOT NULL,
+                    event_hash TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ix_v3_automation_confirmation_expiry
+                    ON v3_automation_confirmation(expires_at);
                 """
             )
 
@@ -296,29 +323,30 @@ class AutomationStore:
         return [self._record(row) for row in rows]
 
     def update(self, rule_id: str, principal: str, values: Mapping[str, Any]) -> AutomationRule:
-        current = self.get(rule_id, principal)
-        merged = {
-            "name": values.get("name", current.name),
-            "enabled": values.get("enabled", current.enabled),
-            "scope": values.get("scope", current.scope),
-            "trigger": values.get("trigger", current.trigger),
-            "conditions": values.get("conditions", current.conditions),
-            "actions": values.get("actions", current.actions),
-        }
-        scope, trigger, conditions, actions = self._validated(merged)
-        now = _utc()
-        with self._db() as db:
-            db.execute(
-                """UPDATE v3_automation_rule SET name=?,enabled=?,scope_json=?,trigger_json=?,
-                   conditions_json=?,actions_json=?,version=version+1,updated_at=?
-                   WHERE rule_id=? AND owner=?""",
-                (
-                    str(merged["name"]).strip()[:200], int(bool(merged["enabled"])),
-                    _json(scope), _json(trigger), _json(conditions), _json(actions),
-                    now, rule_id, principal,
-                ),
-            )
-        return self.get(rule_id, principal)
+        with self.rule_lock(rule_id):
+            current = self.get(rule_id, principal)
+            merged = {
+                "name": values.get("name", current.name),
+                "enabled": values.get("enabled", current.enabled),
+                "scope": values.get("scope", current.scope),
+                "trigger": values.get("trigger", current.trigger),
+                "conditions": values.get("conditions", current.conditions),
+                "actions": values.get("actions", current.actions),
+            }
+            scope, trigger, conditions, actions = self._validated(merged)
+            now = _utc()
+            with self._db() as db:
+                db.execute(
+                    """UPDATE v3_automation_rule SET name=?,enabled=?,scope_json=?,trigger_json=?,
+                       conditions_json=?,actions_json=?,version=version+1,updated_at=?
+                       WHERE rule_id=? AND owner=?""",
+                    (
+                        str(merged["name"]).strip()[:200], int(bool(merged["enabled"])),
+                        _json(scope), _json(trigger), _json(conditions), _json(actions),
+                        now, rule_id, principal,
+                    ),
+                )
+            return self.get(rule_id, principal)
 
     def mark_run(self, rule_id: str, when: str) -> None:
         with self._db() as db:
@@ -368,6 +396,67 @@ class AutomationStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def create_confirmation(
+        self,
+        rule: AutomationRule,
+        event: Mapping[str, Any],
+        *,
+        principal: str,
+        token: str,
+    ) -> str:
+        """Persist a short-lived, server-bound preview for explicit confirmation."""
+        if rule.owner != str(principal):
+            raise PermissionError("rule principal mismatch")
+        token_hash = hashlib.sha256(str(token).encode("utf-8")).hexdigest()
+        event_json = _json(dict(event))
+        event_hash = hashlib.sha256(event_json.encode("utf-8")).hexdigest()
+        created = datetime.now(timezone.utc)
+        created_at = created.isoformat().replace("+00:00", "Z")
+        expires_at = (created + timedelta(minutes=15)).isoformat().replace("+00:00", "Z")
+        with self._db() as db:
+            db.execute("DELETE FROM v3_automation_confirmation WHERE expires_at<=?", (created_at,))
+            db.execute(
+                """INSERT INTO v3_automation_confirmation(
+                    token_hash,rule_id,rule_version,principal,event_json,event_hash,created_at,expires_at
+                ) VALUES(?,?,?,?,?,?,?,?)""",
+                (token_hash, rule.rule_id, rule.version, str(principal), event_json, event_hash, created_at, expires_at),
+            )
+            db.execute(
+                """DELETE FROM v3_automation_confirmation WHERE token_hash IN (
+                    SELECT token_hash FROM v3_automation_confirmation
+                    ORDER BY created_at DESC LIMIT -1 OFFSET 1000
+                )"""
+            )
+        return expires_at
+
+    def get_confirmation(self, token: str, principal: str) -> dict[str, Any] | None:
+        token_hash = hashlib.sha256(str(token).encode("utf-8")).hexdigest()
+        now = _utc()
+        with self._db() as db:
+            db.execute("DELETE FROM v3_automation_confirmation WHERE expires_at<=?", (now,))
+            row = db.execute(
+                "SELECT * FROM v3_automation_confirmation WHERE token_hash=? AND principal=?",
+                (token_hash, str(principal)),
+            ).fetchone()
+        if row is None:
+            return None
+        event_json = str(row["event_json"])
+        if hashlib.sha256(event_json.encode("utf-8")).hexdigest() != row["event_hash"]:
+            return None
+        try:
+            event = json.loads(event_json)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(event, dict):
+            return None
+        return {
+            "rule_id": str(row["rule_id"]),
+            "rule_version": int(row["rule_version"]),
+            "principal": str(row["principal"]),
+            "event": event,
+            "expires_at": str(row["expires_at"]),
+        }
+
 
 class AutomationEngine:
     def __init__(self, store: AutomationStore, actions: ActionRegistry):
@@ -390,6 +479,7 @@ class AutomationEngine:
         trigger_type: str = "event",
         dry_run: bool = False,
         correlation_id: str = "",
+        idempotency_fingerprint: str = "",
         depth: int = 0,
     ) -> ExecutionResult:
         if depth >= MAX_DEPTH:
@@ -403,7 +493,7 @@ class AutomationEngine:
         if matched:
             matched = all(_condition_matches(item, context) for item in rule.conditions)
         correlation = str(correlation_id).strip()[:200] or uuid.uuid4().hex
-        fingerprint = str(event.get("id") or event.get("key") or event.get("name") or "event")[:200]
+        fingerprint = str(idempotency_fingerprint or event.get("id") or event.get("key") or event.get("name") or "event")[:200]
         key = f"{rule.rule_id}:{rule.version}:{correlation}:{fingerprint}"
         if not dry_run and self.store.execution(key) is not None:
             return ExecutionResult("duplicate", matched, False, ())
@@ -414,7 +504,7 @@ class AutomationEngine:
             return result
 
         planned: list[dict[str, Any]] = []
-        for action in rule.actions:
+        for action_index, action in enumerate(rule.actions):
             action_type = str(action.get("type", "")).strip()
             payload = _object(action.get("payload", {}), "action payload")
             if not self.actions.known(action_type):
@@ -431,7 +521,12 @@ class AutomationEngine:
             if dry_run:
                 continue
             try:
-                self.actions.invoke(principal, action_type, payload, context)
+                action_context = dict(context)
+                if action_type == "task.create":
+                    action_context["automation_operation_id"] = hashlib.sha256(
+                        f"{principal}\0{key}\0{action_index}".encode("utf-8")
+                    ).hexdigest()
+                self.actions.invoke(principal, action_type, payload, action_context)
             except Exception as exc:
                 LOG.warning("automation action failed action=%s type=%s", action_type, type(exc).__name__)
                 result = ExecutionResult("failed", True, False, tuple(planned), "automation action failed")
@@ -473,12 +568,23 @@ def default_action_registry(root: str | Path) -> ActionRegistry:
     registry = ActionRegistry()
 
     def task_allowed(principal: str, payload: Mapping[str, Any]) -> bool:
-        return bool(principal.strip() and str(payload.get("title", "")).strip())
+        values = payload.get("values", {})
+        if not isinstance(values, dict):
+            return False
+        from .todo_store import TodoStore
+        return bool(
+            principal.strip()
+            and str(payload.get("title", "")).strip()
+            and TodoStore(root).can_create(principal, values)
+        )
 
-    def task_create(principal: str, payload: Mapping[str, Any], _context: Mapping[str, Any]):
+    def task_create(principal: str, payload: Mapping[str, Any], context: Mapping[str, Any]):
         from .todo_store import TodoStore
         values = _object(payload.get("values", {}), "task values")
-        return TodoStore(root).add(str(payload.get("title", "")), principal, values)
+        return TodoStore(root).add(
+            str(payload.get("title", "")), principal, values,
+            automation_operation_id=str(context.get("automation_operation_id", "")),
+        )
 
     registry.register("task.create", task_create, authorizer=task_allowed)
     return registry

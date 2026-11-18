@@ -16,6 +16,7 @@ from .revision_history import RevisionHistory
 
 RESOURCE = re.compile(r"^[A-Za-z0-9._-]{1,160}\.ics$")
 OFFLINE_OPERATION = re.compile(r"^[A-Za-z0-9._:-]{8,160}$")
+AUTOMATION_OPERATION = re.compile(r"^[0-9a-f]{64}$")
 SOURCE_DOCUMENT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
 STATUSES = {"needs-action", "in-process", "completed", "cancelled"}
 LIST_PERMISSIONS = {"read", "create", "edit", "complete", "delete", "manage"}
@@ -97,6 +98,7 @@ class TodoStore:
         *,
         smart_folder_id: str = "",
         source_document_id: str = "",
+        automation_operation_id: str = "",
     ) -> dict[str, Any]:
         values = dict(values or {})
         if not title.strip() or not actor.strip(): raise ValueError("to-do title and user are required")
@@ -111,15 +113,64 @@ class TodoStore:
         values.pop("smart_folder_id", None)
         smart_folder_id = self._validated_smart_folder_id(smart_folder_id)
         list_id = str(values.get("list_id", "")).strip() or self.default_list_id(actor)
+        automation_operation_id = str(automation_operation_id or "").strip()
+        if automation_operation_id and not AUTOMATION_OPERATION.fullmatch(automation_operation_id):
+            raise ValueError("invalid automation operation identifier")
+        fingerprint = ""
+        receipt_key = ""
+        if automation_operation_id:
+            fingerprint = hashlib.sha256(json.dumps(
+                {"actor": actor, "title": title.strip()[:300], "list_id": list_id,
+                 "values": values, "smart_folder_id": smart_folder_id,
+                 "source_document_id": source_document_id},
+                ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+            ).encode("utf-8")).hexdigest()
+            receipt_key = hashlib.sha256(actor.encode("utf-8")).hexdigest()[:24] + ":" + automation_operation_id
         now = utc_now(); item_id = str(uuid.uuid4())
         with exclusive_file_lock(self.lock):
-            data = self._read(); self._ensure_default(data, actor); task_list = self._list(data, list_id, actor, "create")
+            data = self._read()
+            self._ensure_default(data, actor)
+            task_list = self._list(data, list_id, actor, "create")
+            if receipt_key:
+                operations = data.setdefault("automation_operations", {})
+                receipt = operations.get(receipt_key)
+                if receipt is not None:
+                    if receipt.get("fingerprint") != fingerprint:
+                        raise ValueError("automation operation identifier already used")
+                    item_id = str(receipt.get("item_id", ""))
+                    existing = next((row for row in data["items"] if row.get("id") == item_id), None)
+                    if existing is None:
+                        raise ValueError("automation task receipt has no stored task")
+                    return self._normalized(existing, actor)
             item = self._task(item_id, title, str(task_list.get("owner") or actor), {**values, "list_id": list_id}, created_at=now)
             item["smart_folder_id"] = smart_folder_id
             item["created_by"] = actor; item["updated_by"] = actor
-            data["items"].append(item); self._bump(data, actor, self.resource(item), False, list_id); self._write(data)
+            data["items"].append(item)
+            if receipt_key:
+                data.setdefault("automation_operations", {})[receipt_key] = {
+                    "fingerprint": fingerprint,
+                    "item_id": item_id,
+                    "recorded_at": now,
+                }
+            self._bump(data, actor, self.resource(item), False, list_id)
+            self._write(data)
         self.history.record("todo_created", actor, "todo", item_id, item)
         return item
+
+    def can_create(self, actor: str, values: dict[str, Any] | None = None) -> bool:
+        """Check task-list create rights without changing task data."""
+        principal = str(actor or "").strip()
+        if not principal:
+            return False
+        values = dict(values or {})
+        list_id = str(values.get("list_id", "")).strip() or self.default_list_id(principal)
+        with exclusive_file_lock(self.lock):
+            data = self._read()
+            try:
+                self._list(data, list_id, principal, "create")
+            except ValueError:
+                return False
+        return True
 
     def update(self, item_id: str, values: dict[str, Any], actor: str) -> dict[str, Any]:
         # Keep the owner-controlled local association stable across generic
@@ -530,4 +581,5 @@ class TodoStore:
         if not isinstance(data.get("sync"), dict): data["sync"] = {}
         if not isinstance(data.get("lists"), list): data["lists"] = []
         if not isinstance(data.get("offline_operations"), dict): data["offline_operations"] = {}
+        if not isinstance(data.get("automation_operations"), dict): data["automation_operations"] = {}
         return data
