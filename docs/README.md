@@ -22,6 +22,7 @@ praktischen Nachweise sind im Release Gate festgehalten.
 
 - [Kontoanträge, Freigaben und sichere Einladungen](KONTOANTRAEGE_UND_EINLADUNGEN.md)
 - [Login-Adressen und private QR-Kandidaten](LOGIN_QR_CODES.md)
+- [Freigegebene Remote-Anwendungen ansehen](REMOTE_APP_KATALOG.md)
 
 ## Kontakte und Kalender
 
@@ -228,6 +229,7 @@ Release-Zusage. Dieses Register ergänzt die thematischen Einstiegspunkte oben.
 - [Uneinbringliche Rechnungen ausbuchen](RECHNUNGEN_AUSBUCHEN.md) — `RECHNUNGEN_AUSBUCHEN.md`
 - [Sicherheits-Checkliste vor Release](RELEASE_SECURITY_CHECKLIST.md) — `RELEASE_SECURITY_CHECKLIST.md`
 - [Remote-Anwendungen vorbereiten](REMOTE_ANWENDUNGEN.md) — `REMOTE_ANWENDUNGEN.md`
+- [Freigegebene Remote-Anwendungen ansehen](REMOTE_APP_KATALOG.md) — `REMOTE_APP_KATALOG.md`
 - [Öffentliche Repository-Arbeitszentrale](REPOSITORY_ARBEITSZENTRALE.md) — `REPOSITORY_ARBEITSZENTRALE.md`
 - [Resource Commander: Touch-/Dialogreview (PR #653)](RESOURCE_COMMANDER_TOUCH_REVIEW.md) — `RESOURCE_COMMANDER_TOUCH_REVIEW.md`
 - [Rückfragen-Sammlung (2h-Block, keine Unterbrechungen)](RUECKFRAGEN.md) — `RUECKFRAGEN.md`

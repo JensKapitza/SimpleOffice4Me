@@ -1,0 +1,30 @@
+{% extends 'layout.html' %}
+{% block header %}{% include 'documents/nav.html' %}{% endblock %}
+{% block title %}{{ 'Remote applications' if g.language == 'en' else 'Remote-Anwendungen' }}{% endblock %}
+{% block body %}
+{% set english = g.language == 'en' %}
+<main id="main-content" class="container py-4">
+  <h1 class="h3 mb-3">{{ 'Remote applications' if english else 'Remote-Anwendungen' }}</h1>
+  <p>{{ 'This catalog lists applications shared with your account. Starting applications from the browser is still pending.' if english else 'Hier findest du die Anwendungen, die für dein Konto freigegeben sind. Der Start aus dem Browser steht noch aus.' }}</p>
+  <p class="alert {{ 'alert-success' if availability == 'active' else 'alert-secondary' }}" data-agent-status="{{ availability }}">
+    {% if availability == 'active' %}{{ 'The companion agent is active on the Windows host.' if english else 'Der Begleitagent ist auf dem Windows-Host aktiv.' }}
+    {% elif availability == 'stopping' %}{{ 'The companion agent is stopping.' if english else 'Der Begleitagent wird gerade beendet.' }}
+    {% elif availability == 'offline' %}{{ 'The companion agent is stopped or is not responding.' if english else 'Der Begleitagent ist angehalten oder antwortet gerade nicht.' }}
+    {% elif availability == 'missing' %}{{ 'The companion agent has not been set up yet.' if english else 'Der Begleitagent wurde noch nicht eingerichtet.' }}
+    {% elif availability == 'unsupported' %}{{ 'Remote applications require a Windows host.' if english else 'Remote-Anwendungen benötigen einen Windows-Host.' }}
+    {% else %}{{ 'The agent status is currently unavailable.' if english else 'Der Agentenstatus ist gerade nicht abrufbar.' }}{% endif %}
+  </p>
+  {% if apps %}
+  <ul class="list-group">
+    {% for app in apps %}
+    <li class="list-group-item">
+      <h2 class="h5 mb-1">{{ app.label }}{% if app.favorite %} <span class="badge text-bg-secondary">{{ 'Favorite' if english else 'Favorit' }}</span>{% endif %}</h2>
+      {% if app.description %}<p class="text-break mb-0">{{ app.description }}</p>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="text-secondary">{{ 'No applications have been shared with your account. Contact your administrator for access.' if english else 'Für dein Konto sind keine Anwendungen freigegeben. Deine Administration kann dir Zugriff geben.' }}</p>
+  {% endif %}
+</main>
+{% endblock %}

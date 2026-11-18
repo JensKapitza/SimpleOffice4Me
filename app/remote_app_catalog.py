@@ -10,6 +10,7 @@ import json
 import os
 import re
 import uuid
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -37,8 +38,12 @@ def _hash_file(path: Path) -> str:
 
 
 def _user_ids(values) -> list[int]:
+    if not isinstance(values, Iterable) or isinstance(values, (str, bytes, dict)):
+        return []
     result = []
-    for value in values or ():
+    for value in values:
+        if not isinstance(value, (int, str)) or isinstance(value, bool):
+            continue
         try:
             user_id = int(value)
         except (TypeError, ValueError):
@@ -54,15 +59,17 @@ class RemoteAppCatalog:
         self.control = self.root / ".simpleoffice-meta"
         self.path = self.control / "remote-apps.json"
         self.lock = self.control / ".remote-apps.lock"
-        self.control.mkdir(parents=True, exist_ok=True)
 
     def _read(self) -> dict[str, Any]:
         try:
             value = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError):
             value = {}
         apps = value.get("apps") if isinstance(value, dict) else []
-        return {"version": SCHEMA_VERSION, "apps": apps if isinstance(apps, list) else []}
+        return {
+            "version": SCHEMA_VERSION,
+            "apps": [row for row in apps if isinstance(row, dict)] if isinstance(apps, list) else [],
+        }
 
     def _save(self, data: dict[str, Any]) -> None:
         data["apps"] = list(data.get("apps", []))[:MAX_APPS]
@@ -74,7 +81,7 @@ class RemoteAppCatalog:
                 pass
 
     def all(self) -> list[dict[str, Any]]:
-        return sorted(self._read()["apps"], key=lambda row: (_text(row.get("label"), 160).casefold(), row.get("app_id", "")))
+        return sorted(self._read()["apps"], key=lambda row: (_text(row.get("label"), 160).casefold(), str(row.get("app_id", ""))))
 
     def visible_for(self, user_id: int, *, is_admin: bool = False) -> list[dict[str, Any]]:
         result = []

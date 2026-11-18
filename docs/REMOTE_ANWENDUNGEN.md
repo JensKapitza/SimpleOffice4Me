@@ -12,7 +12,7 @@ berechtigten Benutzer auswählen. Ohne Benutzerzuordnung gilt die Freigabe für
 Administratoren. Die Freigabe speichert den Fingerabdruck der ausführbaren Datei.
 Ein Administrator kann den Katalogeintrag auf derselben Seite entfernen.
 
-Der Katalog ist der aktuelle Bedienpfad. Der Start einer veröffentlichten
-Anwendung aus einer Benutzeransicht und die Übertragung ihres Fensters zum
-Client sind noch offen. Die separate Bildschirmfreigabe hat ihre eigene
+Benutzer finden ihre Freigaben unter **Werkzeuge & Dienste → Remote-Anwendungen**.
+Der Start einer veröffentlichten Anwendung und die Fensterübertragung sind offen.
+[Benutzerkatalog](REMOTE_APP_KATALOG.md) Die separate Bildschirmfreigabe hat ihre eigene
 Anleitung. [Bildschirm-Support](screen-support.md)
