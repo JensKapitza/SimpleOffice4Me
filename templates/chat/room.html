@@ -1,5 +1,6 @@
 {% extends "layout.html" %}
 {% block title %}{{ room.title }} · Chat{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/chat.css') }}">{% endblock %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
 <main id="main-content" class="container-xl py-3 chat-page" data-chat-fragment-url="{{ url_for('chat.messages_fragment', room_id=room.room_id) }}">
@@ -40,7 +41,7 @@
     </div>
   </div>
 
-  <section id="chat-scroll" class="border rounded-3 bg-body-tertiary p-2 p-md-3 mb-3 overflow-auto" style="min-height:18rem;max-height:calc(100vh - 22rem);" aria-label="Nachrichten">
+  <section id="chat-scroll" class="chat-message-scroll border rounded-3 bg-body-tertiary p-2 p-md-3 mb-3 overflow-auto" aria-label="Nachrichten">
     <div id="chat-messages">{% include "chat/_messages.html" %}</div>
   </section>
 
@@ -74,7 +75,7 @@
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input id="chat-reply-to" type="hidden" name="reply_to" value="">
         <label class="visually-hidden" for="chat-body">Nachricht</label>
         <textarea class="form-control mb-2" id="chat-body" name="body" rows="2" maxlength="20000" placeholder="Nachricht schreiben …" autocomplete="off"></textarea>
-        <div class="d-flex flex-wrap gap-2 align-items-center">
+        <div class="d-flex flex-wrap gap-2 align-items-center chat-compose-actions">
           <label class="btn btn-outline-secondary btn-sm mb-0" for="chat-files"><i class="fas fa-paperclip me-1" aria-hidden="true"></i>Dateien</label>
           <input class="visually-hidden" id="chat-files" type="file" name="attachments" multiple>
           <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#quick-share" aria-expanded="false" aria-controls="quick-share"><i class="fas fa-plus me-1" aria-hidden="true"></i>Teilen</button>

@@ -1,0 +1,38 @@
+/* Keep the conversation and composer usable when a phone keyboard reduces the viewport. */
+.chat-message-scroll {
+  min-height: 18rem;
+  max-height: calc(100vh - 22rem);
+}
+
+@media (max-width: 575.98px) {
+  .chat-message-scroll {
+    min-height: min(10rem, 30vh);
+    max-height: 38vh;
+  }
+
+  @supports (height: 1dvh) {
+    .chat-message-scroll {
+      min-height: min(10rem, 30dvh);
+      max-height: 38dvh;
+    }
+  }
+
+  #chat-compose {
+    position: sticky;
+    bottom: env(safe-area-inset-bottom, 0px) !important;
+    z-index: 2;
+  }
+
+  #chat-compose .chat-compose-actions > * {
+    flex: 1 1 auto;
+  }
+
+  #chat-compose #chat-file-status {
+    flex-basis: 100%;
+    order: 5;
+  }
+
+  #chat-compose button[type="submit"] {
+    flex-basis: 100%;
+  }
+}

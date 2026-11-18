@@ -1,3 +1,5 @@
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -111,6 +113,26 @@ class ChatRichFeaturesTest(unittest.TestCase):
         self.assertIn("attachment_preview", messages)
         self.assertIn("<audio", messages)
         self.assertIn("<video", messages)
+        self.assertIn("css/chat.css", room)
+        self.assertIn("chat-message-scroll", room)
+        self.assertIn("chat-compose-actions", room)
+
+    def test_mobile_chat_styles_respect_dynamic_viewport_and_safe_area(self):
+        styles = Path("static/css/chat.css").read_text(encoding="utf-8")
+        self.assertIn("max-height: 38dvh", styles)
+        self.assertIn("env(safe-area-inset-bottom", styles)
+        self.assertIn("#chat-file-status", styles)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js required for frontend regression tests")
+    def test_room_polling_frontend(self):
+        script = Path(__file__).with_name("test_chat_room_polling.mjs")
+        result = subprocess.run(
+            [shutil.which("node"), "--test", str(script)],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

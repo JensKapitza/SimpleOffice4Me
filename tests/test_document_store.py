@@ -8,6 +8,7 @@ from email import policy
 from email.message import EmailMessage
 from pathlib import Path
 from unittest.mock import patch
+from flask import Flask, g
 
 from app.document_store import CONTROL_DIR, POLICY_FILE, DocumentStore
 
@@ -323,6 +324,78 @@ class DocumentStoreTest(unittest.TestCase):
             self.assertEqual(5, len(first["documents"]))
             self.assertTrue(first["has_next"])
             self.assertEqual(2, len(third["documents"]))
+
+    def test_request_visible_documents_are_paginated_without_gaps(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for number in range(12):
+                (root / f"datei-{number:02}.txt").write_text(str(number), encoding="utf-8")
+            store = DocumentStore(root)
+            store.scan()
+            raw = store.document_page(page=1, page_size=500)["documents"]
+            expected = [item for item in raw if not item["last_path"].endswith(("01.txt", "03.txt", "07.txt"))]
+            app = Flask(__name__)
+            with app.test_request_context("/"):
+                g.user = {"username": "alice", "is_admin": False}
+                with patch.object(
+                    store, "_visible_for_request",
+                    side_effect=lambda item: not item["last_path"].endswith(("01.txt", "03.txt", "07.txt")),
+                ):
+                    first = store.document_page(page=1, page_size=3)
+                    second = store.document_page(page=2, page_size=3)
+                    third = store.document_page(page=3, page_size=3)
+
+            actual = first["documents"] + second["documents"] + third["documents"]
+            self.assertEqual([item["document_id"] for item in expected], [item["document_id"] for item in actual])
+            self.assertTrue(first["has_next"])
+            self.assertTrue(second["has_next"])
+            self.assertFalse(third["has_next"])
+            self.assertIsNone(first["total"])
+            self.assertEqual(len(expected), third["total"])
+
+    def test_request_visible_total_and_next_page_ignore_hidden_tail(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for number in range(8):
+                (root / f"datei-{number:02}.txt").write_text(str(number), encoding="utf-8")
+            store = DocumentStore(root)
+            store.scan()
+            app = Flask(__name__)
+            with app.test_request_context("/"):
+                g.user = {"username": "alice", "is_admin": False}
+                with patch.object(
+                    store, "_visible_for_request",
+                    side_effect=lambda item: not item["last_path"].endswith(("05.txt", "06.txt", "07.txt")),
+                ):
+                    first = store.document_page(page=1, page_size=3)
+                    second = store.document_page(page=2, page_size=3)
+
+            self.assertIsNone(first["total"])
+            self.assertEqual(5, second["total"])
+            self.assertEqual(2, len(second["documents"]))
+            self.assertFalse(second["has_next"])
+
+    def test_request_inbox_pagination_uses_visible_count(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for number in range(7):
+                (root / f"inbox-{number:02}.txt").write_text(str(number), encoding="utf-8")
+            store = DocumentStore(root)
+            store.scan()
+            app = Flask(__name__)
+            with app.test_request_context("/"):
+                g.user = {"username": "alice", "is_admin": False}
+                with patch.object(
+                    store, "_visible_for_request",
+                    side_effect=lambda item: not item["last_path"].endswith(("05.txt", "06.txt")),
+                ):
+                    first = store.inbox_page(page=1, page_size=3)
+                    second = store.inbox_page(page=2, page_size=3)
+
+            self.assertIsNone(first["total"])
+            self.assertEqual(5, second["total"])
+            self.assertEqual(2, len(second["documents"]))
+            self.assertFalse(second["has_next"])
 
     def test_search_is_paged_from_the_index(self):
         with tempfile.TemporaryDirectory() as temp:

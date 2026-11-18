@@ -402,6 +402,47 @@ class FrontendNavigationSmokeTests(unittest.TestCase):
         finally:
             app.config["TEST_CSRF_PROTECTION"] = False
 
+    def test_bookmark_search_treats_like_wildcards_as_literal_text(self):
+        for title, url in (
+            ("Budget 100%", "https://example.org/budget"),
+            ("Budget complete", "https://example.org/complete"),
+            ("File_part", "https://example.org/file"),
+            ("Wow!", "https://example.org/wow"),
+            ("Tokens %_! together", "https://example.org/tokens"),
+        ):
+            self.assertEqual(302, self.client.post("/bookmarks/add", data={
+                "title": title, "url": url,
+            }).status_code)
+        with app.app_context():
+            db = database.get_db()
+            db.execute(
+                "INSERT INTO user(username,password,is_admin,created_at,updated_at) "
+                "VALUES (?,?,0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
+                ("bookmark-search-other", generate_password_hash("bookmark-search-password")),
+            )
+            other_id = db.execute(
+                "SELECT id FROM user WHERE username=?", ("bookmark-search-other",),
+            ).fetchone()["id"]
+            db.execute(
+                "INSERT INTO browser_bookmark(id,user_id,title,url) VALUES(?,?,?,?)",
+                ("other-search-match", other_id, "Foreign 100%", "https://example.org/foreign"),
+            )
+            db.commit()
+
+        for query, included, excluded in (
+            ("%", "Budget 100%", "Budget complete"),
+            ("_", "File_part", "Budget complete"),
+            ("!", "Wow!", "Budget complete"),
+            ("%_!", "Tokens %_! together", "Budget 100%"),
+        ):
+            with self.subTest(query=query):
+                response = self.client.get("/bookmarks/", query_string={"q": query})
+                self.assertEqual(200, response.status_code)
+                body = response.get_data(as_text=True)
+                self.assertIn(included, body)
+                self.assertNotIn(excluded, body)
+                self.assertNotIn("Foreign 100%", body)
+
     def test_bookmark_firefox_import_preview_is_non_mutating_and_confirm_is_csrf_protected(self):
         from io import BytesIO
 

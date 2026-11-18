@@ -21,6 +21,7 @@
   const fragmentUrl = root ? root.dataset.chatFragmentUrl : '';
   const androidApp = /SimpleOffice4Me-Android\//i.test(navigator.userAgent || '');
   let lastHtml = target ? target.innerHTML : '';
+  let pollInFlight = false;
 
   const nearBottom = () => !scroll || scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 140;
   const toBottom = () => { if (scroll) scroll.scrollTop = scroll.scrollHeight; };
@@ -97,13 +98,14 @@
 
   if (!target || !fragmentUrl) return;
   setInterval(async () => {
-    if (document.hidden) return;
+    if (document.hidden || pollInFlight) return;
+    pollInFlight = true;
     try {
-      const keepBottom = nearBottom();
       const response = await fetch(fragmentUrl, { headers: { Accept: 'text/html' }, cache: 'no-store' });
       if (!response.ok) return;
       const html = await response.text();
       if (html === lastHtml) return;
+      const keepBottom = nearBottom();
       target.innerHTML = html;
       lastHtml = html;
       bindMessageActions();
@@ -111,6 +113,8 @@
       if (keepBottom) toBottom();
     } catch (_error) {
       // Polling is best-effort; normal navigation remains fully functional.
+    } finally {
+      pollInFlight = false;
     }
   }, 2500);
 })();

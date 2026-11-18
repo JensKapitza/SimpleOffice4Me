@@ -66,6 +66,7 @@ class V2DocumentPreviewStorageTests(unittest.TestCase):
             f"/documents/{self.document['document_id']}/preview"
         )
 
+        self.addCleanup(response.close)
         self.assertEqual(200, response.status_code)
         self.assertEqual(b"authoritative preview", response.data)
         self.assertEqual("private, max-age=0, no-cache", response.headers["Cache-Control"])

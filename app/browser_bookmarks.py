@@ -68,6 +68,12 @@ def _valid_url(value) -> str:
     return url
 
 
+def _search_pattern(query: str) -> str:
+    """Build a substring LIKE pattern that treats user text literally."""
+    escaped = query.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+    return f"%{escaped}%"
+
+
 def _user_id() -> int:
     return int(g.user["id"])
 
@@ -83,7 +89,14 @@ def index():
         flash("Der Suchtext ist ungültig oder zu lang.")
     db = get_db()
     if query:
-        rows = db.execute("SELECT * FROM browser_bookmark WHERE user_id=? AND (title LIKE ? OR url LIKE ? OR folder LIKE ? OR tags LIKE ?) ORDER BY pinned DESC, title COLLATE NOCASE", (_user_id(), *([f"%{query}%"] * 4))).fetchall()
+        pattern = _search_pattern(query)
+        rows = db.execute(
+            "SELECT * FROM browser_bookmark WHERE user_id=? AND ("
+            "title LIKE ? ESCAPE '!' OR url LIKE ? ESCAPE '!' OR "
+            "folder LIKE ? ESCAPE '!' OR tags LIKE ? ESCAPE '!') "
+            "ORDER BY pinned DESC, title COLLATE NOCASE",
+            (_user_id(), *([pattern] * 4)),
+        ).fetchall()
     else:
         rows = db.execute("SELECT * FROM browser_bookmark WHERE user_id=? ORDER BY pinned DESC, title COLLATE NOCASE", (_user_id(),)).fetchall()
     return render_template("bookmarks/index.html", bookmarks=rows, query=query, form_error=None)
