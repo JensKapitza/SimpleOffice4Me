@@ -20,6 +20,7 @@ Gate nicht. Funktions-, Benutzer-/Rollen- und Objektfreigaben bleiben maßgeblic
 
 - [Kontoanträge, Freigaben und sichere Einladungen](KONTOANTRAEGE_UND_EINLADUNGEN.md)
 - [Login-Adressen und private QR-Kandidaten](LOGIN_QR_CODES.md)
+- [Freigegebene Remote-Anwendungen ansehen](REMOTE_APP_KATALOG.md)
 
 ## Kontakte und Kalender
 
@@ -184,6 +185,7 @@ Release-Zusage. Dieses Register ergänzt die thematischen Einstiegspunkte oben.
 - [HTTPS und Reverse Proxy](PROXY_HTTPS.md) — `PROXY_HTTPS.md`
 - [Uneinbringliche Rechnungen ausbuchen](RECHNUNGEN_AUSBUCHEN.md) — `RECHNUNGEN_AUSBUCHEN.md`
 - [Sicherheits-Checkliste vor Release](RELEASE_SECURITY_CHECKLIST.md) — `RELEASE_SECURITY_CHECKLIST.md`
+- [Freigegebene Remote-Anwendungen ansehen](REMOTE_APP_KATALOG.md) — `REMOTE_APP_KATALOG.md`
 - [S3-Overlay](S3_OVERLAY.md) — `S3_OVERLAY.md`
 - [Schnelle Ansicht einzelner Dokumente](SCHNELLE_DATEIANSICHT.md) — `SCHNELLE_DATEIANSICHT.md`
 - [Sicherheits- und Schwachstellenprozess](SECURITY.md) — `SECURITY.md`
