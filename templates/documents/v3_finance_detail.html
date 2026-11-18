@@ -70,7 +70,7 @@
           </select>
           <div class="form-text mb-2" id="invoice-draft-help">{{ 'Only unlinked drafts for this contact are available.' if g.language == 'en' else 'Angezeigt werden nur unverknüpfte Entwürfe dieses Kontakts.' }}</div>
           {% elif invoice_draft_create_url %}
-          <div class="alert alert-info py-2" role="status">{{ 'No available invoice draft for this contact yet.' if g.language == 'en' else 'Für diesen Kontakt gibt es noch keinen verfügbaren Rechnungsentwurf.' }} <a href="{{ invoice_draft_create_url }}">{{ 'Create an invoice draft' if g.language == 'en' else 'Rechnungsentwurf erstellen' }}</a></div>
+          <div class="alert alert-info py-2" role="status" aria-live="polite">{{ 'No available invoice draft for this contact yet.' if g.language == 'en' else 'Für diesen Kontakt gibt es noch keinen verfügbaren Rechnungsentwurf.' }} <a href="{{ invoice_draft_create_url }}">{{ 'Create an invoice draft' if g.language == 'en' else 'Rechnungsentwurf erstellen' }}</a></div>
           {% else %}
           <div class="alert alert-secondary py-2" role="status">{{ 'Assign a manageable contact before linking an invoice.' if g.language == 'en' else 'Zum Verknüpfen einer Rechnung muss zuerst ein verwaltbarer Kontakt zugeordnet sein.' }}</div>
           {% endif %}
