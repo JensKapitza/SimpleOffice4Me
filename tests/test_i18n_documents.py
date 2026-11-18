@@ -402,6 +402,31 @@ class ManagementPagesLanguageTest(unittest.TestCase):
             f"/documents/forms/{form_id}/{record_id}", "de")
         self.assertIn("Änderungen speichern", de_body)
 
+    def test_product_record_shows_stock_adjustment_and_history(self) -> None:
+        from app.form_store import FormStore
+        product = FormStore(self.root).save_record(
+            "product", {"article_number": "A-1", "name": "Widget", "stock": "3"}, "admin")
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
+        response = self.client.get(f"/documents/forms/product/{product['record_id']}")
+        self.assertEqual(200, response.status_code)
+        body = response.data.decode("utf-8")
+        self.assertIn("Lagerbestand korrigieren", body)
+        self.assertIn("Gezählten Bestand setzen", body)
+        self.assertIn('name="_expected_updated_at"', body)
+        self.assertIn('name="_request_id"', body)
+        self.assertIn('id="field-stock" value="3" readonly', body)
+        with self.client.session_transaction() as session:
+            csrf_token = session["_csrf_token"]
+        posted = self.client.post(
+            f"/documents/forms/product/{product['record_id']}/stock-adjustments",
+            data={"_csrf_token": csrf_token, "_expected_updated_at": product["updated_at"],
+                  "_request_id": "web_request_123456", "direction": "add", "magnitude": "2", "reason": "delivery"},
+        )
+        self.assertEqual(302, posted.status_code)
+        updated = FormStore(self.root).record("product", product["record_id"])
+        self.assertEqual("5", updated["values"]["stock"])
+
     def _make_project(self) -> str:
         from app.project_store import ProjectStore
         project = ProjectStore(self.root).create_project(

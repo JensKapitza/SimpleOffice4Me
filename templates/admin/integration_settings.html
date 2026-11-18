@@ -17,6 +17,14 @@
     </div>
   </nav>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  <section class="card mb-3">
+    <div class="card-body">
+      <h2 class="h5">{{ 'Data migration' if g.language == 'en' else 'Datenmigration' }}</h2>
+      <a class="btn btn-outline-primary" href="{{ url_for('fakturama_admin.preview') }}">
+        {{ 'Preview a Fakturama invoice export' if g.language == 'en' else 'Fakturama-Rechnungsexport prüfen' }}
+      </a>
+    </div>
+  </section>
   <section class="card mb-3" id="marketplace-oauth">
     <div class="card-header"><strong>{{ 'Marketplace & OAuth credentials' if g.language == 'en' else 'Marketplace- & OAuth-Zugänge' }}</strong></div>
     <div class="card-body">

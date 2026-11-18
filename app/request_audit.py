@@ -108,7 +108,9 @@ def audit_mutation_response(response):
     else:
         outcome = "failed"
 
-    if request.mimetype in FORM_MIMETYPES:
+    # Migration previews can carry confidential source data. Record the
+    # request outcome without parsing or recording the upload envelope.
+    if endpoint != "fakturama_admin.preview" and request.mimetype in FORM_MIMETYPES:
         form_fields = sorted({str(key)[:80] for key in request.form.keys() if _safe_name(key)})[:100]
         file_fields = sorted({str(key)[:80] for key in request.files.keys() if _safe_name(key)})[:50]
     else:

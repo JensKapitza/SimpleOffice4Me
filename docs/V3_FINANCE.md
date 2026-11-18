@@ -14,9 +14,16 @@ Allowed successor links are:
 
 A successor stores only a reference to its predecessor. Generic business documents freeze their working payload into a snapshot when they leave draft state. Later conversions start from that snapshot; the source snapshot is not edited.
 
+For order or delivery-note to invoice conversion, users select an existing draft belonging to the exact same contact. The draft remains the existing invoice record, including its identifier and invoice data; the lifecycle link adds the predecessor and carries forward the source project and frozen source snapshot. Already linked, finalizing, finalized, foreign-contact, project-conflicting, or otherwise unavailable invoices are rejected. The draft is re-read under its invoice lock while the lifecycle link is committed. The invoice editor's empty-state link opens the existing contact-specific invoice editor. A conversion never creates a second invoice or reserves a final invoice number.
+
 ## Invoice adapter
 
 Invoice lifecycle records reference the existing invoice_id. Creating a lifecycle invoice never allocates an invoice number and never generates a second PDF/XML representation.
+
+Create the actual invoice draft in the invoice editor first. Offers, orders, and delivery
+notes in this view store a lifecycle payload and preserve the document chain.
+Document-specific line item editors and PDF templates for those generic
+records remain open work. [Invoice workflow](INVOICE_WORKFLOW.md)
 
 When SIMPLEOFFICE_V3_FINANCE_ENABLED is active, the existing invoice form uses finalize_invoice_tracked. The wrapper:
 
