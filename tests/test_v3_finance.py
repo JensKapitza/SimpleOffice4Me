@@ -120,7 +120,7 @@ class V3FinanceLifecycleTests(unittest.TestCase):
         )
         order = self.store.transition(order.lifecycle_id, "confirmed", "alice")
         draft = self._write_invoice("invoice-registered")
-        registered = self.store.attach_invoice(draft, "alice")
+        registered = self.store.sync_invoice(draft, "alice")
 
         successor = self.store.convert(
             order.lifecycle_id, "invoice", "alice", external_id=draft["invoice_id"]
@@ -129,7 +129,8 @@ class V3FinanceLifecycleTests(unittest.TestCase):
         self.assertEqual(order.lifecycle_id, successor.predecessor_id)
         self.assertEqual("project-1", successor.project_id)
         self.assertEqual("Frozen order", successor.working["source_snapshot"]["description"])
-        self.assertEqual(2, successor.version)
+        self.assertEqual("Frozen order", successor.snapshot["source_snapshot"]["description"])
+        self.assertEqual(3, successor.version)
         self.assertEqual("linked_as_successor", self.store.history(successor.lifecycle_id)[0]["action"])
         self.assertEqual(
             successor.lifecycle_id,
@@ -159,6 +160,19 @@ class V3FinanceLifecycleTests(unittest.TestCase):
         self.store.begin_finalization(other_draft, "alice")
         with self.assertRaisesRegex(ValueError, "available draft"):
             self.store.convert(first.lifecycle_id, "invoice", "alice", external_id=other_draft["invoice_id"])
+
+    def test_invoice_draft_with_conflicting_project_cannot_be_linked(self):
+        order = self.store.create(
+            "order", "alice", contact_id="contact-1", project_id="project-source"
+        )
+        order = self.store.transition(order.lifecycle_id, "confirmed", "alice")
+        draft = self._write_invoice("invoice-project-mismatch")
+        self.store.create(
+            "invoice", "alice", contact_id="contact-1", project_id="project-other",
+            external_id=draft["invoice_id"],
+        )
+        with self.assertRaisesRegex(ValueError, "another project"):
+            self.store.convert(order.lifecycle_id, "invoice", "alice", external_id=draft["invoice_id"])
 
     def test_parallel_lifecycle_finalization_is_rejected(self):
         row = self._write_invoice()

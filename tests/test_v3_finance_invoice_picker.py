@@ -122,6 +122,24 @@ class FinanceInvoicePickerRouteTests(unittest.TestCase):
         self.assertNotIn(b"Existing invoice draft", response.data)
         self.assertNotIn(b"Create an invoice draft", response.data)
 
+    def test_picker_hides_draft_with_conflicting_project(self):
+        contact = ContactStore(self.root).upsert({"display_name": "Project Contact"}, "admin")
+        store = FinanceLifecycleStore(self.root)
+        order = store.create(
+            "order", "admin", contact_id=contact["contact_id"],
+            project_id="project-source", title="Project order",
+        )
+        order = store.transition(order.lifecycle_id, "confirmed", "admin")
+        draft = self._invoice("project-conflict-draft", contact["contact_id"])
+        store.create(
+            "invoice", "admin", contact_id=contact["contact_id"],
+            project_id="project-other", external_id=draft["invoice_id"],
+        )
+        response = self.client.get(f"/documents/business/lifecycle-v3/{order.lifecycle_id}")
+        self.assertEqual(200, response.status_code)
+        self.assertNotIn(b"DRAFT-2026-0042", response.data)
+        self.assertIn(b"No available invoice draft", response.data)
+
 
 if __name__ == "__main__":
     unittest.main()

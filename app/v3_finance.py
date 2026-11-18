@@ -283,12 +283,11 @@ class FinanceLifecycleStore:
             ).fetchone()
         return self._record(row) if row else None
 
-    def invoice_lifecycle_for_contact(self, contact_id: str) -> dict[str, BusinessDocument]:
-        """Read all registered invoice links for one contact in a single query."""
+    def invoice_lifecycle_records(self) -> dict[str, BusinessDocument]:
+        """Read registered invoice links once to filter candidate drafts safely."""
         with self._db() as db:
             rows = db.execute(
-                "SELECT * FROM v3_business_document WHERE kind='invoice' AND contact_id=?",
-                (str(contact_id),),
+                "SELECT * FROM v3_business_document WHERE kind='invoice'",
             ).fetchall()
         return {
             row.external_id: row
@@ -573,6 +572,37 @@ class FinanceLifecycleStore:
                     return existing
                 raise
 
+        from .business_document_generation import _invoice_store_path, invoice
+        from .file_lock import exclusive_file_lock
+
+        invoice_path = _invoice_store_path(self.root, invoice_id)
+        with exclusive_file_lock(invoice_path.with_suffix(".lock")):
+            current_invoice = invoice(self.root, invoice_id)
+            if current_invoice.get("status") != "draft":
+                raise ValueError("invoice successor must still be a draft")
+            if str(current_invoice.get("contact_id", "")).strip() != contact_id:
+                raise ValueError("invoice successor belongs to another contact")
+            return self._attach_invoice_successor(
+                current_invoice,
+                actor,
+                predecessor_id,
+            )
+
+    def _attach_invoice_successor(
+        self,
+        invoice_row: Mapping[str, Any],
+        actor: str,
+        predecessor_id: str,
+    ) -> BusinessDocument:
+        invoice_id = str(invoice_row.get("invoice_id", "")).strip()
+        contact_id = str(invoice_row.get("contact_id", "")).strip()
+        title = f"Rechnung {invoice_row.get('invoice_number', invoice_id)}"[:300]
+        working = {
+            "totals": invoice_row.get("totals", {}),
+            "currency": invoice_row.get("currency", ""),
+            "issue_date": invoice_row.get("issue_date", ""),
+            "due_date": invoice_row.get("due_date", ""),
+        }
         now = _now()
         with self._db() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -619,15 +649,25 @@ class FinanceLifecycleStore:
                     return linked
                 if linked.predecessor_id:
                     raise ValueError("invoice draft is already linked to another document")
-                successor_working = dict(linked.working)
-                successor_working["source_snapshot"] = dict(source_row.snapshot or source_row.working)
+                if linked.project_id and source_row.project_id and linked.project_id != source_row.project_id:
+                    raise ValueError("invoice draft is assigned to another project")
+                successor_working = {
+                    **linked.working,
+                    **working,
+                    "source_snapshot": dict(source_row.snapshot or source_row.working),
+                }
+                successor_snapshot = {
+                    **(linked.snapshot or linked.working),
+                    **working,
+                    "source_snapshot": dict(source_row.snapshot or source_row.working),
+                }
                 db.execute(
                     """UPDATE v3_business_document SET predecessor_id=?,updated_at=?,
                        updated_by=?,version=version+1,project_id=CASE WHEN project_id='' THEN ? ELSE project_id END,
-                       working_json=? WHERE lifecycle_id=?
+                       working_json=?,snapshot_json=? WHERE lifecycle_id=?
                        AND predecessor_id='' AND status='draft'""",
                     (predecessor_id, now, str(actor)[:200], source_row.project_id,
-                     _json(successor_working), linked.lifecycle_id),
+                     _json(successor_working), _json(successor_snapshot), linked.lifecycle_id),
                 )
                 if db.execute("SELECT changes()").fetchone()[0] != 1:
                     raise ValueError("invoice draft is no longer available")

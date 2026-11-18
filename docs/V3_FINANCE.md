@@ -14,7 +14,7 @@ Allowed successor links are:
 
 A successor stores only a reference to its predecessor. Generic business documents freeze their working payload into a snapshot when they leave draft state. Later conversions start from that snapshot; the source snapshot is not edited.
 
-For order or delivery-note to invoice conversion, users select an existing draft belonging to the exact same contact. The draft remains the existing invoice record, including its identifier and invoice data; the lifecycle link adds the predecessor and carries forward the source project and frozen source snapshot. Already linked, finalizing, finalized, foreign-contact, or otherwise unavailable invoices are rejected. The invoice editor's empty-state link opens the existing contact-specific invoice editor. A conversion never creates a second invoice or reserves a final invoice number.
+For order or delivery-note to invoice conversion, users select an existing draft belonging to the exact same contact. The draft remains the existing invoice record, including its identifier and invoice data; the lifecycle link adds the predecessor and carries forward the source project and frozen source snapshot. Already linked, finalizing, finalized, foreign-contact, project-conflicting, or otherwise unavailable invoices are rejected. The draft is re-read under its invoice lock while the lifecycle link is committed. The invoice editor's empty-state link opens the existing contact-specific invoice editor. A conversion never creates a second invoice or reserves a final invoice number.
 
 ## Invoice adapter
 

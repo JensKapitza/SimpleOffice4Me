@@ -133,12 +133,19 @@ def detail(lifecycle_id: str):
                 "contact_audit.business_documents.contact_invoice",
                 contact_id=row.contact_id,
             )
-            invoice_lifecycle = _store().invoice_lifecycle_for_contact(row.contact_id)
+            invoice_lifecycle = _store().invoice_lifecycle_records()
             for candidate in invoices(Path(current_app.config["DOCUMENT_ROOT"])):
                 if candidate.get("status") != "draft" or candidate.get("contact_id") != row.contact_id:
                     continue
                 attached = invoice_lifecycle.get(str(candidate.get("invoice_id", "")))
                 if attached and (attached.status != "draft" or attached.predecessor_id):
+                    continue
+                if (
+                    attached
+                    and attached.project_id
+                    and row.project_id
+                    and attached.project_id != row.project_id
+                ):
                     continue
                 invoice_drafts.append(candidate)
     attempts = []
