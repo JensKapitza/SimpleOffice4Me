@@ -30,9 +30,37 @@
       <div class="card mb-4"><div class="card-header"><strong>{{ 'Rules' if g.language == 'en' else 'Regeln' }}</strong></div>
         <div class="table-responsive"><table class="table table-sm align-middle mb-0">
           <thead><tr><th scope="col">Name</th><th scope="col">Trigger</th><th scope="col">Version</th><th scope="col">Status</th><th scope="col">{{ 'Action' if g.language == 'en' else 'Aktion' }}</th></tr></thead>
-          <tbody>{% for rule in rules %}<tr><td>{{ rule.name }}</td><td><code>{{ rule.trigger.type }}</code> {{ rule.trigger.name|default('') }}</td><td>{{ rule.version }}</td><td>{{ ('active' if rule.enabled else 'inactive') if g.language == 'en' else ('aktiv' if rule.enabled else 'inaktiv') }}</td><td><form method="post" action="{{ url_for('v3_automation.toggle',rule_id=rule.rule_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn btn-sm btn-outline-secondary">{{ ('Deactivate' if rule.enabled else 'Activate') if g.language == 'en' else ('Deaktivieren' if rule.enabled else 'Aktivieren') }}</button></form></td></tr>{% else %}<tr><td colspan="5" class="text-secondary">{{ 'No rules.' if g.language == 'en' else 'Keine Regeln.' }}</td></tr>{% endfor %}</tbody>
+          <tbody>{% for rule in rules %}<tr><td>{{ rule.name }}</td><td><code>{{ rule.trigger.type }}</code> {{ rule.trigger.name|default('') }}</td><td>{{ rule.version }}</td><td>{{ ('active' if rule.enabled else 'inactive') if g.language == 'en' else ('aktiv' if rule.enabled else 'inaktiv') }}</td><td>
+            {% if rule.rule_id in manual_check_rule_ids %}
+            <form method="post" action="{{ url_for('v3_automation.prepare_check_run',rule_id=rule.rule_id) }}" class="mb-2">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <label class="form-label small" for="check-context-{{ rule.rule_id }}">{{ 'Check context (JSON)' if g.language == 'en' else 'Prüfkontext (JSON)' }}</label>
+              <textarea class="form-control form-control-sm font-monospace mb-1" id="check-context-{{ rule.rule_id }}" name="event_json" rows="2">{{ {'name': rule.trigger.name|default('')}|tojson }}</textarea>
+              <small class="text-secondary d-block mb-1">{{ 'This evaluates the JSON you provide; it does not fetch current data.' if g.language == 'en' else 'Geprüft wird das eingegebene JSON; aktuelle Fachdaten werden nicht abgerufen.' }}</small>
+              <button type="submit" class="btn btn-sm btn-outline-primary">{{ 'Preview task' if g.language == 'en' else 'Aufgabe vorschauen' }}</button>
+            </form>
+            {% endif %}
+            <form method="post" action="{{ url_for('v3_automation.toggle',rule_id=rule.rule_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn btn-sm btn-outline-secondary">{{ ('Deactivate' if rule.enabled else 'Activate') if g.language == 'en' else ('Deaktivieren' if rule.enabled else 'Aktivieren') }}</button></form></td></tr>{% else %}<tr><td colspan="5" class="text-secondary">{{ 'No rules.' if g.language == 'en' else 'Keine Regeln.' }}</td></tr>{% endfor %}</tbody>
         </table></div>
       </div>
+      {% if preview %}
+      <div class="card mb-4 border-primary" role="region" aria-labelledby="automation-preview-title">
+        <div class="card-header" id="automation-preview-title"><strong>{{ 'Review before creating task' if g.language == 'en' else 'Vor dem Erstellen der Aufgabe prüfen' }}</strong></div>
+        <div class="card-body">
+          <p>{{ 'The check matched. This preview expires at' if g.language == 'en' else 'Die Prüfung passt. Diese Vorschau läuft ab um' }} <time datetime="{{ preview.expires_at }}">{{ preview.expires_at }}</time>. {{ 'Confirming creates the task using this exact context.' if g.language == 'en' else 'Mit der Bestätigung wird die Aufgabe mit genau diesem Prüfkontext erstellt.' }}</p>
+          <h2 class="h6">{{ 'Check context' if g.language == 'en' else 'Prüfkontext' }}</h2>
+          <pre class="p-2 bg-body-tertiary rounded"><code>{{ preview.event|tojson(indent=2) }}</code></pre>
+          <h2 class="h6">{{ 'Planned action' if g.language == 'en' else 'Geplante Aktion' }}</h2>
+          <pre class="p-2 bg-body-tertiary rounded"><code>{{ preview.actions|tojson(indent=2) }}</code></pre>
+          <form method="post" action="{{ url_for('v3_automation.confirm_check_run',rule_id=preview.rule.rule_id) }}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="run_token" value="{{ preview.token }}">
+            <div class="form-check mb-3"><input class="form-check-input" type="checkbox" id="confirm-check-run" name="confirm_run" value="1" required><label class="form-check-label" for="confirm-check-run">{{ 'I reviewed this preview and want to create the task.' if g.language == 'en' else 'Ich habe die Vorschau geprüft und möchte die Aufgabe erstellen.' }}</label></div>
+            <button type="submit" class="btn btn-primary">{{ 'Confirm and create task' if g.language == 'en' else 'Bestätigen und Aufgabe erstellen' }}</button>
+          </form>
+        </div>
+      </div>
+      {% endif %}
       <div class="card"><div class="card-header"><strong>{{ 'Recent runs' if g.language == 'en' else 'Letzte Ausführungen' }}</strong></div>
         <div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th scope="col">{{ 'Time' if g.language == 'en' else 'Zeit' }}</th><th scope="col">Status</th><th scope="col">{{ 'Rule' if g.language == 'en' else 'Regel' }}</th></tr></thead><tbody>{% for row in logs %}<tr><td>{{ row.created_at }}</td><td>{{ row.status }}</td><td><code>{{ row.rule_id }}</code></td></tr>{% else %}<tr><td colspan="3" class="text-secondary">{{ 'No runs.' if g.language == 'en' else 'Keine Ausführungen.' }}</td></tr>{% endfor %}</tbody></table></div>
       </div>

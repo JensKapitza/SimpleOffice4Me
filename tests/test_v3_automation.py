@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import tempfile
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest.mock import patch
 
 from app.todo_store import TodoStore
 from app.v3_automation import ActionRegistry, AutomationEngine, AutomationStore, MAX_DEPTH, default_action_registry
@@ -39,6 +43,42 @@ class V3AutomationTests(unittest.TestCase):
         self.assertEqual("duplicate", second.status)
         self.assertEqual(1, len(TodoStore(self.root).items("alice")))
 
+    def test_task_receipt_prevents_duplicate_after_execution_log_failure(self):
+        rule = self.rule(trigger={"type": "check", "name": "manual.invoice.check"})
+        engine = AutomationEngine(self.store, default_action_registry(self.root))
+        event = {"id": "run-token-hash", "name": "manual.invoice.check", "overdue": True}
+        record = self.store.record_execution
+        with patch.object(self.store, "record_execution", side_effect=OSError("synthetic log failure")):
+            with self.assertRaises(OSError):
+                engine.execute(rule, event, principal="alice", trigger_type="check", correlation_id="run-1")
+        with patch.object(self.store, "record_execution", side_effect=record):
+            result = engine.execute(rule, event, principal="alice", trigger_type="check", correlation_id="run-1")
+        self.assertEqual("succeeded", result.status)
+        self.assertEqual(1, len(TodoStore(self.root).items("alice")))
+
+    def test_concurrent_same_run_creates_one_task(self):
+        rule = self.rule()
+        barrier = threading.Barrier(2)
+        registry = ActionRegistry()
+
+        def create_task(principal, payload, context):
+            barrier.wait(timeout=5)
+            return TodoStore(self.root).add(
+                payload["title"], principal, payload.get("values", {}),
+                automation_operation_id=context["automation_operation_id"],
+            )
+
+        registry.register("task.create", create_task, authorizer=lambda _principal, _payload: True)
+        engine = AutomationEngine(self.store, registry)
+        event = {"id": "same-event", "name": "finance.invoice.overdue", "overdue": True}
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(
+                lambda _: engine.execute(rule, event, principal="alice", correlation_id="same-run"),
+                range(2),
+            ))
+        self.assertTrue(all(result.status == "succeeded" for result in results))
+        self.assertEqual(1, len(TodoStore(self.root).items("alice")))
+
     def test_dry_run_plans_without_mutation(self):
         rule = self.rule()
         result = AutomationEngine(self.store, default_action_registry(self.root)).execute(
@@ -66,6 +106,16 @@ class V3AutomationTests(unittest.TestCase):
         )
         self.assertEqual("not_matched", no_match.status)
         self.assertEqual("denied", denied.status)
+
+    def test_incompatible_contains_condition_returns_not_matched(self):
+        rule = self.rule(conditions=[{"field": "event.label", "op": "contains", "value": []}])
+        result = AutomationEngine(self.store, default_action_registry(self.root)).execute(
+            rule,
+            {"name": "finance.invoice.overdue", "label": "invoice"},
+            principal="alice",
+            dry_run=True,
+        )
+        self.assertEqual("not_matched", result.status)
 
     def test_action_authorizer_blocks_mutation(self):
         registry = ActionRegistry()
@@ -100,6 +150,26 @@ class V3AutomationTests(unittest.TestCase):
         self.assertFalse(updated.enabled)
         self.assertEqual(rule.version + 1, updated.version)
         self.assertEqual(rule.rule_id, self.store.get(rule.rule_id, "alice").rule_id)
+
+    def test_confirmation_is_owner_bound_and_expires(self):
+        rule = self.rule(trigger={"type": "check", "name": "manual.check"})
+        token = "synthetic-confirmation-token"
+        expires_at = self.store.create_confirmation(
+            rule, {"name": "manual.check", "approved": True},
+            principal="alice", token=token,
+        )
+        self.assertGreater(expires_at, "")
+        bound = self.store.get_confirmation(token, "alice")
+        self.assertEqual(rule.version, bound["rule_version"])
+        self.assertEqual({"name": "manual.check", "approved": True}, bound["event"])
+        self.assertIsNone(self.store.get_confirmation(token, "bob"))
+        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        with self.store._db() as db:
+            db.execute(
+                "UPDATE v3_automation_confirmation SET expires_at='2000-01-01T00:00:00Z' WHERE token_hash=?",
+                (token_hash,),
+            )
+        self.assertIsNone(self.store.get_confirmation(token, "alice"))
 
 
 if __name__ == "__main__":
