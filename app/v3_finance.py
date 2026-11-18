@@ -283,6 +283,19 @@ class FinanceLifecycleStore:
             ).fetchone()
         return self._record(row) if row else None
 
+    def invoice_lifecycle_for_contact(self, contact_id: str) -> dict[str, BusinessDocument]:
+        """Read all registered invoice links for one contact in a single query."""
+        with self._db() as db:
+            rows = db.execute(
+                "SELECT * FROM v3_business_document WHERE kind='invoice' AND contact_id=?",
+                (str(contact_id),),
+            ).fetchall()
+        return {
+            row.external_id: row
+            for row in (self._record(item) for item in rows)
+            if row.external_id
+        }
+
     def create(
         self,
         kind: str,
@@ -441,8 +454,13 @@ class FinanceLifecycleStore:
             invoice_row = invoice(self.root, str(external_id).strip())
             if invoice_row.get("status") != "draft":
                 raise ValueError("invoice successor must still be a draft")
-            if source.contact_id and str(invoice_row.get("contact_id", "")) != source.contact_id:
+            if not source.contact_id or str(invoice_row.get("contact_id", "")) != source.contact_id:
                 raise ValueError("invoice successor belongs to another contact")
+            return self.attach_invoice(
+                invoice_row,
+                actor,
+                predecessor_id=source.lifecycle_id,
+            )
         title_prefix = {
             "order": "Auftrag",
             "delivery_note": "Lieferschein",
@@ -529,24 +547,96 @@ class FinanceLifecycleStore:
         invoice_id = str(invoice_row.get("invoice_id", "")).strip()
         if not invoice_id:
             raise ValueError("invoice id is required")
-        existing = self.by_external("invoice", invoice_id)
-        if existing is None:
-            existing = self.create(
-                "invoice",
-                actor,
-                contact_id=str(invoice_row.get("contact_id", "")),
-                project_id="",
-                title=f"Rechnung {invoice_row.get('invoice_number', invoice_id)}",
-                working={
-                    "totals": invoice_row.get("totals", {}),
-                    "currency": invoice_row.get("currency", ""),
-                    "issue_date": invoice_row.get("issue_date", ""),
-                    "due_date": invoice_row.get("due_date", ""),
-                },
-                predecessor_id=predecessor_id,
-                external_id=invoice_id,
-            )
-        return existing
+        contact_id = str(invoice_row.get("contact_id", "")).strip()
+        if predecessor_id and not contact_id:
+            raise ValueError("invoice successor requires a contact")
+        title = f"Rechnung {invoice_row.get('invoice_number', invoice_id)}"[:300]
+        working = {
+            "totals": invoice_row.get("totals", {}),
+            "currency": invoice_row.get("currency", ""),
+            "issue_date": invoice_row.get("issue_date", ""),
+            "due_date": invoice_row.get("due_date", ""),
+        }
+        if not predecessor_id:
+            existing = self.by_external("invoice", invoice_id)
+            if existing is not None:
+                return existing
+            try:
+                return self.create(
+                    "invoice", actor, contact_id=contact_id, project_id="",
+                    title=title, working=working, external_id=invoice_id,
+                )
+            except ValueError:
+                # Another sync may have registered this draft concurrently.
+                existing = self.by_external("invoice", invoice_id)
+                if existing is not None:
+                    return existing
+                raise
+
+        now = _now()
+        with self._db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            source = db.execute(
+                "SELECT * FROM v3_business_document WHERE lifecycle_id=?",
+                (str(predecessor_id),),
+            ).fetchone()
+            if source is None:
+                raise ValueError("source document does not exist")
+            source_row = self._record(source)
+            if "invoice" not in SUCCESSORS.get(source_row.kind, set()):
+                raise ValueError("invoice is not a valid successor for this document")
+            if source_row.status not in CONVERSION_READY.get(source_row.kind, set()):
+                raise ValueError("source document is not ready for conversion")
+            if not source_row.contact_id or source_row.contact_id != contact_id:
+                raise ValueError("invoice successor belongs to another contact")
+            existing = db.execute(
+                "SELECT * FROM v3_business_document WHERE kind='invoice' AND external_id=?",
+                (invoice_id,),
+            ).fetchone()
+            if existing is None:
+                lifecycle_id = uuid.uuid4().hex
+                successor_working = {**working, "source_snapshot": dict(source_row.snapshot or source_row.working)}
+                db.execute(
+                    """INSERT INTO v3_business_document(
+                        lifecycle_id,kind,status,external_id,contact_id,project_id,
+                        predecessor_id,title,working_json,created_at,created_by,
+                        updated_at,updated_by
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (lifecycle_id, "invoice", "draft", invoice_id, contact_id, source_row.project_id,
+                     predecessor_id, title, _json(successor_working), now, str(actor)[:200],
+                     now, str(actor)[:200]),
+                )
+                self._history(
+                    db, lifecycle_id, "created", actor, to_status="draft",
+                    detail={"kind": "invoice", "predecessor_id": predecessor_id},
+                    occurred_at=now,
+                )
+            else:
+                linked = self._record(existing)
+                if linked.contact_id != contact_id or linked.status != "draft":
+                    raise ValueError("invoice successor is no longer an available draft")
+                if linked.predecessor_id == predecessor_id:
+                    return linked
+                if linked.predecessor_id:
+                    raise ValueError("invoice draft is already linked to another document")
+                successor_working = dict(linked.working)
+                successor_working["source_snapshot"] = dict(source_row.snapshot or source_row.working)
+                db.execute(
+                    """UPDATE v3_business_document SET predecessor_id=?,updated_at=?,
+                       updated_by=?,version=version+1,project_id=CASE WHEN project_id='' THEN ? ELSE project_id END,
+                       working_json=? WHERE lifecycle_id=?
+                       AND predecessor_id='' AND status='draft'""",
+                    (predecessor_id, now, str(actor)[:200], source_row.project_id,
+                     _json(successor_working), linked.lifecycle_id),
+                )
+                if db.execute("SELECT changes()").fetchone()[0] != 1:
+                    raise ValueError("invoice draft is no longer available")
+                self._history(
+                    db, linked.lifecycle_id, "linked_as_successor", actor,
+                    from_status="draft", to_status="draft",
+                    detail={"predecessor_id": predecessor_id}, occurred_at=now,
+                )
+        return self.by_external("invoice", invoice_id)  # type: ignore[return-value]
 
     def _set_invoice_state(
         self,
