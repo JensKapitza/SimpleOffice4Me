@@ -71,13 +71,17 @@ def _task_check_rule(rule) -> bool:
 def _render_index(actor: str, *, preview=None):
     store = _store()
     rules = store.list(actor)
+    manual_check_rule_ids = (
+        {rule.rule_id for rule in rules if _task_check_rule(rule)}
+        if has_feature(g.user, "projects") else set()
+    )
     return render_template(
         "admin/v3_automation.html",
         enabled=True,
         rules=rules,
         logs=store.logs(actor, limit=50),
         preview=preview,
-        manual_check_rule_ids={rule.rule_id for rule in rules if _task_check_rule(rule)},
+        manual_check_rule_ids=manual_check_rule_ids,
     )
 
 
@@ -89,13 +93,17 @@ def index():
         return render_template("admin/v3_automation.html", enabled=False, rules=[], logs=[])
     store = _store()
     rules = store.list(actor)
+    manual_check_rule_ids = (
+        {rule.rule_id for rule in rules if _task_check_rule(rule)}
+        if has_feature(g.user, "projects") else set()
+    )
     return render_template(
         "admin/v3_automation.html",
         enabled=True,
         rules=rules,
         logs=store.logs(actor, limit=50),
         preview=None,
-        manual_check_rule_ids={rule.rule_id for rule in rules if _task_check_rule(rule)},
+        manual_check_rule_ids=manual_check_rule_ids,
     )
 
 

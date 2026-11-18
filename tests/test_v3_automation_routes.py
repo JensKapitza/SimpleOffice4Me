@@ -192,6 +192,8 @@ class V3AutomationRouteTests(unittest.TestCase):
         preview = self._preview(rule)
         token = self._token(preview, rule)
         with patch("app.v3_automation_routes.has_feature", return_value=False):
+            page = self.client.get("/automation-v3")
+            self.assertNotIn("Preview task", page.get_data(as_text=True))
             self.assertEqual(403, self._preview(rule).status_code)
             self.assertEqual(403, self.client.post(
                 f"/automation-v3/{rule.rule_id}/confirm-check-run",
