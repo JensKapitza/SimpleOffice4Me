@@ -40,6 +40,16 @@ Jede Übergabe enthält Paket-ID, Status, Ist, Soll, Dateien, Schritte, Zwischen
 
 ## Arbeitsnachweise
 
+### P2 · Lesezeichen am Handy bedienen
+
+| Phase | Zuständigkeit und Ergebnis |
+|---|---|
+| Analyse und Plan | Der Integrator grenzte den Auftrag auf die vorhandene Lesezeichenliste ein. Ihre Überschrift und Suchmaske teilten sich auch auf schmalen Geräten dieselbe Zeile. Kleine Aktionsschaltflächen erschwerten das Antippen. Die bestehenden Speicher- und Importfunktionen sowie die Leserechte bleiben Teil des regulären Bedienwegs. |
+| Implementierung | Luna-Agent `links_mobile` ergänzte Klassen in `templates/bookmarks/index.html` und die seitenspezifische `static/css/bookmarks.css`. Auf Handybreite stehen Überschrift und Suche untereinander. Such- und Listenaktionen erhalten mindestens 44 CSS-Pixel Höhe. Lange Ordner und Tags können umbrechen. |
+| Test und Review | Luna-Agent `links_browser` prüfte den angemeldeten Ablauf in Chromium mit synthetischen Lesezeichen; der Integrator prüfte zusätzlich die bestehenden Routentests für private Einträge, sichere URLs und die Firefox-Importvorschau. |
+| Soll-Ist-Vergleich und Abschluss | Der Browsertest legte bei 360 × 800 ein Lesezeichen mit langer URL und langen ungetrennten Ordner- und Tagwerten an. Suchen, Bearbeiten, Anheften und Löschen funktionierten per Touch. Die geprüften Schaltflächen waren mindestens 44 px hoch und die Liste blieb ohne horizontalen Überlauf. Die angemeldete Ansicht wurde zusätzlich bei 1280 × 900 geöffnet. Die erste Testfassung erwartete deutsche Schaltflächentexte bei englischer Standardsprache; der isolierte Test setzt die Sprache jetzt ausdrücklich. |
+| Folgeauftrag | Auf einem physischen Handy mit geöffneter Bildschirmtastatur prüfen, ob das Suchfeld nach Rückkehr aus der Bearbeitung sichtbar und die letzte Suchanfrage bequem wieder erreichbar ist. |
+
 ### P1 · Lesezeichensuche · mesh_links
 
 **Ist und Soll.** Die Suche behandelte Prozentzeichen und Unterstriche als SQL-Platzhalter. Wer etwa nach `100%` sucht, soll nur eigene Lesezeichen mit dieser Zeichenfolge finden. **Umsetzung.** Der Agent hat in `app/browser_bookmarks.py` die Suchzeichen einschließlich des Escapezeichens maskiert. Titel, URL, Ordner und Tags behalten ihre Teilstringsuche. Im Review wurde der Test um kombinierte Sonderzeichen und einen zweiten Benutzer erweitert. Der Flask-Routentest verwendet die echte Datenbankabfrage und prüft die gerenderte Ergebnisliste. Testdatei ist `tests/test_frontend_route_contract.py`.
