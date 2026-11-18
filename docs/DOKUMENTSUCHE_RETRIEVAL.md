@@ -3,7 +3,7 @@
 ## Zweck und Nutzen
 
 Die Dokumentübersicht bietet eine kurze Suche nach Dateiname oder Tag. Für
-präzise Abfragen steht die erweiterte Retrieval-Suche bereit. Beide suchen im vorhandenen lokalen Index. Beim Blättern prüft der Server die Leserechte anhand der Dokumentmetadaten. „Weitere Treffer laden“ erscheint erst, wenn mindestens ein weiterer sichtbarer Treffer vorliegt. Tiefe Seiten und viele private Treffer können deshalb mehr Lesezugriffe erfordern. Eine Suchanfrage startet weder einen Dateisystemscan noch OCR oder Textextraktion.
+präzise Abfragen steht die erweiterte Retrieval-Suche bereit. Beide suchen im vorhandenen lokalen Index. Beim Blättern prüft der Server die Leserechte anhand der Dokumentmetadaten. „Weitere Treffer laden“ erscheint erst, wenn mindestens ein weiterer sichtbarer Treffer vorliegt. „Weitere Treffer laden“ setzt hinter dem letzten angezeigten Treffer fort. Direkte Sprünge auf eine Seitennummer und Links, deren Fortsetzungsposition nach einer Stunde abgelaufen ist, zählen sichtbare Treffer erneut von Anfang an. Während des Blätterns gelten die aktuellen Leserechte. Eine Suchanfrage startet weder einen Dateisystemscan noch OCR oder Textextraktion.
 
 ## Bedienung
 

@@ -458,11 +458,15 @@ class _DocumentStorePart5:
             "\n".join(part for part in (metadata.get("extracted_text", ""), metadata.get("ocr_text", "")) if part),
         )
         with self._db() as db:
-            db.execute("DELETE FROM document_search WHERE document_id = ?", (metadata["document_id"],))
-            db.execute(
-                "INSERT INTO document_search(document_id, path, state, tags, notes, attributes, content) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                row,
+            updated = db.execute(
+                "UPDATE document_search SET path=?, state=?, tags=?, notes=?, attributes=?, content=? WHERE document_id=?",
+                (*row[1:], row[0]),
             )
+            if updated.rowcount == 0:
+                db.execute(
+                    "INSERT INTO document_search(document_id, path, state, tags, notes, attributes, content) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    row,
+                )
         self._refresh_listing_index(metadata)
 
     def _refresh_listing_index(
