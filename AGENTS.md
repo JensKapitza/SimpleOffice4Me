@@ -398,3 +398,5 @@ Der Aufgaben-Router und der Integrator sind die koordinierende Instanz, keine zw
 - Konfidenzwerte allein sind kein Sicherheitsnachweis. Schwellenwerte müssen mit repräsentativen, zurückgehaltenen Beispielen geprüft werden; bei unsicherer Zuordnung wird nachgefragt oder sicher angehalten.
 - Unabhängigen Agenten werden standardmäßig keine Secrets oder echten Kunden-, Dokument- und Inventardaten gegeben. Reviews nutzen synthetische oder minimierte, redigierte Reproduktionen; echte Daten nur nach den ausdrücklichen Freigabe- und Isolationsregeln.
 - Für die Hackathon-Anwendung bleiben die Meta-Modell-Vorgaben aus Abschnitt 23 verbindlich. Diese Entwicklungsrollen erzwingen keine zusätzliche Runtime-Abhängigkeit.
+
+Für Aufträge aus dem [Agenten-Mesh](agenten_mesh.md) dokumentiert jeder Bearbeiter die sieben dort beschriebenen Phasen. Der Integrator trägt die Testnachweise und den Soll-Ist-Vergleich vor Abschluss im zentralen Register ein.

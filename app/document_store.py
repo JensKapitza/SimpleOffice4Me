@@ -75,10 +75,54 @@ class DocumentStore(_DocumentStorePart1, _DocumentStorePart2, _DocumentStorePart
     def list_documents(self) -> list[dict[str, Any]]:
         return sorted(self._all_documents(), key=lambda item: (item.get("last_seen_at", ""), item.get("last_path", "")), reverse=True)
 
+    def _visible_document_page(self, statement: str, page: int, page_size: int) -> dict[str, Any]:
+        page = max(1, int(page))
+        page_size = max(1, min(500, int(page_size)))
+        start = (page - 1) * page_size
+        end = start + page_size
+        visible_total = 0
+        documents: list[dict[str, Any]] = []
+        self.initialize()
+        with self._db() as db:
+            rows = db.execute(statement)
+            for (document_id,) in rows:
+                metadata = self._read_json(self.documents / f"{document_id}.json", {})
+                if not metadata.get("document_id") or not self._visible_for_request(metadata):
+                    continue
+                if start <= visible_total <= end:
+                    documents.append(metadata)
+                visible_total += 1
+                if visible_total > end:
+                    break
+        has_next = visible_total > end
+        return {
+            "documents": documents[:page_size],
+            "page": page,
+            "page_size": page_size,
+            # A scoped count needs a complete visibility scan. Keep page loads
+            # bounded and report an exact count only when this cursor exhausts.
+            "total": None if has_next else visible_total,
+            "has_next": has_next,
+        }
+
     def document_page(self, page: int = 1, page_size: int = 100) -> dict[str, Any]:
-        result = super().document_page(page=page, page_size=page_size)
-        result["documents"] = self._filter_request_documents(list(result.get("documents", [])))
-        return result
+        if self._request_actor() is None:
+            return super().document_page(page=page, page_size=page_size)
+        return self._visible_document_page(
+            "SELECT document_id FROM scan_file GROUP BY document_id "
+            "ORDER BY MAX(last_seen_at) DESC, MAX(relative_path)",
+            page, page_size,
+        )
+
+    def inbox_page(self, page: int = 1, page_size: int = 100) -> dict[str, Any]:
+        if self._request_actor() is None:
+            return super().inbox_page(page=page, page_size=page_size)
+        return self._visible_document_page(
+            "SELECT document_id FROM document_listing "
+            "WHERE state='new' AND has_notes=0 AND has_relationships=0 "
+            "ORDER BY last_seen_at DESC, path",
+            page, page_size,
+        )
 
     def search_page(self, query: str, page: int = 1, page_size: int = 25) -> dict[str, Any]:
         result = super().search_page(query, page=page, page_size=page_size)

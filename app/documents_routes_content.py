@@ -15,20 +15,19 @@ def _verified_preview_response(
     as_attachment: bool = False,
 ):
     spool = tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b")
-    result = _storage(str(g.user["username"])).copy_verified_to(
-        LogicalObjectId(str(document["document_id"])),
-        spool,
-    )
-    if not result.ok:
-        spool.close()
-        abort(404)
-    stored = result.value
-    spool.seek(0)
-    filename = Path(str(document.get("last_path") or "")).name or (
-        str(document["document_id"]) + ".bin"
-    )
-    mimetype = media_mimetype(filename) or mimetypes.guess_type(filename)[0] or "application/octet-stream"
     try:
+        result = _storage(str(g.user["username"])).copy_verified_to(
+            LogicalObjectId(str(document["document_id"])),
+            spool,
+        )
+        if not result.ok:
+            abort(404)
+        stored = result.value
+        spool.seek(0)
+        filename = Path(str(document.get("last_path") or "")).name or (
+            str(document["document_id"]) + ".bin"
+        )
+        mimetype = media_mimetype(filename) or mimetypes.guess_type(filename)[0] or "application/octet-stream"
         response = send_file(
             spool,
             download_name=filename,
@@ -38,18 +37,18 @@ def _verified_preview_response(
             etag=False,
             max_age=max_age,
         )
+        response.content_length = stored.size
+        version = str(stored.version or "").strip()
+        if version:
+            response.set_etag(version)
+        response.headers["Cache-Control"] = (
+            f"private, max-age={max_age}" + (", immutable" if max_age else ", no-cache")
+        )
+        response.call_on_close(spool.close)
+        return response
     except Exception:
         spool.close()
         raise
-    response.content_length = stored.size
-    version = str(stored.version or "").strip()
-    if version:
-        response.set_etag(version)
-    response.headers["Cache-Control"] = (
-        f"private, max-age={max_age}" + (", immutable" if max_age else ", no-cache")
-    )
-    response.call_on_close(spool.close)
-    return response
 
 
 def _single_byte_range(value: str, size: int) -> tuple[int, int] | None:
