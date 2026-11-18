@@ -1,9 +1,11 @@
 """Document HTTP route group extracted from app.documents."""
 from __future__ import annotations
+import secrets
 from .documents_core import *  # noqa: F401,F403
 from .smart_folder_views import SmartFolderViews
 from .contact_company_data import company_data_metadata_from_form, company_search_items
 from .mail_document_access import private_mail_document
+from .form_store import StockAdjustmentCommittedError
 from .v2.contracts import LogicalObjectId, StorageLocation
 from .v2.storage_runtime import (
     restore_document as restore_document_v2,
@@ -580,14 +582,42 @@ def form_record_detail(form_id: str, record_id: str):
         abort(404)
     if request.method == "POST":
         try:
-            record = _forms().save_record(form_id, request.form.to_dict(), str(g.user["username"]), record_id)
+            if form_id == "product" and not request.form.get("_expected_updated_at", ""):
+                raise ValueError("record version is missing; reload before saving")
+            record = _forms().save_record(
+                form_id, request.form.to_dict(), str(g.user["username"]), record_id,
+                expected_updated_at=request.form.get("_expected_updated_at", ""),
+            )
             flash("Formular gespeichert. Der vorherige Stand bleibt in der Historie.")
         except ValueError as exc:
             flash(str(exc))
         return redirect(url_for("documents.form_record_detail", form_id=form_id, record_id=record_id))
     return render_template("documents/form_record_detail.html", form=form, record=record,
                            relation_choices=_form_relation_choices(form, str(g.user["username"])),
-                           invoice_products=_invoice_products() if form.get("layout") == "invoice" else [])
+                           invoice_products=_invoice_products() if form.get("layout") == "invoice" else [],
+                           stock_request_id=secrets.token_urlsafe(24))
+
+
+@bp.post("/forms/product/<record_id>/stock-adjustments")
+@login_required
+def adjust_product_stock(record_id: str):
+    try:
+        _forms().adjust_product_stock(
+            record_id=record_id,
+            magnitude=request.form.get("magnitude", ""),
+            direction=request.form.get("direction", ""),
+            reason=request.form.get("reason", ""),
+            actor=str(g.user["username"]),
+            expected_updated_at=request.form.get("_expected_updated_at", ""),
+            request_id=request.form.get("_request_id", ""),
+        )
+        flash("Lagerbewegung gespeichert. Eine Wiederholung derselben Anfrage ändert den Bestand nicht.")
+    except StockAdjustmentCommittedError:
+        current_app.logger.exception("Stock movement committed but secondary revision history failed for product %s", record_id)
+        flash("Bestand und Bewegungsprotokoll sind gespeichert. Nur die zusätzliche Formularhistorie ist nicht verfügbar; dieselbe Anfrage kann sicher wiederholt werden.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.form_record_detail", form_id="product", record_id=record_id))
 
 
 @bp.post("/forms/definitions")

@@ -18,11 +18,18 @@ im Datenmodell.
 Formularvorlage 1 ── * Formular-Datensatz
 Formular-Datensatz * ── 1 anderer Formular-Datensatz (Beziehungsfeld)
 Formular-Datensatz 1 ── * Historienereignis
+Produkt 1 ── * Lagerbewegung (Grund, Richtung, Menge, Benutzer, Bestand davor/danach)
 ```
 
 - Formularvorlage: Felddefinition und Maskenbeschreibung.
 - Datensatz: eingegebene Werte, Ersteller und Änderungszeitpunkt.
 - Historie: jede Anlage und Änderung wird als Snapshot erfasst.
+- Produkt-Lagerbewegung: Zugang und Abgang werden mit Grund, Benutzer, Menge
+  sowie Bestand davor und danach am Produkt gespeichert. So bleiben Bewegungen
+  auch dann nachvollziehbar, wenn ein späterer Speicherschritt der allgemeinen
+  Historie fehlschlägt. Die allgemeine Revisionhistorie enthält den letzten
+  Bewegungsbeleg und die Anzahl, nicht bei jeder Änderung nochmals die ganze
+  anwachsende Bewegungsliste.
 - Beziehung: ein `relation`-Feld speichert die Kennung eines Datensatzes einer
   anderen Vorlage, z. B. Rechnung → Kunde oder Produkt → Lieferant.
 
@@ -50,16 +57,23 @@ Nummernkreis werden als Erweiterungen derselben Definition ergänzt.
 1. Historische Geschäftsdokumente werden nach Freigabe als Snapshot gesperrt.
 2. Ein Dokumentfluss ist über Beziehungsfelder nachvollziehbar, etwa Angebot →
    Auftrag → Lieferschein → Rechnung.
-3. Lagerbewegungen und offene Beträge entstehen aus freigegebenen Formularen.
-4. Kategorien, Steuern, Versandarten und Textbausteine werden ebenfalls als
+3. Manuelle Bestandskorrekturen werden am Produkt mit Grund und Richtung
+   gebucht. Wiederholte Anfragen wenden dieselbe Bewegung nicht doppelt an;
+   gleichzeitige Änderungen auf veraltetem Stand müssen neu geladen werden.
+4. Normale Produktbearbeitungen können den Bestand nicht überschreiben und
+   erhalten die Bewegungsliste. Der anfängliche Produktbestand wird bei der
+   Anlage gesetzt; spätere Änderungen erfolgen über die Bestandskorrektur.
+   Bei einer beschädigten Altangabe kann der gezählte Bestand mit der
+   Inventurkorrektur nachvollziehbar neu gesetzt werden.
+5. Kategorien, Steuern, Versandarten und Textbausteine werden ebenfalls als
    konfigurierbare Formulare geführt.
 
 ## Nächste Ausbaustufen
 
 Die Formulare für `contact`, `product` und `invoice` können Datensätze erfassen.
-Der Produktbestand ist ein Feld im Produktformular. Das Inventar erfasst separat
-Geräte und Gegenstände. Bewegungsjournal, automatische Bestandsbuchung und
-Fakturama-Übernahme bleiben eigenständige Vorhaben. Der spezialisierte
+Das Produktformular führt den Bestand und das Journal manueller Bewegungen.
+Das Inventar erfasst separat Geräte und Gegenstände. Automatische
+Bestandsbuchungen und Fakturama-Übernahme bleiben eigenständige Vorhaben. Der spezialisierte
 Rechnungseditor unterstützt Positionen, PDF und E-Rechnung bereits heute.
 [Rechnungsablauf](INVOICE_WORKFLOW.md)
 
@@ -68,5 +82,6 @@ Die folgenden Ausbaustufen beziehen sich auf die allgemeine Formularschicht.
 1. Wiederholbare Positions-Unterformulare und Berechnung von Rabatt, Steuer und
    Summen.
 2. Nummernkreise, Statusübergänge und unveränderliche Freigabe-Snapshots.
-3. PDF-/E-Rechnungs-Ausgabe, Versand, Zahlung und Lagerbewegung.
+3. PDF-/E-Rechnungs-Ausgabe, Versand, Zahlung sowie bestandsverändernde
+   Dokumentprozesse für Wareneingang, Verkauf, Retoure und Inventur.
 4. CSV/ODS/vCard-Import und -Export sowie Webshop- und Paketdienstadapter.

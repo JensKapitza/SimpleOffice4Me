@@ -24,6 +24,10 @@ from .revision_history import RevisionHistory
 
 FIELD_TYPES = {"text", "textarea", "email", "date", "number", "currency", "select", "relation"}
 
+
+class StockAdjustmentCommittedError(RuntimeError):
+    """The embedded stock movement is committed, but secondary history failed."""
+
 DEFAULT_FORMS = [
     {
         "form_id": "product",
@@ -120,19 +124,41 @@ class FormStore:
             raise ValueError("unknown form record")
         return record
 
-    def save_record(self, form_id: str, values: dict[str, Any], actor: str, record_id: str = "") -> dict[str, Any]:
+    def save_record(self, form_id: str, values: dict[str, Any], actor: str, record_id: str = "", expected_updated_at: str = "") -> dict[str, Any]:
         self._require_actor(actor)
         form = self.definition(form_id)
-        clean_values = self._normalize_values(form, values)
+        tracks_stock = form_id == "product" and any(
+            field.get("key") == "stock" and field.get("type") == "number"
+            for field in form.get("fields", [])
+        )
         line_items = self._normalize_line_items(values.get("line_items", [])) if form.get("layout") == "invoice" else None
-        if line_items is not None:
-            totals = self._invoice_totals(line_items)
-            clean_values.update(totals)
         with exclusive_file_lock(self.control / ".forms-write.lock"):
             payload = self._read(self.records_path, {"records": []})
             existing = next((item for item in payload["records"] if item.get("record_id") == record_id and item.get("form_id") == form_id), None) if record_id else None
             if record_id and existing is None:
                 raise ValueError("unknown form record")
+            if existing and expected_updated_at and expected_updated_at != existing.get("updated_at", ""):
+                raise ValueError("record changed since it was opened; reload and try again")
+            if existing and form_id == "product":
+                previous_values = existing.get("values", {})
+                previous_stock = str(previous_values.get("stock", ""))
+                submitted_stock = values.get("stock")
+                if submitted_stock is not None and str(submitted_stock).strip() != previous_stock:
+                    raise ValueError("stock changes must use a stock adjustment")
+                if tracks_stock:
+                    values = {**values, "stock": previous_stock}
+            clean_values = self._normalize_values(form, values)
+            if existing and form_id == "product" and "stock" in existing.get("values", {}):
+                clean_values["stock"] = str(existing["values"].get("stock", ""))
+            if line_items is not None:
+                clean_values.update(self._invoice_totals(line_items))
+            if tracks_stock and not existing:
+                initial_stock = clean_values.get("stock", "")
+                if initial_stock:
+                    initial_amount = self._amount(initial_stock, "initial stock")
+                    if not initial_amount.is_finite() or initial_amount < 0:
+                        raise ValueError("initial stock must be a finite non-negative number")
+                    self._validate_stock_number(initial_amount, "initial stock")
             now = utc_now()
             record = {
                 "record_id": record_id or str(uuid.uuid4()), "form_id": form_id, "values": clean_values,
@@ -142,10 +168,123 @@ class FormStore:
             }
             if line_items is not None:
                 record["line_items"] = line_items
+            if existing and form_id == "product" and "stock_adjustments" in existing:
+                record["stock_adjustments"] = copy.deepcopy(existing["stock_adjustments"])
             payload["records"] = [item for item in payload["records"] if item.get("record_id") != record["record_id"]] + [record]
             atomic_json_write(self.records_path, payload)
-            self.history.record("form_record_updated" if existing else "form_record_created", actor, "forms", record["record_id"], record)
+            self.history.record("form_record_updated" if existing else "form_record_created", actor, "forms", record["record_id"], self._history_snapshot(record))
         return record
+
+    def adjust_product_stock(
+        self, record_id: str, magnitude: Any, direction: str, reason: str,
+        actor: str, expected_updated_at: str, request_id: str,
+    ) -> tuple[dict[str, Any], bool]:
+        """Apply one idempotent, auditable stock movement to a product."""
+        self._require_actor(actor)
+        direction = str(direction).strip().lower()
+        if direction not in {"add", "remove", "set"}:
+            raise ValueError("choose a stock movement or a counted-stock correction")
+        reason = " ".join(str(reason or "").split())
+        if not reason or len(reason) > 500:
+            raise ValueError("enter a reason of at most 500 characters")
+        request_id = str(request_id or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{16,100}", request_id):
+            raise ValueError("stock adjustment request is invalid; reload and try again")
+        if len(str(magnitude or "")) > 64:
+            raise ValueError("adjustment amount is too large")
+        amount = self._amount(magnitude, "adjustment amount")
+        if not amount.is_finite() or (direction == "set" and amount < 0) or (direction != "set" and amount <= 0):
+            raise ValueError("enter a finite non-negative count, or a positive adjustment amount")
+        self._validate_stock_number(amount, "adjustment amount")
+        product = self.definition("product")
+        if not any(field.get("key") == "stock" and field.get("type") == "number" for field in product.get("fields", [])):
+            raise ValueError("product stock adjustment is unavailable for this form definition")
+        with exclusive_file_lock(self.control / ".forms-write.lock"):
+            payload = self._read(self.records_path, {"records": []})
+            record = next((item for item in payload["records"] if item.get("record_id") == record_id and item.get("form_id") == "product"), None)
+            if record is None:
+                raise ValueError("unknown product record")
+            adjustments = record.get("stock_adjustments", [])
+            if not isinstance(adjustments, list):
+                adjustments = []
+            old_operation = next((item for item in adjustments if item.get("request_id") == request_id), None)
+            fingerprint = (direction, self._format_stock_amount(amount), reason)
+            if old_operation:
+                prior = (old_operation.get("direction"), old_operation.get("amount"), old_operation.get("reason"))
+                if prior != fingerprint or old_operation.get("actor") != actor:
+                    raise ValueError("this stock adjustment request was already used with different details")
+                return copy.deepcopy(record), True
+            if not expected_updated_at or expected_updated_at != record.get("updated_at", ""):
+                raise ValueError("product changed since it was opened; reload before adjusting stock")
+            current_text = record.get("values", {}).get("stock", "")
+            current_was_invalid = False
+            try:
+                current = self._amount(current_text, "current stock") if str(current_text).strip() else Decimal("0")
+            except ValueError:
+                if direction != "set":
+                    raise ValueError("current stock is invalid; use a counted-stock correction to recover it")
+                current = Decimal("0")
+                current_was_invalid = True
+            try:
+                self._validate_stock_number(current, "current stock")
+                if current < 0:
+                    raise ValueError("current stock is invalid")
+            except ValueError:
+                if direction != "set":
+                    raise ValueError("current stock is invalid; use a counted-stock correction to recover it")
+                current_was_invalid = True
+            result = amount if direction == "set" else current + amount if direction == "add" else current - amount
+            if result < 0:
+                raise ValueError("stock cannot be reduced below zero")
+            self._validate_stock_number(result, "resulting stock")
+            before_text = str(current_text).strip() if current_was_invalid else self._format_stock_amount(current)
+            after_text = self._format_stock_amount(result)
+            now = utc_now()
+            operation = {
+                "adjustment_id": str(uuid.uuid4()), "request_id": request_id,
+                "occurred_at": now, "actor": actor, "direction": direction,
+                "amount": self._format_stock_amount(amount), "before": before_text,
+                "after": after_text, "reason": reason,
+            }
+            updated = copy.deepcopy(record)
+            updated.setdefault("values", {})["stock"] = after_text
+            updated["stock_adjustments"] = [*adjustments, operation]
+            updated["updated_at"] = now
+            updated["updated_by"] = actor
+            payload["records"] = [item for item in payload["records"] if item.get("record_id") != record_id] + [updated]
+            atomic_json_write(self.records_path, payload)
+            # The embedded movement survives a crash or retry even if the secondary
+            # tamper-evident snapshot write below fails after this atomic commit.
+            try:
+                self.history.record("product_stock_adjusted", actor, "forms", record_id, self._history_snapshot(updated))
+            except Exception as exc:
+                raise StockAdjustmentCommittedError(
+                    "stock movement is saved in the product record, but the secondary revision history could not be updated"
+                ) from exc
+        return updated, False
+
+    @staticmethod
+    def _format_stock_amount(value: Decimal) -> str:
+        rendered = format(value.normalize(), "f")
+        return rendered if "." not in rendered else rendered.rstrip("0").rstrip(".")
+
+    @staticmethod
+    def _validate_stock_number(value: Decimal, label: str) -> None:
+        parts = value.as_tuple()
+        if (not value.is_finite() or len(parts.digits) > 18 or
+                parts.exponent < -12 or parts.exponent > 12 or
+                (value != 0 and value.adjusted() > 12)):
+            raise ValueError(f"{label} is outside the supported precision")
+
+    @staticmethod
+    def _history_snapshot(record: dict[str, Any]) -> dict[str, Any]:
+        """Keep product snapshots useful without copying the full movement ledger."""
+        snapshot = copy.deepcopy(record)
+        movements = snapshot.pop("stock_adjustments", None)
+        if isinstance(movements, list) and movements:
+            snapshot["stock_adjustment_count"] = len(movements)
+            snapshot["last_stock_adjustment"] = movements[-1]
+        return snapshot
 
     @staticmethod
     def _read(path: Path, default: dict[str, Any]) -> dict[str, Any]:
