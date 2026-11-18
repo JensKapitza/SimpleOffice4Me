@@ -417,6 +417,8 @@ app.register_blueprint(marketplace_admin.bp)
 
 from . import admin
 app.register_blueprint(admin.bp)
+from . import fakturama_admin
+app.register_blueprint(fakturama_admin.bp)
 
 from . import admin_osm_settings
 app.register_blueprint(admin_osm_settings.bp)
@@ -530,6 +532,7 @@ def bound_document_upload_form_parts():
 
 @app.before_request
 def verify_browser_request():
+    fakturama_admin.limit_preview_upload()
     protect_browser_mutation()
 
 
