@@ -33,6 +33,7 @@ STATUS_LABELS = {
     "unavailable": "Nicht verfügbar",
     "deferred": "Zurückgestellt",
 }
+_ITEM_SEARCH_FIELDS = ("name", "brand", "category", "store", "pack_size", "barcode")
 
 
 def _store() -> ShoppingStore:
@@ -45,7 +46,22 @@ def _actor() -> str:
 
 def _back(list_id: str = ""):
     target = list_id or request.form.get("list_id", "").strip()
-    return redirect(url_for("shopping.index", list_id=target) if target else url_for("shopping.index"))
+    options = {"list_id": target} if target else {}
+    query = _item_search_query(request.form.get("q", ""))
+    if target and query:
+        options["q"] = query
+    if target and request.form.get("show_bought") == "1":
+        options["show_bought"] = "1"
+    return redirect(url_for("shopping.index", **options))
+
+
+def _item_search_query(value: str) -> str:
+    return value[:150].strip()
+
+
+def _matches_item(row: dict, terms: list[str]) -> bool:
+    searchable = " ".join(str(row.get(key) or "") for key in _ITEM_SEARCH_FIELDS).casefold()
+    return all(term in searchable for term in terms)
 
 
 def _search_links(row: dict) -> dict[str, str]:
@@ -138,6 +154,11 @@ def index():
     items = store.items(actor, list_id=selected_id, include_bought=show_bought) if selected_id else []
     permissions = store.permissions(actor, selected_id) if selected_id else set()
     total = estimated_total(items)
+    query = _item_search_query(request.args.get("q", ""))
+    terms = query.casefold().split()
+    merge_suggestions = suggest_shopping_groups(items) if not terms else []
+    if terms:
+        items = [row for row in items if _matches_item(row, terms)]
     products = [_search_links(row) | row for row in store.products(actor, limit=8)]
     items = [_search_links(row) | _with_estimated_line_total(row) for row in items]
     return render_template(
@@ -150,7 +171,8 @@ def index():
         store_groups=store.items_by_store(actor),
         products=products,
         show_bought=show_bought,
-        merge_suggestions=suggest_shopping_groups(items),
+        item_query=query,
+        merge_suggestions=merge_suggestions,
         estimated_total=display_eur(total["amount"]),
         priced_items=total["priced_items"],
         missing_prices=total["missing_prices"],

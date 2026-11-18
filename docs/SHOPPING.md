@@ -7,6 +7,22 @@ Rechten für Lesen, Hinzufügen, Bearbeiten, Erledigen und Verwalten. Einträge 
 bei `not_found`, `unavailable` oder `deferred` erhalten und können später wieder
 geöffnet werden.
 
+## Suchen, Preise und QR-Freigabe
+
+**Artikel suchen** filtert die gewählte Liste nach Name, Marke, Kategorie,
+Laden, Packungsgröße oder Barcode. Mehrere Suchwörter müssen alle vorkommen.
+Über **Gekaufte anzeigen** werden auch erledigte Artikel durchsucht.
+
+Der voraussichtliche Gesamtpreis berücksichtigt alle noch offenen Positionen
+mit Preis, auch wenn die Suche sie gerade ausblendet. Der Preis pro Einheit
+oder Packung wird mit der Menge multipliziert. Gekaufte Artikel sind vom
+Gesamtpreis ausgenommen. Fehlende Preise werden separat gezählt.
+
+Die Suchlinks je Artikel öffnen Amazon oder eBay mit Name, Marke und
+Packungsgröße. Wer die Liste verwalten darf, kann über **QR teilen** eine
+lesbare Freigabe für Geräte erstellen, die den Server erreichen. Der Link
+kann ohne Konto geöffnet und über **QR-Link widerrufen** deaktiviert werden.
+
 ## Lokales Produktgedächtnis
 
 Produktwissen wird lokal in der Shopping-Ablage gespeichert und ist pro Benutzer

@@ -109,7 +109,7 @@
         <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
           <div><strong>{{ selected.name }}</strong>{% if selected.default_store %}<span class="text-secondary ms-2">{{ selected.default_store }}</span>{% endif %}</div>
           <div class="d-flex flex-wrap gap-2">
-            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('shopping.index', list_id=selected.list_id, show_bought='0' if show_bought else '1') }}">{{ 'Gekaufte ausblenden' if show_bought else 'Gekaufte anzeigen' }}</a>
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('shopping.index', list_id=selected.list_id, show_bought='0' if show_bought else '1', q=item_query or none) }}">{{ 'Gekaufte ausblenden' if show_bought else 'Gekaufte anzeigen' }}</a>
             {% if 'manage' in permissions %}<form method="post" action="{{ url_for('shopping.create_share_qr', list_id=selected.list_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary" type="submit"><i class="fas fa-qrcode me-1" aria-hidden="true"></i>QR teilen</button></form>{% if public_qr_active %}<form method="post" action="{{ url_for('shopping.revoke_share_qr', list_id=selected.list_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-danger" type="submit">QR-Link widerrufen</button></form>{% endif %}{% endif %}
             {% if 'manage' in permissions %}<form method="post" action="{{ url_for('shopping.archive_list', list_id=selected.list_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-danger" type="submit">Archivieren</button></form>{% endif %}
           </div>
@@ -160,6 +160,18 @@
         </div>
         {% endif %}
 
+        <form class="mx-3 my-3" method="get" action="{{ url_for('shopping.index') }}" role="search" aria-label="Einkaufsliste durchsuchen">
+          <input type="hidden" name="list_id" value="{{ selected.list_id }}">
+          {% if show_bought %}<input type="hidden" name="show_bought" value="1">{% endif %}
+          <label class="form-label" for="shopping-item-search">Artikel suchen</label>
+          <div class="d-flex flex-wrap gap-2">
+            <input id="shopping-item-search" class="form-control w-auto flex-grow-1" type="search" name="q" value="{{ item_query }}" maxlength="150" placeholder="Artikel, Marke, Laden oder Barcode">
+            <button class="btn btn-outline-primary" type="submit">Suchen</button>
+            {% if item_query %}<a class="btn btn-outline-secondary" href="{{ url_for('shopping.index', list_id=selected.list_id, show_bought='1' if show_bought else none) }}">Suche zurücksetzen</a>{% endif %}
+          </div>
+          {% if item_query %}<p class="form-text mb-0">Treffer: {{ items|length }} · Der Gesamtpreis gilt für die ganze Liste.</p>{% endif %}
+        </form>
+
         {% if merge_suggestions %}
         <div class="alert alert-info m-3" role="status" aria-live="polite">
           <strong>Zusammenführen vorgeschlagen (nur Vorschlag, nichts geändert):</strong>
@@ -186,6 +198,8 @@
                 <div class="d-flex flex-wrap gap-3 small mt-2"><a href="{{ item.amazon_search_url }}" target="_blank" rel="noopener noreferrer"><i class="fa-brands fa-amazon me-1" aria-hidden="true"></i>Auf Amazon suchen</a><a href="{{ item.ebay_search_url }}" target="_blank" rel="noopener noreferrer">Auf eBay suchen</a></div>
                 {% if 'edit' in permissions %}
                 <form method="post" action="{{ url_for('shopping.item_quantity', item_id=item.item_id) }}" class="shopping-item-edit d-flex flex-wrap gap-2 align-items-end mt-3">
+                  {% if item_query %}<input type="hidden" name="q" value="{{ item_query }}">{% endif %}
+                  {% if show_bought %}<input type="hidden" name="show_bought" value="1">{% endif %}
                   <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                   <input type="hidden" name="list_id" value="{{ selected.list_id }}">
                   <div>
@@ -210,7 +224,7 @@
               {% if 'complete' in permissions %}
               <div class="shopping-item-actions d-flex flex-wrap gap-2 align-content-start">
                 {% for status, label in [('taken','Übernehmen'),('bought','Gekauft'),('not_found','Nicht gefunden'),('unavailable','Nicht verfügbar'),('deferred','Zurückstellen'),('open','Wieder öffnen')] %}
-                {% if item.status != status %}<form method="post" action="{{ url_for('shopping.item_status', item_id=item.item_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="list_id" value="{{ selected.list_id }}"><input type="hidden" name="status" value="{{ status }}"><button class="btn btn-sm {{ 'btn-success' if status == 'bought' else 'btn-outline-secondary' }}" type="submit">{{ label }}</button></form>{% endif %}
+                {% if item.status != status %}<form method="post" action="{{ url_for('shopping.item_status', item_id=item.item_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="list_id" value="{{ selected.list_id }}"><input type="hidden" name="status" value="{{ status }}">{% if item_query %}<input type="hidden" name="q" value="{{ item_query }}">{% endif %}{% if show_bought %}<input type="hidden" name="show_bought" value="1">{% endif %}<button class="btn btn-sm {{ 'btn-success' if status == 'bought' else 'btn-outline-secondary' }}" type="submit">{{ label }}</button></form>{% endif %}
                 {% endfor %}
               </div>
               {% endif %}

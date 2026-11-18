@@ -1,12 +1,20 @@
-# TODO: Fakturama-Kompatibilität / Migration
+# Fakturama-Kompatibilität und Migration
 
-Quelle dieser Aufgabenliste: `dikumentation/fakturamer` (technische Vollanalyse von Fakturama 2).
+Diese Checkliste ordnet den Funktionsumfang aus der
+[technischen Fakturama-2-Quellanalyse](FAKTURAMA_2_QUELLANALYSE.md) in
+prüfbare Migrations- und Kompatibilitätsaufgaben ein. Die Analyse beschreibt
+einen untersuchten Fakturama-2-Quellstand; sie ist keine Beschreibung von
+SimpleOffice4Me.
 
 ## Status
 
-**Fakturama-Kompatibilität ist derzeit nicht umgesetzt.**
-
-Vorhandene Funktionen in SimpleOffice4Me, die fachlich ähnlich aussehen (Kontakte, Rechnungen, Belege, Dokumente usw.), gelten **nicht automatisch als Fakturama-Implementierung**. Eine Aufgabe darf erst als erledigt markiert werden, wenn die jeweilige Fakturama-Semantik, Datenübernahme und die notwendigen Regressionstests ausdrücklich umgesetzt und geprüft wurden.
+**Stand der Codeprüfung: 18.11.2026, `main` (`8dd721a0`).** Bei der Suche nach
+`Fakturama` in den Anwendungs-, Test- und Abhängigkeitsdateien wurde kein
+dedizierter Fakturama-Importer oder Kompatibilitätsadapter gefunden.
+Ähnlich benannte SimpleOffice-Funktionen (Kontakte, Rechnungen, Belege,
+Dokumente usw.) gelten daher **nicht automatisch als Fakturama-Implementierung**.
+Die Aufgaben bleiben offen, bis Fakturama-Semantik, Datenübernahme und
+Regressionstests ausdrücklich umgesetzt und geprüft wurden.
 
 ## Ziel
 
@@ -379,6 +387,57 @@ Eine importierte Rechnung muss bei gleicher Datenbasis dieselben fachlichen Summ
 - [ ] Fortschritt und Fehler anzeigen.
 - [ ] Abschlussbericht anzeigen.
 - [ ] direkten Sprung zu importierten Kontakten, Produkten, Rechnungen und Belegen ermöglichen.
+
+## 26. Weitere belegte Quellfunktionen
+
+Die Quellanalyse führt zusätzliche Felder und Funktionen auf, die in einem
+allgemeinen CRM-/Rechnungsmodell leicht verloren gehen. Sie werden hier
+ausdrücklich als Migrationsumfang geführt:
+
+- [ ] Kontakte: Geschlecht, Geburtstag, GLN, SEPA-Mandatsreferenz,
+  Verkaufsausgleichsteuer, USt-ID-Prüfstatus und Gültigkeitszeiträume prüfen.
+- [ ] Adressen: standortbezogene Kontakt- und Kommunikationsdaten sowie
+  Adressverwendungen übernehmen.
+- [ ] Produkte: fünf feste Preisstaffeln und `blockPrices`, Verkaufs- und
+  Mengeneinheiten, GTIN, Lieferantenartikelnummer, kundendefinierbare Felder,
+  Zulagen und Bilder berücksichtigen.
+- [ ] Dokumentpositionen: Ausgangsmenge, GTIN, Lieferantenartikelnummer,
+  Bild, Gewichts- und Leistungszeitraumdaten sowie Steuerbefreiungskennzeichen
+  erhalten.
+- [ ] Dokumente: Empfängerrollen/Snapshots, drei Nachrichtentexte,
+  Zusatzinformationen, Verpackungsgewicht (`tara`) sowie Gültigkeits- und
+  Versionsdaten abgleichen.
+- [ ] Belege: Dokumentnummer und Belegnummer getrennt halten; `doNotBook`,
+  Rabattstatus und Belegtyp auf Kopf- und Positionsebene behandeln.
+- [ ] Einstellungen und Webshop-Zugangsdaten nach Geltungsbereich und
+  Vertraulichkeit abbilden; keine Passwörter in Klartext importieren.
+- [ ] Schweizer QR-Rechnungs-Zahlteile und allgemeine QR-Payloads prüfen;
+  IBAN, Referenz, Währung, Empfängeradresse und Pflichtfelder validieren.
+- [ ] Paketdienstintegration als Browser-/URL-/Formularablauf dokumentieren
+  und prüfen; nicht fälschlich als stabile Carrier-REST-API behandeln.
+- [ ] konkrete Fakturama-Exportfamilien prüfen: Konten-/Buchungen,
+  Adressliste, Kontaktblatt, vCard, Produktliste, Textbausteine,
+  Käuferumsätze/-produkte, Verkaufsmengen, Belege und unbezahlte Dokumente.
+- [ ] Dokumentvorlagen gegen wiederholte Tabellenbereiche, optionale Felder,
+  Steuerzeilen, Seitenumbrüche, Bilder und Locale-Formatierung testen.
+- [ ] Webshop-Protokoll, getrennte Shop- und HTTP-Authentisierung,
+  Statuszuordnung, HTTPS, Timeouts und Wiederholungsverhalten explizit prüfen.
+
+## Abdeckung der Quellanalyse
+
+| Quellanalyse | Überführung in diese Checkliste |
+|---|---|
+| Produktumfang: Stammdaten, Dokumente, Positionen, Summen, Nummern und Status (3.1–3.2) | Abschnitte 2–13 und 26 |
+| Belege, Buchhaltung, Listen, Suche, Navigation und Einstellungen (3.3–3.5) | Abschnitte 14–15, 22 und 26 |
+| Import, Export, Vorlagen, PDF/E-Rechnung, QR, Mail, Webshop, Paketdienst/Browser (4.1–4.8) | Abschnitte 16–22 und 26 |
+| Datenmodell, Schnittstellen, Fehlerverhalten und Sicherheit (6–7, 11) | Abschnitte 1, 9–10, 14–18, 23–24 und 26; Detailinventar bleibt in der Quellanalyse |
+| Architektur, UI, Laufzeit, Betrieb, Build, Abhängigkeiten und Quellcode-Landkarte (5, 8–10, 15, 17–19) | vollständig in der Quellanalyse erhalten; dies sind Referenzinformationen, keine Behauptung einer SimpleOffice-Funktion |
+
+Die Quellanalyse bleibt die vollständige technische Referenz einschließlich
+der konkreten Feldinventare, Integrationsverträge, Einschränkungen und
+Reproduzierbarkeit. Diese Checkliste überführt alle fachlichen Bereiche in
+prüfbare Aufgaben. Eine übernommene Beschreibung ist kein Nachweis, dass
+SimpleOffice4Me diese Funktion bereits besitzt.
 
 ## Priorität
 

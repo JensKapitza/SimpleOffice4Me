@@ -1,0 +1,5 @@
+simpleoffice-fakturama-invoices;1;2.2.0
+document_id;document_number;document_date;currency;total_value;receiver_id;buyer_name;buyer_street;buyer_postal_code;buyer_city;buyer_country;origin_contact_id;origin_address_id;source_document_id;invoice_reference_id;paid_value;legacy_class
+000184;RE-2024-004;2024-06-21;EUR;119,2500;000066;Beispiel <Müller> GmbH;Musterstraße 1;01234;Beispielstadt;DE;000025;000031;000100;000160;50,00;
+000185;RE-2024-005;2024-06-22;EUR;2.30;000067;Musterbetrieb;Testweg 2;;Musterstadt;DE;000026;000032;;;;legacy-sample
+000186;RE-2024-006;2024-06-31;EUR;1.2e3;000068;Probebetrieb;Musterweg 3;04567;Probestadt;DE;000027;000033;;;;

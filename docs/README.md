@@ -7,19 +7,22 @@
 - [3.0-Betriebsleitfaden: alle 16 Capabilities, Rechte, Worker und Rollback](V3_BETRIEBSLEITFADEN.md)
 - [Konfigurationsregister: statische Namen, neue Erläuterungen und Secret-Grenzen](KONFIGURATIONSREGISTER.md)
 - [Dokumentationsprüfung: Funktionen, geschlossene Issues und Secret-Scan](DOKUMENTATIONSPRUEFUNG_3_0.md)
+- [Aktueller Funktionsabgleich und nächste Umsetzungspakete](FUNKTIONSABGLEICH.md)
 - [Release Gate: datierte Nachweise und offene externe Abnahmen](V3_RELEASE_GATE.md)
 - [Öffentliche Repository-Arbeitszentrale, GitHub Device Flow und Lesegrenzen](REPOSITORY_ARBEITSZENTRALE.md)
 - [Bestehender MCP-Zugang für ChatGPT und andere Clients](CHATGPT_MCP.md)
 - [Dokumentationslogo und Gestaltung](assets/README.md)
 
-Die Paketmetadaten führen Version 3.0.0. Die additive 3.0-Release ist noch
-nicht freigegeben. Einzelne geschlossene Funktions-Issues ersetzen das Release
-Gate nicht. Funktions-, Benutzer-/Rollen- und Objektfreigaben bleiben maßgeblich.
+Die Paketmetadaten führen Version 3.0.0. Die dokumentierte Abnahmeentscheidung
+vom 16.11.2026 erlaubt die Schließung von #505 und #506. Die Suite und die
+praktischen Nachweise sind im Release Gate festgehalten.
+[Entscheidung des Projekteigentümers](V3_RELEASE_GATE.md#closure-decision-for-505506--2026-11-16)
 
 ## Benutzer und Freigaben
 
 - [Kontoanträge, Freigaben und sichere Einladungen](KONTOANTRAEGE_UND_EINLADUNGEN.md)
 - [Login-Adressen und private QR-Kandidaten](LOGIN_QR_CODES.md)
+- [Freigegebene Remote-Anwendungen ansehen](REMOTE_APP_KATALOG.md)
 
 ## Kontakte und Kalender
 
@@ -79,7 +82,10 @@ verlinkt.
 
 ## Projekte und Abrechnung
 
+- [Rechnungen erstellen, filtern und als CSV auswerten](INVOICE_WORKFLOW.md)
+- [Rechnungsverknüpfungen und interne Notizen](INVOICE_RELATIONSHIPS.md)
 - [Minutengenaue Projektzeiten und private Abrechnungsgruppen](PROJEKTZEITEN_UND_ABRECHNUNGSGRUPPEN.md)
+- [Fakturama 2: technische Quellanalyse und offene Migrations-Checkliste](fakturama/FAKTURAMA_MIGRATION.md) — die Analyse bleibt als [separate Referenz](fakturama/FAKTURAMA_2_QUELLANALYSE.md) erhalten; Fakturama-Import ist derzeit nicht implementiert.
 
 ## Betrieb
 
@@ -88,6 +94,14 @@ verlinkt.
 - [Benutzerrechte und datensparsame Fehlerprotokolle](BENUTZER_RECHTE_FEHLERPROTOKOLL.md)
 - [Produktionsbetrieb mit Waitress](PRODUKTIONSBETRIEB.md)
 - [HTTPS und Reverse Proxy](PROXY_HTTPS.md)
+- [Eigenständiger HTTPS-LAN-Proxy und Bildschirm-Viewer](DESKTOP_LAN_PROXY_SCREEN_VIEWER.md)
+- [Remote-Anwendungen auf einem Windows-Host vorbereiten](REMOTE_ANWENDUNGEN.md)
+
+## Alltag und Lernen
+
+- [Einkaufslisten suchen, Preise erfassen und per QR teilen](SHOPPING.md)
+- [Lesezeichen aus Firefox übernehmen](LESEZEICHEN.md)
+- [Kinderbereich mit Ausmalwand, Lernspielen und QR-Einstieg](KINDER.md)
 
 ## Vollständiges Markdown-Dateiregister
 
@@ -97,7 +111,9 @@ behalten ihren damaligen Geltungsbereich; ihre Titel sind keine aktuelle
 Release-Zusage. Dieses Register ergänzt die thematischen Einstiegspunkte oben.
 
 - [100 wichtige Quick Wins – September 2026](100-important-wins-2026-09.md) — `100-important-wins-2026-09.md`
+- [Android build profiles](android-build-profiles.md) — `android-build-profiles.md`
 - [SimpleOffice4Me unter Android](ANDROID.md) — `ANDROID.md`
+- [Android APK startup: missing dns module](ANDROID_DNS_IMPORT_FAILURE.md) — `ANDROID_DNS_IMPORT_FAILURE.md`
 - [Android-Integration](ANDROID_INTEGRATION.md) — `ANDROID_INTEGRATION.md`
 - [Sichere Anhänge aus E-Mail und Kalender](ANHAENGE_CLAMAV.md) — `ANHAENGE_CLAMAV.md`
 - [SimpleOffice4Me V2 architecture contract](ARCHITECTURE_V2.md) — `ARCHITECTURE_V2.md`
@@ -108,11 +124,13 @@ Release-Zusage. Dieses Register ergänzt die thematischen Einstiegspunkte oben.
 - [Bibliothek und Etikettendruck](BIBLIOTHEK_ETIKETTENDRUCK.md) — `BIBLIOTHEK_ETIKETTENDRUCK.md`
 - [Mehrere Kalender und CalDAV: RFC-Auswertung und Umsetzung](CALDAV_RFC_IMPLEMENTIERUNG.md) — `CALDAV_RFC_IMPLEMENTIERUNG.md`
 - [CalDAV Scheduling und Free/Busy nach RFC 6638](CALDAV_SCHEDULING_RFC6638.md) — `CALDAV_SCHEDULING_RFC6638.md`
+- [Kamera-Gerätematrix (#736): offene Abnahme, keine Behauptungen](CAMERA_DEVICE_MATRIX.md) — `CAMERA_DEVICE_MATRIX.md`
 - [CardDAV-Autoerkennung für Thunderbird](CARDDAV_DISCOVERY.md) — `CARDDAV_DISCOVERY.md`
 - [Chat – Stufe 1](CHAT.md) — `CHAT.md`
 - [ChatGPT und MCP](CHATGPT_MCP.md) — `CHATGPT_MCP.md`
 - [Automatische Tests und Abhängigkeitsprüfung](CI_SICHERHEIT.md) — `CI_SICHERHEIT.md`
 - [Connectivity Relay: STUN/TURN und HTTPS-CONNECT](CONNECTIVITY_RELAY.md) — `CONNECTIVITY_RELAY.md`
+- [Modellanbieter in SimpleOffice4Me](CONTEXTFLOW_PROVIDER_FREEDOM.md) — `CONTEXTFLOW_PROVIDER_FREEDOM.md`
 - [Cyber Resilience Act (CRA) – technische Akte](CRA.md) — `CRA.md`
 - [CRA-Meldebereitschaft](CRA_REPORTING.md) — `CRA_REPORTING.md`
 - [Dashboard, Bilder und Adressen](DASHBOARD_BILDER.md) — `DASHBOARD_BILDER.md`
@@ -120,6 +138,7 @@ Release-Zusage. Dieses Register ergänzt die thematischen Einstiegspunkte oben.
 - [Sichere Datei- und Inhaltswiederherstellung](DATEI_WIEDERHERSTELLUNG.md) — `DATEI_WIEDERHERSTELLUNG.md`
 - [Persistenter Datenlogger für Dateien, Linux und HTTP-Sensoren](DATENLOGGER_SENSOREN.md) — `DATENLOGGER_SENSOREN.md`
 - [SimpleOffice4Me bereitstellen](DEPLOYMENT.md) — `DEPLOYMENT.md`
+- [HTTPS-LAN-Proxy und Bildschirm-Viewer](DESKTOP_LAN_PROXY_SCREEN_VIEWER.md) — `DESKTOP_LAN_PROXY_SCREEN_VIEWER.md`
 - [Digitales Bücherregal und integrierter Dokument-Reader](DIGITALES_BUECHERREGAL.md) — `DIGITALES_BUECHERREGAL.md`
 - [Dokumentations- und Issue-Prüfung für 3.0](DOKUMENTATIONSPRUEFUNG_3_0.md) — `DOKUMENTATIONSPRUEFUNG_3_0.md`
 - [Schnelle Dokument- und Retrieval-Suche](DOKUMENTSUCHE_RETRIEVAL.md) — `DOKUMENTSUCHE_RETRIEVAL.md`
@@ -127,7 +146,10 @@ Release-Zusage. Dieses Register ergänzt die thematischen Einstiegspunkte oben.
 - [Einstellungen](EINSTELLUNGEN.md) — `EINSTELLUNGEN.md`
 - [Erster Start](ERSTER_START.md) — `ERSTER_START.md`
 - [Erststart und Desktop-Einrichtung](ERSTSTART_UND_DESKTOP_SETUP.md) — `ERSTSTART_UND_DESKTOP_SETUP.md`
+- [Fakturama-Rechnungen vor der Migration prüfen](FAKTURAMA_IMPORTVORSCHAU.md) — `FAKTURAMA_IMPORTVORSCHAU.md`
 - [Externe Kontaktupdates und CardDAV-Datenerhalt](EXTERNE_KONTAKTUPDATES_UND_CARDDAV.md) — `EXTERNE_KONTAKTUPDATES_UND_CARDDAV.md`
+- [Fakturama 2: technische Quellanalyse](fakturama/FAKTURAMA_2_QUELLANALYSE.md) — `fakturama/FAKTURAMA_2_QUELLANALYSE.md`
+- [Fakturama-Kompatibilität und Migration](fakturama/FAKTURAMA_MIGRATION.md) — `fakturama/FAKTURAMA_MIGRATION.md`
 - [Federation Discovery und Vertrauen](FEDERATION_DISCOVERY_TRUST.md) — `FEDERATION_DISCOVERY_TRUST.md`
 - [Peer-Verwaltung, Meldungen und signierte Blacklists](FEDERATION_PEER_VERWALTUNG.md) — `FEDERATION_PEER_VERWALTUNG.md`
 - [SimpleOffice4Me Federation Protocol (SOFP) v1](FEDERATION_PROTOCOL.md) — `FEDERATION_PROTOCOL.md`
@@ -136,27 +158,47 @@ Release-Zusage. Dieses Register ergänzt die thematischen Einstiegspunkte oben.
 - [Mini Services: Linux-Firewall](FIREWALL.md) — `FIREWALL.md`
 - [Formulare und Warenwirtschaft](FORMULARE_WARENWIRTSCHAFT.md) — `FORMULARE_WARENWIRTSCHAFT.md`
 - [Fristen, Aussonderung und verwaltete Objekte](FRISTEN_UND_OBJEKTE.md) — `FRISTEN_UND_OBJEKTE.md`
+- [Funktionsabgleich und Umsetzungspakete](FUNKTIONSABGLEICH.md) — `FUNKTIONSABGLEICH.md`
 - [GitHub-Fehlerberichte](GITHUB_ERROR_REPORTING.md) — `GITHUB_ERROR_REPORTING.md`
 - [Git-freies Update, Self-Deploy und Federation-Releases](GIT_FREIES_UPDATE.md) — `GIT_FREIES_UPDATE.md`
 - [GoodSync und FreeFileSync über SFTP](GOODSYNC_FREEFILESYNC.md) — `GOODSYNC_FREEFILESYNC.md`
 - [Google-Drive-Synchronisation](GOOGLE_DRIVE_SYNC.md) — `GOOGLE_DRIVE_SYNC.md`
 - [Optionaler Google-Kalender-Abgleich](GOOGLE_KALENDER_SYNC.md) — `GOOGLE_KALENDER_SYNC.md`
 - [Google-Anmeldung einrichten](GOOGLE_OAUTH.md) — `GOOGLE_OAUTH.md`
+- [AI-Unterstützung + Contextflow im Normalbetrieb (2026-11-04)](hackathon/contextflow/AI_ASSIST_2026-11-04.md) — `hackathon/contextflow/AI_ASSIST_2026-11-04.md`
+- [AI Assist – Hinweis-Pakete Batch 4](hackathon/contextflow/AI_ASSIST_BATCH4_2026-11-05.md) — `hackathon/contextflow/AI_ASSIST_BATCH4_2026-11-05.md`
+- [ContextFlow / Buroengel — 3-minute demo video (recording script)](hackathon/contextflow/DEMO_VIDEO_2026-11-05.md) — `hackathon/contextflow/DEMO_VIDEO_2026-11-05.md`
+- [Doc-Tags Meta-Cloud-Sperre — 30.10.2026 (isolierter Testauftrag)](hackathon/contextflow/doc-tags-meta-cloud-guard-2026-10-30.md) — `hackathon/contextflow/doc-tags-meta-cloud-guard-2026-10-30.md`
+- [Inventar-Buchgruppen: Uploadgrenzen-Tests (30.10.2026)](hackathon/contextflow/inventory-batch-boundaries-2026-10-30.md) — `hackathon/contextflow/inventory-batch-boundaries-2026-10-30.md`
+- [ContextFlow live verification — 2026-10-30](hackathon/contextflow/LIVE_VERIFICATION_2026-10-30.md) — `hackathon/contextflow/LIVE_VERIFICATION_2026-10-30.md`
+- [Lokale Meta-Modelle für die ContextFlow-Demo (Ollama)](hackathon/contextflow/OLLAMA.md) — `hackathon/contextflow/OLLAMA.md`
+- [ContextFlow – README (Hackathon-Arbeit, Branch `hackathon/contextflow-mvp`)](hackathon/contextflow/README.md) — `hackathon/contextflow/README.md`
+- [ContextFlow – STATUS (Neu-gegen-Alt-Nachweis)](hackathon/contextflow/STATUS.md) — `hackathon/contextflow/STATUS.md`
+- [ContextFlow / Buroengel — Meta Global AI Developer Hackathon 2026](hackathon/contextflow/SUBMISSION_2026-11-05.md) — `hackathon/contextflow/SUBMISSION_2026-11-05.md`
+- [T20 Live-Nachweis — Runbook (Eigentümer-Schritt)](hackathon/contextflow/T20_LIVE_PROOF.md) — `hackathon/contextflow/T20_LIVE_PROOF.md`
 - [ICS-Dateien vor dem Import prüfen](ICS_VORSCHAU.md) — `ICS_VORSCHAU.md`
 - [IMAP-, SMTP- und Sieve-Client mit unveränderlichem E-Mail-Archiv](IMAP_SIEVE_EMAIL_ARCHIV.md) — `IMAP_SIEVE_EMAIL_ARCHIV.md`
 - [Inventar schneller mit Amazon und eBay ergänzen](INVENTAR_MARKETPLACE_SUCHEN.md) — `INVENTAR_MARKETPLACE_SUCHEN.md`
+- [Invoice relationships and internal annotations](INVOICE_RELATIONSHIPS.md) — `INVOICE_RELATIONSHIPS.md`
+- [Invoice creation workflow](INVOICE_WORKFLOW.md) — `INVOICE_WORKFLOW.md`
 - [iTIP-Terminplanung nach RFC 5546](ITIP_RFC_TERMINPLANUNG.md) — `ITIP_RFC_TERMINPLANUNG.md`
 - [Kalender](KALENDER.md) — `KALENDER.md`
 - [Lokale Kalendererinnerungen nach RFC 5545 und RFC 9074](KALENDER_ERINNERUNGEN_RFC5545_9074.md) — `KALENDER_ERINNERUNGEN_RFC5545_9074.md`
 - [Sichere HTML-Beschreibungen im Kalender](KALENDER_HTML_BESCHREIBUNGEN.md) — `KALENDER_HTML_BESCHREIBUNGEN.md`
 - [Terminmetadaten und Konferenzzugänge nach RFC 5545/7986](KALENDER_METADATEN_RFC5545_7986.md) — `KALENDER_METADATEN_RFC5545_7986.md`
 - [Serientermine, Ausnahmen und Zeitzonen nach RFC 5545](KALENDER_SERIEN_RFC5545.md) — `KALENDER_SERIEN_RFC5545.md`
+- [Kinderbereich](KINDER.md) — `KINDER.md`
 - [Konfigurationsregister](KONFIGURATIONSREGISTER.md) — `KONFIGURATIONSREGISTER.md`
 - [Kontakte und Thunderbird](KONTAKTE.md) — `KONTAKTE.md`
 - [Globale Kontakt-Änderungshistorie](KONTAKT_AUDIT.md) — `KONTAKT_AUDIT.md`
 - [Kontakt-Historie nach Benutzer und Feld](KONTAKT_HISTORIE.md) — `KONTAKT_HISTORIE.md`
+- [Konten, Freigaben und Einladungen](KONTOANTRAEGE_UND_EINLADUNGEN.md) — `KONTOANTRAEGE_UND_EINLADUNGEN.md`
+- [Browser-Lesezeichen](LESEZEICHEN.md) — `LESEZEICHEN.md`
 - [Dokumente mit LibreOffice über WebDAV bearbeiten](LIBREOFFICE_WEBDAV.md) — `LIBREOFFICE_WEBDAV.md`
 - [Lizenzierung und Nutzungserfassung](LICENSING.md) — `LICENSING.md`
+- [Optionales LiteLLM-Gateway (#586)](LITELLM_OPERATIONS.md) — `LITELLM_OPERATIONS.md`
+- [Login-Adressen als QR-Code](LOGIN_QR_CODES.md) — `LOGIN_QR_CODES.md`
+- [Mail account setup and fetch controls](MAIL_ACCOUNT_SETUP.md) — `MAIL_ACCOUNT_SETUP.md`
 - [Mail-Sicherheitsprüfung vom 04.10.2026](MAIL_SECURITY_REVIEW.md) — `MAIL_SECURITY_REVIEW.md`
 - [Mail-Vorgänge](MAIL_VORGAENGE.md) — `MAIL_VORGAENGE.md`
 - [Master-Cluster-Betrieb](MASTER_CLUSTER.md) — `MASTER_CLUSTER.md`
@@ -169,6 +211,7 @@ Release-Zusage. Dieses Register ergänzt die thematischen Einstiegspunkte oben.
 - [Mini Services external acceptance protocol](MINI_SERVICES_EXTERNAL_ACCEPTANCE.md) — `MINI_SERVICES_EXTERNAL_ACCEPTANCE.md`
 - [Mini Services failure and recovery matrix](MINI_SERVICES_FAILURE_MATRIX.md) — `MINI_SERVICES_FAILURE_MATRIX.md`
 - [Mini Services – Bestandsaufnahme und Abnahme](MINI_SERVICES_REVIEW.md) — `MINI_SERVICES_REVIEW.md`
+- [Mobile capture-first entry](MOBILE_CAPTURE_FIRST.md) — `MOBILE_CAPTURE_FIRST.md`
 - [Netzwerkboot: HTTP/PXE und TFTP](NETWORK_BOOT.md) — `NETWORK_BOOT.md`
 - [Neuerungen: Fehlerreporting](NEUERUNGEN_FEHLERREPORTING.md) — `NEUERUNGEN_FEHLERREPORTING.md`
 - [Neuerungen: Offline-Installer und Software-Verteilung](NEUERUNGEN_OFFLINE_INSTALLER.md) — `NEUERUNGEN_OFFLINE_INSTALLER.md`
@@ -182,18 +225,28 @@ Release-Zusage. Dieses Register ergänzt die thematischen Einstiegspunkte oben.
 - [Projekt-Tracker: Issues, Wiki und Git](PROJECT_TRACKER.md) — `PROJECT_TRACKER.md`
 - [Projektzeiten und Abrechnungsgruppen](PROJEKTZEITEN_UND_ABRECHNUNGSGRUPPEN.md) — `PROJEKTZEITEN_UND_ABRECHNUNGSGRUPPEN.md`
 - [HTTPS und Reverse Proxy](PROXY_HTTPS.md) — `PROXY_HTTPS.md`
+- [Python-Runtime-Support und Neuinstallation](PYTHON_RUNTIME_SUPPORT.md) — `PYTHON_RUNTIME_SUPPORT.md`
 - [Uneinbringliche Rechnungen ausbuchen](RECHNUNGEN_AUSBUCHEN.md) — `RECHNUNGEN_AUSBUCHEN.md`
 - [Sicherheits-Checkliste vor Release](RELEASE_SECURITY_CHECKLIST.md) — `RELEASE_SECURITY_CHECKLIST.md`
+- [Remote-Anwendungen vorbereiten](REMOTE_ANWENDUNGEN.md) — `REMOTE_ANWENDUNGEN.md`
+- [Freigegebene Remote-Anwendungen ansehen](REMOTE_APP_KATALOG.md) — `REMOTE_APP_KATALOG.md`
+- [Öffentliche Repository-Arbeitszentrale](REPOSITORY_ARBEITSZENTRALE.md) — `REPOSITORY_ARBEITSZENTRALE.md`
+- [Resource Commander: Touch-/Dialogreview (PR #653)](RESOURCE_COMMANDER_TOUCH_REVIEW.md) — `RESOURCE_COMMANDER_TOUCH_REVIEW.md`
+- [Rückfragen-Sammlung (2h-Block, keine Unterbrechungen)](RUECKFRAGEN.md) — `RUECKFRAGEN.md`
 - [S3-Overlay](S3_OVERLAY.md) — `S3_OVERLAY.md`
+- [Software bill of materials](SBOM.md) — `SBOM.md`
 - [Schnelle Ansicht einzelner Dokumente](SCHNELLE_DATEIANSICHT.md) — `SCHNELLE_DATEIANSICHT.md`
+- [Support mit Bildschirmfreigabe](screen-support.md) — `screen-support.md`
 - [Sicherheits- und Schwachstellenprozess](SECURITY.md) — `SECURITY.md`
 - [Sicherheitsreview vom 29.08.2026](SECURITY_REVIEW_2026-08-29.md) — `SECURITY_REVIEW_2026-08-29.md`
 - [Shopping / Einkaufslisten](SHOPPING.md) — `SHOPPING.md`
 - [Ortstermine](SITE_VISITS.md) — `SITE_VISITS.md`
+- [Smart Views und Sammelordner](SMART_VIEWS.md) — `SMART_VIEWS.md`
 - [Synchronisation und Föderation](SYNC_FEDERATION.md) — `SYNC_FEDERATION.md`
 - [Systemwerkzeuge für Virenschutz und Vorschauen](SYSTEMWERKZEUGE_VORSCHAU.md) — `SYSTEMWERKZEUGE_VORSCHAU.md`
 - [Von TagSpaces inspirierte Dateiverwaltung](TAGSPACES_ANSAETZE.md) — `TAGSPACES_ANSAETZE.md`
 - [SimpleOffice4Me Telefonie](TELEPHONY.md) — `TELEPHONY.md`
+- [In-App Template-Generator](TEMPLATE_GENERATOR.md) — `TEMPLATE_GENERATOR.md`
 - [UI-Quick-Wins](UI_QUICK_WINS.md) — `UI_QUICK_WINS.md`
 - [V2 final acceptance](V2_ACCEPTANCE.md) — `V2_ACCEPTANCE.md`
 - [V2 baseline inventory](V2_BASELINE.md) — `V2_BASELINE.md`
@@ -258,6 +311,9 @@ Release-Zusage. Dieses Register ergänzt die thematischen Einstiegspunkte oben.
 - [ClamAV-Prüfung vor WebDAV-Uploads](WEBDAV_UPLOADS_CLAMAV.md) — `WEBDAV_UPLOADS_CLAMAV.md`
 - [WebDAV-Zeitstempel und ausgewählte Windows-Dateieigenschaften](WEBDAV_ZEITSTEMPEL_MS_WDVME.md) — `WEBDAV_ZEITSTEMPEL_MS_WDVME.md`
 - [Getrennte WebDAV-Zugänge pro Gerät](WEBDAV_ZUGAENGE.md) — `WEBDAV_ZUGAENGE.md`
+- [Webseitenexport (Issue #606)](WEBSEITENEXPORT.md) — `WEBSEITENEXPORT.md`
+- [Hackathon-Arbeitslog – Büroengel / ContextFlow](WORKLOG_2026-10-26.md) — `WORKLOG_2026-10-26.md`
+- [Arbeitslog – 3. November 2026 (PR #973 Review)](WORKLOG_2026-11-03.md) — `WORKLOG_2026-11-03.md`
 - [XRechnung validation baseline (2026)](XRECHNUNG_VALIDATION.md) — `XRECHNUNG_VALIDATION.md`
 - [Dokumentationslogo](assets/README.md) — `assets/README.md`
 - [Bildschirm teilen: Miracast / Wi-Fi Display](screen-sharing-miracast.md) — `screen-sharing-miracast.md`

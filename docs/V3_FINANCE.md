@@ -20,6 +20,11 @@ For order or delivery-note to invoice conversion, users select an existing draft
 
 Invoice lifecycle records reference the existing invoice_id. Creating a lifecycle invoice never allocates an invoice number and never generates a second PDF/XML representation.
 
+Create the actual invoice draft in the invoice editor first. Offers, orders, and delivery
+notes in this view store a lifecycle payload and preserve the document chain.
+Document-specific line item editors and PDF templates for those generic
+records remain open work. [Invoice workflow](INVOICE_WORKFLOW.md)
+
 When SIMPLEOFFICE_V3_FINANCE_ENABLED is active, the existing invoice form uses finalize_invoice_tracked. The wrapper:
 
 1. creates or reuses the lifecycle invoice record;

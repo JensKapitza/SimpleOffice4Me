@@ -12,6 +12,7 @@ import time
 from uuid import uuid4
 
 from flask import session
+from .csv_export import spreadsheet_safe_cell as _spreadsheet_safe_cell
 from .documents_core import *  # noqa: F401,F403
 from .smart_folder_batch_jobs import (
     BATCH_ACTIONS,
@@ -38,12 +39,6 @@ def _private_html(template: str, **context) -> Response:
     response.headers["Cache-Control"] = "private, no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"
     return response
-
-
-def _spreadsheet_safe_cell(value: object) -> str:
-    text = "" if value is None else str(value)
-    first = text.lstrip(" \t\r\n\x00")[:1]
-    return "'" + text if first in {"=", "+", "-", "@"} else text
 
 
 @bp.get("/smart-folders")
