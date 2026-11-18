@@ -70,6 +70,15 @@ Nummernkreis werden als Erweiterungen derselben Definition ergänzt.
 
 ## Nächste Ausbaustufen
 
+Die Formulare für `contact`, `product` und `invoice` können Datensätze erfassen.
+Das Produktformular führt den Bestand und das Journal manueller Bewegungen.
+Das Inventar erfasst separat Geräte und Gegenstände. Automatische
+Bestandsbuchungen und Fakturama-Übernahme bleiben eigenständige Vorhaben. Der spezialisierte
+Rechnungseditor unterstützt Positionen, PDF und E-Rechnung bereits heute.
+[Rechnungsablauf](INVOICE_WORKFLOW.md)
+
+Die folgenden Ausbaustufen beziehen sich auf die allgemeine Formularschicht.
+
 1. Wiederholbare Positions-Unterformulare und Berechnung von Rabatt, Steuer und
    Summen.
 2. Nummernkreise, Statusübergänge und unveränderliche Freigabe-Snapshots.

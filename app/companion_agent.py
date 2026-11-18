@@ -15,9 +15,7 @@ HEARTBEAT_MAX_AGE_SECONDS = 15
 
 
 def _meta_dir(root: str | Path) -> Path:
-    path = Path(root).expanduser().resolve() / ".simpleoffice-meta"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    return Path(root).expanduser().resolve() / ".simpleoffice-meta"
 
 
 def _state_path(root: str | Path) -> Path:
@@ -35,12 +33,13 @@ def _stop_path(root: str | Path) -> Path:
 def _read_json(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):
         return {}
     return value if isinstance(value, dict) else {}
 
 
 def _write_json(path: Path, value: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     os.replace(tmp, path)
@@ -88,7 +87,9 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
-def _heartbeat_matches(root: str | Path, state: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
+def _heartbeat_matches(
+    root: str | Path, state: dict[str, Any], *, check_process: bool = True,
+) -> tuple[bool, dict[str, Any]]:
     heartbeat = _read_json(_heartbeat_path(root))
     token = str(state.get("instance_token") or "")
     try:
@@ -103,14 +104,15 @@ def _heartbeat_matches(root: str | Path, state: dict[str, Any]) -> tuple[bool, d
         and heartbeat.get("instance_token") == token
         and heartbeat_pid == pid
         and 0 <= age <= HEARTBEAT_MAX_AGE_SECONDS
-        and _pid_alive(pid)
+        and pid > 0
+        and (not check_process or _pid_alive(pid))
     )
     return matches, heartbeat
 
 
-def status(root: str | Path) -> dict[str, Any]:
+def status(root: str | Path, *, check_process: bool = True) -> dict[str, Any]:
     state = _read_state(root)
-    running, heartbeat = _heartbeat_matches(root, state)
+    running, heartbeat = _heartbeat_matches(root, state, check_process=check_process)
     return {
         "installed": bool(state.get("installed")),
         "running": running,

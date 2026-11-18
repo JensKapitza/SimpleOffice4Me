@@ -45,6 +45,7 @@ NON_PAGE_GET_ENDPOINTS = {
     "library.export_books_bibtex",
     # Firefox bookmark export is a Netscape HTML file download, not a page shell.
     "browser_bookmarks.export_firefox",
+    "fakturama_admin.download_profile",
     # Import preview is only available after this browser session stages an upload.
     "browser_bookmarks.import_preview",
 }

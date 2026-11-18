@@ -283,6 +283,18 @@ class FinanceLifecycleStore:
             ).fetchone()
         return self._record(row) if row else None
 
+    def invoice_lifecycle_records(self) -> dict[str, BusinessDocument]:
+        """Read registered invoice links once to filter candidate drafts safely."""
+        with self._db() as db:
+            rows = db.execute(
+                "SELECT * FROM v3_business_document WHERE kind='invoice'",
+            ).fetchall()
+        return {
+            row.external_id: row
+            for row in (self._record(item) for item in rows)
+            if row.external_id
+        }
+
     def create(
         self,
         kind: str,
@@ -441,8 +453,13 @@ class FinanceLifecycleStore:
             invoice_row = invoice(self.root, str(external_id).strip())
             if invoice_row.get("status") != "draft":
                 raise ValueError("invoice successor must still be a draft")
-            if source.contact_id and str(invoice_row.get("contact_id", "")) != source.contact_id:
+            if not source.contact_id or str(invoice_row.get("contact_id", "")) != source.contact_id:
                 raise ValueError("invoice successor belongs to another contact")
+            return self.attach_invoice(
+                invoice_row,
+                actor,
+                predecessor_id=source.lifecycle_id,
+            )
         title_prefix = {
             "order": "Auftrag",
             "delivery_note": "Lieferschein",
@@ -529,24 +546,57 @@ class FinanceLifecycleStore:
         invoice_id = str(invoice_row.get("invoice_id", "")).strip()
         if not invoice_id:
             raise ValueError("invoice id is required")
-        existing = self.by_external("invoice", invoice_id)
-        if existing is None:
-            existing = self.create(
-                "invoice",
+        contact_id = str(invoice_row.get("contact_id", "")).strip()
+        if predecessor_id and not contact_id:
+            raise ValueError("invoice successor requires a contact")
+        title = f"Rechnung {invoice_row.get('invoice_number', invoice_id)}"[:300]
+        working = {
+            "totals": invoice_row.get("totals", {}),
+            "currency": invoice_row.get("currency", ""),
+            "issue_date": invoice_row.get("issue_date", ""),
+            "due_date": invoice_row.get("due_date", ""),
+        }
+        if not predecessor_id:
+            existing = self.by_external("invoice", invoice_id)
+            if existing is not None:
+                return existing
+            try:
+                return self.create(
+                    "invoice", actor, contact_id=contact_id, project_id="",
+                    title=title, working=working, external_id=invoice_id,
+                )
+            except ValueError:
+                # Another sync may have registered this draft concurrently.
+                existing = self.by_external("invoice", invoice_id)
+                if existing is not None:
+                    return existing
+                raise
+
+        from .business_document_generation import _invoice_store_path, invoice
+        from .file_lock import exclusive_file_lock
+
+        invoice_path = _invoice_store_path(self.root, invoice_id)
+        with exclusive_file_lock(invoice_path.with_suffix(".lock")):
+            current_invoice = invoice(self.root, invoice_id)
+            if current_invoice.get("status") != "draft":
+                raise ValueError("invoice successor must still be a draft")
+            if str(current_invoice.get("contact_id", "")).strip() != contact_id:
+                raise ValueError("invoice successor belongs to another contact")
+            return self._attach_invoice_successor(
+                current_invoice,
                 actor,
-                contact_id=str(invoice_row.get("contact_id", "")),
-                project_id="",
-                title=f"Rechnung {invoice_row.get('invoice_number', invoice_id)}",
-                working={
-                    "totals": invoice_row.get("totals", {}),
-                    "currency": invoice_row.get("currency", ""),
-                    "issue_date": invoice_row.get("issue_date", ""),
-                    "due_date": invoice_row.get("due_date", ""),
-                },
-                predecessor_id=predecessor_id,
-                external_id=invoice_id,
+                predecessor_id,
             )
-        return existing
+
+    def _attach_invoice_successor(
+        self,
+        invoice_row: Mapping[str, Any],
+        actor: str,
+        predecessor_id: str,
+    ) -> BusinessDocument:
+        from .v3_finance_invoice_linking import attach_invoice_successor
+
+        return attach_invoice_successor(self, invoice_row, actor, predecessor_id)
 
     def _set_invoice_state(
         self,

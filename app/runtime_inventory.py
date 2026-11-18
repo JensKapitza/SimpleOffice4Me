@@ -154,11 +154,12 @@ def clear_runtime_inventory() -> None:
 
 
 # ``runtime_inventory`` is imported by app.admin during application bootstrap.
-# Register the administrator-only service blueprints here to keep optional
+# Register the service blueprints here to keep optional
 # service management isolated from the large central application module.
 from . import app as _flask_app
 from .mini_services_admin import bp as _mini_services_admin_bp
 from .remote_admin import bp as _remote_admin_bp
-for _service_bp in (_mini_services_admin_bp, _remote_admin_bp):
+from .remote_apps import bp as _remote_apps_bp
+for _service_bp in (_mini_services_admin_bp, _remote_admin_bp, _remote_apps_bp):
     if _service_bp.name not in _flask_app.blueprints:
         _flask_app.register_blueprint(_service_bp)

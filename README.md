@@ -6,12 +6,12 @@
 
 Die 3.0-Erweiterungen bauen auf dem bestehenden V2/Post-V2-System auf. Ihre
 16 registrierten Capabilities sind standardmäßig deaktiviert. Die Paketversion
-ist auf **3.0.0** angehoben. Die 3.0-Release-Freigabe in
-[#506](https://github.com/JensKapitza/SimpleOffice4Me/issues/506) bleibt offen;
-die Versionsnummer bereitet Metadaten vor und bedeutet keine Veröffentlichung.
-Ein geschlossenes Funktions-Issue bedeutet daher keine Gesamtfreigabe für 3.0.
+ist auf **3.0.0** angehoben. Am 16.11.2026 hat der Projekteigentümer
+[#505 und #506 zur Schließung freigegeben](docs/V3_RELEASE_GATE.md#closure-decision-for-505506--2026-11-16).
+Für die verbliebenen Praxistests gilt die dort dokumentierte Abnahmeentscheidung.
 
 - [Dokumentationsübersicht mit vollständigem Markdown-Dateiregister](docs/README.md)
+- [Funktionsabgleich und nächste Umsetzungspakete](docs/FUNKTIONSABGLEICH.md)
 - [Tauri-2-Client für bestehende HTTPS-Server](desktop/tauri/README.md)
 - [3.0-Betrieb: Funktionen, Schalter, Freigaben und Rückkehr](docs/V3_BETRIEBSLEITFADEN.md)
 - [Konfigurationsregister mit Quellen und Sicherheitsgrenzen](docs/KONFIGURATIONSREGISTER.md)
@@ -118,6 +118,10 @@ covers both the live image flow and agent tool loop.
 - einfache EÜR-Belegerfassung für Einnahmen und Ausgaben mit Originaldatei,
   Vollständigkeitsprüfung, EUR-/Umsatzsteuerberechnung, Prüfstatus,
   Jahresübersicht und CSV-/ZIP-Übergabe an den Steuerberater
+- Fakturama-2-Quellanalyse und offene Migrations-Checkliste
+  ([technische Referenz](docs/fakturama/FAKTURAMA_2_QUELLANALYSE.md),
+  [Migrationsumfang](docs/fakturama/FAKTURAMA_MIGRATION.md)); ein
+  Fakturama-Importer ist nicht implementiert
 - datensparsame zentrale Fehlerberichte mit stabilem Fingerprint,
   Deduplizierung und optionalem eingeschränktem Error-Relay
 - Offline-Installer-Cache für fertige Windows-, macOS-, Linux-, Android- und

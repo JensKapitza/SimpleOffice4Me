@@ -58,6 +58,34 @@ class ShoppingWebTests(unittest.TestCase):
         response = self.client.get("/shopping/barcode?code=4006381333932")
         self.assertEqual(400, response.status_code)
 
+    def test_search_limits_items_to_the_selected_list_but_keeps_its_total(self):
+        store = ShoppingStore(self.root)
+        store.create_list("Woche", "alice", list_id="week")
+        store.create_list("Privat", "bob", list_id="private")
+        item = store.add_item("week", "Haferdrink", "alice", {"brand": "Nord", "quantity": "2", "price": "2,50"})
+        store.add_item("week", "Öl", "alice", {"quantity": "1", "price": "3"})
+        store.add_item("private", "Haferdrink privat", "bob", {"brand": "Nord", "price": "9"})
+        with patch("app.shopping_web.render_template", return_value="OK") as render:
+            response = self.client.get("/shopping/", query_string={"list_id": "week", "q": "NORD hafer"})
+        self.assertEqual(200, response.status_code)
+        context = render.call_args.kwargs
+        self.assertEqual(["Haferdrink"], [row["name"] for row in context["items"]])
+        self.assertEqual("8,00 €", context["estimated_total"])
+
+        response = self.client.post(f"/shopping/items/{item['item_id']}/status", data={
+            "list_id": "week", "status": "bought", "q": "NORD hafer", "show_bought": "1",
+        })
+        self.assertEqual(302, response.status_code)
+        self.assertIn("q=NORD+hafer", response.location)
+        self.assertIn("show_bought=1", response.location)
+        with patch("app.shopping_web.render_template", return_value="OK") as render:
+            self.client.get(response.location)
+        self.assertEqual("bought", render.call_args.kwargs["items"][0]["status"])
+        self.assertEqual("3,00 €", render.call_args.kwargs["estimated_total"])
+        with patch("app.shopping_web.render_template", return_value="OK") as render:
+            self.client.get("/shopping/", query_string={"list_id": "week", "q": "NORD hafer"})
+        self.assertEqual([], render.call_args.kwargs["items"])
+
     def test_ui_has_camera_decoder_manual_fallback_and_navigation(self):
         project = Path(__file__).parents[1]
         template = (project / "templates" / "shopping" / "index.html").read_text(encoding="utf-8")
