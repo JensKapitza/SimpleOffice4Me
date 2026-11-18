@@ -96,3 +96,25 @@ Jede Übergabe enthält Paket-ID, Status, Ist, Soll, Dateien, Schritte, Zwischen
 | Abschluss und Folgearbeit | Für tiefe Seiten muss die Suche die Leserechte der vorangehenden Treffer erneut prüfen. Ein Folgeauftrag für Performance-Messungen soll abhängig vom Anteil privater Dokumente die Metadatenzugriffe und Laufzeiten auf Seite 1 und auf tiefen Seiten vergleichen. |
 
 Der kombinierte lokale Lauf bestand alle 72 Tests. Ruff, Projekt-Policy, Datei- und Funktionsgrößen, CRA und `git diff --check` waren erfolgreich.
+
+## Folgeauftrag · Kosten der sichtbaren Suchseiten · 18. November 2026
+
+**Analyse.** Die Suche liest Metadaten zu jedem Indexkandidaten, bis der erste weitere sichtbare Treffer feststeht. Für eine tiefe Seite müssen auch die vorangehenden sichtbaren Treffer gezählt werden. Die Zahl der Dateizugriffe hängt daher von den Berechtigungen und der Trefferreihenfolge ab.
+
+**Planung und Zuständigkeiten.** Basis ist der Suchfix `1ab113a3` aus PR #1081. `search_impl` übernimmt das reproduzierbare Messwerkzeug, `search_test` die unabhängigen Zugriffs- und Ergebnisprüfungen, `search_review` das methodische Review. Alle drei Agenten verwenden GPT-6 Luna. Der Integrator führt die Messung aus und gleicht die Ergebnisse mit den Regressionstests ab.
+
+**Implementierung und Review.** Das Werkzeug `tools/benchmark_document_search.py` erzeugt je Berechtigungsverteilung einen temporären SQLite-Index und synthetische Dateien. Es misst den Store-Aufruf im Flask-Anfragekontext eines normalen Benutzers. Der Zähler erfasst Aufrufe zum Lesen der JSON-Dokumentmetadaten. Physische Datenträgerzugriffe können wegen Betriebssystem-Caches abweichen. Beim ersten Probelauf fiel ein Importfehler auf. Ein eigener CLI-Integrationstest prüft jetzt den vollständigen Prozess, die JSON-Ausgabe und die Isolation vom konfigurierten Dokumentordner.
+
+**Soll-Ist-Vergleich.** Lokaler Lauf mit `python -m tools.benchmark_document_search --documents 200 --page-size 10 --hidden-fractions 0,0.5,0.9 --pages 1,8 --repeats 5`. Alle Dokumente erfüllten die Suchanfrage. Private Chat-Dateien waren gleichmäßig verteilt. Die Zahl der Metadatenzugriffe war in allen fünf Wiederholungen identisch.
+
+| Private Treffer | Seite 1 · Zugriffe / mittlere Dauer | Seite 8 · Zugriffe / mittlere Dauer | Sichtbare Ergebnisse auf Seite 8 |
+|---|---:|---:|---:|
+| 0 % | 11 / 0,96 ms | 81 / 3,24 ms | 10 |
+| 50 % | 22 / 1,22 ms | 162 / 5,25 ms | 10 |
+| 90 % | 110 / 3,46 ms | 200 / 5,96 ms | 0 |
+
+Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die direkt angeforderte Seite 8 erschöpft den Index. Die Zeiten betreffen einzelne lokale Suchaufrufe mit Messzähler. Aufbau, HTTP-Rendering, Netzwerklatenz und gleichzeitige Anfragen sind ausgeklammert.
+
+**Tests und Abschluss.** Die Regressionen prüfen Seiteninhalte und den Abbruch nach dem nächsten sichtbaren Treffer bei 10, 50 und 90 % privaten Dokumenten. Die Laufzeit ist umgebungsabhängig. Als nächstes lässt sich ein Fortsetzungscursor für den regulären Weiter-Link bewerten. Abnahmekriterium wäre, dass Seite 2 bereits gezählte Treffer nicht erneut liest und nach einem Rechteentzug weiterhin ausschließlich aktuell sichtbare Dateien liefert.
+
+`python -m unittest tests.test_document_search_cost tests.test_document_search_visibility tests.test_search_query` bestand lokal alle 18 Tests. Ruff, Projekt-Policy, Datei- und Funktionsgrößen sowie `git diff --check` waren erfolgreich.
