@@ -110,6 +110,18 @@ class DocumentListPaginationBrowserTests(unittest.TestCase):
                             self.assertFalse(page.locator("nav a[rel=next]").count())
                             self.assertNotIn("visible-000.txt", page.locator("main").inner_text())
                             self.assertNotIn("visible-001.txt", page.locator("main").inner_text())
+                    page.goto(base_url + "/documents/search?q=visible")
+                    found = []
+                    for count in (25, 25, 25, 25, 18):
+                        paths = page.locator("main .list-group-item strong").all_text_contents()
+                        self.assertEqual(count, len(paths))
+                        found.extend(paths)
+                        more = page.locator("main nav a[rel=next]")
+                        if count == 25:
+                            more.click()
+                        else:
+                            self.assertEqual(0, more.count())
+                    self.assertEqual({f"visible-{i:03}.txt" for i in range(2, 120)}, set(found))
                     context.close()
                     browser.close()
             finally:

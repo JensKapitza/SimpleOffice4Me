@@ -378,35 +378,39 @@ class _DocumentStorePart2:
         self._record_revision("document_text_backfill", actor, "search", "text-backfill", {"updated": updated, "force": force, "at": utc_now()})
         return updated
 
+    def _search_cursor(
+        self, db: sqlite3.Connection, query: str, limit: int = -1, offset: int = 0,
+    ) -> sqlite3.Cursor:
+        """Use SQLite's unlimited (-1) limit when visibility determines the page."""
+        compiled = compile_query(query)
+        if not compiled.requires_sql:
+            try:
+                return db.execute(
+                    "SELECT document_id, path, state FROM document_search "
+                    "WHERE document_search MATCH ? ORDER BY rowid LIMIT ? OFFSET ?",
+                    (compiled.fts, limit, offset),
+                )
+            except sqlite3.OperationalError:
+                # Older indexes can evaluate the same query through the SQL fallback.
+                pass
+        statement = "".join((
+            "SELECT document_id, path, state FROM document_search WHERE ",
+            _validated_search_where(compiled.where),
+            " ORDER BY rowid LIMIT ? OFFSET ?",
+        ))
+        return db.execute(statement, (*compiled.parameters, limit, offset))
+
     def search_page(self, query: str, page: int = 1, page_size: int = 25) -> dict[str, Any]:
         query = query.strip()
         if not query:
             return {"results": [], "page": 1, "page_size": page_size, "has_next": False}
-        compiled = compile_query(query)
         page = max(1, page)
         page_size = max(1, min(page_size, 100))
         limit = page_size + 1
         offset = (page - 1) * page_size
         self.initialize()
         with self._db() as db:
-            try:
-                if compiled.requires_sql:
-                    raise sqlite3.OperationalError("advanced boolean query requires SQL evaluation")
-                rows = db.execute(
-                    "SELECT document_id, path, state FROM document_search WHERE document_search MATCH ? LIMIT ? OFFSET ?",
-                    (compiled.fts, limit, offset),
-                ).fetchall()
-            except sqlite3.OperationalError:
-                where_fragment = _validated_search_where(compiled.where)
-                statement = "".join((
-                    "SELECT document_id, path, state FROM document_search WHERE ",
-                    where_fragment,
-                    " LIMIT ? OFFSET ?",
-                ))
-                rows = db.execute(
-                    statement,
-                    (*compiled.parameters, limit, offset),
-                ).fetchall()
+            rows = self._search_cursor(db, query, limit, offset).fetchall()
         results = [{"document_id": row[0], "path": row[1], "state": row[2]} for row in rows]
         return {
             "results": results[:page_size],

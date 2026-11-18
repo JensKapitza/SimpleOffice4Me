@@ -125,16 +125,41 @@ class DocumentStore(_DocumentStorePart1, _DocumentStorePart2, _DocumentStorePart
         )
 
     def search_page(self, query: str, page: int = 1, page_size: int = 25) -> dict[str, Any]:
-        result = super().search_page(query, page=page, page_size=page_size)
         if self._request_actor() is None:
-            return result
-        visible = []
-        for item in result.get("results", []):
-            metadata = self._read_json(self.documents / f"{item.get('document_id', '')}.json", {})
-            if metadata.get("document_id") and self._visible_for_request(metadata):
-                visible.append(item)
-        result["results"] = visible
-        return result
+            return super().search_page(query, page=page, page_size=page_size)
+        query = query.strip()
+        if not query:
+            return super().search_page(query, page=page, page_size=page_size)
+
+        # One extra visible match establishes whether the next page exists.
+        page = max(1, int(page))
+        page_size = max(1, min(int(page_size), 100))
+        visible_start = (page - 1) * page_size
+        visible_end = visible_start + page_size
+        results: list[dict[str, Any]] = []
+        visible_count = 0
+        self.initialize()
+        with self._db() as db:
+            for row in self._search_cursor(db, query):
+                item = {"document_id": row[0], "path": row[1], "state": row[2]}
+                metadata = self._read_json(
+                    self.documents / f"{item['document_id']}.json", {}
+                )
+                if not metadata.get("document_id") or not self._visible_for_request(metadata):
+                    continue
+                if visible_start <= visible_count <= visible_end:
+                    results.append(item)
+                visible_count += 1
+                if len(results) > page_size:
+                    break
+
+        has_next = len(results) > page_size
+        return {
+            "results": results[:page_size],
+            "page": page,
+            "page_size": page_size,
+            "has_next": has_next,
+        }
 
     def _visible_metadata(self, metadata: dict[str, Any]) -> dict[str, Any]:
         """Relativize ``last_path`` and enforce browser visibility."""
