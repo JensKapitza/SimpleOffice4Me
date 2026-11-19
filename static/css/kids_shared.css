@@ -1,0 +1,84 @@
+/* Shared Kids assets: huge touch targets, symbol navigation, calm feedback.
+   All interactive elements stay far above the 44px minimum so toddlers can
+   tap them without reading skills. Fully local, no external resources. */
+.kids-dashboard-page { max-width: 1080px; }
+
+/* Symbol navigation grid used by the dashboard and game pickers. */
+.kids-symbol-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 1rem;
+}
+.kids-symbol-card {
+  min-height: 190px;
+  padding: 1.5rem 1.25rem;
+  border: 3px solid #d7e4f2;
+  border-radius: 1.5rem;
+  background: linear-gradient(145deg, #fff, #f4f9ff);
+  color: #17324d;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: .5rem;
+  text-decoration: none;
+  font: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+a.kids-symbol-card:hover, button.kids-symbol-card:hover,
+.kids-symbol-card:focus-visible {
+  transform: translateY(-2px);
+  box-shadow: 0 .5rem 1.4rem #183b5c20;
+  border-color: #4386c4;
+  color: #17324d;
+}
+.kids-symbol-card > span { font-size: 3.5rem; line-height: 1; }
+.kids-symbol-card strong { font-size: 1.4rem; }
+.kids-symbol-card small { color: #4f6274; font-size: 1.05rem; }
+
+/* Guaranteed minimum touch target for kids buttons and links. */
+.kids-touch { min-height: 56px; min-width: 56px; touch-action: manipulation; }
+
+/* Large picture choice buttons for matching and quiz games. */
+.kids-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+  gap: 1rem;
+  align-items: stretch;
+  justify-items: stretch;
+  padding: 1rem 0;
+}
+.kids-choice {
+  min-height: 150px;
+  min-width: 150px;
+  border: 3px solid #d7e4f2;
+  border-radius: 1.25rem;
+  background: #fff;
+  color: #142e49;
+  font-size: clamp(3rem, 12vw, 5rem);
+  line-height: 1.1;
+  touch-action: manipulation;
+  transition: transform .12s ease, background-color .15s ease, border-color .15s ease;
+}
+.kids-choice:hover:not(:disabled) { transform: scale(1.04); border-color: #4386c4; }
+.kids-choice.is-correct { border-color: #218838; background: #dff5e5; }
+.kids-choice.is-wrong { border-color: #c23d4b; background: #fff0f1; }
+
+.kids-symbol-card:focus-visible, .kids-choice:focus-visible, .kids-touch:focus-visible {
+  outline: 4px solid #ffc107;
+  outline-offset: 2px;
+}
+
+@media (max-width: 520px) {
+  .kids-symbol-card { min-height: 160px; }
+  .kids-symbol-card > span { font-size: 2.8rem; }
+  .kids-choice { min-height: 120px; min-width: 120px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kids-symbol-card, .kids-choice { transition: none; }
+  a.kids-symbol-card:hover, button.kids-symbol-card:hover,
+  .kids-symbol-card:focus-visible, .kids-choice:hover:not(:disabled) { transform: none; }
+}

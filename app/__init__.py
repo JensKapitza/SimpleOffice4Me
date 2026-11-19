@@ -360,6 +360,8 @@ from . import kids_coloring
 app.register_blueprint(kids_coloring.bp)
 from . import kids_learning
 app.register_blueprint(kids_learning.bp)
+from . import kids_matching
+app.register_blueprint(kids_matching.bp)
 from . import electrical_learning
 app.register_blueprint(electrical_learning.bp)
 
