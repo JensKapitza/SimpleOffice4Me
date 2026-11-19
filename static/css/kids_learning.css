@@ -17,7 +17,12 @@
 .kids-learning-search-modes-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.8rem}
 .kids-learning-maze-options{display:flex;flex-wrap:wrap;gap:.6rem;justify-content:center}
 .kids-learning-maze-task{text-align:center;font-size:2.4rem;min-height:1.3em;margin:.5rem 0}
-.kids-maze-map{display:block;width:min(100%,420px);height:auto;margin-inline:auto;border:3px solid var(--bs-border-color);border-radius:1rem;background:#f8f5ed}
+.kids-maze-map{display:block;width:min(100%,420px,62vmin);height:auto;margin-inline:auto;border:3px solid var(--bs-border-color);border-radius:1rem;background:#f8f5ed}
+.kids-maze-letters{display:grid;grid-template-columns:repeat(auto-fill,minmax(52px,1fr));gap:.4rem;margin:1rem auto;max-width:520px}
+.kids-maze-letter{min-height:52px;border:3px solid var(--bs-primary);border-radius:.9rem;background:var(--bs-primary-bg-subtle);font-size:1.4rem;font-weight:800;touch-action:manipulation}
+.kids-maze-letter:focus-visible{outline:4px solid var(--bs-warning);outline-offset:2px}
+.kids-maze-direction:disabled{opacity:.35}
+@media(max-height:640px){.kids-learning-maze-task{font-size:1.7rem}}
 .kids-maze-controls{display:grid;grid-template-columns:repeat(3,minmax(70px,88px));grid-template-rows:repeat(2,76px);justify-content:center;gap:.45rem;margin:1rem auto}
 .kids-maze-direction{min-height:70px;border:3px solid var(--bs-primary);border-radius:1rem;background:var(--bs-primary-bg-subtle);font-size:2rem;touch-action:manipulation;transition:opacity .3s ease}
 .kids-maze-direction[data-maze-direction=up]{grid-column:2;grid-row:1}
