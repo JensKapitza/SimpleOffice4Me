@@ -1,0 +1,94 @@
+/* Mobile workspace: bottom quick-access bar and contextual action button.
+   Visible only below the desktop breakpoint; desktop layout stays untouched. */
+.so-bottom-bar,
+.so-fab-wrap {
+  display: none;
+}
+
+@media (max-width: 991.98px) {
+  body {
+    padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .so-bottom-bar {
+    display: flex;
+    position: fixed;
+    inset-inline: 0;
+    bottom: 0;
+    z-index: 1040;
+    background: var(--bs-body-bg, #fff);
+    border-top: 1px solid var(--bs-border-color, #dee2e6);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .so-bottom-link {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    min-height: 64px;
+    padding: 6px 2px;
+    color: var(--bs-secondary-color, #6c757d);
+    text-decoration: none;
+    font-size: 1.25rem;
+    touch-action: manipulation;
+  }
+
+  .so-bottom-link small {
+    font-size: 0.7rem;
+    line-height: 1.1;
+  }
+
+  .so-bottom-link[aria-current="page"] {
+    color: var(--bs-primary, #0d6efd);
+    font-weight: 600;
+  }
+
+  .so-fab-wrap {
+    display: block;
+    position: fixed;
+    right: 1rem;
+    bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+    z-index: 1045;
+  }
+
+  html[data-so-keyboard-open="1"] .so-fab-wrap {
+    display: none;
+  }
+
+  .so-fab {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    border: none;
+    background: var(--bs-primary, #0d6efd);
+    color: #fff;
+    font-size: 1.75rem;
+    line-height: 1;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    touch-action: manipulation;
+  }
+
+  .so-fab-menu {
+    position: absolute;
+    right: 0;
+    bottom: 64px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    align-items: flex-end;
+    min-width: 220px;
+  }
+
+  .so-fab-menu[hidden] {
+    display: none;
+  }
+
+  .so-fab-action {
+    min-height: 48px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    white-space: nowrap;
+  }
+}
