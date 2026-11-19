@@ -32,6 +32,12 @@ class MobileWorkspaceTests(PublicHttpTestCase):
         for action in ("event", "capture", "task", "share"):
             self.assertIn(f'data-mobile-action="{action}"', html)
 
+    def test_mobile_workspace_stays_out_of_kids_mode(self):
+        html = self.client.get("/kids/").get_data(as_text=True)
+        self.assertNotIn("data-mobile-bar", html)
+        self.assertNotIn("data-mobile-fab", html)
+        self.assertIn("data-kids-header", html)
+
     def test_workspace_script_stays_safe(self):
         script = SCRIPT.read_text(encoding="utf-8")
         self.assertNotIn("innerHTML", script)
