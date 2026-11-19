@@ -50,7 +50,16 @@ def _update_values(item: dict[str, Any], fields: dict[str, Any]) -> dict[str, An
 
 def ensure_book_identity(objects: Any, item: dict[str, Any], actor: str) -> dict[str, Any]:
     """Persist stable identities without replacing existing bibliographic data."""
-    if not _is_book(item):
+    return _ensure_identity(objects, item, actor, require_book=True)
+
+
+def ensure_copy_identity(objects: Any, item: dict[str, Any], actor: str) -> dict[str, Any]:
+    """Persist stable work/edition/copy identities for any object type."""
+    return _ensure_identity(objects, item, actor, require_book=False)
+
+
+def _ensure_identity(objects: Any, item: dict[str, Any], actor: str, *, require_book: bool) -> dict[str, Any]:
+    if require_book and not _is_book(item):
         raise ValueError("Nur Bücher können als physische Exemplare vervielfältigt werden.")
     fields = dict(item.get("fields", {})) if isinstance(item.get("fields"), dict) else {}
     object_id = str(item.get("object_id", "")).strip()
@@ -70,11 +79,20 @@ def ensure_book_identity(objects: Any, item: dict[str, Any], actor: str) -> dict
 
 def edition_copies(objects: Any, source_id: str, *, limit: int = 500) -> list[dict[str, Any]]:
     """Return physical books explicitly linked to the source edition."""
+    return _linked_copies(objects, source_id, limit=limit, require_book=True)
+
+
+def object_copies(objects: Any, source_id: str, *, limit: int = 500) -> list[dict[str, Any]]:
+    """Return physical copies explicitly linked to the source object."""
+    return _linked_copies(objects, source_id, limit=limit, require_book=False)
+
+
+def _linked_copies(objects: Any, source_id: str, *, limit: int, require_book: bool) -> list[dict[str, Any]]:
     try:
         source = objects.object(source_id)
     except ValueError as exc:
-        raise ValueError("Das Ausgangsbuch wurde nicht gefunden.") from exc
-    if not _is_book(source):
+        raise ValueError("Das Ausgangsbuch wurde nicht gefunden." if require_book else "Das Ausgangsobjekt wurde nicht gefunden.") from exc
+    if require_book and not _is_book(source):
         raise ValueError("Nur Bücher besitzen physische Exemplare.")
 
     fields = source.get("fields", {}) if isinstance(source.get("fields"), dict) else {}
@@ -89,7 +107,7 @@ def edition_copies(objects: Any, source_id: str, *, limit: int = 500) -> list[di
     maximum = max(1, min(int(limit), 500))
     copies: list[dict[str, Any]] = []
     for item in objects.objects():
-        if not _is_book(item):
+        if require_book and not _is_book(item):
             continue
         item_fields = item.get("fields", {}) if isinstance(item.get("fields"), dict) else {}
         candidate = str(item_fields.get("library_edition_id", "")).strip()
@@ -108,7 +126,25 @@ def edition_copies(objects: Any, source_id: str, *, limit: int = 500) -> list[di
 
 def edition_copy_inventory(objects: Any, source_id: str) -> dict[str, Any]:
     """Build the bounded public projection for one edition's copies."""
-    rows = edition_copies(objects, source_id)
+    return _copy_inventory(edition_copies(objects, source_id), source_id)
+
+
+def create_physical_copy(objects: Any, source_id: str, actor: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Create one inventory copy that shares work and edition metadata."""
+    return _create_copy(objects, source_id, actor, require_book=True)
+
+
+def create_object_copy(objects: Any, source_id: str, actor: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Create one inventory copy of any object type sharing work metadata."""
+    return _create_copy(objects, source_id, actor, require_book=False)
+
+
+def object_copy_inventory(objects: Any, source_id: str) -> dict[str, Any]:
+    """Build the bounded public projection for one object's copies."""
+    return _copy_inventory(_linked_copies(objects, source_id, limit=500, require_book=False), source_id)
+
+
+def _copy_inventory(rows: list[dict[str, Any]], source_id: str) -> dict[str, Any]:
     source = next(row for row in rows if row["object_id"] == source_id)
     fields = source.get("fields", {}) if isinstance(source.get("fields"), dict) else {}
     return {
@@ -133,13 +169,12 @@ def edition_copy_inventory(objects: Any, source_id: str) -> dict[str, Any]:
     }
 
 
-def create_physical_copy(objects: Any, source_id: str, actor: str) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Create one inventory copy that shares work and edition metadata."""
+def _create_copy(objects: Any, source_id: str, actor: str, *, require_book: bool) -> tuple[dict[str, Any], dict[str, Any]]:
     try:
         source = objects.object(source_id)
     except ValueError as exc:
-        raise ValueError("Das Ausgangsbuch wurde nicht gefunden.") from exc
-    source = ensure_book_identity(objects, source, actor)
+        raise ValueError("Das Ausgangsbuch wurde nicht gefunden." if require_book else "Das Ausgangsobjekt wurde nicht gefunden.") from exc
+    source = _ensure_identity(objects, source, actor, require_book=require_book)
     source_fields = dict(source.get("fields", {}))
     copy_fields = {key: value for key, value in source_fields.items() if key not in _PHYSICAL_FIELDS}
     copy_fields.update({
