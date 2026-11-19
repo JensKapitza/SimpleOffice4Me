@@ -2,7 +2,7 @@
 
 SimpleOffice4Me besitzt einen einfachen, bewusst erweiterbaren Chat für Text und Dateien. Die Nachrichten liegen lokal in `.simpleoffice-meta/chat.sqlite3`. Dateien sind keine zweite Schattenablage: Jeder Anhang wird als reguläres `DocumentStore`-Dokument gespeichert und im Chat nur über seine Dokument-ID referenziert.
 
-Beim Lesen älterer Nachrichten erscheint **Neue Nachrichten anzeigen**, sobald eine Nachricht eintrifft. Antippen springt ans Ende des Gesprächs. Wer bereits am Ende liest, sieht neue Nachrichten automatisch.
+Beim Lesen älterer Nachrichten erscheint **Neue Nachrichten anzeigen**, sobald eine Nachricht eintrifft. Auch wenn bei einem langen Verlauf ältere Nachrichten aus der Ansicht fallen, behält eine weiterhin sichtbare Nachricht ihre Position. Antippen des Hinweises springt ans Ende des Gesprächs. Wer bereits am Ende liest, sieht neue Nachrichten automatisch.
 
 ## Berechtigungen
 

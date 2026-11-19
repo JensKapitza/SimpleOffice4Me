@@ -9,16 +9,26 @@ function messageIds(html) {
   return [...html.matchAll(/<article\b[^>]*\bid=["'](message-[^"']+)["']/g)].map((match) => ({ id: match[1] }));
 }
 
-function harness(fetchImpl, initialHtml = '<p>initial</p>') {
+function harness(fetchImpl, initialHtml = '<p>initial</p>', { messageTops = {} } = {}) {
   let poll;
   const target = {
     innerHTML: initialHtml,
     querySelectorAll(selector) {
       assert.equal(selector, 'article[id^="message-"]');
-      return messageIds(this.innerHTML);
+      return messageIds(this.innerHTML).map(({ id }) => ({
+        id,
+        getBoundingClientRect() {
+          const configured = messageTops[id];
+          const top = typeof configured === 'function' ? configured(target.innerHTML) : (configured ?? 120);
+          return { top, bottom: top + 40 };
+        },
+      }));
     },
   };
-  const scroll = { scrollHeight: 1000, scrollTop: 800, clientHeight: 200 };
+  const scroll = {
+    scrollHeight: 1000, scrollTop: 800, clientHeight: 200,
+    getBoundingClientRect() { return { top: 100, bottom: 300 }; },
+  };
   let scrollListener;
   scroll.addEventListener = (name, callback) => { if (name === 'scroll') scrollListener = callback; };
   const buttonClasses = new Set(['d-none']);
@@ -40,7 +50,7 @@ function harness(fetchImpl, initialHtml = '<p>initial</p>') {
   const document = {
     documentElement: { lang: 'en' },
     hidden: false,
-    getElementById: id => elements[id] || null,
+    getElementById: id => elements[id] || target.querySelectorAll('article[id^="message-"]').find(message => message.id === id) || null,
     querySelectorAll: () => [],
   };
   const context = {
@@ -57,6 +67,23 @@ function harness(fetchImpl, initialHtml = '<p>initial</p>') {
     scrollEvent: () => scrollListener?.(),
   };
 }
+
+test('anchor falls through to the next visible message when the first is removed', async () => {
+  const initial = '<article id="message-one">one</article><article id="message-two">two</article>';
+  const tops = {
+    'message-one': 120,
+    'message-two': html => html.includes('message-one') ? 160 : 190,
+  };
+  const app = harness(async () => ({
+    ok: true,
+    text: async () => '<article id="message-two">two updated</article><article id="message-three">three</article>',
+  }), initial, { messageTops: tops });
+
+  app.scroll.scrollTop = 400;
+  await app.runPoll();
+
+  assert.equal(app.scroll.scrollTop, 430, 'the surviving visible message should preserve its viewport position');
+});
 
 function deferred() {
   let resolve;

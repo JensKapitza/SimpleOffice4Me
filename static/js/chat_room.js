@@ -28,6 +28,16 @@
   const toBottom = () => { if (scroll) scroll.scrollTop = scroll.scrollHeight; };
   const hideNewMessages = () => newMessagesButton?.classList.add('d-none');
   const messageIds = (container) => new Set([...container.querySelectorAll('article[id^="message-"]')].map(message => message.id));
+  const visibleMessageOffsets = () => {
+    const pane = scroll.getBoundingClientRect();
+    const offsets = [];
+    for (const message of target.querySelectorAll('article[id^="message-"]')) {
+      const rect = message.getBoundingClientRect();
+      if (rect.top >= pane.bottom) break;
+      if (rect.bottom > pane.top) offsets.push({ id: message.id, top: rect.top });
+    }
+    return offsets;
+  };
   const shareReplyFields = () => document.querySelectorAll('.chat-share-reply');
 
   function setReply(messageId, sender, text) {
@@ -120,8 +130,16 @@
       if (html === lastHtml) return;
       const keepBottom = nearBottom();
       const existingIds = keepBottom ? null : messageIds(target);
+      const visibleOffsets = keepBottom ? [] : visibleMessageOffsets();
       target.innerHTML = html;
       const hasNewMessages = existingIds && [...messageIds(target)].some(id => !existingIds.has(id));
+      for (const anchor of visibleOffsets) {
+        const message = document.getElementById(anchor.id);
+        if (message) {
+          scroll.scrollTop += message.getBoundingClientRect().top - anchor.top;
+          break;
+        }
+      }
       lastHtml = html;
       bindMessageActions();
       bindAndroidCallHandoff();
