@@ -26,6 +26,9 @@
             <p>{{ 'Scan with your phone camera. Text and links are embedded directly; nothing is published as a server URL.' if g.language == 'en' else 'Mit der Handykamera scannen. Text und Links stecken direkt im Code; es wird keine Serveradresse veröffentlicht.' }}</p>
             <div class="d-flex flex-wrap gap-2">
               <button class="btn btn-outline-primary" type="button" data-copy-value="{{ selected.payload|e }}">{{ 'Copy content' if g.language == 'en' else 'Inhalt kopieren' }}</button>
+              <span class="small text-secondary align-self-center" data-copy-status role="status" aria-atomic="true"
+                data-copied="{{ 'Content copied.' if g.language == 'en' else 'Inhalt kopiert.' }}"
+                data-manual="{{ 'Copy the text below using the selection menu or your keyboard.' if g.language == 'en' else 'Zum Kopieren des Textes unten das Auswahlmenü oder die Tastatur verwenden.' }}"></span>
               {% if selected.kind == 'event' %}<a class="btn btn-outline-primary" href="{{ selected.ics_href or url_for('quick_share.event_ics', item_id=selected.item_id) }}" download="quick-share-event.ics">{{ 'Download calendar file' if g.language == 'en' else 'Kalenderdatei laden' }}</a>{% endif %}
               {% if not selected.temporary %}
                 <form method="post" action="{{ url_for('quick_share.toggle_pin', item_id=selected.item_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-outline-secondary" type="submit">{{ ('Unpin' if selected.pinned else 'Pin to history') if g.language == 'en' else ('Lösen' if selected.pinned else 'Anheften') }}</button></form>

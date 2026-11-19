@@ -40,6 +40,16 @@ Jede Übergabe enthält Paket-ID, Status, Ist, Soll, Dateien, Schritte, Zwischen
 
 ## Arbeitsnachweise
 
+### P2 · QR-Inhalt auf dem Handy manuell kopieren · 19. November 2026
+
+| Phase | Zuständigkeit und Ergebnis |
+|---|---|
+| Analyse | `static/js/quick_share.js` versuchte bei fehlender oder abgelehnter Zwischenablage, Text innerhalb eines geschlossenen Details-Elements zu markieren. Der Text blieb dabei verborgen. Wiederholtes Tippen konnte die Erfolgsbeschriftung dauerhaft am Button belassen. |
+| Planung | GPT-6 Luna (`filter_impl`) übernimmt Skript und Template, GPT-6 Luna (`filter_review`) prüft die Abläufe unabhängig im Browser. Der Integrator kontrolliert Texte, Bedienbarkeit ohne Tastatur und bestehende QR-Routen. Die Dateien überschneiden sich mit keinem anderen Produktpaket. |
+| Implementierung und Zwischenstand | Die erste Fassung wies nur auf Tastenkürzel hin und entfernte die Meldung zeitgesteuert. Nach dem Review bleibt die Handlungsanweisung sichtbar und nennt auch das mobile Auswahlmenü. Das Skript öffnet den QR-Inhalt und markiert den Text. Erfolg wird erst nach erfolgreichem Schreiben der Zwischenablage gemeldet. Der Aktionsbutton behält seinen Namen. |
+| Tests und Soll-Ist-Vergleich | Auf der angemeldeten QR-Seite in Chromium bei 360 × 800 und 1280 × 900 wurde ein mehrzeiliger Text mit Umlaut und Sonderzeichen erzeugt. Bei simulierter erfolgreicher Clipboard-API kamen die exakten Zeichen auch beim zweiten Tippen an. Bei fehlender API und abgelehntem Schreibzugriff waren der Inhalt aufgeklappt, der Text vollständig ausgewählt und die manuelle Anweisung sichtbar. |
+| Abschluss | Vier kombinierte Browser- und Routenprüfungen bestanden, einschließlich temporärer QR-Inhalte, History, Benutzergrenzen, Kalendereinträgen und CSRF. Auf einem physischen Gerät ist zusätzlich zu prüfen, ob das native Auswahlmenü den markierten Text in eine andere App übernimmt. |
+
 ### P2 · Lesezeichen am Handy bedienen
 
 | Phase | Zuständigkeit und Ergebnis |
