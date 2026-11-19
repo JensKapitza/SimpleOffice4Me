@@ -114,12 +114,12 @@ test('typing every expected letter always completes the maze', () => {
       let current = 'start';
       const collected = new Set();
       const visited = new Set(['start']);
-      for (let turn = 0; turn < 60 && current !== 'goal'; turn += 1) {
+      for (let turn = 0; turn < 60 && collected.size < word.length; turn += 1) {
         const expected = mazeTyping.mazeNextExpected(word, collected);
-        const target = expected < 0 ? 'goal' : mazeTyping.mazeLetterNode(nodes, expected);
+        const target = mazeTyping.mazeLetterNode(nodes, expected);
         assert.ok(target, 'target exists');
         // Sprinkle wrong letters: they must stay legal (a real exit or stay).
-        if (turn % 4 === 3 && expected >= 0) {
+        if (turn % 4 === 3) {
           const wrong = mazeTyping.mazeWrongStep(nodes, current, target, visited);
           if (wrong) {
             assert.ok(nodes[current].exits[wrong], 'wrong step uses a real exit');
@@ -133,8 +133,12 @@ test('typing every expected letter always completes the maze', () => {
         visited.add(current);
         if (nodes[current].letterIndex >= 0) collected.add(nodes[current].letterIndex);
       }
+      assert.equal(collected.size, word.length, 'all letters collected by typing');
+      // The game solves the round with the last letter by running home.
+      const home = mazeTyping.mazeRouteTo(nodes, current, 'goal');
+      assert.ok(home.length <= 2, `last letter is next to the goal: ${home}`);
+      for (const step of home) current = nodes[current].exits[step];
       assert.equal(current, 'goal', `${friend.character} reaches the goal by typing`);
-      assert.equal(collected.size, word.length, 'all letters collected');
     }
   }
 });
