@@ -118,3 +118,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 **Tests und Abschluss.** Die Regressionen prüfen Seiteninhalte und den Abbruch nach dem nächsten sichtbaren Treffer bei 10, 50 und 90 % privaten Dokumenten. Die Laufzeit ist umgebungsabhängig. Als nächstes lässt sich ein Fortsetzungscursor für den regulären Weiter-Link bewerten. Abnahmekriterium wäre, dass Seite 2 bereits gezählte Treffer nicht erneut liest und nach einem Rechteentzug weiterhin ausschließlich aktuell sichtbare Dateien liefert.
 
 `python -m unittest tests.test_document_search_cost tests.test_document_search_visibility tests.test_search_query` bestand lokal alle 18 Tests. Ruff, Projekt-Policy, Datei- und Funktionsgrößen sowie `git diff --check` waren erfolgreich.
+
+## Folgeauftrag · Weiterblättern mit aktueller Rechteprüfung
+
+**Analyse und Planung.** Der Code baut auf dem Messpaket in PR #1082 und dem Suchfix in PR #1081 auf. Die Messung mit 50 % privaten Treffern ergab 162 Metadatenzugriffe für den direkten Sprung auf Seite 8. Für den Weiter-Link genügt die Position des letzten ausgegebenen Treffers. Drei GPT-6-Luna-Agenten bearbeiten Store, Regressionstests und unabhängiges Review. Der Integrator übernimmt HTTP-Anbindung, Linkschutz und Browsertest.
+
+**Zwischenstand.** Das Review identifizierte ein Problem beim Bearbeiten eines bereits angezeigten Dokuments. Der Index entfernte seinen Eintrag und legte ihn an einer neuen Position an. Das konnte denselben Treffer auf einer Folgeseite erneut erscheinen lassen. Die Korrektur muss die Position bei gewöhnlichen Metadatenänderungen erhalten. Eine Berechtigung wird bei jeder Anfrage neu geprüft.
+
+**Umsetzung und Soll-Ist-Vergleich.** Der Weiter-Link übergibt eine für eine Stunde gültige verschlüsselte Position, gebunden an Benutzer, Suchtext, Zielseite und Archiv. Bei ungültigem Link greift die herkömmliche Seitennummer. Indexeinträge behalten beim Bearbeiten ihre Position. Bereits ausgegebene Treffer müssen beim Weiterklicken nicht erneut gelesen werden. Auf Seite 8 des Vergleichs mit 200 Dokumenten, zehn Treffern pro Seite und 50 % privaten Dateien ergab der Store **22 statt 162 Metadatenlesevorgänge** bei identischen Treffern. Das Ergebnis gilt für die einzelne Folgeanfrage. Neue Treffer oder gelöschte Dokumente können das Ergebnis zwischen Anfragen verändern.
+
+**Review und Tests.** Die Prüfung umfasste einen Rechteentzug nach Seite 1, geänderte Metadaten eines schon gelesenen Dokuments, native Volltext- und SQL-Abfragen, abgelaufene Links, fremde Benutzer sowie den tatsächlichen Weiter-Link im mobilen Chromium bei 375 × 812.
+
+**Abschlussprüfung.** Der ursprünglich rote SQL-Disjunktionstest hatte nur einen passenden Treffer und forderte deshalb versehentlich wieder die erste Seite an. Die korrigierte Fixture erzeugt einen echten Weiter-Link. Der kombinierte Lauf mit Such-, Store-, Kosten-, Browser- und Indexregressionen bestand alle 83 Tests. PR #1081 und #1082 sind inzwischen in main integriert.

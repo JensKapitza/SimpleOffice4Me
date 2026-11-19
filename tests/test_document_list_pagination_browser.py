@@ -118,6 +118,7 @@ class DocumentListPaginationBrowserTests(unittest.TestCase):
                         found.extend(paths)
                         more = page.locator("main nav a[rel=next]")
                         if count == 25:
+                            self.assertIn("cursor=", more.get_attribute("href"))
                             more.click()
                         else:
                             self.assertEqual(0, more.count())

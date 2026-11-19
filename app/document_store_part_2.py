@@ -380,25 +380,27 @@ class _DocumentStorePart2:
 
     def _search_cursor(
         self, db: sqlite3.Connection, query: str, limit: int = -1, offset: int = 0,
+        after_rowid: int = 0,
     ) -> sqlite3.Cursor:
-        """Use SQLite's unlimited (-1) limit when visibility determines the page."""
+        """Index row IDs start at one. Zero opens the first page."""
         compiled = compile_query(query)
+        page_args = (after_rowid, limit, offset)
         if not compiled.requires_sql:
             try:
                 return db.execute(
-                    "SELECT document_id, path, state FROM document_search "
-                    "WHERE document_search MATCH ? ORDER BY rowid LIMIT ? OFFSET ?",
-                    (compiled.fts, limit, offset),
+                    "SELECT document_id, path, state, rowid FROM document_search "
+                    "WHERE document_search MATCH ? AND rowid > ? ORDER BY rowid LIMIT ? OFFSET ?",
+                    (compiled.fts, *page_args),
                 )
             except sqlite3.OperationalError:
                 # Older indexes can evaluate the same query through the SQL fallback.
                 pass
         statement = "".join((
-            "SELECT document_id, path, state FROM document_search WHERE ",
+            "SELECT document_id, path, state, rowid FROM document_search WHERE (",
             _validated_search_where(compiled.where),
-            " ORDER BY rowid LIMIT ? OFFSET ?",
+            ") AND rowid > ? ORDER BY rowid LIMIT ? OFFSET ?",
         ))
-        return db.execute(statement, (*compiled.parameters, limit, offset))
+        return db.execute(statement, (*compiled.parameters, *page_args))
 
     def search_page(self, query: str, page: int = 1, page_size: int = 25) -> dict[str, Any]:
         query = query.strip()

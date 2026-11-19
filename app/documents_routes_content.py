@@ -201,6 +201,7 @@ def index():
 @login_required
 def document_search():
     from .search_index_hints import suggest_index_review
+    from .document_search_cursor import search_link_page
     query = request.args.get("q", "").strip()
     try:
         page = max(1, int(request.args.get("page", "1")))
@@ -213,7 +214,7 @@ def document_search():
         # runs independently in the launcher.  The existing index can answer
         # immediately and is extended as the background scan progresses.
         try:
-            result = _store().search_page(query, page=page)
+            result = search_link_page(_store(), query, page)
             for item in result["results"]:
                 _store().record_access(item["document_id"], str(g.user["username"]), "found")
         except ValueError as exc:

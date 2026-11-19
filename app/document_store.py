@@ -125,40 +125,64 @@ class DocumentStore(_DocumentStorePart1, _DocumentStorePart2, _DocumentStorePart
         )
 
     def search_page(self, query: str, page: int = 1, page_size: int = 25) -> dict[str, Any]:
-        if self._request_actor() is None:
+        if self._request_actor() is None or not query.strip():
             return super().search_page(query, page=page, page_size=page_size)
-        query = query.strip()
-        if not query:
-            return super().search_page(query, page=page, page_size=page_size)
+        result = self.search_continuation_page(query, page=page, page_size=page_size)
+        result.pop("next_rowid", None)
+        return result
 
-        # One extra visible match establishes whether the next page exists.
+    def search_continuation_page(
+        self, query: str, page: int = 1, page_size: int = 25,
+        after_rowid: int | None = None,
+    ) -> dict[str, Any]:
+        """Return a visibility-filtered keyset page for authenticated search.
+
+        ``after_rowid`` is an exclusive SQLite index rowid bound. Callers pass
+        the prior response's ``next_rowid`` only when following ``has_next``.
+        Visibility is checked against current request context for every row.
+        """
+        if self._request_actor() is None:
+            raise PermissionError("authenticated request required for search continuation")
+        query = query.strip()
         page = max(1, int(page))
         page_size = max(1, min(int(page_size), 100))
-        visible_start = (page - 1) * page_size
-        visible_end = visible_start + page_size
-        results: list[dict[str, Any]] = []
-        visible_count = 0
+        if after_rowid is not None and (
+            type(after_rowid) is not int or not 0 <= after_rowid <= 2**63 - 1
+        ):
+            raise ValueError("invalid search continuation position")
+        if not query:
+            return {
+                "results": [], "page": 1, "page_size": page_size,
+                "has_next": False, "next_rowid": None,
+            }
+
         self.initialize()
+        results: list[dict[str, Any]] = []
+        last_returned_rowid: int | None = None
+        has_next = False
+        visible_to_skip = (page - 1) * page_size if after_rowid is None else 0
         with self._db() as db:
-            for row in self._search_cursor(db, query):
-                item = {"document_id": row[0], "path": row[1], "state": row[2]}
+            for document_id, path, state, rowid in self._search_cursor(db, query, after_rowid=after_rowid or 0):
+                item = {"document_id": document_id, "path": path, "state": state}
                 metadata = self._read_json(
                     self.documents / f"{item['document_id']}.json", {}
                 )
                 if not metadata.get("document_id") or not self._visible_for_request(metadata):
                     continue
-                if visible_start <= visible_count <= visible_end:
-                    results.append(item)
-                visible_count += 1
-                if len(results) > page_size:
+                if visible_to_skip:
+                    visible_to_skip -= 1
+                    continue
+                if len(results) == page_size:
+                    has_next = True
                     break
-
-        has_next = len(results) > page_size
+                results.append(item)
+                last_returned_rowid = rowid
         return {
-            "results": results[:page_size],
+            "results": results,
             "page": page,
             "page_size": page_size,
             "has_next": has_next,
+            "next_rowid": last_returned_rowid if has_next else None,
         }
 
     def _visible_metadata(self, metadata: dict[str, Any]) -> dict[str, Any]:
