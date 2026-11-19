@@ -50,6 +50,7 @@ from .inventory_metadata import (
     parse_openlibrary,
     parse_openlibrary_search,
 )
+from .inventory_collections import CollectionStore
 from .inventory_values import date_only as _date_only
 from .inventory_values import fields_text as _fields_text
 from .inventory_values import money as _money
@@ -597,6 +598,7 @@ def index():
         meta_photo_consent_available=meta_photo_consent_available,
         angel_avatar=angel_avatar,
         photo_hints=suggest_missing_photos(rows),
+        collections=CollectionStore(current_app.config["DOCUMENT_ROOT"]).collections(),
     )
 
 
@@ -608,7 +610,9 @@ def item_detail(object_id: str):
     except ValueError:
         abort(404)
     meta = _inventory().object_meta(item["object_id"])
-    return render_template("inventory/detail.html", item=item, inventory=meta, today=date.today().isoformat())
+    store = CollectionStore(current_app.config["DOCUMENT_ROOT"])
+    return render_template("inventory/detail.html", item=item, inventory=meta, today=date.today().isoformat(),
+                           containing=store.containing(item["object_id"]), all_collections=store.collections())
 
 
 def _book_lookup_response(isbn: str, metadata: dict[str, Any]):
@@ -794,4 +798,5 @@ def inventory_media(object_id: str, filename: str):
 # `bp`, and a name import here would break if the routes module is
 # imported first (partial circular import).
 from . import inventory_capture_routes as _capture_routes  # noqa: E402,F401
+from . import inventory_collection_routes as _collection_routes  # noqa: E402,F401
 from .translations import translate
