@@ -254,7 +254,6 @@
       const visible = applyFilter(currentFilter());
       setActive(null);
       closePreview();
-      input.setAttribute('aria-expanded', String(visible > 0));
       if (feedback) feedback.textContent = text(
         `${visible} Treffer.`, `${visible} result${visible === 1 ? '' : 's'}.`);
     } catch (error) {
@@ -286,7 +285,6 @@
     updateCounts();
     applyFilter(currentFilter());
     setActive(null);
-    input.setAttribute('aria-expanded', 'false');
   }
 
   input.addEventListener('input', () => {
