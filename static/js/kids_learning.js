@@ -668,6 +668,13 @@
       mazeCollected.add(letterIndex);
       updateMazeTask();
     }
+    if (mazeTypingMode && mazeCollected.size === mazeWord.length) {
+      // Typing mode solves the round with the last letter: run home to the goal.
+      for (const step of mazeTyping.mazeRouteTo(mazeNodes, mazeCurrentNode, 'goal')) {
+        mazeCurrentNode = mazeNodes[mazeCurrentNode].exits[step];
+        mazeVisited.add(mazeCurrentNode);
+      }
+    }
     mazeVisited.add(next);
     mazeHappy = closerToGoal;
     drawMaze();
