@@ -88,6 +88,25 @@
     return entry.parts.length;
   }
 
+  function slugify(word) {
+    return String(word || '').toLowerCase()
+      .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+      .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'clip';
+  }
+
+  // Fixed pre-recorded clip keys; words use 'w_' + slug, parts 'p_' + slug,
+  // rhyme solutions 'rhyme_' + target slug + '_' + answer slug.
+  const CLIPS = {
+    listenWell: 'listen_well', tapEachSyllable: 'tap_each_syllable',
+    praiseRight: 'praise_right', praiseGreat: 'praise_great',
+    howManySyllables: 'how_many_syllables', whatRhymes: 'what_rhymes',
+    lookSolution: 'look_solution', doneGreat: 'done_great', nicePlaying: 'nice_playing',
+    hasOne: 'has_1', hasTwo: 'has_2', hasThree: 'has_3', hasFour: 'has_4',
+    tryOneOfFive: 'try_1_of_5', tryTwoOfFive: 'try_2_of_5',
+    tryThreeOfFive: 'try_3_of_5', tryFourOfFive: 'try_4_of_5',
+    clapMoreOne: 'clap_more_1', clapMoreTwo: 'clap_more_2', clapMoreThree: 'clap_more_3',
+  };
+
   function vocabulary(language) {
     return WORDS[language] || WORDS.de;
   }
@@ -121,17 +140,32 @@
 
   // Testable logic API. The DOM game below only starts on its own page.
   scope.KidsSyllables = {
-    LEVELS, QUESTIONS_PER_LEVEL, MAX_TRIES, WORDS, RHYMES,
-    shuffle, syllableCount, makeClapQuestions, makeCountQuestions, makeRhymeQuestions
+    LEVELS, QUESTIONS_PER_LEVEL, MAX_TRIES, WORDS, RHYMES, CLIPS,
+    shuffle, syllableCount, slugify,
+    makeClapQuestions, makeCountQuestions, makeRhymeQuestions
   };
 
   if (typeof document === 'undefined') return;
   const root = document.querySelector('[data-kids-syllables]');
-  if (!root) return;
+  if (!root || !window.KidsShared) return;
+  const {stopAudio, uiLanguage, playClips} = window.KidsShared;
 
   const english = root.dataset.language === 'en';
   const language = english ? 'en' : 'de';
   const text = (de, en) => english ? en : de;
+  const speechLang = uiLanguage(english);
+  const audioBase = root.dataset.audioBase || '';
+  const audioVersion = root.dataset.audioVersion || '';
+  const clipLang = english ? 'en' : 'de';
+  const speechStatus = null;
+  let currentClips = [];
+  function playNow(parts) {
+    return playClips(audioBase, audioVersion, clipLang, parts, speechLang, speechStatus);
+  }
+  function say(parts) {
+    currentClips = parts;
+    return playNow(parts);
+  }
   const picker = root.querySelector('[data-level-picker]');
   const play = root.querySelector('[data-syll-play]');
   const result = root.querySelector('[data-syll-result]');
@@ -148,7 +182,6 @@
   let score = 0;
   let mistakes = 0;
   let taps = 0;
-  let currentSpoken = '';
 
   function focusElement(element) {
     if (element && typeof element.focus === 'function') element.focus();
@@ -208,7 +241,6 @@
       `Höre gut zu: ${slowWord(question)}. Tippe für jede Silbe einmal auf die Hände!`,
       `Listen carefully: ${slowWord(question)}. Tap the hands once for every syllable!`
     );
-    currentSpoken = spoken;
     prompt.textContent = `👏 ${question.word}`;
     prompt.setAttribute('aria-label', spoken);
     stage.setAttribute('aria-label', spoken);
@@ -218,6 +250,7 @@
     const paintDots = () => {
       dots.textContent = '●'.repeat(taps) + '○'.repeat(question.parts.length - taps);
     };
+    const partClips = part => ({key: `p_${slugify(part)}`, fallback: part});
     paintDots();
     const clap = document.createElement('button');
     clap.type = 'button';
@@ -232,16 +265,27 @@
         score += 1;
         clap.disabled = true;
         feedback.textContent = text(`Richtig! ${question.word} hat ${question.parts.length} ${question.parts.length === 1 ? 'Silbe' : 'Silben'}!`, `Right! ${question.word} has ${question.parts.length} ${question.parts.length === 1 ? 'syllable' : 'syllables'}!`);
-        speak(feedback.textContent, uiLanguage());
+        playNow([
+          {key: CLIPS.praiseRight, fallback: text('Richtig!', 'Right!')},
+          {key: `w_${slugify(question.word)}`, fallback: question.word},
+          {key: `has_${question.parts.length}`, fallback: ''},
+        ]);
         next.hidden = false;
         focusElement(next);
         return;
       }
-      speak(question.parts[taps - 1], uiLanguage());
       feedback.textContent = text(`Gut! Noch ${question.parts.length - taps} ${question.parts.length - taps === 1 ? 'mal klatschen' : 'mal klatschen'}!`, `Good! Clap ${question.parts.length - taps} more ${question.parts.length - taps === 1 ? 'time' : 'times'}!`);
+      playNow([
+        partClips(question.parts[taps - 1]),
+        {key: `clap_more_${question.parts.length - taps}`, fallback: feedback.textContent},
+      ]);
     });
     stage.append(makePicture(question.emoji, question.word), dots, clap);
-    speak(spoken, uiLanguage());
+    say([
+      {key: CLIPS.listenWell, fallback: text('Höre gut zu:', 'Listen carefully:')},
+      ...question.parts.map(partClips),
+      {key: CLIPS.tapEachSyllable, fallback: text('Tippe für jede Silbe einmal auf die Hände!', 'Tap the hands once for every syllable!')},
+    ]);
   }
 
   function showCountQuestion(question) {
@@ -249,7 +293,6 @@
       `${slowWord(question)}. Wie viele Silben hörst du?`,
       `${slowWord(question)}. How many syllables can you hear?`
     );
-    currentSpoken = spoken;
     prompt.textContent = `🔢 ${question.word}`;
     prompt.setAttribute('aria-label', spoken);
     stage.setAttribute('aria-label', spoken);
@@ -267,7 +310,10 @@
       button.addEventListener('click', () => answer(button, choice === question.answer));
       stage.append(button);
     });
-    speak(spoken, uiLanguage());
+    say([
+      ...question.parts.map(part => ({key: `p_${slugify(part)}`, fallback: part})),
+      {key: CLIPS.howManySyllables, fallback: text('Wie viele Silben hörst du?', 'How many syllables can you hear?')},
+    ]);
   }
 
   function showRhymeQuestion(question) {
@@ -275,7 +321,6 @@
       `Was reimt sich auf ${question.target.word}?`,
       `What rhymes with ${question.target.word}?`
     );
-    currentSpoken = spoken;
     prompt.textContent = `🎵 ${question.target.word} → ?`;
     prompt.setAttribute('aria-label', spoken);
     stage.setAttribute('aria-label', spoken);
@@ -289,7 +334,10 @@
       button.addEventListener('click', () => answer(button, choice.emoji === question.answer.emoji, question));
       stage.append(button);
     });
-    speak(spoken, uiLanguage());
+    say([
+      {key: CLIPS.whatRhymes, fallback: text('Was reimt sich auf', 'What rhymes with')},
+      {key: `w_${slugify(question.target.word)}`, fallback: question.target.word},
+    ]);
   }
 
   function answer(button, correct, question) {
@@ -300,10 +348,10 @@
       stage.querySelectorAll('button').forEach(choice => { choice.disabled = true; });
       if (level === 'rhyme' && question) {
         feedback.textContent = text(`${question.target.word} und ${question.answer.word} reimen sich!`, `${question.target.word} and ${question.answer.word} rhyme!`);
-        speak(`${question.target.word}, ${question.answer.word}. ${feedback.textContent}`, uiLanguage());
+        playNow([{key: `rhyme_${slugify(question.target.word)}_${slugify(question.answer.word)}`, fallback: feedback.textContent}]);
       } else {
         feedback.textContent = text('Richtig! Super gemacht!', 'That is right! Well done!');
-        speak(feedback.textContent, uiLanguage());
+        playNow([{key: CLIPS.praiseGreat, fallback: feedback.textContent}]);
       }
       next.hidden = false;
       focusElement(next);
@@ -315,10 +363,12 @@
     button.style.opacity = String(Math.max(.18, 1 - Number(button.dataset.mistakes) * .22));
     if (mistakes >= MAX_TRIES) {
       feedback.textContent = text('Schau, hier ist die Lösung.', 'Look, here is the answer.');
+      playNow([{key: CLIPS.lookSolution, fallback: feedback.textContent}]);
       revealAnswer();
       return;
     }
     feedback.textContent = text(`Versuch ${mistakes} von ${MAX_TRIES}. Probier es weiter!`, `Try ${mistakes} of ${MAX_TRIES}. Keep going!`);
+    playNow([{key: `try_${mistakes}_of_5`, fallback: feedback.textContent}]);
   }
 
   function revealAnswer() {
@@ -356,47 +406,19 @@
       `You got ${score} out of ${QUESTIONS_PER_LEVEL} right.`
     );
     focusElement(resultTitle);
-    speak(resultTitle.textContent, uiLanguage());
+    playNow([{key: complete ? CLIPS.doneGreat : CLIPS.nicePlaying, fallback: resultTitle.textContent}]);
   }
 
   function showPicker() {
-    if ('speechSynthesis' in scope) scope.speechSynthesis.cancel();
+    stopAudio();
     result.hidden = true;
     play.hidden = true;
     picker.hidden = false;
     focusElement(picker.querySelector('h2'));
   }
 
-  function uiLanguage() { return english ? 'en-US' : 'de-DE'; }
-
-  function speak(value, lang) {
-    if (!('speechSynthesis' in scope) || !('SpeechSynthesisUtterance' in scope)) return;
-    scope.speechSynthesis.cancel();
-    const utterance = new scope.SpeechSynthesisUtterance(value);
-    utterance.lang = lang;
-    utterance.rate = .82;
-    const prefix = lang.slice(0, 2).toLowerCase();
-    const voices = scope.speechSynthesis.getVoices().filter(voice => voice.lang.toLowerCase().startsWith(prefix));
-    let requested = '';
-    try { requested = scope.localStorage.getItem(`kids-learning.voice.${prefix}`) || ''; } catch (error) { requested = ''; }
-    const voiceId = voice => voice.voiceURI || `${voice.name}|${voice.lang}`;
-    const chosen = voices.find(voice => voiceId(voice) === requested) || [...voices].sort((a, b) => voiceRank(b, lang) - voiceRank(a, lang))[0];
-    if (chosen) utterance.voice = chosen;
-    scope.speechSynthesis.speak(utterance);
-  }
-
-  function voiceRank(voice, lang) {
-    // On-device voices first: same-language local voices must beat
-    // same-language cloud voices so prompts stay offline and private.
-    return (voice.lang.toLowerCase() === lang.toLowerCase() ? 100 : 50)
-      + (voice.localService ? 24 : 0)
-      + (/natural|neural|premium|enhanced/i.test(voice.name) ? 6 : 0);
-  }
-
   root.querySelectorAll('[data-syll-level]').forEach(button => button.addEventListener('click', () => begin(button.dataset.syllLevel)));
-  root.querySelector('[data-syll-repeat]').addEventListener('click', () => {
-    speak(currentSpoken || levelTitle(), uiLanguage());
-  });
+  root.querySelector('[data-syll-repeat]').addEventListener('click', () => { if (currentClips.length) playNow(currentClips); });
   next.addEventListener('click', nextQuestion);
   root.querySelector('[data-syll-back]').addEventListener('click', showPicker);
   root.querySelector('[data-result-back]').addEventListener('click', showPicker);

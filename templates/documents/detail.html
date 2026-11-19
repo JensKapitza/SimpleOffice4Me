@@ -26,7 +26,17 @@
 <input type="hidden" name="description" value="{{ 'Open the linked source document, perform the required work, and record the result here.' if g.language == 'en' else 'Quelldokument öffnen, erforderliche Bearbeitung durchführen und Ergebnis in der Aufgabe dokumentieren.' }}">
 <button type="submit" class="btn btn-outline-primary">
 {{ 'As task' if g.language == 'en' else 'Als Aufgabe' }}</button>
-</form>{% if document.last_path.lower().endswith('.eml') %}<a class="btn btn-warning" href="{{ url_for('documents.document_attachments', document_id=document.document_id) }}">
+</form>
+<details class="d-inline-block">
+<summary class="btn btn-outline-primary">{{ 'Resubmit' if g.language == 'en' else 'Wiedervorlage' }}</summary>
+<form method="post" action="{{ url_for('documents.create_document_task', document_id=document.document_id) }}" class="row g-2 mt-2 border rounded p-2 bg-body">
+<input type="hidden" name="categories" value="Wiedervorlage">
+<div class="col-12"><label class="form-label">{{ 'Title' if g.language == 'en' else 'Titel' }}</label><input required class="form-control" name="title" value="{{ 'Follow up' if g.language == 'en' else 'Wiedervorlage' }}: {{ document.last_path.rsplit('/', 1)[-1] }}"></div>
+<div class="col-12"><label class="form-label">{{ 'Due date' if g.language == 'en' else 'Fälligkeit' }}</label><input required class="form-control" type="date" name="due"></div>
+<div class="col-12"><label class="form-label">{{ 'Note' if g.language == 'en' else 'Notiz' }}</label><textarea class="form-control" rows="2" name="description" placeholder="{{ 'What should happen next?' if g.language == 'en' else 'Was soll als Nächstes geschehen?' }}"></textarea></div>
+<div class="col-12"><button type="submit" class="btn btn-primary">{{ 'Create resubmission' if g.language == 'en' else 'Wiedervorlage anlegen' }}</button></div>
+</form>
+</details>{% if document.last_path.lower().endswith('.eml') %}<a class="btn btn-warning" href="{{ url_for('documents.document_attachments', document_id=document.document_id) }}">
 {{ 'Check attachments' if g.language == 'en' else 'Anhänge sicher prüfen' }}</a>{% endif %}{% if can_scan %}<form method="post" action="{{ url_for('documents.security_scan_document', document_id=document.document_id) }}">
 <button type="submit" class="btn btn-outline-danger">
 {{ 'Scan with ' ~ (scanner_name or 'ClamAV') if g.language == 'en' else 'Mit ' ~ (scanner_name or 'ClamAV') ~ ' prüfen' }}</button>
@@ -105,7 +115,7 @@
     <h3 class="h6 mt-3">{{ 'Recognized text' if g.language == 'en' else 'Erkannter Text' }}</h3>
     {% include "documents/_text_preview.html" %}
     {% endif %}
-    {% if preview.kind not in ['video', 'audio'] %}<div class="mt-3"><a class="btn btn-sm btn-outline-primary" href="{{ preview.url }}" target="_blank" rel="noopener noreferrer">{{ 'Open original' if g.language == 'en' else 'Original öffnen' }}</a> <a class="btn btn-sm btn-outline-secondary" href="{{ preview.download_url }}" download>{{ 'Download original' if g.language == 'en' else 'Original herunterladen' }}</a></div>{% endif %}
+    {% if preview.kind not in ['video', 'audio'] %}<div class="mt-3"><a class="btn btn-sm btn-outline-primary" href="{{ preview.url }}" target="_blank" rel="noopener noreferrer">{{ 'Open original' if g.language == 'en' else 'Original öffnen' }}</a> <a class="btn btn-sm btn-outline-secondary" href="{{ preview.download_url }}" download>{{ 'Download original' if g.language == 'en' else 'Original herunterladen' }}</a> <button type="button" class="btn btn-sm btn-outline-secondary" data-desktop-reveal data-local-path-url="{{ url_for('documents.document_local_path', document_id=document.document_id) }}" hidden>{{ 'Show in file manager' if g.language == 'en' else 'Im Dateimanager anzeigen' }}</button> <span class="small text-secondary" data-desktop-reveal-feedback role="status" aria-live="polite"></span></div>{% endif %}
   </div>
 </section>
 {% if preview.kind == 'image' and contextflow_enabled|default(false) %}
@@ -351,4 +361,4 @@
 </form>{% endif %}</div>{% else %}<div class="list-group-item text-secondary">{{ 'No share links yet.' if g.language == 'en' else 'Noch keine Freigabelinks.' }}</div>{% endfor %}</div>
 </div>
 </section>{% endif %}{% endblock %}
-{% block script %}<script defer src="{{ url_for('static', filename='js/doc_image_engel.js') }}"></script><script defer src="{{ url_for('static', filename='js/document_preview.js') }}"></script>{% endblock %}
+{% block script %}<script defer src="{{ url_for('static', filename='js/doc_image_engel.js') }}"></script><script defer src="{{ url_for('static', filename='js/document_preview.js') }}"></script><script defer src="{{ url_for('static', filename='js/desktop_reveal.js') }}"></script>{% endblock %}

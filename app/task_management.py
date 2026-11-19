@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from calendar import monthrange
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from flask import Blueprint, current_app, flash, g, redirect, render_template, request, url_for
@@ -228,11 +228,49 @@ def _task_source_documents(rows: list[dict[str, Any]]) -> dict[str, list[dict[st
     return sources
 
 
+RESUBMIT_VIEWS = (
+    ("all", "Alle", "All"),
+    ("today", "Heute", "Today"),
+    ("overdue", "Überfällig", "Overdue"),
+    ("week", "Nächste 7 Tage", "Next 7 days"),
+    ("waiting", "Warten auf Rückmeldung", "Waiting for feedback"),
+    ("done", "Erledigt", "Completed"),
+)
+
+
+def _resubmit_view_match(view: str, row: dict[str, Any], today: str, week_end: str) -> bool:
+    status = str(row.get("status", "needs-action"))
+    finished = status in {"completed", "cancelled"}
+    due = str(row.get("due", "") or "")[:10]
+    if view == "today":
+        return due == today and not finished
+    if view == "overdue":
+        return bool(due) and due < today and not finished
+    if view == "week":
+        return bool(due) and today <= due <= week_end and not finished
+    if view == "waiting":
+        return status == "in-process"
+    if view == "done":
+        return status == "completed"
+    return True
+
+
 @bp.get("/")
 @login_required
 def board():
     actor = _actor()
     rows = _visible_rows(actor)
+    view = request.args.get("view", "all")
+    if view not in {item[0] for item in RESUBMIT_VIEWS}:
+        view = "all"
+    today = date.today().isoformat()
+    week_end = (date.today() + timedelta(days=7)).isoformat()
+    view_counts = {
+        item[0]: sum(1 for row in rows if _resubmit_view_match(item[0], row, today, week_end))
+        for item in RESUBMIT_VIEWS
+    }
+    if view != "all":
+        rows = [row for row in rows if _resubmit_view_match(view, row, today, week_end)]
     by_parent: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         parent_uid = str(row.get("parent_uid", ""))
@@ -255,6 +293,16 @@ def board():
     known_statuses = set(grouped)
     grouped["needs-action"].extend(row for row in top_level if row.get("status", "needs-action") not in known_statuses)
     task_source_documents = _task_source_documents(rows)
+    histories: dict[str, list[dict[str, Any]]] = {}
+    try:
+        from .revision_history import RevisionHistory
+
+        for event in RevisionHistory(current_app.config["DOCUMENT_ROOT"]).events(category="todo", limit=1000):
+            key = str(event.get("key", ""))
+            if key:
+                histories.setdefault(key, []).append(event)
+    except (OSError, ValueError):
+        histories = {}
     return render_template(
         "tasks/board.html",
         columns=BOARD_COLUMNS,
@@ -267,6 +315,10 @@ def board():
         assigned=request.args.get("assigned", "").strip(),
         task_source_documents=task_source_documents,
         next_up=suggest_task_next(rows),
+        resubmit_views=RESUBMIT_VIEWS,
+        selected_view=view,
+        view_counts=view_counts,
+        histories=histories,
     )
 
 
@@ -343,6 +395,17 @@ def create_subtask(item_id: str):
 def complete_occurrence(item_id: str):
     try:
         flash(_complete_task_occurrence(item_id, _actor()))
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("tasks.board"))
+
+
+@bp.post("/<item_id>/comments")
+@login_required
+def add_task_comment(item_id: str):
+    try:
+        _store().add_comment(item_id, request.form.get("text", ""), _actor())
+        flash("Kommentar gespeichert.")
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("tasks.board"))
