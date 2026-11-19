@@ -227,6 +227,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: ganze Kiste per Zielcode umlagern, alle Pfade rekursiv korrekt, Zyklen abgelehnt, Rechte geprüft. Ist gemessen: 5/5 Blackbox-HTTP-Tests (`test_library_location_move_http.py`: Kiste→anderer Raum mit Unterbox+2 Büchern, Zyklus-400 ohne Änderung, unbekanntes Ziel 400/unbekannter Standort 404/anonym 302, oberste Ebene+Selbst-400, Formularmarker); Nachbar-Suites 32/32; Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen als Follow-up (weitere P1/P2-Slices aus #1111): Standortvorlagen, Scanmodi pro Aktion, Exemplare für alle Objekttypen, Mengen/Seriennummern, System-/manuelle Metadatenwerte, CSV-Import, Inventur/Differenzen, Objekt-Verleih, föderierte Rechte. |
 
+## 19. November 2026 · Dateiverwaltung: Mehrfachauswahl mit Stapel-Tags und -Verschieben
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Ordnerbaum ohne Auswahl; Tag/Verschieben nur einzeln auf Detailseiten. Einzeloperationen (`set_tags`, Storage-`move`) wiederverwendbar, CSRF für fetch global vorhanden, kein Bulk-Endpunkt. |
+| Implementierung | Checkboxen je Baumzeile (ohne Details-Toggle), Stapel-Leiste (Zähler, Tag-/Ordnereingaben, Fortschrittsbalken, Status), gechunkte Anfragen (25er) mit Teilergebnissen und Reload. Neue Routen `POST /documents/bulk-tags` und `/bulk-move` in eigenem Modul (Größen-Gate): max. 200 IDs, je Eintrag aktualisiert/fehlerhaft, vorhandene Store-Prüfungen. |
+| Tests und Soll-Ist-Vergleich | Soll: mehrere Dateien gemeinsam taggen/verschieben mit Fortschritt und ohne Datenverlust. Ist gemessen: 4/4 Tests (Tags für 2, Verschieben mit ID-Erhalt + Teilfehler, 400/Anonym-Fälle, Marker), Browser-Test (Chromium, CI): 2 auswählen, taggen, Reload. Ruff, Gates, Compile grün. |
+| Review und Abschluss | Offen als Follow-up: Kachelansicht, Drag-and-drop, Kontextmenüs, Umbenennen/Favoriten im Stapel (eigene Schritte). |
+
 ## 19. November 2026 · Wiedervorlage-Hub: Fristenansichten, Verlauf, Kommentare
 
 | Phase | Arbeit und Nachweis |
