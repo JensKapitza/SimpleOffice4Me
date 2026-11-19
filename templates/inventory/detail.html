@@ -24,6 +24,7 @@
           <dt class="col-sm-4">Seriennummer</dt><dd class="col-sm-8">{{ item.fields.serial_number or '—' }}</dd>
           <dt class="col-sm-4">Standort</dt><dd class="col-sm-8">{{ item.location or '—' }}</dd>
           <dt class="col-sm-4">Kaufdatum</dt><dd class="col-sm-8">{{ item.fields.purchase_date or '—' }}</dd>
+          <dt class="col-sm-4">Zustand</dt><dd class="col-sm-8" data-condition>{{ {'new': 'Neu', 'used': 'Gebraucht', 'defective': 'Defekt', 'in_repair': 'In Reparatur', 'retired': 'Ausgesondert'}.get(item.condition, '—') }}</dd>
           {% if item.fields.isbn %}<dt class="col-sm-4">ISBN</dt><dd class="col-sm-8">{{ item.fields.isbn }}</dd>{% endif %}
           {% if item.description %}<dt class="col-sm-4">Beschreibung</dt><dd class="col-sm-8" style="white-space:pre-wrap">{{ item.description }}</dd>{% endif %}
         </dl>
