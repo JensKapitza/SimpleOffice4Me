@@ -218,6 +218,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll je Spiel: 5–15 Min., Zufallsaufgaben, Stufen, Sofort-Feedback, ohne Lesen. Ist gemessen: Matching 15/15, Numbers 14/14, Syllables 8/8 Python- + 7/7 Node-Tests; Kids-Modus 8/8 (Containment aller 10 Kids-URLs, Gate richtig/falsch/ohne Frage, Erwachsenenseite behält Nav); kombiniert 29/29 bzw. 23/23 nach Zusammenführung; `node --check`, DOM-Stub-Proben (10 Runden/32 Ansagen bzw. 3×8 Aufgaben), Policy-/Größen-/Compile-Gates grün. CI je PR vollständig grün (36/36 bzw. 35 + Rest) vor Merge; dazwischen nur Ubuntu-Spiegel-503 und ein nicht-blockierender Python-3.15-Budget-Timeout (5924 Tests liefen, alle 8 Kids-Tests darunter). |
 | Review und Abschluss | Unabhängiges Review gab alle drei Zweige frei (keine externen Requests, kein Tracking, keine Timer, ermutigendes Feedback, keine Routenkollisionen). Offen als Follow-up: B1/B2-Fixes im Lernspiel, S2-Umsortierung im Alt-Code, Fortschritts-/Eltern-Backend, Offline-Arbeitsblätter/Bastelanleitungen sowie Praxisprüfung auf physischen Geräten (Touch, Tastatur, Lautsprecher/Mikrofon). |
 
+## 19. November 2026 · Dateiverwaltung: Mehrfachauswahl mit Stapel-Tags und -Verschieben
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Ordnerbaum ohne Auswahl; Tag/Verschieben nur einzeln auf Detailseiten. Einzeloperationen (`set_tags`, Storage-`move`) wiederverwendbar, CSRF für fetch global vorhanden, kein Bulk-Endpunkt. |
+| Implementierung | Checkboxen je Baumzeile (ohne Details-Toggle), Stapel-Leiste (Zähler, Tag-/Ordnereingaben, Fortschrittsbalken, Status), gechunkte Anfragen (25er) mit Teilergebnissen und Reload. Neue Routen `POST /documents/bulk-tags` und `/bulk-move` in eigenem Modul (Größen-Gate): max. 200 IDs, je Eintrag aktualisiert/fehlerhaft, vorhandene Store-Prüfungen. |
+| Tests und Soll-Ist-Vergleich | Soll: mehrere Dateien gemeinsam taggen/verschieben mit Fortschritt und ohne Datenverlust. Ist gemessen: 4/4 Tests (Tags für 2, Verschieben mit ID-Erhalt + Teilfehler, 400/Anonym-Fälle, Marker), Browser-Test (Chromium, CI): 2 auswählen, taggen, Reload. Ruff, Gates, Compile grün. |
+| Review und Abschluss | Offen als Follow-up: Kachelansicht, Drag-and-drop, Kontextmenüs, Umbenennen/Favoriten im Stapel (eigene Schritte). |
+
 ## 19. November 2026 · Wiedervorlage-Hub: Fristenansichten, Verlauf, Kommentare
 
 | Phase | Arbeit und Nachweis |
