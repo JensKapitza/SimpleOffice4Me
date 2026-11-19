@@ -218,6 +218,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll je Spiel: 5–15 Min., Zufallsaufgaben, Stufen, Sofort-Feedback, ohne Lesen. Ist gemessen: Matching 15/15, Numbers 14/14, Syllables 8/8 Python- + 7/7 Node-Tests; Kids-Modus 8/8 (Containment aller 10 Kids-URLs, Gate richtig/falsch/ohne Frage, Erwachsenenseite behält Nav); kombiniert 29/29 bzw. 23/23 nach Zusammenführung; `node --check`, DOM-Stub-Proben (10 Runden/32 Ansagen bzw. 3×8 Aufgaben), Policy-/Größen-/Compile-Gates grün. CI je PR vollständig grün (36/36 bzw. 35 + Rest) vor Merge; dazwischen nur Ubuntu-Spiegel-503 und ein nicht-blockierender Python-3.15-Budget-Timeout (5924 Tests liefen, alle 8 Kids-Tests darunter). |
 | Review und Abschluss | Unabhängiges Review gab alle drei Zweige frei (keine externen Requests, kein Tracking, keine Timer, ermutigendes Feedback, keine Routenkollisionen). Offen als Follow-up: B1/B2-Fixes im Lernspiel, S2-Umsortierung im Alt-Code, Fortschritts-/Eltern-Backend, Offline-Arbeitsblätter/Bastelanleitungen sowie Praxisprüfung auf physischen Geräten (Touch, Tastatur, Lautsprecher/Mikrofon). |
 
+## 19. November 2026 · Issue #1111 (P1-Slice 2): Lagerort-Vorlagen für verschachtelte Strukturen
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Zweiter P1-Slice nach der Umlagerung: Regale, Schränke, Kartons und Kommoden mussten Fach für Fach einzeln angelegt werden. Bestand wiederverwendet: `create_location` (Codes, Ereignisse, Regal-Objekte), Routenmuster aus Scan-/Move-Modulen, Bibliotheksseite. |
+| Implementierung | Neues Modul `location_templates.py` (4 Vorlagen: Regal, Schrank, Umzugskarton, Kommode; Zählung 1–max, Standard je Vorlage) plus `template_routes.py` mit `POST /library/locations/from-template` (JSON/Formular, Audit, Login) und `GET /location-templates`; Vorlagen-Formular auf der Bibliotheksseite; Vorlagen unter beliebigem Standort instanziierbar (beliebig tiefe Schachtelung durch Komposition). |
+| Tests und Soll-Ist-Vergleich | Soll: ganze Struktur in einer Aktion, Pfade rekursiv korrekt, Validierung, Rechte. Ist gemessen: 5/5 Blackbox-HTTP-Tests (Regal 3 Fächer mit Pfad, Kommode-Standard unter Kiste Tiefe 4, 4 Validierungs-400, anonym 302, Katalog+Formularmarker); Nachbar-Suites 23/23; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up (weitere #1111-Slices): Scanmodi pro Aktion, Exemplare für alle Objekttypen, Mengen/Seriennummern, System-/manuelle Metadatenwerte, CSV-Import, Inventur/Differenzen, Objekt-Verleih, föderierte Rechte. |
+
 ## 19. November 2026 · Verknüpfungen: Aufgaben und Dokumente beidseitig verbinden
 
 | Phase | Arbeit und Nachweis |
