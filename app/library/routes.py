@@ -426,10 +426,14 @@ def print_location(location_id: str):
     library = _store()
     try:
         location = library.location(location_id)
+        style = str(request.form.get("label_style", "barcode")).strip()
+        if style not in {"barcode", "qr"}:
+            raise ValueError("Ungültige Etikettenart")
         share, printer, settings = _label_printer_configuration()
-        image = render_barcode(str(location["code"]), settings, caption=library.location_path(location_id))
+        image = (render_qr_code if style == "qr" else render_barcode)(
+            str(location["code"]), settings, caption=library.location_path(location_id))
         byte_count = _send_label_image(image, share, printer, settings)
-        library.record_print(_actor(), kind="location", status="printed", summary=f"{location['code']} {location['name']}", byte_count=byte_count)
+        library.record_print(_actor(), kind=f"location-{style}", status="printed", summary=f"{location['code']} {location['name']}", byte_count=byte_count)
         flash(f"Regaletikett {location['code']} wurde an {printer['label']} gesendet.")
     except (OSError, PrinterError, RuntimeError, ValueError) as exc:
         library.record_print(_actor(), kind="location", status="failed", summary=location_id, error=str(exc))
