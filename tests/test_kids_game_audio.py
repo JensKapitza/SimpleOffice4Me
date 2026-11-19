@@ -2,8 +2,13 @@
 from __future__ import annotations
 
 import re
+import shutil
 import unittest
 from pathlib import Path
+
+needs_node = unittest.skipUnless(
+    shutil.which("node"), "node is required for the syllables inventory dump",
+)
 
 try:
     from tests.http_api_fixture import PublicHttpTestCase
@@ -17,6 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 class KidsGameAudioInventoryTests(unittest.TestCase):
+    @needs_node
     def test_every_inventory_clip_exists_and_is_valid_mp3(self):
         bad = [
             str(clip_path(game, lang, key))
@@ -27,6 +33,7 @@ class KidsGameAudioInventoryTests(unittest.TestCase):
         ]
         self.assertEqual([], bad)
 
+    @needs_node
     def test_config_audio_keys_are_covered(self):
         from app.kids_matching import MATCHING_CATEGORIES
         from app.kids_numbers import NUMBERS_ITEMS
@@ -44,6 +51,7 @@ class KidsGameAudioInventoryTests(unittest.TestCase):
                     self.assertIn(item[field], clips["numbers"]["de"])
                     self.assertIn(item[field], clips["numbers"]["en"])
 
+    @needs_node
     def test_js_fixed_clip_keys_are_covered(self):
         clips = inventory()
         fixed = {
@@ -63,6 +71,7 @@ class KidsGameAudioInventoryTests(unittest.TestCase):
                     self.assertIn(key, clips[game]["de"])
                     self.assertIn(key, clips[game]["en"])
 
+    @needs_node
     def test_syllables_dynamic_keys_match_the_dump(self):
         from tools.generate_kids_game_audio import syllables_dump
 
@@ -73,6 +82,7 @@ class KidsGameAudioInventoryTests(unittest.TestCase):
             self.assertTrue(dump["rhymes"][lang])
         self.assertIn("listen_well", clips["de"])
 
+    @needs_node
     def test_dynamic_key_families_are_complete(self):
         clips = inventory()
         for lang in ("de", "en"):
