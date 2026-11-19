@@ -42,6 +42,13 @@ def mini_games():
     return render_template("kids/mini_games.html")
 
 
+@bp.get("/silben")
+@login_required
+def syllables():
+    """Preschool syllable game: clap, count and rhyme without reading."""
+    return render_template("kids/syllables.html")
+
+
 @bp.get("/qr")
 @login_required
 def share_game_qr():

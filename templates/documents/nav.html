@@ -86,6 +86,7 @@
           <ul class="dropdown-menu" aria-labelledby="nav-kids">
             <li><a class="dropdown-item" href="{{ url_for('kids_coloring.index') }}">{{ 'Coloring wall' if g.language == 'en' else 'Ausmalwand' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('kids_learning.mini_games') }}">{{ 'Quick play break' if g.language == 'en' else 'Kurze Spielpause' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('kids_learning.syllables') }}">{{ 'Syllable clapping' if g.language == 'en' else 'Silben klatschen' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('kids_learning.index') }}">{{ 'Learning games' if g.language == 'en' else 'Lernspiele' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('kids_learning.index', game='maze') }}">{{ 'Maze: find the way' if g.language == 'en' else 'Labyrinth: Finde den Weg' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('electrical_learning.index', audience='kids') }}">{{ 'Electricity safety' if g.language == 'en' else 'Strom sicher erkennen' }}</a></li>
