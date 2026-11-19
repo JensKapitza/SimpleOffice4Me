@@ -74,7 +74,8 @@ class KidsSyllablesPageTests(PublicHttpTestCase):
         self.assertIn("🎵", html)
         script = SCRIPT.read_text(encoding="utf-8")
         self.assertIn("KidsSyllables", script)
-        self.assertIn("speechSynthesis", script)
+        self.assertIn("KidsShared", script)
+        self.assertIn("playClips", script)
         self.assertIn("aria-label", script)
 
     def test_syllables_touch_targets_are_large_enough(self):
@@ -100,9 +101,16 @@ class KidsSyllablesPageTests(PublicHttpTestCase):
         self.assertNotIn("cdn", html.lower() + script.lower())
 
     def test_spoken_feedback_prefers_on_device_voices(self):
-        script = SCRIPT.read_text(encoding="utf-8")
-        local = re.search(r"voice\.localService \? (\d+)", script)
-        cloud = re.search(r"natural\|neural[^?]*\? (\d+)", script)
+        shared = (REPO_ROOT / "static" / "js" / "kids_shared.js").read_text(encoding="utf-8")
+        local = re.search(r"voice\.localService \? (\d+)", shared)
+        cloud = re.search(r"natural\|neural[^?]*\? (\d+)", shared)
         self.assertIsNotNone(local)
         self.assertIsNotNone(cloud)
         self.assertGreater(int(local.group(1)), int(cloud.group(1)))
+
+    def test_game_uses_prerecorded_clip_keys(self):
+        script = SCRIPT.read_text(encoding="utf-8")
+        for key in ("listen_well", "tap_each_syllable", "praise_right", "praise_great",
+                    "how_many_syllables", "what_rhymes", "look_solution", "done_great",
+                    "nice_playing"):
+            self.assertIn(f"'{key}'", script)

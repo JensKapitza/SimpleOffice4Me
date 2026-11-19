@@ -1,9 +1,20 @@
 (() => {
   const root = document.querySelector('[data-kids-numbers]');
-  if (!root) return;
+  if (!root || !window.KidsShared) return;
+  const {shuffle, stopAudio, uiLanguage, playClips} = window.KidsShared;
 
   const english = root.dataset.language === 'en';
   const text = (de, en) => english ? en : de;
+  const language = uiLanguage(english);
+  const audioBase = root.dataset.audioBase || '';
+  const audioVersion = root.dataset.audioVersion || '';
+  const clipLang = english ? 'en' : 'de';
+  let currentClips = [];
+  const speechStatus = root.querySelector('[data-speech-status]');
+  function say(parts) {
+    currentClips = parts;
+    return playClips(audioBase, audioVersion, clipLang, parts, language, speechStatus);
+  }
   const setup = root.querySelector('[data-setup]');
   const play = root.querySelector('[data-play]');
   const result = root.querySelector('[data-result]');
@@ -14,7 +25,6 @@
   const progress = root.querySelector('[data-progress]');
   const stars = root.querySelector('[data-stars]');
   const next = root.querySelector('[data-next]');
-  const speechStatus = root.querySelector('[data-speech-status]');
   const fallbackConfig = {
     levels: {
       easy: {max: 3, choices: 2, tasks: 8, compare: false},
@@ -22,12 +32,12 @@
       hard: {max: 10, choices: 3, tasks: 8, compare: true}
     },
     items: [
-      {emoji: '🐶', de: 'Hund', de_plural: 'Hunde', en: 'dog', en_plural: 'dogs'},
-      {emoji: '🐱', de: 'Katze', de_plural: 'Katzen', en: 'cat', en_plural: 'cats'},
-      {emoji: '🐰', de: 'Hase', de_plural: 'Hasen', en: 'rabbit', en_plural: 'rabbits'},
-      {emoji: '🐸', de: 'Frosch', de_plural: 'Frösche', en: 'frog', en_plural: 'frogs'},
-      {emoji: '🐞', de: 'Käfer', de_plural: 'Käfer', en: 'ladybug', en_plural: 'ladybugs'},
-      {emoji: '⭐', de: 'Stern', de_plural: 'Sterne', en: 'star', en_plural: 'stars'}
+      {emoji: '🐶', de: 'Hund', de_plural: 'Hunde', en: 'dog', en_plural: 'dogs', audio: 'n_hund', audio_plural: 'n_hunde'},
+      {emoji: '🐱', de: 'Katze', de_plural: 'Katzen', en: 'cat', en_plural: 'cats', audio: 'n_katze', audio_plural: 'n_katzen'},
+      {emoji: '🐰', de: 'Hase', de_plural: 'Hasen', en: 'rabbit', en_plural: 'rabbits', audio: 'n_hase', audio_plural: 'n_hasen'},
+      {emoji: '🐸', de: 'Frosch', de_plural: 'Frösche', en: 'frog', en_plural: 'frogs', audio: 'n_frosch', audio_plural: 'n_froesche'},
+      {emoji: '🐞', de: 'Käfer', de_plural: 'Käfer', en: 'ladybug', en_plural: 'ladybugs', audio: 'n_kaefer', audio_plural: 'n_kaefer_pl'},
+      {emoji: '⭐', de: 'Stern', de_plural: 'Sterne', en: 'star', en_plural: 'stars', audio: 'n_stern', audio_plural: 'n_sterne'}
     ]
   };
   let config = fallbackConfig;
@@ -48,50 +58,6 @@
   let firstTry = 0;
   let mistakes = 0;
   let locked = false;
-  let currentSpoken = '';
-
-  function shuffle(items) {
-    const values = [...items];
-    for (let index = values.length - 1; index > 0; index -= 1) {
-      const swap = Math.floor(Math.random() * (index + 1));
-      [values[index], values[swap]] = [values[swap], values[index]];
-    }
-    return values;
-  }
-
-  function uiLanguage() {
-    return english ? 'en-US' : 'de-DE';
-  }
-
-  function voiceRank(voice, language) {
-    // On-device voices first: same-language local voices must beat
-    // same-language cloud voices so prompts stay offline and private.
-    return (voice.lang.toLowerCase() === language.toLowerCase() ? 100 : 50)
-      + (voice.localService ? 24 : 0)
-      + (/natural|neural|premium|enhanced/i.test(voice.name) ? 6 : 0);
-  }
-
-  function speak(value) {
-    if (!('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) {
-      if (speechStatus) speechStatus.textContent = text('Vorlesen geht auf diesem Gerät nicht. Schau dir die Bilder genau an.', 'Read-aloud is not available on this device. Look closely at the pictures.');
-      return;
-    }
-    if (speechStatus) speechStatus.textContent = '';
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(value);
-    utterance.lang = uiLanguage();
-    utterance.rate = 0.9;
-    utterance.pitch = 1.05;
-    const prefix = utterance.lang.slice(0, 2).toLowerCase();
-    const voices = window.speechSynthesis.getVoices().filter(voice => voice.lang.toLowerCase().startsWith(prefix));
-    let requested = '';
-    try { requested = window.localStorage.getItem(`kids-learning.voice.${prefix}`) || ''; } catch (error) { requested = ''; }
-    const voiceId = voice => voice.voiceURI || `${voice.name}|${voice.lang}`;
-    const chosen = voices.find(voice => voiceId(voice) === requested)
-      || [...voices].sort((a, b) => voiceRank(b, utterance.lang) - voiceRank(a, utterance.lang))[0];
-    if (chosen) utterance.voice = chosen;
-    window.speechSynthesis.speak(utterance);
-  }
 
   function noun(item, amount) {
     if (amount === 1) return english ? item.en : item.de;
@@ -163,11 +129,19 @@
     stars.textContent = '⭐'.repeat(firstTry) + '☆'.repeat(Math.max(0, taskIndex - firstTry));
   }
 
+  function nounAudio(item, amount) {
+    return amount === 1 ? item.audio : item.audio_plural;
+  }
+
   function showCount(task, options) {
     const amount = 1 + Math.floor(Math.random() * options.max);
     task.amount = amount;
     const spoken = text(`Wie viele ${noun(task.item, amount)} siehst du?`, `How many ${noun(task.item, amount)} can you see?`);
-    ask(spoken);
+    ask([
+      {key: 'how_many', fallback: text('Wie viele', 'How many')},
+      {key: nounAudio(task.item, amount), fallback: noun(task.item, amount)},
+      {key: 'see_you', fallback: text('siehst du?', 'can you see?')},
+    ], spoken);
     const figures = document.createElement('div');
     figures.className = 'kids-numbers-picture';
     figures.setAttribute('role', 'img');
@@ -183,7 +157,11 @@
     const amount = 1 + Math.floor(Math.random() * options.max);
     task.amount = amount;
     const spoken = text(`Tippe auf ${amount} ${noun(task.item, amount)}.`, `Tap ${amount} ${noun(task.item, amount)}.`);
-    ask(spoken);
+    ask([
+      {key: 'tap_on', fallback: text('Tippe auf', 'Tap')},
+      {key: `num_${amount}`, fallback: String(amount)},
+      {key: nounAudio(task.item, amount), fallback: noun(task.item, amount)},
+    ], spoken);
     distinctNumbers(options.choices, options.max, amount).forEach(value => {
       const button = makeAnswerButton(picture(value, task.item), value === amount);
       button.classList.add('kids-numbers-group');
@@ -205,7 +183,11 @@
     const spoken = wantMore
       ? text(`Wo sind mehr ${noun(task.item, 2)}? Tipp drauf.`, `Where are more ${noun(task.item, 2)}? Tap it.`)
       : text(`Wo sind weniger ${noun(task.item, 2)}? Tipp drauf.`, `Where are fewer ${noun(task.item, 2)}? Tap it.`);
-    ask(spoken);
+    ask([
+      {key: wantMore ? 'where_more' : 'where_less', fallback: wantMore ? text('Wo sind mehr', 'Where are more') : text('Wo sind weniger', 'Where are fewer')},
+      {key: task.item.audio_plural, fallback: noun(task.item, 2)},
+      {key: 'tap_it', fallback: text('Tipp drauf.', 'Tap it.')},
+    ], spoken);
     shuffle([first, second]).forEach(value => {
       const button = makeAnswerButton(picture(value, task.item), value === task.amount);
       button.classList.add('kids-numbers-group');
@@ -214,10 +196,9 @@
     });
   }
 
-  function ask(spoken) {
-    currentSpoken = spoken;
+  function ask(parts, spoken) {
     prompt.textContent = spoken;
-    speak(spoken);
+    say(parts);
   }
 
   function makeAnswerButton(label, correct) {
@@ -236,10 +217,11 @@
       button.classList.add('is-correct');
       if (mistakes === 0) firstTry += 1;
       renderStars();
-      const cheer = praise[Math.floor(Math.random() * praise.length)];
+      const cheerIndex = Math.floor(Math.random() * praise.length);
+      const cheer = praise[cheerIndex];
       feedback.textContent = `🎉 ${cheer}`;
       feedback.classList.add('is-good');
-      speak(cheer);
+      say([{key: `praise_${cheerIndex + 1}`, fallback: cheer}]);
       stage.querySelectorAll('button').forEach(candidate => {
         if (candidate !== button) candidate.disabled = true;
       });
@@ -252,7 +234,7 @@
       const retry = text('Versuch es nochmal. Du schaffst das! 💪', 'Try again. You can do it! 💪');
       feedback.textContent = retry;
       feedback.classList.add('is-try');
-      speak(retry);
+      say([{key: 'try_again', fallback: retry}]);
     }
   }
 
@@ -262,22 +244,25 @@
     const total = tasks.length;
     const heading = root.querySelector('[data-result-title]');
     const copy = root.querySelector('[data-result-copy]');
+    let resultKey = 'nice_playing';
     if (firstTry === total) {
       heading.textContent = text('Spitzenmäßig! 🎉', 'Amazing! 🎉');
       copy.textContent = text(`Alle ${total} Aufgaben beim ersten Versuch! Du bist ein Zählprofi.`, `All ${total} tasks on the first try! You are a counting star.`);
+      resultKey = 'amazing';
     } else if (firstTry * 2 >= total) {
       heading.textContent = text('Gut gemacht! ⭐', 'Well done! ⭐');
       copy.textContent = text(`Du hast ${firstTry} von ${total} Sternen gesammelt.`, `You collected ${firstTry} of ${total} stars.`);
+      resultKey = 'well_done';
     } else {
       heading.textContent = text('Schön mitgemacht! 🌼', 'Nice playing! 🌼');
       copy.textContent = text(`Du hast ${firstTry} von ${total} Sternen gesammelt. Nochmal?`, `You collected ${firstTry} of ${total} stars. Again?`);
     }
-    speak(heading.textContent);
+    say([{key: resultKey, fallback: heading.textContent}]);
     heading.focus();
   }
 
   function toSetup() {
-    window.speechSynthesis?.cancel();
+    stopAudio();
     play.hidden = true;
     result.hidden = true;
     setup.hidden = false;
@@ -289,7 +274,7 @@
   root.querySelectorAll('[data-level]').forEach(button => {
     button.addEventListener('click', () => begin(button.dataset.level));
   });
-  root.querySelector('[data-repeat]').addEventListener('click', () => speak(currentSpoken));
+  root.querySelector('[data-repeat]').addEventListener('click', () => { if (currentClips.length) say(currentClips); });
   root.querySelector('[data-back]').addEventListener('click', toSetup);
   root.querySelector('[data-result-back]').addEventListener('click', toSetup);
   root.querySelector('[data-play-again]').addEventListener('click', () => begin(level));

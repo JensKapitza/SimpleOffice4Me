@@ -46,3 +46,11 @@ Alle Kinderseiten laufen im **Kids-Modus**: Statt der vollständigen Navigation
 sehen Kinder nur Angebote für Kinder. Der Weg zurück für Erwachsene führt über
 **Erwachsene** und eine einfache Rechenaufgabe. Spielstände bleiben im Browser;
 es werden keine Nutzungsprofile angelegt.
+
+## Vorgespeicherte Spielstimmen
+
+Zuordnungsspiel, Zählspaß und Silbenspiel sprechen mit vorgespeicherten,
+gut verständlichen Audiodateien aus der App. Die Browsersprachausgabe dient
+nur als Ersatz, bevorzugt mit geräteeigenen Stimmen. Neue Wörter werden über
+`tools/generate_kids_game_audio.py` vertont (siehe
+`static/audio/kids/games/README.md`).
