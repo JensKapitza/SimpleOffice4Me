@@ -48,4 +48,4 @@ def _private_response(response):
 def index():
     """Counting game: grasp quantities, count and meet first numbers."""
     numbers_config = {"levels": NUMBERS_LEVELS, "items": NUMBERS_ITEMS}
-    return render_template("kids/numbers.html", numbers_config=numbers_config)
+    return render_template("kids/numbers.html", numbers_config=numbers_config, kids_mode=True)

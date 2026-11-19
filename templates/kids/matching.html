@@ -1,5 +1,5 @@
 {% extends "layout.html" %}
-{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block header %}{% include "kids/_header.html" %}{% endblock %}
 {% block title %}{{ 'Matching fun' if g.language == 'en' else 'Zuordnungsspiel' }} · SimpleOffice{% endblock %}
 {% block styles %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/kids_shared.css', v=app_build.version) }}">
@@ -13,10 +13,6 @@
       <h1 class="h2 mb-1">{{ 'Matching fun' if g.language == 'en' else 'Zuordnungsspiel' }} 🧩</h1>
       <p class="text-secondary mb-0">{{ 'Listen, look and tap the matching picture. No reading needed.' if g.language == 'en' else 'Hören, schauen und das passende Bild antippen. Ganz ohne Lesen.' }}</p>
     </div>
-    <nav class="d-flex flex-wrap gap-2" aria-label="{{ 'Kids activities' if g.language == 'en' else 'Kinderangebote' }}">
-      <a class="btn btn-outline-secondary btn-lg kids-touch" href="{{ url_for('kids_matching.dashboard') }}">🧸 {{ 'Kids' if g.language == 'en' else 'Kinder' }}</a>
-      <a class="btn btn-outline-secondary btn-lg kids-touch" href="{{ url_for('kids_coloring.index') }}">🎨 {{ 'Coloring wall' if g.language == 'en' else 'Ausmalwand' }}</a>
-    </nav>
   </header>
   <p class="small text-warning-emphasis mb-2" data-speech-status role="status" aria-live="polite"></p>
 

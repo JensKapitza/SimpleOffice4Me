@@ -1,7 +1,9 @@
 """Picture-matching game for toddlers plus the Kids dashboard shell."""
 from __future__ import annotations
 
-from flask import Blueprint, render_template
+import secrets
+
+from flask import Blueprint, redirect, render_template, request, session, url_for
 
 from .auth import login_required
 
@@ -82,11 +84,50 @@ def _private_response(response):
 @login_required
 def dashboard():
     """Kids dashboard shell: large symbol cards linking every kids offer."""
-    return render_template("kids/dashboard.html")
+    return render_template("kids/dashboard.html", kids_mode=True)
 
 
 @bp.get("/zuordnen")
 @login_required
 def matching():
     """Matching game for 2-3 year olds: colors, shapes, animals, sounds."""
-    return render_template("kids/matching.html", matching_config=matching_config())
+    return render_template("kids/matching.html", matching_config=matching_config(), kids_mode=True)
+
+
+def _exit_question():
+    first = secrets.randbelow(14) + 6
+    second = secrets.randbelow(14) + 6
+    session["kids_exit_answer"] = first + second
+    return first, second
+
+
+@bp.get("/erwachsene")
+@login_required
+def exit_gate():
+    """Grown-ups gate guarding the way out of the kids area."""
+    first, second = _exit_question()
+    return render_template(
+        "kids/exit_gate.html", first=first, second=second, error=False, kids_mode=True,
+    )
+
+
+@bp.post("/erwachsene")
+@login_required
+def exit_gate_answer():
+    """Leave the kids area after solving a grown-ups arithmetic question.
+
+    This is a toddler gate, not a security boundary: the session is already
+    authenticated, so a wrong answer only presents a fresh question instead
+    of locking anything.
+    """
+    expected = session.pop("kids_exit_answer", None)
+    try:
+        given = int(request.form.get("answer") or "")
+    except ValueError:
+        given = None
+    if expected is not None and given == expected:
+        return redirect(url_for("documents.index"))
+    first, second = _exit_question()
+    return render_template(
+        "kids/exit_gate.html", first=first, second=second, error=True, kids_mode=True,
+    )

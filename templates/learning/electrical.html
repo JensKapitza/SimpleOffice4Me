@@ -2,7 +2,7 @@
 {% block title %}{{ 'Electrical basics' if g.language == 'en' else 'E‑Technik lernen' }} · SimpleOffice{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/electrical_learning.css') }}">{% endblock %}
 {% block script %}<script defer src="{{ url_for('static', filename='js/electrical_learning.js') }}"></script>{% endblock %}
-{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block header %}{% if audience == 'kids' %}{% include "kids/_header.html" %}{% else %}{% include "documents/nav.html" %}{% endif %}{% endblock %}
 {% block body %}
 {% set en = g.language == 'en' %}
 {% set kids = audience == 'kids' %}

@@ -1,0 +1,18 @@
+{% extends "layout.html" %}
+{% block header %}{% include "kids/_header.html" %}{% endblock %}
+{% block title %}{{ 'Grown-ups' if g.language == 'en' else 'Erwachsene' }} · SimpleOffice{% endblock %}
+{% block body %}
+{% set en = g.language == 'en' %}
+<main id="main-content" class="container py-4" style="max-width:560px" data-kids-exit>
+  <h1 class="h2 mb-3">🔒 {{ 'Grown-ups only' if en else 'Nur für Erwachsene' }}</h1>
+  <p class="text-secondary">{{ 'Please solve this to leave the kids area.' if en else 'Bitte lösen, um den Kinderbereich zu verlassen.' }}</p>
+  {% if error %}<p class="alert alert-warning" role="alert">{{ 'That was not right, try the new question.' if en else 'Das stimmte nicht, versuch die neue Aufgabe.' }}</p>{% endif %}
+  <form method="post" class="card card-body shadow-sm">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <label class="form-label fs-4" for="kids-exit-answer">{{ first }} + {{ second }} = ?</label>
+    <input class="form-control form-control-lg mb-3" id="kids-exit-answer" name="answer" type="number" inputmode="numeric" autocomplete="off" required>
+    <button class="btn btn-primary btn-lg" type="submit">{{ 'Leave kids area' if en else 'Kinderbereich verlassen' }}</button>
+  </form>
+  <p class="mt-3"><a class="btn btn-outline-secondary btn-lg" href="{{ url_for('kids_matching.dashboard') }}">🧸 {{ 'Back to kids' if en else 'Zurück zu den Kindern' }}</a></p>
+</main>
+{% endblock %}

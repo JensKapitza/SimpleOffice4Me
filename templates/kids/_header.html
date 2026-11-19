@@ -1,0 +1,17 @@
+{# Kids-mode header: only kids offers plus a grown-ups exit gate.
+   Used instead of documents/nav.html on every kids page so children cannot
+   wander into finance, vault, admin or logout with the parent session. #}
+{% set en = g.language == 'en' %}
+<header class="border-bottom bg-body-tertiary" data-kids-header>
+  <nav class="container py-2 d-flex flex-wrap align-items-center gap-2" aria-label="{{ 'Kids activities' if en else 'Kinderangebote' }}">
+    <a class="btn btn-outline-secondary btn-lg" href="{{ url_for('kids_matching.dashboard') }}">🧸 {{ 'Kids' if en else 'Kinder' }}</a>
+    <a class="btn btn-outline-secondary btn-lg" href="{{ url_for('kids_matching.matching') }}">🧩 {{ 'Matching' if en else 'Zuordnen' }}</a>
+    <a class="btn btn-outline-secondary btn-lg" href="{{ url_for('kids_numbers.index') }}">🔢 {{ 'Counting' if en else 'Zählen' }}</a>
+    <a class="btn btn-outline-secondary btn-lg" href="{{ url_for('kids_learning.syllables') }}">👏 {{ 'Syllables' if en else 'Silben' }}</a>
+    <a class="btn btn-outline-secondary btn-lg" href="{{ url_for('kids_learning.mini_games') }}">🌟 {{ 'Quick play' if en else 'Spielpause' }}</a>
+    <a class="btn btn-outline-secondary btn-lg" href="{{ url_for('kids_learning.index') }}">🎲 {{ 'Learning' if en else 'Lernen' }}</a>
+    <a class="btn btn-outline-secondary btn-lg" href="{{ url_for('kids_coloring.index') }}">🎨 {{ 'Coloring' if en else 'Malen' }}</a>
+    <span class="flex-grow-1"></span>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('kids_matching.exit_gate') }}">🔒 {{ 'Grown-ups' if en else 'Erwachsene' }}</a>
+  </nav>
+</header>

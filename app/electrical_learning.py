@@ -22,4 +22,4 @@ def index():
     audience = request.args.get("audience", "adult")
     if audience not in {"adult", "kids"}:
         audience = "adult"
-    return render_template("learning/electrical.html", audience=audience)
+    return render_template("learning/electrical.html", audience=audience, kids_mode=(audience == "kids"))

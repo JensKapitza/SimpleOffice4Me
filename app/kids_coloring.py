@@ -177,7 +177,7 @@ def _parse_request() -> tuple[str, str, dict]:
 @login_required
 def index():
     _ensure_schema()
-    return render_template("kids/coloring.html", drawings_url=url_for("kids_coloring.list_drawings"))
+    return render_template("kids/coloring.html", drawings_url=url_for("kids_coloring.list_drawings"), kids_mode=True)
 
 
 @bp.get("/api/drawings")

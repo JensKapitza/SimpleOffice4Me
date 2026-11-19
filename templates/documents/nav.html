@@ -81,19 +81,8 @@
           </ul>
         </div>
 
-        <div class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle" href="#" id="nav-kids" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ 'Kids' if g.language == 'en' else 'Kinder' }}</a>
-          <ul class="dropdown-menu" aria-labelledby="nav-kids">
-            <li><a class="dropdown-item" href="{{ url_for('kids_matching.dashboard') }}">{{ 'Kids overview' if g.language == 'en' else 'Kinder-Übersicht' }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('kids_matching.matching') }}">{{ 'Matching fun' if g.language == 'en' else 'Zuordnungsspiel' }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('kids_coloring.index') }}">{{ 'Coloring wall' if g.language == 'en' else 'Ausmalwand' }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('kids_learning.mini_games') }}">{{ 'Quick play break' if g.language == 'en' else 'Kurze Spielpause' }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('kids_learning.syllables') }}">{{ 'Syllable clapping' if g.language == 'en' else 'Silben klatschen' }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('kids_learning.index') }}">{{ 'Learning games' if g.language == 'en' else 'Lernspiele' }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('kids_numbers.index') }}">{{ 'Counting fun' if g.language == 'en' else 'Zählspaß' }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('kids_learning.index', game='maze') }}">{{ 'Maze: find the way' if g.language == 'en' else 'Labyrinth: Finde den Weg' }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('electrical_learning.index', audience='kids') }}">{{ 'Electricity safety' if g.language == 'en' else 'Strom sicher erkennen' }}</a></li>
-          </ul>
+        <div class="nav-item">
+          <a class="nav-link" id="nav-kids" href="{{ url_for('kids_matching.dashboard') }}">🧸 {{ 'Kids' if g.language == 'en' else 'Kinder' }}</a>
         </div>
 
         <div class="nav-item dropdown">
