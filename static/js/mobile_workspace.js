@@ -19,13 +19,13 @@
   const toggle = fab.querySelector('[data-mobile-fab-toggle]');
   const actions = menu ? Array.from(menu.querySelectorAll('[data-mobile-action]')) : [];
   const CONTEXTS = [
-    {match: ['/documents/calendar'], order: ['event', 'task', 'share']},
-    {match: ['/tasks'], order: ['task', 'event', 'share']},
-    {match: ['/documents/'], order: ['capture', 'task', 'event', 'share']},
-    {match: ['/chat'], order: ['event', 'task', 'share']},
+    {match: ['/documents/calendar'], order: ['event', 'resubmit', 'copy', 'share']},
+    {match: ['/tasks'], order: ['resubmit', 'task', 'copy', 'share']},
+    {match: ['/documents/'], order: ['capture', 'copy', 'resubmit', 'share']},
+    {match: ['/chat'], order: ['copy', 'event', 'task', 'share']},
   ];
   const context = CONTEXTS.find(entry => entry.match.some(prefix => path.startsWith(prefix)));
-  const order = context ? context.order : ['event', 'task', 'capture', 'share'];
+  const order = context ? context.order : ['event', 'resubmit', 'task', 'copy', 'share'];
   const byAction = {};
   actions.forEach(action => { byAction[action.dataset.mobileAction] = action; });
   order.forEach(name => {
@@ -53,6 +53,29 @@
   document.addEventListener('click', event => {
     if (menu && !menu.hidden && !fab.contains(event.target)) setMenu(false);
   });
+
+  const feedback = menu ? menu.querySelector('[data-mobile-feedback]') : null;
+  function announce(message) {
+    if (feedback) feedback.textContent = message;
+  }
+
+  const copyButton = menu ? menu.querySelector('[data-mobile-action="copy"]') : null;
+  if (copyButton) {
+    copyButton.addEventListener('click', async () => {
+      const selection = window.getSelection ? String(window.getSelection() || '').trim() : '';
+      const value = selection || `${document.title} — ${window.location.href}`;
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        try {
+          await navigator.clipboard.writeText(value);
+          announce('✓');
+        } catch {
+          announce('!');
+        }
+      } else {
+        announce('!');
+      }
+    });
+  }
 
   const shareButton = menu ? menu.querySelector('[data-mobile-action="share"]') : null;
   if (shareButton) {

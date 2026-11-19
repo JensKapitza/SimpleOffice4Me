@@ -109,6 +109,7 @@ class MobileWorkspaceBrowserTests(unittest.TestCase):
                 context = self._context(
                     browser, viewport={"width": 390, "height": 844},
                     is_mobile=True, has_touch=True,
+                    permissions=["clipboard-read", "clipboard-write"],
                 )
                 page = context.new_page()
                 page.goto(self.origin + "/tasks/", wait_until="domcontentloaded")
@@ -120,9 +121,16 @@ class MobileWorkspaceBrowserTests(unittest.TestCase):
                 self.assertTrue(menu.is_visible())
                 self.assertEqual("true", toggle.get_attribute("aria-expanded"))
                 actions = menu.locator("[data-mobile-action]:not([hidden])")
-                self.assertGreaterEqual(actions.count(), 3)
+                self.assertGreaterEqual(actions.count(), 4)
                 first = actions.first.get_attribute("data-mobile-action")
-                self.assertEqual("task", first)
+                self.assertEqual("resubmit", first)
+                menu.locator('[data-mobile-action="copy"]').tap()
+                page.wait_for_function(
+                    "() => document.querySelector('[data-mobile-feedback]').textContent === '✓'",
+                    timeout=5000,
+                )
+                pasted = page.evaluate("() => navigator.clipboard.readText()")
+                self.assertIn("/tasks/", pasted)
                 page.keyboard.press("Escape")
                 self.assertFalse(menu.is_visible())
             finally:

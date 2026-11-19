@@ -113,4 +113,17 @@
     {% endfor %}
   </div>
 </main>
+<script>
+(function () {
+  'use strict';
+  if (window.location.hash === '#new-task') {
+    var form = document.getElementById('new-task');
+    if (form && window.bootstrap && window.bootstrap.Collapse) {
+      window.bootstrap.Collapse.getOrCreateInstance(form, {toggle: false}).show();
+    } else if (form) {
+      form.classList.add('show');
+    }
+  }
+})();
+</script>
 {% endblock %}

@@ -12,7 +12,10 @@
     {% if feature_enabled('calendar') %}<a class="btn btn-secondary so-fab-action" data-mobile-action="event" href="{{ url_for('documents.calendar') }}">📅 {{ 'New appointment' if g.language == 'en' else 'Termin erstellen' }}</a>{% endif %}
     <a class="btn btn-secondary so-fab-action" data-mobile-action="capture" href="{{ url_for('documents.index') }}#capture-first">📤 {{ 'Capture document' if g.language == 'en' else 'Dokument erfassen' }}</a>
     {% if feature_enabled('projects') %}<a class="btn btn-secondary so-fab-action" data-mobile-action="task" href="{{ url_for('tasks.board') }}">➕ {{ 'New task' if g.language == 'en' else 'Aufgabe anlegen' }}</a>{% endif %}
+    {% if feature_enabled('projects') %}<a class="btn btn-secondary so-fab-action" data-mobile-action="resubmit" href="{{ url_for('tasks.board') }}#new-task">🔁 {{ 'New resubmission' if g.language == 'en' else 'Wiedervorlage anlegen' }}</a>{% endif %}
+    <button class="btn btn-secondary so-fab-action" type="button" data-mobile-action="copy">📋 {{ 'Copy text' if g.language == 'en' else 'Text kopieren' }}</button>
     <button class="btn btn-secondary so-fab-action" type="button" data-mobile-action="share">🔗 {{ 'Share' if g.language == 'en' else 'Teilen' }}</button>
+    <span class="small text-secondary text-center" data-mobile-feedback role="status" aria-live="polite"></span>
   </div>
   <button class="so-fab" type="button" data-mobile-fab-toggle aria-expanded="false" aria-label="{{ 'Quick actions' if g.language == 'en' else 'Schnellaktionen' }}">＋</button>
 </div>

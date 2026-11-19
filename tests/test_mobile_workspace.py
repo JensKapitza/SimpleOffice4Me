@@ -29,8 +29,10 @@ class MobileWorkspaceTests(PublicHttpTestCase):
 
     def test_fab_lists_contextual_actions(self):
         html = self.client.get("/documents/").get_data(as_text=True)
-        for action in ("event", "capture", "task", "share"):
+        for action in ("event", "capture", "task", "resubmit", "copy", "share"):
             self.assertIn(f'data-mobile-action="{action}"', html)
+        self.assertIn("data-mobile-feedback", html)
+        self.assertIn("/tasks/#new-task", html)
 
     def test_mobile_workspace_stays_out_of_kids_mode(self):
         html = self.client.get("/kids/").get_data(as_text=True)
@@ -44,6 +46,7 @@ class MobileWorkspaceTests(PublicHttpTestCase):
         self.assertIn("navigator.share", script)
         self.assertIn("clipboard", script)
         self.assertIn("aria-current", script)
+        self.assertIn("getSelection", script)
 
     def test_workspace_styles_keep_desktop_clean_and_targets_large(self):
         css = STYLES.read_text(encoding="utf-8")
