@@ -202,6 +202,16 @@ class ObjectStore:
             if isinstance(item.get("fields"), dict) else {}
         )
         item["document_ids"] = cls._list(item.get("document_ids", []))
+        overrides = item.get("overrides", {})
+        item["overrides"] = {
+            str(key).strip(): {
+                "value": str(entry.get("value", "") or "").strip(),
+                "updated_at": str(entry.get("updated_at", "") or "").strip(),
+                "updated_by": str(entry.get("updated_by", "") or "").strip(),
+            }
+            for key, entry in overrides.items()
+            if str(key).strip() and isinstance(entry, dict) and str(entry.get("value", "") or "").strip()
+        } if isinstance(overrides, dict) else {}
         notes = item.get("notes", [])
         item["notes"] = [
             {
@@ -235,6 +245,48 @@ class ObjectStore:
         item["notes"].append({"note_id": str(uuid.uuid4()), "text": text.strip(), "created_at": utc_now(), "created_by": actor})
         item["updated_at"] = utc_now(); item["updated_by"] = actor
         self._drop_transient(item); self._write(item, actor, "object_note_added")
+
+    @staticmethod
+    def _override_field(name: Any) -> str:
+        field = str(name or "").strip()
+        if not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", field):
+            raise ValueError("metadata field name is invalid")
+        return field
+
+    def set_override(self, object_id: str, field: str, value: str, actor: str) -> dict[str, Any]:
+        """Store a manual metadata value; the system value stays untouched."""
+        item = self.object(object_id)
+        key = self._override_field(field)
+        text = str(value or "").strip()
+        if not actor.strip() or not text:
+            raise ValueError("user and manual value are required")
+        if len(text) > 2000:
+            raise ValueError("manual value must not exceed 2000 characters")
+        item["overrides"][key] = {"value": text, "updated_at": utc_now(), "updated_by": actor}
+        item["updated_at"] = utc_now(); item["updated_by"] = actor
+        self._drop_transient(item); self._write(item, actor, "object_override_set")
+        return self.object(item["object_id"])
+
+    def clear_override(self, object_id: str, field: str, actor: str) -> dict[str, Any]:
+        """Remove a manual value so the system value applies again."""
+        item = self.object(object_id)
+        key = self._override_field(field)
+        if not actor.strip(): raise ValueError("user is required")
+        if key not in item["overrides"]: raise ValueError("no manual value stored for this field")
+        del item["overrides"][key]
+        item["updated_at"] = utc_now(); item["updated_by"] = actor
+        self._drop_transient(item); self._write(item, actor, "object_override_cleared")
+        return self.object(item["object_id"])
+
+    @staticmethod
+    def effective_fields(item: dict[str, Any]) -> dict[str, str]:
+        """Merge system fields with manual values; manual values win."""
+        fields = dict(item.get("fields", {}) or {})
+        overrides = item.get("overrides", {}) or {}
+        for key, entry in overrides.items():
+            if isinstance(entry, dict) and str(entry.get("value", "") or "").strip():
+                fields[str(key)] = str(entry["value"]).strip()
+        return fields
 
     @staticmethod
     def _drop_transient(item: dict[str, Any]) -> None:
