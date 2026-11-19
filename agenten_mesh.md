@@ -218,6 +218,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll je Spiel: 5–15 Min., Zufallsaufgaben, Stufen, Sofort-Feedback, ohne Lesen. Ist gemessen: Matching 15/15, Numbers 14/14, Syllables 8/8 Python- + 7/7 Node-Tests; Kids-Modus 8/8 (Containment aller 10 Kids-URLs, Gate richtig/falsch/ohne Frage, Erwachsenenseite behält Nav); kombiniert 29/29 bzw. 23/23 nach Zusammenführung; `node --check`, DOM-Stub-Proben (10 Runden/32 Ansagen bzw. 3×8 Aufgaben), Policy-/Größen-/Compile-Gates grün. CI je PR vollständig grün (36/36 bzw. 35 + Rest) vor Merge; dazwischen nur Ubuntu-Spiegel-503 und ein nicht-blockierender Python-3.15-Budget-Timeout (5924 Tests liefen, alle 8 Kids-Tests darunter). |
 | Review und Abschluss | Unabhängiges Review gab alle drei Zweige frei (keine externen Requests, kein Tracking, keine Timer, ermutigendes Feedback, keine Routenkollisionen). Offen als Follow-up: B1/B2-Fixes im Lernspiel, S2-Umsortierung im Alt-Code, Fortschritts-/Eltern-Backend, Offline-Arbeitsblätter/Bastelanleitungen sowie Praxisprüfung auf physischen Geräten (Touch, Tastatur, Lautsprecher/Mikrofon). |
 
+## 19. November 2026 · Issue #1111 (P1-Slice 3): Mengen und Einzelstücke unterscheiden
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Dritter P1-Slice: Stapelartikel (50 Schrauben) und Einzelstücke (Seriennummer) waren im Modell nicht unterscheidbar; Seriennummern existierten nur als Freitextfeld, Mengen gar nicht. Bestand wiederverwendet: `ObjectStore`-Validierungsmuster, Erfassungsroute, Bibliotheks-Aktualisierungspfade. |
+| Implementierung | Optionale `quantity` (≥ 0, max. 3 Dezimalen, Komma zulässig) + `unit` (≤ 24 Zeichen) in `ObjectStore` (leer = Einzelstück, alte Datensätze tolerant); Durchreichen im Erfassungsformular (Menge/Einheit mit Vorschlagsliste) und Bestandsanzeige auf der Detailseite; Mengen bleiben bei Bibliotheks-Zuordnung/Identität erhalten, neue Exemplare starten als Einzelstück. |
+| Tests und Soll-Ist-Vergleich | Soll: Stapel vs. Stück anlegen/anzeigen/validieren, Zuordnung/Kopie ohne Mengenverlust. Ist gemessen: 4/4 Blackbox-HTTP-Tests (50 Stück, Einzelstück+Seriennummer, 4 ungültige Eingaben 400, Zuordnung+Kopie erhalten Quelle); Nachbar-Suites 59/59; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up (weitere #1111-Slices): Scanmodi pro Aktion, Exemplare für alle Objekttypen, System-/manuelle Metadatenwerte, CSV-Import, Inventur/Differenzen, Objekt-Verleih, föderierte Rechte. |
+
 ## 19. November 2026 · Verknüpfungen: Aufgaben und Dokumente beidseitig verbinden
 
 | Phase | Arbeit und Nachweis |
