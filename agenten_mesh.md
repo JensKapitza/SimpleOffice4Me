@@ -227,6 +227,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: 1 Klick zum vorbelegten Formular, mobil lesbar ohne Horizontal-Scroll. Ist gemessen: 4/4 Python-Tests (28–31 ISO-Tage, Heute-Link, Handler, Mobil-CSS), Browser-Tests (Chromium, CI): Klick auf 2026-11-19 → Formular mit 09:00/10:00, Mobil 360 px: Wochentage versteckt, Tage ≥ 80 % Breite, Plus-Ziele ≥ 44 px. Gates grün. |
 | Review und Abschluss | Offen als Follow-up: Drag-and-drop, Größenänderung, Wochen-/Tagesraster, Terminverknüpfungen (eigene Aufträge), physische Geräteprüfung. |
 
+## 19. November 2026 · Wiedervorlage-Hub: Fristenansichten, Verlauf, Kommentare
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | VTODO-Bestand wiederverwendet: `TodoStore` (Status, Fälligkeit, Kategorien, `source_document_id`, Verlauf über `RevisionHistory`, Kommentare), Board mit Spalten/Aktionen, Dokument→Aufgabe-Endpunkt (reicht alle Formularfelder durch). Lücken: kein Anlegen mit Fälligkeit ab Dokument, keine Fristenansichten, kein sichtbarer Verlauf, keine Kommentar-UI. |
+| Implementierung | Detailseite: Wiedervorlage-Formular (Titel, Fälligkeit, Notiz, Kategorie) auf vorhandenem Endpunkt. Board: `?view=`-Ansichten (Alle/Heute/Überfällig/Nächste 7 Tage/Warten=in-process/Erledigt) mit Zählern, ein Verlaufsscan gruppiert pro Aufgabe, Kommentarformular mit neuer `POST`-Route, Delegieren/Erledigen über vorhandene Routen. Keine neue Datenbank. |
+| Tests und Soll-Ist-Vergleich | Soll: vertikaler Fall Anlegen→Ansicht→Kommentar→Verlauf→Delegieren mit Rechten. Ist gemessen: 4/4 Tests (Quellverknüpfung+Fälligkeit, alle 5 Ansichten filtern korrekt inkl. ungültigem Fallback, Kommentar+Verlaufseinträge sichtbar, Delegation gespeichert). Ruff, Gates, Compile grün. |
+| Review und Abschluss | Offen als Follow-up: wiederkehrende Wiedervorlagen/Erinnerungen, Verknüpfungen zu Kontakten/Projekten/Terminen (Verknüpfungsauftrag), Board-Mobilfeinschliff. |
+
 ## 19. November 2026 · Schnellsuche als Arbeitsoberfläche: Live-Suche, Vorschau, Verlauf
 
 | Phase | Arbeit und Nachweis |

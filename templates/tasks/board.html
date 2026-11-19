@@ -44,6 +44,11 @@
     <div class="col-md-3"><label class="visually-hidden" for="task-assigned">{{ 'Assigned to' if g.language == 'en' else 'Zugewiesen an' }}</label><input id="task-assigned" name="assigned" value="{{ assigned }}" class="form-control" placeholder="{{ 'Assigned to' if g.language == 'en' else 'Zugewiesen an' }}"></div>
     <div class="col-md-1 d-grid"><button type="submit" class="btn btn-outline-secondary">{{ 'Filter' if g.language == 'en' else 'Filtern' }}</button></div>
   </form>
+  <div class="d-flex flex-wrap gap-2 mb-3" role="group" aria-label="{{ 'Due date views' if g.language == 'en' else 'Fristenansichten' }}">
+    {% for view_id, label_de, label_en in resubmit_views %}
+    <a class="btn btn-sm {{ 'btn-primary' if selected_view == view_id else 'btn-outline-secondary' }}" href="{{ url_for('tasks.board', view=view_id, q=query, list_id=selected_list, assigned=assigned) }}">{{ label_en if g.language == 'en' else label_de }} <span class="badge text-bg-light text-dark">{{ view_counts[view_id] }}</span></a>
+    {% endfor %}
+  </div>
 
   <div class="d-flex gap-3 overflow-auto pb-3 align-items-start" style="scroll-snap-type:x proximity">
     {% for status, label_de, label_en in columns %}
@@ -90,6 +95,28 @@
                 </form>
               </div>
 
+              <details class="small">
+                <summary>{{ 'History' if g.language == 'en' else 'Verlauf' }} ({{ histories.get(task.id, [])|length }})</summary>
+                <div class="pt-2">
+                  {% for event in histories.get(task.id, [])[:10] %}
+                    <div class="border-bottom py-1 text-secondary">{{ event.at[:16].replace('T', ' ') }} · {{ event.actor }} · {{ event.action }}</div>
+                  {% else %}
+                    <div class="text-secondary">{{ 'No entries yet.' if g.language == 'en' else 'Noch keine Einträge.' }}</div>
+                  {% endfor %}
+                </div>
+              </details>
+              {% if task.comments %}
+              <div class="small mt-2">
+                {% for comment in task.comments[-5:] %}
+                  <div class="border-start ps-2 mb-1"><span class="text-break">{{ comment.text }}</span><br><span class="text-secondary">{{ comment.created_by }} · {{ comment.created_at[:16].replace('T', ' ') if comment.created_at else '' }}</span></div>
+                {% endfor %}
+              </div>
+              {% endif %}
+              <form method="post" action="{{ url_for('tasks.add_task_comment', item_id=task.id) }}" class="row g-1 mt-2">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <div class="col-9"><input name="text" required maxlength="2000" class="form-control form-control-sm" placeholder="{{ 'New comment' if g.language == 'en' else 'Neuer Kommentar' }}"></div>
+                <div class="col-3 d-grid"><button type="submit" class="btn btn-sm btn-outline-primary">{{ 'Add' if g.language == 'en' else 'Hinzufügen' }}</button></div>
+              </form>
               <details class="small">
                 <summary>{{ 'Subtasks' if g.language == 'en' else 'Unteraufgaben' }} ({{ children.get(task.uid, [])|length }})</summary>
                 <div class="pt-2">
