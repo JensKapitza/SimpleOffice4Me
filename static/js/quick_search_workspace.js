@@ -226,10 +226,10 @@
   }
   function renderCollections() {
     const recents = root.querySelector('[data-quick-recents-list]');
-    const favorites = root.querySelector('[data-quick-favorites-list]');
+    const favoritesEl = root.querySelector('[data-quick-favorites-list]');
     const show = input.value.trim().length < 2;
     if (recents) renderCollection(recents, show ? store(RECENTS_KEY) : []);
-    if (favorites) renderCollection(favorites, show ? favorites() : []);
+    if (favoritesEl) renderCollection(favoritesEl, show ? favorites() : []);
   }
 
   let requestId = 0;
