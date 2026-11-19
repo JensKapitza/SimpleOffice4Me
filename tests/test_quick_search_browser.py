@@ -91,7 +91,6 @@ class QuickSearchBrowserTests(unittest.TestCase):
                 page.goto(self.origin + "/documents/quick-search", wait_until="domcontentloaded")
                 search = page.locator("#quick-search-query")
                 search.fill("Live Test")
-                cards = page.locator("[data-quick-match]:not([hidden])")
                 page.wait_for_function(
                     "n => document.querySelectorAll('[data-quick-match]:not([hidden])').length >= n",
                     arg=2, timeout=8000,
