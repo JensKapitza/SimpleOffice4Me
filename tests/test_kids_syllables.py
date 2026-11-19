@@ -98,3 +98,11 @@ class KidsSyllablesPageTests(PublicHttpTestCase):
         for match in re.findall(r"url\(([^)]+)\)", css):
             self.assertFalse(match.strip().strip("'\"").startswith("http"), match)
         self.assertNotIn("cdn", html.lower() + script.lower())
+
+    def test_spoken_feedback_prefers_on_device_voices(self):
+        script = SCRIPT.read_text(encoding="utf-8")
+        local = re.search(r"voice\.localService \? (\d+)", script)
+        cloud = re.search(r"natural\|neural[^?]*\? (\d+)", script)
+        self.assertIsNotNone(local)
+        self.assertIsNotNone(cloud)
+        self.assertGreater(int(local.group(1)), int(cloud.group(1)))

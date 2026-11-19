@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block title %}{{ 'Syllable clapping' if g.language == 'en' else 'Silben klatschen' }} · SimpleOffice{% endblock %}
-{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/kids_syllables.css') }}">{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/kids_syllables.css', v=app_build.version) }}">{% endblock %}
 {% block body %}
 <main id="main-content" class="kids-syll-page container py-3 py-lg-4" data-kids-syllables data-language="{{ g.language }}">
   <header class="kids-syll-header d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4">
@@ -47,5 +47,5 @@
     </div>
   </section>
 </main>
-<script src="{{ url_for('static', filename='js/kids_syllables.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/kids_syllables.js', v=app_build.version) }}" defer></script>
 {% endblock %}
