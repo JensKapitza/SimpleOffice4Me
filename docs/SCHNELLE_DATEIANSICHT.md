@@ -70,3 +70,16 @@ transitive Fristen, Versionsreihen, Zugriffsaudit und Schema-Migration.
 Das globale Logbuch sowie bewusst gestartete bestandsweite Fristen- und
 Bereinigungsberichte bleiben Gesamtbestandsoperationen. Sie liegen nicht im
 kritischen Pfad der einzelnen Dokumentansicht.
+
+## Datei oder Pfad senden
+
+In der Dokumentliste die Datei aufklappen oder ihre Detailansicht öffnen und **Senden …** wählen.
+
+| Auswahl | Was kommt an? |
+| --- | --- |
+| QR oder Ton, nur Pfad | Der relative Pfad im Dokumentbestand, z. B. `Projekte/Brief.pdf`. |
+| QR oder Ton, Datei | Ein Dateipaket mit Dateiname und Prüfsumme, sofern es in das gewählte Medium passt. QR fasst hier bis zu 1.100 Dateibytes. Bei Ton zählen Dateiname und Paketdaten zum Limit von 128 UTF-8-Bytes. Größere Inhalte werden über einen geschützten Download-Link angeboten. |
+| Geschützter Datei-Link | Ein Link zur Originaldatei. Das Zielgerät benötigt Zugang zum Server und Leserechte. Beim Aufruf über localhost kann ein laufender HTTPS-LAN-Proxy die erreichbare Adresse liefern. |
+| Chat | Den Raum aufklappen, **Logischer Pfad als Text** oder **Dokument als Chat-Anhang** wählen und senden. |
+
+Zum Empfangen einer Datei **QR & Ton** öffnen. Gelesenen QR-Text in das Empfangsfeld einfügen oder den Tonempfang starten und auf beiden Geräten dasselbe Frequenzband und dieselbe Fehlerkorrektur wählen. Nach erfolgreicher Prüfung lässt sich das Dateipaket herunterladen. Ein übertragener Download-Link lässt sich am Zielgerät öffnen. Wer einen selbstständigen Datei-QR scannt oder seinen Ton empfängt, erhält eine Kopie.

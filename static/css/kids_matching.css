@@ -1,0 +1,70 @@
+/* Matching game for ages 2-3: builds on kids_shared.css. */
+.kids-matching-page { max-width: 1080px; }
+.kids-matching-levels { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap: 1rem; }
+.kids-matching-level {
+  min-height: 150px;
+  padding: 1rem;
+  border: 3px solid #d7e4f2;
+  border-radius: 1.25rem;
+  background: #fff;
+  color: #17324d;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .3rem;
+  font: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.kids-matching-level > span { font-size: 2.6rem; line-height: 1; }
+.kids-matching-level strong { font-size: 1.3rem; }
+.kids-matching-level small { color: #4f6274; font-size: 1rem; }
+.kids-matching-level.is-selected { border-color: #4386c4; background: #eaf3ff; box-shadow: 0 0 0 .2rem #4386c433; }
+.kids-matching-level:focus-visible { outline: 4px solid #ffc107; outline-offset: 2px; }
+.kids-matching-play, .kids-matching-result { border-radius: 1.25rem; }
+.kids-matching-target {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 170px;
+  padding: 1rem;
+  border-radius: 1.25rem;
+  background: #f3f8ff;
+  font-size: clamp(4rem, 16vw, 7rem);
+  line-height: 1.1;
+}
+.kids-matching-prompt { margin: .75rem 0 0; color: #34495e; font-size: 1.25rem; font-weight: 600; min-height: 1.6rem; }
+.kids-matching-stage {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
+  gap: 1rem;
+  align-items: stretch;
+  padding: 1rem 0;
+}
+.kids-matching-answer {
+  min-height: 160px;
+  min-width: 140px;
+  border: 3px solid #d7e4f2;
+  border-radius: 1.25rem;
+  background: #fff;
+  color: #142e49;
+  font-size: clamp(3.2rem, 13vw, 5.5rem);
+  line-height: 1.1;
+  touch-action: manipulation;
+  transition: transform .12s ease, background-color .15s ease, border-color .15s ease;
+}
+.kids-matching-answer:hover:not(:disabled) { transform: scale(1.04); border-color: #4386c4; }
+.kids-matching-answer.is-correct { border-color: #218838; background: #dff5e5; }
+.kids-matching-answer.is-wrong { border-color: #c23d4b; background: #fff0f1; }
+.kids-matching-answer:focus-visible { outline: 4px solid #ffc107; outline-offset: 2px; }
+.kids-matching-feedback { min-height: 1.8rem; margin: .25rem 0 0; font-size: 1.25rem; font-weight: 700; }
+.kids-matching-result-icon { font-size: 4rem; }
+@media (max-width: 520px) {
+  .kids-matching-answer { min-height: 130px; min-width: 110px; }
+  .kids-matching-target { min-height: 140px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kids-matching-answer { transition: none; }
+  .kids-matching-answer:hover:not(:disabled) { transform: none; }
+}

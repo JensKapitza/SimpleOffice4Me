@@ -1,0 +1,52 @@
+{% extends 'layout.html' %}
+{% block header %}{% include 'documents/nav.html' %}{% endblock %}
+{% block title %}{{ 'Transfer document' if g.language == 'en' else 'Dokument übertragen' }} · SimpleOffice{% endblock %}
+{% block body %}
+{% set en = g.language == 'en' %}
+<main id="main-content" class="container-xl py-4" style="max-width:1050px">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div><h1 class="h2 mb-1">{{ 'Transfer document' if en else 'Dokument übertragen' }}</h1><p class="text-secondary mb-0">{{ document.last_path }}</p></div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('documents.index') }}">{{ 'Documents' if en else 'Dokumente' }}</a>
+  </div>
+  <section class="card shadow-sm mb-4" aria-labelledby="transfer-title">
+    <div class="card-body">
+      <h2 class="h4" id="transfer-title">{{ 'Send by QR or sound' if en else 'Per QR oder Ton senden' }}</h2>
+      <p>{{ 'A small file can be embedded in the QR and received offline. Larger files use a normal authenticated download link.' if en else 'Eine kleine Datei kann direkt im QR-Code stecken und offline empfangen werden. Größere Dateien verwenden einen geschützten Download-Link.' }}</p>
+      <form method="post" data-transfer-mode>
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <fieldset class="mb-3"><legend class="fs-6">{{ 'Transfer content' if en else 'Übertragungsinhalt' }}</legend>
+          <div class="form-check"><input class="form-check-input" type="radio" id="transfer-file" name="mode" value="file" {{ 'checked' if mode == 'file' }}><label class="form-check-label" for="transfer-file">{{ 'File' if en else 'Datei' }}</label></div>
+          <div class="form-check"><input class="form-check-input" type="radio" id="transfer-path" name="mode" value="path" {{ 'checked' if mode == 'path' }}><label class="form-check-label" for="transfer-path">{{ 'Logical path only' if en else 'Nur logischer Pfad' }}</label></div>
+          <div class="form-check"><input class="form-check-input" type="radio" id="transfer-link" name="mode" value="link" {{ 'checked' if mode == 'link' }}><label class="form-check-label" for="transfer-link">{{ 'Authenticated file link' if en else 'Geschützter Datei-Link' }}</label></div>
+        </fieldset>
+        <button class="btn btn-primary" type="submit" data-transfer-submit>{{ 'Prepare QR and sound' if en else 'QR und Ton vorbereiten' }}</button>
+      </form>
+      {% if error %}<p class="alert alert-warning mt-3" role="status" aria-live="polite">{{ error }}</p>{% endif %}
+      {% if audio_fallback %}<p class="alert alert-info mt-3" role="status" aria-live="polite">{{ 'The QR contains the file itself. Sound sends its authenticated download link instead.' if en else 'Der QR-Code enthält die Datei selbst. Per Ton wird stattdessen ihr geschützter Download-Link gesendet.' }}</p>{% endif %}
+      {% if download_url %}<p class="mt-3"><a class="btn btn-outline-primary" href="{{ download_url }}">{{ 'Download file' if en else 'Datei herunterladen' }}</a></p>{% endif %}
+      {% if local_only and download_url %}<p class="form-text">{{ 'This address is on localhost. Another device cannot open it; open this page using a LAN or public server address.' if en else 'Diese Adresse verwendet localhost. Ein anderes Gerät kann sie nicht öffnen. Öffne diese Seite über die LAN- oder öffentliche Serveradresse.' }}</p>{% endif %}
+      {% if qr_src %}
+        <div class="row g-3 mt-2 align-items-start">
+          <div class="col-md-auto"><img loading="lazy" decoding="async" class="border rounded bg-white p-2" src="{{ qr_src }}" width="280" height="280" alt="{{ 'QR code' if en else 'QR-Code' }}" data-transfer-qr></div>
+          <div class="col"><p>{{ 'Scan this code. For a file, paste the scanner text below to verify and download it.' if en else 'Scanne den Code. Bei einer Datei füge den Scanner-Text unten ein, um ihn zu prüfen und herunterzuladen.' }}</p><details><summary>{{ 'Show QR content' if en else 'QR-Inhalt anzeigen' }}</summary><pre class="quick-share-payload mt-2 p-2 bg-body-tertiary rounded" data-qr-payload>{{ payload }}</pre></details></div>
+        </div>
+      {% endif %}
+    </div>
+  </section>
+  {% include 'quick_share/_acoustic_share.html' %}
+  <section class="card mb-4" aria-labelledby="receive-title">
+    <div class="card-body"><h2 class="h4" id="receive-title">{{ 'Receive a file QR' if en else 'Datei-QR empfangen' }}</h2>
+      <label class="form-label" for="transfer-input">{{ 'Paste the scanned QR text' if en else 'Gescannte QR-Zeichenfolge einfügen' }}</label>
+      <textarea id="transfer-input" class="form-control" rows="3" data-transfer-input spellcheck="false"></textarea>
+      <p class="small text-secondary mt-2">{{ 'The file is verified in your browser before download.' if en else 'Die Datei wird vor dem Download im Browser geprüft.' }}</p>
+      <button class="btn btn-outline-primary" type="button" data-transfer-download disabled>{{ 'Verify and download' if en else 'Prüfen und herunterladen' }}</button>
+      <p class="small mt-2" data-transfer-status role="status" aria-live="polite"></p>
+    </div>
+  </section>
+  {% include 'documents/_transfer_chat.html' %}
+</main>
+<script src="{{ url_for('static', filename='js/acoustic_fec.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/acoustic_codec.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/acoustic_share.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/document_transfer_packet.js') }}" defer></script>
+{% endblock %}

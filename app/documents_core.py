@@ -22,6 +22,7 @@ from flask import Blueprint, Response, abort, current_app, flash, g, jsonify, re
 
 from .auth import login_required
 from .document_store import DocumentStore
+from .document_transfer_access import transferable
 from .contact_store import ContactStore
 from .calendar_store import CalendarStore
 from .calendar_collections import CalendarCollections
@@ -53,6 +54,7 @@ from .v2.storage_runtime import storage_for
 
 
 bp = Blueprint("documents", "app.documents", url_prefix="/documents")
+bp.add_app_template_test(transferable, "transferable")
 
 
 def _store() -> DocumentStore:

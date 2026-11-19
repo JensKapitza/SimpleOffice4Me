@@ -1,0 +1,45 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block title %}{{ 'Kids' if g.language == 'en' else 'Kinder' }} · SimpleOffice{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/kids_shared.css', v=app_build.version) }}">{% endblock %}
+{% block body %}
+<main id="main-content" class="kids-dashboard-page container py-3 py-lg-4" data-kids-dashboard data-language="{{ g.language }}">
+  <header class="mb-4">
+    <h1 class="h2 mb-1">{{ 'Kids' if g.language == 'en' else 'Kinder' }} 🧸</h1>
+    <p class="text-secondary mb-0">{{ 'Tap a big picture to start playing. Everything stays on this device.' if g.language == 'en' else 'Tippe auf ein großes Bild und spiele los. Alles bleibt auf diesem Gerät.' }}</p>
+  </header>
+
+  <nav class="kids-symbol-grid" aria-label="{{ 'Kids activities' if g.language == 'en' else 'Kinderangebote' }}">
+    <a class="kids-symbol-card" href="{{ url_for('kids_matching.matching') }}">
+      <span aria-hidden="true">🧩</span>
+      <strong>{{ 'Matching fun' if g.language == 'en' else 'Zuordnungsspiel' }}</strong>
+      <small>{{ 'Colors, shapes, animals and sounds for ages 2-3' if g.language == 'en' else 'Farben, Formen, Tiere und Geräusche für 2- bis 3-Jährige' }}</small>
+    </a>
+    <a class="kids-symbol-card" href="{{ url_for('kids_learning.mini_games') }}">
+      <span aria-hidden="true">🌟</span>
+      <strong>{{ 'Quick play break' if g.language == 'en' else 'Kurze Spielpause' }}</strong>
+      <small>{{ 'Animal pairs, counting and picture puzzles' if g.language == 'en' else 'Tierpaare, Zählen und Bilderrätsel' }}</small>
+    </a>
+    <a class="kids-symbol-card" href="{{ url_for('kids_learning.index') }}">
+      <span aria-hidden="true">🎲</span>
+      <strong>{{ 'Learning games' if g.language == 'en' else 'Lernspiele' }}</strong>
+      <small>{{ 'Numbers, words and the world around us' if g.language == 'en' else 'Zahlen, Wörter und die Welt um uns herum' }}</small>
+    </a>
+    <a class="kids-symbol-card" href="{{ url_for('kids_learning.index', game='maze') }}">
+      <span aria-hidden="true">🐶🦴</span>
+      <strong>{{ 'Maze: find the way' if g.language == 'en' else 'Labyrinth: Finde den Weg' }}</strong>
+      <small>{{ 'Guide a friend through the maze' if g.language == 'en' else 'Führe eine Figur durchs Labyrinth' }}</small>
+    </a>
+    <a class="kids-symbol-card" href="{{ url_for('kids_coloring.index') }}">
+      <span aria-hidden="true">🎨</span>
+      <strong>{{ 'Coloring wall' if g.language == 'en' else 'Ausmalwand' }}</strong>
+      <small>{{ 'Color pictures or draw freely' if g.language == 'en' else 'Bilder ausmalen oder frei zeichnen' }}</small>
+    </a>
+    <a class="kids-symbol-card" href="{{ url_for('electrical_learning.index', audience='kids') }}">
+      <span aria-hidden="true">🔌</span>
+      <strong>{{ 'Electricity safety' if g.language == 'en' else 'Strom sicher erkennen' }}</strong>
+      <small>{{ 'Recognize plugs and cables safely' if g.language == 'en' else 'Stecker und Kabel sicher erkennen' }}</small>
+    </a>
+  </nav>
+</main>
+{% endblock %}

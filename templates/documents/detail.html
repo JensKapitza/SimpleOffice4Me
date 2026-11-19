@@ -19,6 +19,7 @@
 {% if import_origin_path %}<p class="small mb-0"><a href="{{ url_for('documents.smart_folder_view', folder=import_origin_path) }}">{{ 'Source folder:' if g.language == 'en' else 'Ursprungsordner:' }} {{ import_origin_path.rsplit('/', 1)[-1] }}</a></p>{% endif %}
 </div>
 <div class="d-flex flex-wrap justify-content-end gap-2 align-self-start">
+{% if document is transferable %}<a class="btn btn-outline-primary" href="{{ url_for('documents.transfer', document_id=document.document_id) }}">{{ 'Send…' if g.language == 'en' else 'Senden …' }}</a>{% endif %}
 <a class="btn btn-outline-success" href="{{ url_for('contact_audit.euer.new_booking', document_id=document.document_id) }}">{{ 'Book receipt' if g.language == 'en' else 'Beleg buchen' }}</a>
 <form method="post" action="{{ url_for('documents.create_document_task', document_id=document.document_id) }}">
 <input type="hidden" name="title" value="{{ 'Review document' if g.language == 'en' else 'Dokument prüfen' }}">
