@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-from .chat_store import ChatStore
+from .chat_store import ChatStore, rows_for_message_ids
 
 ALLOWED_REACTIONS = {"👍", "❤️", "😂", "😮", "😢", "🙏"}
 
@@ -199,10 +199,34 @@ class ChatFeatureStore:
         return {str(row["message_id"]) for row in rows}
 
     def decorate(self, room_id: str, messages: list[dict]) -> list[dict]:
-        retracted = self.retracted_ids(room_id)
-        receipts = self.receipts(room_id)
+        if not messages:
+            return messages
+        ids = list(dict.fromkeys(message["message_id"] for message in messages))
+        reactions = {message_id: [] for message_id in ids}
+        readers = {message_id: [] for message_id in ids}
+        with self._db() as db:
+            db.execute("BEGIN")
+            for row in rows_for_message_ids(db, (
+                "SELECT r.message_id,r.emoji,COUNT(*) AS count,GROUP_CONCAT(r.username, ', ') AS users "
+                "FROM chat_reaction r JOIN chat_message m ON m.message_id=r.message_id "
+                "WHERE m.room_id=? AND r.message_id IN (:message_ids) GROUP BY r.message_id,r.emoji "
+                "ORDER BY r.message_id,MIN(r.created_at),r.emoji"
+            ), ids, parameters=(room_id,)):
+                reactions[row["message_id"]].append({
+                    "emoji": row["emoji"], "count": row["count"], "users": row["users"] or "",
+                })
+            retracted = {row["message_id"] for row in rows_for_message_ids(db, (
+                "SELECT r.message_id FROM chat_retracted r JOIN chat_message m ON m.message_id=r.message_id "
+                "WHERE m.room_id=? AND r.message_id IN (:message_ids)"
+            ), ids, parameters=(room_id,))}
+            for row in db.execute(
+                "SELECT username,last_message_id FROM chat_read_receipt WHERE room_id=? "
+                "ORDER BY username COLLATE NOCASE", (room_id,),
+            ):
+                if row["last_message_id"] in readers:
+                    readers[row["last_message_id"]].append(row["username"])
         for message in messages:
-            message["reactions"] = self.reactions(message["message_id"])
-            message["retracted"] = message["message_id"] in retracted
-            message["read_by"] = [row["username"] for row in receipts if row.get("last_message_id") == message["message_id"]]
+            message_id = message["message_id"]
+            message.update(reactions=reactions[message_id], retracted=message_id in retracted,
+                           read_by=readers[message_id])
         return messages

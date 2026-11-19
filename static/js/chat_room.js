@@ -9,6 +9,7 @@
   const root = document.getElementById('main-content');
   const target = document.getElementById('chat-messages');
   const scroll = document.getElementById('chat-scroll');
+  const newMessagesButton = document.getElementById('chat-new-messages');
   const files = document.getElementById('chat-files');
   const fileStatus = document.getElementById('chat-file-status');
   const body = document.getElementById('chat-body');
@@ -25,6 +26,8 @@
 
   const nearBottom = () => !scroll || scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 140;
   const toBottom = () => { if (scroll) scroll.scrollTop = scroll.scrollHeight; };
+  const hideNewMessages = () => newMessagesButton?.classList.add('d-none');
+  const messageIds = (container) => new Set([...container.querySelectorAll('article[id^="message-"]')].map(message => message.id));
   const shareReplyFields = () => document.querySelectorAll('.chat-share-reply');
 
   function setReply(messageId, sender, text) {
@@ -71,6 +74,16 @@
   bindMessageActions();
   bindAndroidCallHandoff();
 
+  if (scroll && newMessagesButton) {
+    scroll.addEventListener('scroll', () => {
+      if (nearBottom()) hideNewMessages();
+    }, { passive: true });
+    newMessagesButton.addEventListener('click', () => {
+      hideNewMessages();
+      toBottom();
+    });
+  }
+
   if (files && fileStatus) {
     files.addEventListener('change', () => {
       const count = files.files.length;
@@ -106,11 +119,18 @@
       const html = await response.text();
       if (html === lastHtml) return;
       const keepBottom = nearBottom();
+      const existingIds = keepBottom ? null : messageIds(target);
       target.innerHTML = html;
+      const hasNewMessages = existingIds && [...messageIds(target)].some(id => !existingIds.has(id));
       lastHtml = html;
       bindMessageActions();
       bindAndroidCallHandoff();
-      if (keepBottom) toBottom();
+      if (keepBottom) {
+        hideNewMessages();
+        toBottom();
+      } else if (hasNewMessages) {
+        newMessagesButton?.classList.remove('d-none');
+      }
     } catch (_error) {
       // Polling is best-effort; normal navigation remains fully functional.
     } finally {

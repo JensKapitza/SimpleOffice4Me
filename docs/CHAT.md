@@ -2,6 +2,8 @@
 
 SimpleOffice4Me besitzt einen einfachen, bewusst erweiterbaren Chat für Text und Dateien. Die Nachrichten liegen lokal in `.simpleoffice-meta/chat.sqlite3`. Dateien sind keine zweite Schattenablage: Jeder Anhang wird als reguläres `DocumentStore`-Dokument gespeichert und im Chat nur über seine Dokument-ID referenziert.
 
+Beim Lesen älterer Nachrichten erscheint **Neue Nachrichten anzeigen**, sobald eine Nachricht eintrifft. Antippen springt ans Ende des Gesprächs. Wer bereits am Ende liest, sieht neue Nachrichten automatisch.
+
 ## Berechtigungen
 
 Ein Chat hat explizite lokale Teilnehmer und optional genau einen Federation-Peer mit dortigen Teilnehmern. Lokale Administratoren dürfen Chats und Chat-Anhänge zu Administrationszwecken sehen, sind dadurch aber nicht automatisch schreibende Teilnehmer.
