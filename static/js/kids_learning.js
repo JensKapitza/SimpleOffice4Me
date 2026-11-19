@@ -628,7 +628,7 @@
     mazeTypingButton.innerHTML = `⌨️ ${text('Tipp-Modus', 'Typing mode')}${on ? ' ✓' : ''}`;
     root.querySelectorAll('[data-maze-direction]').forEach(button => { button.disabled = on; });
     mazeControls.hidden = on;
-    mazeLetters.hidden = !on;
+    mazeLetters.hidden = !on; mazePanel.classList.toggle('is-typing', on);
     updateMazeTask();
     if (on) speak(text('Tipp-Modus. Tippe den eingeklammerten Buchstaben.', 'Typing mode. Type the bracketed letter.'), english ? 'en-US' : 'de-DE');
     else if ('speechSynthesis' in window) window.speechSynthesis.cancel();
