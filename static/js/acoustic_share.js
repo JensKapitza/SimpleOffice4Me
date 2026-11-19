@@ -13,6 +13,7 @@
     const status = root.querySelector('[data-acoustic-status]');
     const input = root.querySelector('[data-acoustic-text]');
     const output = root.querySelector('[data-acoustic-result]');
+    const receivedLink = root.querySelector('[data-acoustic-link]');
     const bandSelect = root.querySelector('[data-acoustic-band]');
     const fecSelect = root.querySelector('[data-acoustic-fec]');
     if (!sendButton || !receiveButton || !stopButton || !status || !input || !output) return;
@@ -23,6 +24,20 @@
       : { ready: 'Ready. Transfers use sound; people nearby may be able to receive them.', sending: 'Sending audio …', sent: 'Sending complete.', listening: 'Microphone active. Waiting for a transfer …', received: 'Transfer received.', stopped: 'Transfer stopped.', timeout: 'No transfer detected. Please try again.', empty: 'Enter some text first.', consent: 'Please confirm microphone access.', unavailable: 'Audio or microphone is unavailable in this browser.', failed: 'Audio transfer failed. Please try again.', badText: 'This text is too long for an audio transfer.' };
 
     let active = null;
+    const budget = root.querySelector('[data-acoustic-budget]');
+    function updateBudget() {
+      if (!budget || !window.AcousticCodec) return;
+      const size = window.AcousticCodec.measure(input.value, selectedFec());
+      const limit = window.AcousticCodec.MAX_BYTES;
+      const seconds = Math.ceil(size.durationMs / 1000);
+      const hint = size.fits
+        ? (isGerman ? `ca. ${seconds} Sek.` : `about ${seconds} sec`)
+        : (isGerman ? 'Zu lang für Ton.' : 'Too long for sound.');
+      budget.textContent = `${size.bytes}/${limit} Bytes · ${hint}`;
+      sendButton.disabled = Boolean(active) || !size.fits || !input.value.trim();
+    }
+    input.addEventListener('input', updateBudget);
+    fecSelect.addEventListener('change', updateBudget);
     function setStatus(message) { status.textContent = message; }
     function setBusy(busy) {
       sendButton.disabled = busy;
@@ -30,6 +45,7 @@
       stopButton.disabled = !busy;
       bandSelect.disabled = busy;
       fecSelect.disabled = busy;
+      updateBudget();
     }
     function selectedBand() {
       return bandSelect?.value === 'audible' ? 'audible' : 'ultrasound';
@@ -158,6 +174,20 @@
             const decoded = decoder.push(new Float32Array(event.inputBuffer.getChannelData(0)));
             if (decoded !== null) {
               output.value = decoded;
+              if (receivedLink) {
+                receivedLink.hidden = true;
+                receivedLink.removeAttribute('href');
+                if (/^https?:\/\/[^\s]+$/i.test(decoded)) {
+                  try {
+                    const url = new URL(decoded);
+                    if (!url.username && !url.password) {
+                      receivedLink.href = url.href;
+                      receivedLink.hidden = false;
+                    }
+                  } catch { /* Plain text remains visible for invalid addresses. */ }
+                }
+              }
+              output.dispatchEvent(new Event('input', { bubbles: true }));
               finish(operation, words.received);
             }
           } catch (error) { fail(operation, error); }

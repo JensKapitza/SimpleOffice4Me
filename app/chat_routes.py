@@ -9,6 +9,9 @@ from flask import Blueprint, Response, abort, current_app, flash, g, jsonify, re
 
 from .auth import login_required
 from .chat_calls import call_settings, sip_uri
+from .chat_access import attachment_policy
+from .document_transfer_access import transferable
+from .virtual_filesystem import VirtualFileSystem
 from .chat_documents import guessed_mime, save_attachment
 from .chat_features import ALLOWED_REACTIONS, ChatFeatureStore
 from .chat_federation import send_interaction, send_message
@@ -184,6 +187,11 @@ def _forward_rooms(current_room_id: str) -> list[dict]:
     return rows
 
 
+def document_transfer_rooms(root, actor: str) -> list[dict]:
+    """Rooms where this actor may post a document path or attachment."""
+    return ChatStore(root).rooms_for(actor, is_admin=False)
+
+
 def _attachment_file(attachment_id: str):
     store=_store()
     try: item=store.attachment(attachment_id)
@@ -191,7 +199,13 @@ def _attachment_file(attachment_id: str):
     _require_room(item["room_id"])
     if not item.get("document_id") or item.get("state")!="ready": abort(404)
     try:
-        documents=DocumentStore(_root()); document=documents.get_document(item["document_id"]); path=resolve_file_under(documents.root,str(document.get("last_path","")))
+        documents = DocumentStore(_root())
+        document = documents.get_document(item["document_id"])
+        logical_path = document["last_path"]
+        if not attachment_policy(document):
+            if not transferable(document) or not VirtualFileSystem.from_store(_root()).allows(_actor(), logical_path, "read"):
+                abort(404)
+        path = resolve_file_under(documents.root, logical_path)
     except (ValueError,OSError): abort(404)
     return item,path
 
@@ -366,14 +380,47 @@ def share_object(room_id: str):
     room_data=_require_room(room_id); store=_store()
     if not store.is_participant(room_id,_actor()): abort(403)
     try:
-        kind=str(request.form.get("kind") or "").strip().casefold(); card=build_share_card(_root(),kind,str(request.form.get("object_id") or "").strip(),_actor(),include_vcard=(kind=="contact" and request.form.get("include_vcard")=="1"))
+        kind=str(request.form.get("kind") or "").strip().casefold()
+        reference = str(request.form.get("object_id") or "").strip()
+        if kind == "document":
+            # Document options may submit either catalog ID or a logical path.
+            # DocumentStore resolves registered catalog entries only; never open
+            # a user supplied path directly from this endpoint.
+            reference = str(request.form.get("document_id") or request.form.get("path") or reference).strip()
+            document = DocumentStore(_root()).get_document(reference)
+            if not transferable(document):
+                raise ValueError("Dieses geschützte oder nicht freigegebene Dokument kann nicht in den Chat übertragen werden")
+            document_path = str(document.get("last_path") or "").strip()
+            if not document_path:
+                raise ValueError("Für dieses Dokument ist kein logischer Pfad verfügbar")
+            access = VirtualFileSystem.from_store(_root())
+            for username in store.local_users(room_id):
+                if not access.allows(username, document_path, "read"):
+                    raise ValueError("Nicht alle Chat-Teilnehmer dürfen auf dieses Dokument zugreifen")
+            mode = request.form.get("mode", "file")
+            if mode not in {"path", "file"}:
+                abort(400)
+            if mode == "path":
+                message = store.add_message(room_id, _actor(), document_path, payload=_reply_payload(room_id))
+                _deliver_if_remote(room_data, message["message_id"])
+                return redirect(url_for("chat.room",room_id=room_id)+"#latest")
+        card=build_share_card(_root(),kind,reference, _actor(),include_vcard=(kind=="contact" and request.form.get("include_vcard")=="1"))
         message_type="contact" if kind=="contact" else "request"
-        message=store.add_message(room_id,_actor(),str(request.form.get("comment") or "").strip(),message_type=message_type,payload={"share":card,**_reply_payload(room_id)})
-        if kind=="document":
-            documents=DocumentStore(_root()); document=documents.get_document(card["object_id"]); path=resolve_file_under(documents.root,str(document.get("last_path") or "")); data_size=path.stat().st_size
-            digest=str(document.get("sha256") or "").casefold()
-            if len(digest)!=64: digest=sha256_file(path)
-            store.register_attachment(message["message_id"],str(uuid.uuid4()),path.name,guessed_mime(path.name),data_size,digest,"chat",document_id=card["object_id"],state="ready")
+        if kind == "document":
+            path = resolve_file_under(_root(), document_path)
+            data_size = path.stat().st_size
+            digest = str(document.get("sha256") or "").casefold()
+            if len(digest) != 64:
+                digest = sha256_file(path)
+        message = store.add_message(
+            room_id, _actor(), str(request.form.get("comment") or "").strip(),
+            message_type=message_type, payload={"share": card, **_reply_payload(room_id)},
+        )
+        if kind == "document":
+            store.register_attachment(
+                message["message_id"], str(uuid.uuid4()), path.name, guessed_mime(path.name),
+                data_size, digest, "chat", document_id=card["object_id"], state="ready",
+            )
         _deliver_if_remote(room_data,message["message_id"])
         return redirect(url_for("chat.room",room_id=room_id)+"#latest")
     except (ValueError,OSError,RuntimeError) as exc:
