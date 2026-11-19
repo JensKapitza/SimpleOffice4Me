@@ -88,6 +88,7 @@
             <li><a class="dropdown-item" href="{{ url_for('kids_matching.matching') }}">{{ 'Matching fun' if g.language == 'en' else 'Zuordnungsspiel' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('kids_coloring.index') }}">{{ 'Coloring wall' if g.language == 'en' else 'Ausmalwand' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('kids_learning.mini_games') }}">{{ 'Quick play break' if g.language == 'en' else 'Kurze Spielpause' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('kids_learning.syllables') }}">{{ 'Syllable clapping' if g.language == 'en' else 'Silben klatschen' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('kids_learning.index') }}">{{ 'Learning games' if g.language == 'en' else 'Lernspiele' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('kids_numbers.index') }}">{{ 'Counting fun' if g.language == 'en' else 'Zählspaß' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('kids_learning.index', game='maze') }}">{{ 'Maze: find the way' if g.language == 'en' else 'Labyrinth: Finde den Weg' }}</a></li>
