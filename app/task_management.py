@@ -359,6 +359,30 @@ def move_task(item_id: str):
     return redirect(url_for("tasks.board"))
 
 
+@bp.post("/<item_id>/documents")
+@login_required
+def attach_task_document(item_id: str):
+    from .document_store import DocumentStore
+
+    try:
+        document_id = request.form.get("document_id", "").strip()
+        if not document_id:
+            raise ValueError("document is required")
+        document = DocumentStore(current_app.config["DOCUMENT_ROOT"]).get_document(document_id)
+        store = _store()
+        rows = store.items(_actor())
+        task = next((row for row in rows if row.get("id") == item_id), None)
+        if task is None:
+            raise ValueError("task not found")
+        linked = [entry for entry in task.get("document_ids", []) if entry != document["document_id"]]
+        linked.append(document["document_id"])
+        store.update(item_id, {"document_ids": linked[:50]}, _actor())
+        flash("Dokument verknüpft.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("tasks.board"))
+
+
 @bp.post("/<item_id>/subtasks")
 @login_required
 def create_subtask(item_id: str):

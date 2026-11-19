@@ -218,6 +218,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll je Spiel: 5–15 Min., Zufallsaufgaben, Stufen, Sofort-Feedback, ohne Lesen. Ist gemessen: Matching 15/15, Numbers 14/14, Syllables 8/8 Python- + 7/7 Node-Tests; Kids-Modus 8/8 (Containment aller 10 Kids-URLs, Gate richtig/falsch/ohne Frage, Erwachsenenseite behält Nav); kombiniert 29/29 bzw. 23/23 nach Zusammenführung; `node --check`, DOM-Stub-Proben (10 Runden/32 Ansagen bzw. 3×8 Aufgaben), Policy-/Größen-/Compile-Gates grün. CI je PR vollständig grün (36/36 bzw. 35 + Rest) vor Merge; dazwischen nur Ubuntu-Spiegel-503 und ein nicht-blockierender Python-3.15-Budget-Timeout (5924 Tests liefen, alle 8 Kids-Tests darunter). |
 | Review und Abschluss | Unabhängiges Review gab alle drei Zweige frei (keine externen Requests, kein Tracking, keine Timer, ermutigendes Feedback, keine Routenkollisionen). Offen als Follow-up: B1/B2-Fixes im Lernspiel, S2-Umsortierung im Alt-Code, Fortschritts-/Eltern-Backend, Offline-Arbeitsblätter/Bastelanleitungen sowie Praxisprüfung auf physischen Geräten (Touch, Tastatur, Lautsprecher/Mikrofon). |
 
+## 19. November 2026 · Verknüpfungen: Aufgaben und Dokumente beidseitig verbinden
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Modelle vorhanden: Aufgaben mit `document_ids`/`contact_id`/`project_id`, Dokument-Relationen mit Zielauflösung, Aufgaben-Rücklinks in Detaildaten (ungenutzt im Template). Lücken: kein Anheften per Suche, keine Rücklinks auf Detailseiten, Picker fehlt. Keine zweite Datenbank nötig. |
+| Implementierung | Neue Route `POST /tasks/<id>/documents` (Sichtbarkeitsprüfung beider Seiten, idempotent, max. 50, Verlauf via Update); Picker je Aufgabenkarte (Live-Suche über Quick-Search-API, POST, Reload); Rücklink-Karte auf Dokumentdetailseite (Titel, Status, Fälligkeit); defekte Referenzen zeigen vorhandenen Hinweis statt Link. |
+| Tests und Soll-Ist-Vergleich | Soll: vollständiger Fall Anheften→beide Richtungen→Defekt→Rechte. Ist gemessen: 4/4 Tests (Rücklink erscheint, Idempotenz, unbekannte ID + anonym abgewiesen, Defekt-Hinweis, Picker-Marker). Ruff, Gates, Compile grün. |
+| Review und Abschluss | Offen als Follow-up: Picker für Kontakte/Projekte/Termine/Chats nach gleichem Muster, Verknüpfungen entfernen-UI, Verknüpfungsübersicht pro Objekt. |
+
 ## 19. November 2026 · Dateiverwaltung: Mehrfachauswahl mit Stapel-Tags und -Verschieben
 
 | Phase | Arbeit und Nachweis |
