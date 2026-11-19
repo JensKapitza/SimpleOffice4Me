@@ -80,6 +80,18 @@ Jede Übergabe enthält Paket-ID, Status, Ist, Soll, Dateien, Schritte, Zwischen
 | Review | Die Koordination führte die SQL-Platzhaltererzeugung zusammen und prüfte die Bindung der IDs. Bandit, Ruff und Projektprüfungen bestanden. Der mobile Test prüft nach dem Review auch die Lage der Schaltfläche und mindestens 44 Pixel Höhe. |
 | Abschluss | Lokal getestet und zum PR-Review vorbereitet. Folgepaket für die mobile QA ist die sichtbare Nachricht beim Herausfallen der ältesten Zeile aus dem 300er-Fenster. Praxistests mit Android- und iOS-Tastaturen stehen aus. |
 
+### P2 · Leseposition beim Weiterschieben des Chatfensters
+
+| Phase | Aufgabe und Ergebnis |
+| --- | --- |
+| Analyse | Bei 300 geladenen Nachrichten verdrängt Nachricht 301 die älteste Zeile. Im mobilen Chromium-Test wanderte Nachricht 150 auf dem bisherigen Stand von 24 px auf −320 px relativ zum Nachrichtenbereich. |
+| Planung | Drei GPT-6-Luna-Agenten arbeiteten in getrennten Dateien. `anchor_impl` übernahm die Polling-Logik, `anchor_unit` die DOM-Regression und `anchor_test` den mobilen Integrationstest. Ziel war dieselbe sichtbare Nachricht an derselben Stelle im Verlauf. |
+| Implementierung | `static/js/chat_room.js` merkt sich unmittelbar vor der Aktualisierung die Position der sichtbaren Nachrichten. Nach dem Ersetzen des Verlaufs gleicht der Chat den Versatz der ersten noch vorhandenen Nachricht aus. |
+| Tests | `tests/test_chat_room_polling.mjs` prüft auch den Wegfall der ersten sichtbaren Nachricht. `tests/test_chat_room_styles_browser.py` prüft bei 390 × 844 Pixeln über den echten Abruf, dass die älteste Zeile verschwindet, die neue erscheint und die gelesene Nachricht an ihrer Position bleibt. |
+| Soll-Ist-Vergleich | Der Browserfall reproduzierte vor der Korrektur 344 Pixel Versatz. Mit Korrektur hält er die Toleranz von zwei Pixeln ein. Ist keine zuvor sichtbare Nachricht mehr vorhanden, fehlt ein gemeinsamer Bezugspunkt. |
+| Review | Die Koordination prüfte den Browserfall gegen beide Implementierungen und vereinfachte die Suche. Die Geometriemessung endet unterhalb des sichtbaren Bereichs. Wer am Ende liest, folgt weiter den neuesten Nachrichten. |
+| Abschluss | Lokaler Regressionstest bestanden. Offene Geräteprüfung sind weiterhin die Bildschirmtastaturen auf Android und iOS. |
+
 ### P2 · Handhabung des Chats · mesh_chat
 
 **Ist und Soll.** Das Nachrichtenfeld beanspruchte mindestens 18 rem, selbst auf kurzen Handybildschirmen. Der Senden-Knopf konkurrierte mit Dateiauswahl und Status um dieselbe Zeile. Die Höhe soll sich der verfügbaren Fläche anpassen und Senden mit dem Daumen erreichbar bleiben. **Umsetzung.** `templates/chat/room.html` lädt die raumspezifische `static/css/chat.css`. Auf schmalen Bildschirmen erhalten Senden und Dateistatus eigene Zeilen. Im unabhängigen Review fiel auf, dass die Mindesthöhe bei geöffnetem Editor die Maximalhöhe überschreiten konnte. Bei der Nachprüfung mit 375 × 300 CSS-Pixeln ergaben sich 90 px Mindest- und 114 px Maximalhöhe. Physische Bildschirmtastaturen bleiben eine eigene Prüfung.

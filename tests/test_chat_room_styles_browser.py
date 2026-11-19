@@ -203,6 +203,88 @@ class ChatRoomStylesBrowserTests(unittest.TestCase):
             finally:
                 browser.close()
 
+    def test_mobile_refresh_preserves_visible_message_offset_when_300_message_window_advances(self):
+        from playwright.sync_api import sync_playwright
+
+        store = ChatStore(self.root)
+        room = store.upsert_remote_room(
+            str(uuid.uuid4()), "300 message window browser test", "remote-peer",
+            ["chat-style-browser"], ["remote-friend"],
+        )
+        self.room_url = f"/chat/rooms/{room['room_id']}"
+        timestamp = 1_800_000_000
+        message_ids = []
+        for index in range(300):
+            message_id = str(uuid.uuid4())
+            message_ids.append(message_id)
+            store.upsert_remote_message(
+                room["room_id"], "remote-peer", "remote-friend", message_id,
+                f"Window message {index:03d}: " + ("mobile history content " * 8),
+                created_at=timestamp + index,
+            )
+
+        with sync_playwright() as playwright:
+            executable = shutil.which("chromium") or (
+                playwright.chromium.executable_path
+                if Path(playwright.chromium.executable_path).is_file()
+                else None
+            )
+            if not executable:
+                self.skipTest("Chromium is not installed")
+            browser = playwright.chromium.launch(executable_path=executable, args=["--no-sandbox"])
+            try:
+                context = browser.new_context(
+                    viewport={"width": 390, "height": 844},
+                    is_mobile=True,
+                    has_touch=True,
+                )
+                context.add_cookies([{
+                    "name": app.config.get("SESSION_COOKIE_NAME", "session"),
+                    "value": self.cookie,
+                    "url": self.base_url,
+                }])
+                page = context.new_page()
+                response = page.goto(self.base_url + self.room_url, wait_until="networkidle")
+                self.assertEqual(200, response.status)
+                scroll = page.locator("#chat-scroll")
+                self.assertEqual(300, page.locator('#chat-messages article[id^="message-"]').count())
+
+                # Put an older, still-retained message at a known place in the
+                # viewport. Advancing the 300-message window removes rows above it.
+                anchor_id = f"message-{message_ids[150]}"
+                anchor = page.locator(f"#{anchor_id}")
+                self.assertTrue(anchor.count())
+                page.evaluate("""id => {
+                  const scroll = document.querySelector('#chat-scroll');
+                  const anchor = document.getElementById(id);
+                  const desiredTop = 24;
+                  scroll.scrollTop += anchor.getBoundingClientRect().top
+                    - scroll.getBoundingClientRect().top - desiredTop;
+                }""", anchor_id)
+                before_top = anchor.evaluate("el => el.getBoundingClientRect().top - el.closest('#chat-scroll').getBoundingClientRect().top")
+                self.assertGreater(scroll.evaluate("el => el.scrollTop"), 100)
+                self.assertGreater(scroll.evaluate("el => el.scrollHeight - el.scrollTop - el.clientHeight"), 100)
+
+                store.upsert_remote_message(
+                    room["room_id"], "remote-peer", "remote-friend", str(uuid.uuid4()),
+                    "Newest message advances the 300-message window", created_at=timestamp + 300,
+                )
+                page.wait_for_function("""({oldestId, newestText}) => {
+                  const messages = document.querySelectorAll('#chat-messages article[id^="message-"]');
+                  return messages.length === 300 && !document.getElementById(oldestId)
+                    && document.querySelector('#chat-messages').innerText.includes(newestText);
+                }""", arg={"oldestId": f"message-{message_ids[0]}", "newestText": "Newest message advances the 300-message window"}, timeout=15000)
+
+                after_anchor = page.locator(f"#{anchor_id}")
+                after_top = after_anchor.evaluate("el => el.getBoundingClientRect().top - el.closest('#chat-scroll').getBoundingClientRect().top")
+                self.assertAlmostEqual(
+                    before_top, after_top, delta=2,
+                    msg="refresh should keep the same visible message at the same mobile viewport offset when old rows fall out of the 300-message window",
+                )
+                context.close()
+            finally:
+                browser.close()
+
 
 if __name__ == "__main__":
     unittest.main()
