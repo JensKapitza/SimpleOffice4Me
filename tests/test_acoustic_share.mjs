@@ -10,9 +10,11 @@ function harness({ decoded = null, permission = null } = {}) {
     constructor(value = '') { this.value = value; this.textContent = ''; this.disabled = false; this.listeners = {}; }
     addEventListener(name, handler) { this.listeners[name] = handler; }
     click() { return this.listeners.click?.(); }
+    dispatchEvent(event) { this.listeners[event.type]?.(event); }
+    removeAttribute(name) { delete this[name]; }
     focus() { this.focused = true; }
   }
-  const nodes = Object.fromEntries(['send', 'receive', 'stop', 'status', 'text', 'result', 'band', 'fec'].map((key) => [key, new Element()]));
+  const nodes = Object.fromEntries(['send', 'receive', 'stop', 'status', 'text', 'result', 'link', 'band', 'fec'].map((key) => [key, new Element()]));
   nodes.band.value = 'high';
   nodes.fec.value = 'hamming';
   const root = { querySelector: (selector) => ({
@@ -22,6 +24,7 @@ function harness({ decoded = null, permission = null } = {}) {
     '[data-acoustic-status]': nodes.status,
     '[data-acoustic-text]': nodes.text,
     '[data-acoustic-result]': nodes.result,
+    '[data-acoustic-link]': nodes.link,
     '[data-acoustic-band]': nodes.band,
     '[data-acoustic-fec]': nodes.fec,
   })[selector] || null };
@@ -65,7 +68,7 @@ function harness({ decoded = null, permission = null } = {}) {
     if (permission) return permission;
     return { getTracks: () => [{ stop() { tracksStopped++; } }] };
   } } };
-  vm.runInNewContext(source, { window, document, navigator, console, Float32Array, Uint8Array, Promise, setTimeout, clearTimeout });
+  vm.runInNewContext(source, { window, document, navigator, console, Event, URL, Float32Array, Uint8Array, Promise, setTimeout, clearTimeout });
   return { nodes, window, timers, contexts, micRequests: () => micRequests, tracksStopped: () => tracksStopped, lastOptions: () => lastOptions };
 }
 
@@ -112,4 +115,15 @@ test('late permission denial after stop leaves the stopped state intact', async 
   await pending;
   assert.equal(h.nodes.status.textContent, 'Transfer stopped.');
   assert.equal(h.nodes.fec.disabled, false);
+});
+
+test('received HTTP links can be opened explicitly and ordinary text stays inert', async () => {
+  for (const value of ['https://office.example/documents/report', 'folder/report.txt', 'other:opaque']) {
+    const h = harness({ decoded: value });
+    await h.nodes.receive.click();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.nodes.result.value, value);
+    assert.equal(h.nodes.link.hidden, !value.startsWith('https://'));
+    assert.equal(h.nodes.link.href, value.startsWith('https://') ? value : undefined);
+  }
 });

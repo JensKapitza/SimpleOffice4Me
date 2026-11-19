@@ -64,6 +64,18 @@ Jede Übergabe enthält Paket-ID, Status, Ist, Soll, Dateien, Schritte, Zwischen
 
 **Ist und Soll.** Die Suche behandelte Prozentzeichen und Unterstriche als SQL-Platzhalter. Wer etwa nach `100%` sucht, soll nur eigene Lesezeichen mit dieser Zeichenfolge finden. **Umsetzung.** Der Agent hat in `app/browser_bookmarks.py` die Suchzeichen einschließlich des Escapezeichens maskiert. Titel, URL, Ordner und Tags behalten ihre Teilstringsuche. Im Review wurde der Test um kombinierte Sonderzeichen und einen zweiten Benutzer erweitert. Der Flask-Routentest verwendet die echte Datenbankabfrage und prüft die gerenderte Ergebnisliste. Testdatei ist `tests/test_frontend_route_contract.py`.
 
+### Dokumentaktionen · Datei oder logischen Pfad senden
+
+| Phase | Arbeitsstand und Nachweis |
+| --- | --- |
+| Analyse | Dokumente hatten Freigabelinks, der Chat bereits einen Dokumentanhang. QR und Ton waren nur über die separate Kurzfreigabe erreichbar. |
+| Planung | Vier GPT-6-Luna-Agenten übernahmen die Dokumentroute mit QR/Ton, Chatintegration, Dateipaket mit Empfang und mobile Browserprüfung. Die Koordination übernahm Dokumentliste, Detailansicht, Größen- und Daueranzeige, LAN-Adresse und Review. |
+| Implementierung | Eine gemeinsame Senden-Seite bereitet Pfad, Datei oder authentifizierten Link auf. Kleine Dateien enthalten Name, Bytezahl, SHA-256 und Inhalt. Im Chat wird der Pfad als Text gesendet oder das Dokument als Anhang referenziert. |
+| Tests | Tests prüfen Dateipaket und Hashfehler, veraltete Ergebnisse asynchroner Prüfung, FEC-Dauer und Bytebudget, Dateidownload, Zugriff nach Rechteentzug, LAN-Proxy mit IPv6, QR-/Ton-Fallback sowie Chat ohne und mit Anhang. Der mobile Chromium-Lauf deckt die Dokumentaktionen ab. |
+| Soll-Ist-Vergleich | Für QR stehen bis zu 1.100 Dateibytes zur Verfügung. Für Ton muss das gesamte Paket in 128 UTF-8-Bytes passen. Sobald es zu groß ist, zeigt die Oberfläche den Wechsel zum geschützten Download-Link an. Bei überlangen Adressen bleibt die Größenbegrenzung sichtbar. |
+| Review | Die Koordination hat den expliziten Ordnerrechtecheck im Legacy-Speicherpfad, die erneute Berechtigungsprüfung beim Chatdownload und den Bezug der Geräteadresse aus dem laufenden LAN-Proxy geprüft. Die Vorbereitung erzeugt keine öffentliche Dokumentfreigabe. |
+| Abschluss | Arbeitsumfang und Bedienung stehen in der Dokumentation zur schnellen Dateiansicht. Die Hardwareprüfung über Lautsprecher und Mikrofon zweier physischer Geräte bleibt offen. |
+
 ### P1 · Dokumentvorschau · mesh_arch
 
 **Ist und Soll.** Ein Fehler beim Kopieren in den temporären Vorschauspeicher konnte die Datei bis zur Speicherbereinigung offen lassen. Die Antwort soll bei Erfolg bis zum Ende lesbar bleiben und bei einem Fehler die Ressource sofort freigeben. **Umsetzung.** Die Fehlerbehandlung in `_verified_preview_response` umfasst jetzt das Kopieren und den gesamten Antwortaufbau. Der Regressionstest provoziert einen Kopierfehler, kontrolliert das Schließen und das Weiterreichen des Fehlers. Im HTTP-Integrationstest wird die erfolgreiche Antwort explizit geschlossen. Der kombinierte Lauf von `tests.test_verified_preview_cleanup` und `tests.test_v2_document_preview_storage` bestand alle drei Tests einschließlich Cache- und Inhaltsprüfung.

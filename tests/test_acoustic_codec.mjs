@@ -79,3 +79,13 @@ test('rejects a valid transmission with mismatched receiver correction', () => {
   const pcm = Codec.encode('test', { fec: 'repeat3' });
   assert.equal(new Codec.Decoder({ fec: 'hamming' }).push(pcm), null);
 });
+
+test('transfer budget matches the encoded duration for every correction mode', () => {
+  for (const fec of Codec.FEC_MODES) {
+    const text = 'Aß🌍';
+    const size = Codec.measure(text, fec);
+    assert.equal(size.bytes, 7);
+    assert.equal(size.durationMs, Codec.encode(text, { fec, sampleRate: 48000 }).length / 48);
+  }
+  assert.equal(Codec.measure('ä'.repeat(65), 'none').fits, false);
+});

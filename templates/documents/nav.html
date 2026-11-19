@@ -84,6 +84,8 @@
         <div class="nav-item dropdown">
           <a class="nav-link dropdown-toggle" href="#" id="nav-kids" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ 'Kids' if g.language == 'en' else 'Kinder' }}</a>
           <ul class="dropdown-menu" aria-labelledby="nav-kids">
+            <li><a class="dropdown-item" href="{{ url_for('kids_matching.dashboard') }}">{{ 'Kids overview' if g.language == 'en' else 'Kinder-Übersicht' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('kids_matching.matching') }}">{{ 'Matching fun' if g.language == 'en' else 'Zuordnungsspiel' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('kids_coloring.index') }}">{{ 'Coloring wall' if g.language == 'en' else 'Ausmalwand' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('kids_learning.mini_games') }}">{{ 'Quick play break' if g.language == 'en' else 'Kurze Spielpause' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('kids_learning.index') }}">{{ 'Learning games' if g.language == 'en' else 'Lernspiele' }}</a></li>

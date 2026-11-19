@@ -1,0 +1,73 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block title %}{{ 'Matching fun' if g.language == 'en' else 'Zuordnungsspiel' }} · SimpleOffice{% endblock %}
+{% block styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/kids_shared.css', v=app_build.version) }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/kids_matching.css', v=app_build.version) }}">
+{% endblock %}
+{% block body %}
+<main id="main-content" class="kids-matching-page container py-3 py-lg-4" data-kids-matching data-language="{{ g.language }}">
+  <script type="application/json" id="kids-matching-config">{{ matching_config|tojson }}</script>
+  <header class="kids-matching-header d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4">
+    <div>
+      <h1 class="h2 mb-1">{{ 'Matching fun' if g.language == 'en' else 'Zuordnungsspiel' }} 🧩</h1>
+      <p class="text-secondary mb-0">{{ 'Listen, look and tap the matching picture. No reading needed.' if g.language == 'en' else 'Hören, schauen und das passende Bild antippen. Ganz ohne Lesen.' }}</p>
+    </div>
+    <nav class="d-flex flex-wrap gap-2" aria-label="{{ 'Kids activities' if g.language == 'en' else 'Kinderangebote' }}">
+      <a class="btn btn-outline-secondary btn-lg kids-touch" href="{{ url_for('kids_matching.dashboard') }}">🧸 {{ 'Kids' if g.language == 'en' else 'Kinder' }}</a>
+      <a class="btn btn-outline-secondary btn-lg kids-touch" href="{{ url_for('kids_coloring.index') }}">🎨 {{ 'Coloring wall' if g.language == 'en' else 'Ausmalwand' }}</a>
+    </nav>
+  </header>
+  <p class="small text-warning-emphasis mb-2" data-speech-status role="status" aria-live="polite"></p>
+
+  <section class="kids-matching-setup" data-setup aria-labelledby="kids-matching-setup-title">
+    <h2 class="h4" id="kids-matching-setup-title">{{ 'What do you want to match?' if g.language == 'en' else 'Was möchtest du zuordnen?' }}</h2>
+    <div class="kids-symbol-grid" role="group" aria-label="{{ 'Choose a category' if g.language == 'en' else 'Kategorie auswählen' }}">
+      <button type="button" class="kids-symbol-card" data-category="colors"><span aria-hidden="true">🎨</span><strong>{{ 'Colors' if g.language == 'en' else 'Farben' }}</strong></button>
+      <button type="button" class="kids-symbol-card" data-category="shapes"><span aria-hidden="true">⭐</span><strong>{{ 'Shapes' if g.language == 'en' else 'Formen' }}</strong></button>
+      <button type="button" class="kids-symbol-card" data-category="animals"><span aria-hidden="true">🐶</span><strong>{{ 'Animals' if g.language == 'en' else 'Tiere' }}</strong></button>
+      <button type="button" class="kids-symbol-card" data-category="sounds"><span aria-hidden="true">🔊</span><strong>{{ 'Animal sounds' if g.language == 'en' else 'Tiergeräusche' }}</strong></button>
+      <button type="button" class="kids-symbol-card" data-category="mixed"><span aria-hidden="true">🎲</span><strong>{{ 'Surprise me' if g.language == 'en' else 'Überrasch mich' }}</strong></button>
+    </div>
+
+    <h2 class="h4 mt-4">{{ 'How difficult?' if g.language == 'en' else 'Wie schwierig?' }}</h2>
+    <div class="kids-matching-levels" role="group" aria-label="{{ 'Difficulty' if g.language == 'en' else 'Schwierigkeit' }}">
+      <button type="button" class="kids-matching-level is-selected" data-level="easy" aria-pressed="true"><span aria-hidden="true">🐣</span><strong>{{ 'Easy' if g.language == 'en' else 'Leicht' }}</strong><small>{{ '2 pictures' if g.language == 'en' else '2 Bilder' }}</small></button>
+      <button type="button" class="kids-matching-level" data-level="medium" aria-pressed="false"><span aria-hidden="true">🐥</span><strong>{{ 'Medium' if g.language == 'en' else 'Mittel' }}</strong><small>{{ '3 pictures' if g.language == 'en' else '3 Bilder' }}</small></button>
+      <button type="button" class="kids-matching-level" data-level="hard" aria-pressed="false"><span aria-hidden="true">🦉</span><strong>{{ 'Hard' if g.language == 'en' else 'Schwer' }}</strong><small>{{ '4 pictures' if g.language == 'en' else '4 Bilder' }}</small></button>
+    </div>
+  </section>
+
+  <section class="kids-matching-play card shadow-sm mt-4" data-play hidden aria-labelledby="kids-matching-title">
+    <div class="card-body p-3 p-md-4">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <div>
+          <p class="small text-secondary mb-1" data-progress></p>
+          <h2 class="h3 mb-0" data-title id="kids-matching-title" tabindex="-1"></h2>
+        </div>
+        <button class="btn btn-outline-primary btn-lg kids-touch" type="button" data-repeat aria-label="{{ 'Hear again' if g.language == 'en' else 'Nochmal hören' }}">🔊</button>
+      </div>
+      <div class="kids-matching-target" data-target role="img"></div>
+      <p class="kids-matching-prompt" data-prompt aria-live="polite"></p>
+      <div class="kids-matching-stage" data-stage role="group" aria-label="{{ 'Answer pictures' if g.language == 'en' else 'Antwortbilder' }}"></div>
+      <p class="kids-matching-feedback" data-feedback role="status" aria-live="polite"></p>
+      <div class="d-flex flex-wrap gap-2 mt-3">
+        <button class="btn btn-success btn-lg kids-touch" type="button" data-next hidden>{{ 'Next' if g.language == 'en' else 'Weiter' }} ➡️</button>
+        <button class="btn btn-outline-secondary btn-lg kids-touch" type="button" data-back>🏠 {{ 'Choose another game' if g.language == 'en' else 'Anderes Spiel wählen' }}</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="kids-matching-result card shadow-sm mt-4" data-result hidden aria-live="polite">
+    <div class="card-body text-center p-4">
+      <div class="kids-matching-result-icon" aria-hidden="true">🌟🎉</div>
+      <h2 class="h3" data-result-title tabindex="-1"></h2>
+      <p class="lead" data-result-copy></p>
+      <button class="btn btn-primary btn-lg kids-touch" type="button" data-play-again>🔄 {{ 'Play again' if g.language == 'en' else 'Nochmal spielen' }}</button>
+      <button class="btn btn-outline-secondary btn-lg kids-touch ms-sm-2 mt-2 mt-sm-0" type="button" data-result-back>🏠 {{ 'Choose another game' if g.language == 'en' else 'Anderes Spiel wählen' }}</button>
+    </div>
+  </section>
+</main>
+<script src="{{ url_for('static', filename='js/kids_shared.js', v=app_build.version) }}" defer></script>
+<script src="{{ url_for('static', filename='js/kids_matching.js', v=app_build.version) }}" defer></script>
+{% endblock %}
