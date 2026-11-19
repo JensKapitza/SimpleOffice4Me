@@ -148,4 +148,17 @@
   </div>
 </main>
 <script defer src="{{ url_for('static', filename='js/task_link_picker.js') }}"></script>
+<script>
+(function () {
+  'use strict';
+  if (window.location.hash === '#new-task') {
+    var form = document.getElementById('new-task');
+    if (form && window.bootstrap && window.bootstrap.Collapse) {
+      window.bootstrap.Collapse.getOrCreateInstance(form, {toggle: false}).show();
+    } else if (form) {
+      form.classList.add('show');
+    }
+  }
+})();
+</script>
 {% endblock %}

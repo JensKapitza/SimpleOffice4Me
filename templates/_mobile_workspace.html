@@ -1,0 +1,21 @@
+{# Mobile workspace: bottom quick-access bar plus contextual action button.
+   Rendered on every page, visible only on small screens via CSS. #}
+<nav class="so-bottom-bar" data-mobile-bar aria-label="{{ 'Quick access' if g.language == 'en' else 'Schnellzugriff' }}">
+  <a class="so-bottom-link" href="{{ url_for('documents.quick_search') }}" data-mobile-link="/documents/quick-search"><span aria-hidden="true">🔍</span><small>{{ 'Search' if g.language == 'en' else 'Suche' }}</small></a>
+  {% if feature_enabled('calendar') %}<a class="so-bottom-link" href="{{ url_for('documents.calendar') }}" data-mobile-link="/documents/calendar"><span aria-hidden="true">📅</span><small>{{ 'Calendar' if g.language == 'en' else 'Kalender' }}</small></a>{% endif %}
+  <a class="so-bottom-link" href="{{ url_for('documents.index') }}" data-mobile-link="/documents/"><span aria-hidden="true">📁</span><small>{{ 'Files' if g.language == 'en' else 'Dateien' }}</small></a>
+  {% if feature_enabled('projects') %}<a class="so-bottom-link" href="{{ url_for('tasks.board') }}" data-mobile-link="/tasks/"><span aria-hidden="true">✅</span><small>{{ 'Tasks' if g.language == 'en' else 'Aufgaben' }}</small></a>{% endif %}
+  {% if feature_enabled('mail') %}<a class="so-bottom-link" href="{{ url_for('chat.index') }}" data-mobile-link="/chat/"><span aria-hidden="true">💬</span><small>{{ 'Chats' if g.language == 'en' else 'Chats' }}</small></a>{% endif %}
+</nav>
+<div class="so-fab-wrap" data-mobile-fab>
+  <div class="so-fab-menu" data-mobile-fab-menu hidden>
+    {% if feature_enabled('calendar') %}<a class="btn btn-secondary so-fab-action" data-mobile-action="event" href="{{ url_for('documents.calendar') }}">📅 {{ 'New appointment' if g.language == 'en' else 'Termin erstellen' }}</a>{% endif %}
+    <a class="btn btn-secondary so-fab-action" data-mobile-action="capture" href="{{ url_for('documents.index') }}#capture-first">📤 {{ 'Capture document' if g.language == 'en' else 'Dokument erfassen' }}</a>
+    {% if feature_enabled('projects') %}<a class="btn btn-secondary so-fab-action" data-mobile-action="task" href="{{ url_for('tasks.board') }}">➕ {{ 'New task' if g.language == 'en' else 'Aufgabe anlegen' }}</a>{% endif %}
+    {% if feature_enabled('projects') %}<a class="btn btn-secondary so-fab-action" data-mobile-action="resubmit" href="{{ url_for('tasks.board') }}#new-task">🔁 {{ 'New resubmission' if g.language == 'en' else 'Wiedervorlage anlegen' }}</a>{% endif %}
+    <button class="btn btn-secondary so-fab-action" type="button" data-mobile-action="copy">📋 {{ 'Copy text' if g.language == 'en' else 'Text kopieren' }}</button>
+    <button class="btn btn-secondary so-fab-action" type="button" data-mobile-action="share">🔗 {{ 'Share' if g.language == 'en' else 'Teilen' }}</button>
+    <span class="small text-secondary text-center" data-mobile-feedback role="status" aria-live="polite"></span>
+  </div>
+  <button class="so-fab" type="button" data-mobile-fab-toggle aria-expanded="false" aria-label="{{ 'Quick actions' if g.language == 'en' else 'Schnellaktionen' }}">＋</button>
+</div>
