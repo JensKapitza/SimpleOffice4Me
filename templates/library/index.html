@@ -51,6 +51,12 @@
             <div class="col-12"><label class="form-label" for="location-code">Eigener Barcode-Code (optional)</label><input class="form-control" id="location-code" name="code" maxlength="80" placeholder="leer = automatisch LIB-L0001"><div class="form-text">Der Code bleibt dauerhaft bestehen und kann als Barcode auf das Regal geklebt werden.</div></div>
             <div class="col-12 d-grid"><button class="btn btn-success" type="submit">Standort anlegen</button></div>
           </form>
+          <form method="post" action="{{ url_for('library.count_location_inventory') }}" class="row g-2 mt-3" data-library-inventory>
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div class="col-12"><label class="form-label" for="inventory-location">Inventur für Standort</label><select class="form-select" id="inventory-location" name="location_id" required>{% for location in locations %}<option value="{{ location.location_id }}">{{ location.name }} · {{ location.code }}</option>{% endfor %}</select></div>
+            <div class="col-12"><label class="form-label" for="inventory-codes">Gescannte Codes (eine Zeile pro Fund)</label><textarea class="form-control" id="inventory-codes" name="codes" rows="3" required></textarea></div>
+            <div class="col-12 d-grid"><button class="btn btn-outline-primary" type="submit">Bestand zählen</button></div>
+          </form>
         </div>
         <div class="col-lg-7">
           <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th scope="col">Standort</th><th scope="col">Code</th><th scope="col">Aktion</th></tr></thead><tbody>

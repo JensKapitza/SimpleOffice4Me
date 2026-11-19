@@ -284,6 +284,22 @@ class LibraryStore:
             if isinstance(value, dict) and str(value.get("location_id", "")) == wanted
         ]
 
+    def record_inventory(self, location_id: str, actor: str, summary: dict[str, Any]) -> dict[str, Any]:
+        """Append one stock-count result to the location event trail."""
+        location = self.location(location_id)
+        event = {
+            "location_id": location["location_id"],
+            "code": str(location.get("code", "")),
+            "summary": {str(key): summary.get(key) for key in (
+                "scanned", "present", "missing", "misplaced", "unknown")},
+        }
+        self.directory.mkdir(parents=True, exist_ok=True)
+        with exclusive_file_lock(self.lock_path):
+            state = self._read()
+            self._event(state, "inventory_counted", actor, event)
+            self._write(state)
+        return event
+
     def printer_settings(self) -> dict[str, Any]:
         return dict(self._read()["printer"])
 
