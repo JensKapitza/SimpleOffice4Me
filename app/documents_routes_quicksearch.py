@@ -409,6 +409,8 @@ def quick_search_api():
 def quick_search_preview():
     kind = (request.args.get("kind", "") or "").strip()
     ref = (request.args.get("id", "") or "").strip()
+    if not kind and not ref:
+        return jsonify({"kind": "", "title": "", "rows": [], "url": ""})
     if kind not in KIND_ORDER or not ref or len(ref) > 128:
         return jsonify({"error": "Unbekannter Eintrag."}), 404
     preview = preview_for(kind, ref)

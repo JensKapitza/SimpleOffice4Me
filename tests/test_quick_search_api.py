@@ -139,6 +139,9 @@ class QuickSearchApiTests(unittest.TestCase):
         self.assertEqual(404, forbidden.status_code)
         unknown = self.client.get("/documents/quick-search/preview?kind=task&id=missing")
         self.assertEqual(404, unknown.status_code)
+        bare = self.client.get("/documents/quick-search/preview")
+        self.assertEqual(200, bare.status_code)
+        self.assertEqual([], bare.get_json()["rows"])
 
     def test_html_search_keeps_single_hit_redirect(self):
         response = self.client.get("/documents/quick-search?q=Quicksilver+device", follow_redirects=False)
