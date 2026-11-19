@@ -1,0 +1,4 @@
+.quick-card-active{outline:3px solid var(--bs-primary);outline-offset:2px}
+[data-quick-search-results] .btn-sm{min-height:44px}
+[data-quick-fav]{min-width:44px}
+@media(min-width:992px){.quick-preview{position:sticky;top:1rem}}

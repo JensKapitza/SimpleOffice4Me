@@ -1,11 +1,84 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/quick_search.css') }}">{% endblock %}
 {% block body %}
-<main id="main-content" class="container-xl py-4">
-  <h1 class="h2">{{ 'Quick search' if g.language == 'en' else 'Schnellsuche' }}</h1>
-  <p class="text-secondary">{{ 'One unambiguous match opens automatically. Multiple matches remain selectable.' if g.language == 'en' else 'Ein eindeutiger Treffer wird automatisch geöffnet. Mehrere Treffer bleiben auswählbar.' }}</p>
-  <form role="search" aria-label="{{ 'Search all records' if g.language == 'en' else 'Alle Datensätze durchsuchen' }}" method="get" class="input-group mb-4"><input type="search" autofocus required class="form-control" name="q" value="{{ query }}" placeholder="{{ 'Documents, objects, invoices, customers or projects' if g.language == 'en' else 'Dokumente, Objekte, Rechnungen, Kunden oder Projekte' }}"><button type="submit" class="btn btn-primary">{{ 'Search' if g.language == 'en' else 'Suchen' }}</button></form>
-  {% if narrow_hints %}<div class="alert alert-info" role="status" aria-live="polite"><strong>{{ 'AI hint (proposal only, nothing changed)' if g.language == 'en' else 'AI-Hinweis (nur Vorschlag, nichts geändert)' }}:</strong><ul class="mb-0">{% for hint in narrow_hints %}<li>{{ hint.reason }}</li>{% endfor %}</ul></div>{% endif %}
-  {% if query %}<div class="list-group">{% for match in matches %}<a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-3" href="{{ match.url }}"><span><strong>{{ match.label }}</strong>{% if match.detail %}<small class="d-block text-secondary">{{ match.detail }}</small>{% endif %}</span><span class="badge text-bg-secondary">{{ {'document': 'Dokument', 'object': 'Objekt', 'invoice': 'Rechnung', 'contact': 'Kontakt', 'project': 'Projekt'}[match.kind] if g.language != 'en' else match.kind|title }}</span></a>{% else %}<div class="alert alert-secondary">{{ 'No matches.' if g.language == 'en' else 'Keine Treffer.' }}</div>{% endfor %}</div>{% endif %}
+<main id="main-content" class="container-xl py-4" data-quick-workspace data-quick-api="{{ url_for('documents.quick_search_api') }}" data-quick-preview="{{ url_for('documents.quick_search_preview') }}" data-quick-lang="{{ g.language }}">
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+    <div>
+      <h1 class="h2 mb-1">{{ 'Quick search' if g.language == 'en' else 'Schnellsuche' }}</h1>
+      <p class="text-secondary mb-0">{{ 'Find a record, preview it or open it directly.' if g.language == 'en' else 'Datensatz finden, vorschauen oder direkt öffnen.' }}</p>
+    </div>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.document_search', q=query) }}">{{ 'Advanced document search' if g.language == 'en' else 'Erweiterte Dokumentensuche' }}</a>
+  </div>
+  <form role="search" aria-label="{{ 'Search all records' if g.language == 'en' else 'Alle Datensätze durchsuchen' }}" method="get" class="input-group my-3">
+    <input id="quick-search-query" type="search" autofocus required class="form-control form-control-lg" name="q" value="{{ query }}" placeholder="{{ 'Documents, appointments, tasks, chats, contacts or projects' if g.language == 'en' else 'Dokumente, Termine, Aufgaben, Chats, Kontakte oder Projekte' }}" aria-label="{{ 'Search terms' if g.language == 'en' else 'Suchbegriff' }}" autocomplete="off" aria-expanded="false" aria-controls="quick-live-results">
+    <button type="submit" class="btn btn-primary">{{ 'Search' if g.language == 'en' else 'Suchen' }}</button>
+  </form>
+  {% if narrow_hints %}<div class="alert alert-info" role="status" aria-live="polite"><strong>{{ 'Search hints' if g.language == 'en' else 'Suchhinweise' }}:</strong><ul class="mb-0">{% for hint in narrow_hints %}<li>{{ hint.reason }}</li>{% endfor %}</ul></div>{% endif %}
+  <div class="row g-3">
+    <div class="col-lg-7">
+  {% set types = [('all', 'All' if g.language == 'en' else 'Alle'), ('document', 'Documents' if g.language == 'en' else 'Dokumente'), ('appointment', 'Appointments' if g.language == 'en' else 'Termine'), ('task', 'Tasks' if g.language == 'en' else 'Aufgaben'), ('chat', 'Chats' if g.language == 'en' else 'Chats'), ('contact', 'Contacts' if g.language == 'en' else 'Kontakte'), ('project', 'Projects' if g.language == 'en' else 'Projekte'), ('object', 'Objects' if g.language == 'en' else 'Objekte'), ('invoice', 'Invoices' if g.language == 'en' else 'Rechnungen'), ('link', 'Links' if g.language == 'en' else 'Links')] %}
+  <section aria-labelledby="quick-results-title" data-quick-search-results>
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+      <h2 id="quick-results-title" class="h5 mb-0">{{ 'Results' if g.language == 'en' else 'Treffer' }} <span class="badge text-bg-secondary" data-quick-count>{{ matches|length }}</span></h2>
+      <span id="quick-search-copy-feedback" class="small text-secondary" role="status" aria-live="polite"></span>
+    </div>
+    <div class="d-flex flex-wrap gap-2 mb-3" role="group" aria-label="{{ 'Filter results by type' if g.language == 'en' else 'Treffer nach Bereich filtern' }}" data-quick-filters hidden>
+      {% for kind, title in types %}
+      {% set count = matches|length if kind == 'all' else matches|selectattr('kind', 'equalto', kind)|list|length %}
+      <button type="button" class="btn btn-sm {{ 'btn-primary' if kind == 'all' else 'btn-outline-secondary' }}" data-quick-filter="{{ kind }}" aria-pressed="{{ 'true' if kind == 'all' else 'false' }}" {% if not count %}hidden{% endif %}>{{ title }} <span class="badge text-bg-light text-dark" data-quick-filter-count>{{ count }}</span></button>
+      {% endfor %}
+    </div>
+    {% if query and matches %}
+    <div class="vstack gap-2" id="quick-live-results" data-quick-list role="listbox" aria-label="{{ 'Search results' if g.language == 'en' else 'Suchergebnisse' }}">
+      {% for match in matches %}
+      <article class="card shadow-sm" data-quick-match="{{ match.kind }}" data-quick-ref="{{ match.ref }}" role="option" aria-selected="false" tabindex="-1">
+        <div class="card-body p-2 p-sm-3 d-flex flex-wrap align-items-center justify-content-between gap-2">
+          <div class="min-w-0 flex-grow-1" style="min-width: 0">
+            <span class="badge text-bg-light border mb-1">{{ {'document': 'Dokument', 'appointment': 'Termin', 'task': 'Aufgabe', 'chat': 'Chat', 'object': 'Objekt', 'invoice': 'Rechnung', 'contact': 'Kontakt', 'project': 'Projekt', 'link': 'Link'}.get(match.kind, match.kind) if g.language != 'en' else match.kind|title }}</span>
+            <a class="d-block fw-semibold text-break" data-quick-open href="{{ match.url }}">{{ match.label }}</a>
+            {% if match.detail %}<small class="d-block text-secondary text-break">{{ match.detail }}</small>{% endif %}
+          </div>
+          <div class="d-flex gap-2 flex-shrink-0">
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-copy-label="{{ match.label }}" hidden aria-label="{{ ('Copy name: ' if g.language == 'en' else 'Bezeichnung kopieren: ') ~ match.label }}">{{ 'Copy' if g.language == 'en' else 'Kopieren' }}</button>
+            <a class="btn btn-sm btn-outline-primary" data-quick-open href="{{ match.url }}">{{ 'Open' if g.language == 'en' else 'Öffnen' }}</a>
+          </div>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+    <p data-quick-empty-filter class="alert alert-secondary mt-3" hidden>{{ 'No results in this category.' if g.language == 'en' else 'Keine Treffer in diesem Bereich.' }}</p>
+    {% elif query %}
+    <div class="alert alert-secondary" data-quick-empty>{{ 'No matches. Try another term or advanced document search.' if g.language == 'en' else 'Keine Treffer. Probiere einen anderen Begriff oder die erweiterte Dokumentensuche.' }}</div>
+    <div class="vstack gap-2" id="quick-live-results" data-quick-list role="listbox" aria-label="{{ 'Search results' if g.language == 'en' else 'Suchergebnisse' }}" hidden></div>
+    {% else %}
+    <div class="vstack gap-2" id="quick-live-results" data-quick-list role="listbox" aria-label="{{ 'Search results' if g.language == 'en' else 'Suchergebnisse' }}" hidden></div>
+    {% endif %}
+  </section>
+  <section class="mt-4" data-quick-recents hidden aria-labelledby="quick-recents-title">
+    <h2 id="quick-recents-title" class="h5">{{ 'Recently used' if g.language == 'en' else 'Zuletzt verwendet' }}</h2>
+    <div class="list-group" data-quick-recents-list></div>
+  </section>
+  <section class="mt-4" data-quick-favorites hidden aria-labelledby="quick-favorites-title">
+    <h2 id="quick-favorites-title" class="h5">{{ 'Favorites' if g.language == 'en' else 'Favoriten' }}</h2>
+    <div class="list-group" data-quick-favorites-list></div>
+  </section>
+    </div>
+    <div class="col-lg-5">
+      <aside class="card shadow-sm quick-preview" data-quick-preview hidden aria-labelledby="quick-preview-title" aria-live="polite">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-start gap-2">
+            <h2 class="h5 mb-0" data-quick-preview-title></h2>
+            <button type="button" class="btn-close" data-quick-preview-close aria-label="{{ 'Close preview' if g.language == 'en' else 'Vorschau schließen' }}"></button>
+          </div>
+          <p class="mb-1"><span class="badge text-bg-light border" data-quick-preview-kind></span></p>
+          <dl class="row small mb-2" data-quick-preview-rows></dl>
+          <div class="d-flex flex-wrap gap-2" data-quick-preview-actions></div>
+        </div>
+      </aside>
+    </div>
+  </div>
 </main>
+<script src="{{ url_for('static', filename='js/quick_search_results.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/quick_search_workspace.js') }}" defer></script>
 {% endblock %}
