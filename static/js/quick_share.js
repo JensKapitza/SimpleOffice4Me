@@ -21,21 +21,23 @@
   updateKind();
 
   document.querySelectorAll('[data-copy-value]').forEach((button) => {
+    const card = button.closest('.card-body');
+    const payload = card.querySelector('[data-qr-payload]');
+    const status = card.querySelector('[data-copy-status]');
     button.addEventListener('click', async () => {
       try {
-        await navigator.clipboard.writeText(button.dataset.copyValue || '');
-        const original = button.textContent;
-        button.textContent = document.documentElement.lang === 'en' ? 'Copied' : 'Kopiert';
-        window.setTimeout(() => { button.textContent = original; }, 1400);
-      } catch (_error) {
-        const details = button.closest('.card-body')?.querySelector('[data-qr-payload]');
-        if (details) {
-          const selection = window.getSelection();
+        await navigator.clipboard.writeText(button.dataset.copyValue);
+        status.textContent = status.dataset.copied;
+      } catch {
+        payload.closest('details').open = true;
+        const selection = window.getSelection();
+        if (selection) {
           const range = document.createRange();
-          range.selectNodeContents(details);
-          selection?.removeAllRanges();
-          selection?.addRange(range);
+          range.selectNodeContents(payload);
+          selection.removeAllRanges();
+          selection.addRange(range);
         }
+        status.textContent = status.dataset.manual;
       }
     });
   });
