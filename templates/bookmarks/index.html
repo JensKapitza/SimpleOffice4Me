@@ -1,4 +1,5 @@
 {% extends "layout.html" %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/bookmarks.css') }}">{% endblock %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block title %}Lesezeichen · SimpleOffice{% endblock %}
 {% block body %}
@@ -33,11 +34,11 @@
       </div></div>
     </section>
     <section class="col-lg-7" aria-labelledby="bookmark-list-title">
-      <div class="d-flex justify-content-between align-items-center gap-3 mb-3"><h2 class="h4 mb-0" id="bookmark-list-title">Gespeicherte Lesezeichen ({{ bookmarks|length }})</h2>
-        <form method="get" action="{{ url_for('browser_bookmarks.index') }}" class="d-flex gap-2"><label class="visually-hidden" for="bookmark-search">Suchen</label><input class="form-control" id="bookmark-search" name="q" value="{{ query }}" placeholder="Suchen"><button class="btn btn-outline-secondary" type="submit">Suchen</button></form>
+      <div class="bookmark-list-heading d-flex justify-content-between align-items-center gap-3 mb-3"><h2 class="h4 mb-0" id="bookmark-list-title">Gespeicherte Lesezeichen ({{ bookmarks|length }})</h2>
+        <form method="get" action="{{ url_for('browser_bookmarks.index') }}" class="bookmark-search d-flex gap-2"><label class="visually-hidden" for="bookmark-search">Suchen</label><input class="form-control" id="bookmark-search" name="q" value="{{ query }}" placeholder="Suchen"><button class="btn btn-outline-secondary" type="submit">Suchen</button></form>
       </div>
       {% if bookmarks %}<div class="list-group">
-        {% for item in bookmarks %}<article class="list-group-item">
+        {% for item in bookmarks %}<article class="bookmark-item list-group-item">
           <form method="post" action="{{ url_for('browser_bookmarks.update', bookmark_id=item.id) }}">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="row g-2">
@@ -46,13 +47,13 @@
               <div class="col-md-5"><label class="visually-hidden" for="folder-{{ item.id }}">Ordner</label><input class="form-control form-control-sm" id="folder-{{ item.id }}" name="folder" value="{{ item.folder }}" maxlength="256" placeholder="Ordner"></div>
               <div class="col-md-7"><label class="visually-hidden" for="tags-{{ item.id }}">Schlagwörter</label><input class="form-control form-control-sm" id="tags-{{ item.id }}" name="tags" value="{{ item.tags }}" maxlength="500" placeholder="Schlagwörter"></div>
             </div>
-            <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
+            <div class="bookmark-edit-actions d-flex flex-wrap gap-2 align-items-center mt-2">
               <button class="btn btn-sm btn-outline-primary" type="submit">Änderungen speichern</button>
               <a class="btn btn-sm btn-outline-secondary" href="{{ item.url }}" target="_blank" rel="noopener noreferrer">Öffnen ↗</a>
               <span class="small text-secondary">{{ item.folder }}{% if item.tags %} · {{ item.tags }}{% endif %}</span>
             </div>
           </form>
-          <div class="d-flex gap-2 mt-2">
+          <div class="bookmark-item-actions d-flex flex-wrap gap-2 mt-2">
             <form method="post" action="{{ url_for('browser_bookmarks.pin', bookmark_id=item.id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-secondary" type="submit">{{ 'Lösen' if item.pinned else 'Anheften' }}</button></form>
             <form method="post" action="{{ url_for('browser_bookmarks.delete', bookmark_id=item.id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-danger" type="submit">Löschen</button></form>
           </div>

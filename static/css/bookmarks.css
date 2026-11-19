@@ -1,0 +1,42 @@
+/* Keep bookmark editing and actions usable on narrow screens. */
+.bookmark-item .row > [class*="col-"] {
+  min-width: 0;
+}
+
+.bookmark-item .form-control {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.bookmark-edit-actions .btn,
+.bookmark-item-actions .btn,
+.bookmark-search .btn {
+  min-height: 44px;
+}
+
+@media (max-width: 575.98px) {
+  .bookmark-list-heading {
+    align-items: stretch !important;
+    flex-direction: column;
+  }
+
+  .bookmark-search {
+    width: 100%;
+  }
+
+  .bookmark-search .form-control {
+    min-width: 0;
+  }
+
+  .bookmark-item-actions > form {
+    flex: 1 1 auto;
+  }
+
+  .bookmark-item-actions .btn {
+    width: 100%;
+  }
+}
+
+.bookmark-edit-actions .text-secondary {
+  overflow-wrap: anywhere;
+}
