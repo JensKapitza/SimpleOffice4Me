@@ -14,6 +14,7 @@ from . import documents_routes_task_source as _routes_9
 from . import documents_routes_smart_folders as _routes_10
 from . import documents_routes_recovery as _routes_11
 from . import documents_routes_transfer  # noqa: F401  -- registers document transfer routes
+from . import documents_routes_bulk  # noqa: F401  -- registers bulk document routes
 from . import documents_routes_quicksearch  # noqa: F401  -- registers quick-search workspace routes
 
 _route_modules = (
