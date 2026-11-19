@@ -13,6 +13,7 @@ on:
       - 'tests/test_installable_release_artifacts.py'
       - 'tests/desktop_lan_proxy.test.cjs'
       - 'tests/desktop_start_smoke.test.cjs'
+      - 'tests/desktop_reveal.test.cjs'
       - 'tools/generate_sbom.py'
       - '.github/workflows/desktop-build.yml'
 
@@ -99,7 +100,7 @@ jobs:
         shell: bash
         run: |
           python -m unittest discover -s tests -p test_installable_release_artifacts.py
-          node --test tests/desktop_lan_proxy.test.cjs tests/desktop_start_smoke.test.cjs
+          node --test tests/desktop_lan_proxy.test.cjs tests/desktop_start_smoke.test.cjs tests/desktop_reveal.test.cjs
       - name: Build Python backend
         working-directory: desktop/electron
         run: npm run build:backend
