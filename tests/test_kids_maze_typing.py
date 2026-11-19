@@ -62,6 +62,13 @@ class KidsMazeTypingTests(PublicHttpTestCase):
         content = CONTENT.read_text(encoding="utf-8")
         self.assertIn("next.col < 4 && next.row >= 0 && next.row < 4", content)
 
+    def test_typing_mode_marks_panel_for_compact_layout(self):
+        script = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("classList.toggle('is-typing'", script)
+        css = STYLES.read_text(encoding="utf-8")
+        self.assertIn(".is-typing .kids-maze-letters", css)
+        self.assertIn("[data-kids-header]", css)
+
 
 if __name__ == "__main__":
     unittest.main()

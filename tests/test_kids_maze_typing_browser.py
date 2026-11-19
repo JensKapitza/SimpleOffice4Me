@@ -127,13 +127,51 @@ class KidsMazeTypingBrowserTests(unittest.TestCase):
                 panel = page.locator("[data-maze-panel]")
                 panel.wait_for(state="visible", timeout=5000)
                 page.locator("[data-maze-typing]").click()
-                panel.scroll_into_view_if_needed()
-                box = panel.bounding_box()
-                self.assertIsNotNone(box)
-                self.assertLessEqual(box["y"] + box["height"], 800 + 1)
-                maze_map = page.locator("[data-maze-map]").bounding_box()
-                self.assertIsNotNone(maze_map)
-                self.assertLessEqual(maze_map["x"] + maze_map["width"], 360 + 1)
+                page.evaluate("window.scrollTo({top: 0, behavior: 'instant'})")
+                box = page.evaluate("""() => {
+                    const rect = document.querySelector('[data-maze-panel]').getBoundingClientRect();
+                    const map = document.querySelector('[data-maze-map]').getBoundingClientRect();
+                    return {bottom: rect.bottom, mapRight: map.right};
+                }""")
+                self.assertLessEqual(box["bottom"], 800 + 1)
+                self.assertLessEqual(box["mapRight"], 360 + 1)
+                self.assertTrue(page.locator("[data-kids-header]").is_hidden())
+                page.locator("[data-search-back]").click()
+                self.assertTrue(page.locator("[data-kids-header]").is_visible())
+            finally:
+                context.close()
+                browser.close()
+
+    def test_typing_mode_solves_exactly_with_the_last_letter(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(
+                executable_path=shutil.which("chromium"), headless=True, args=["--no-sandbox"],
+            )
+            try:
+                context = self._login_context(
+                    browser, viewport={"width": 1280, "height": 900},
+                )
+                page = context.new_page()
+                errors: list[str] = []
+                page.on("pageerror", lambda error: errors.append(str(error)))
+                page.goto(self.origin + "/kids/lernen/?game=maze", wait_until="domcontentloaded")
+                panel = page.locator("[data-maze-panel]")
+                panel.wait_for(state="visible", timeout=5000)
+                page.locator("[data-maze-typing]").click()
+                task = page.locator("[data-maze-task]")
+                panel.click()
+                solved_exactly = False
+                for _ in range(60):
+                    if page.locator("[data-search-next]").is_visible():
+                        break
+                    wanted = task.get_attribute("data-maze-expected") or "A"
+                    page.keyboard.press(wanted.lower())
+                    shown = task.text_content() or ""
+                    if "＿" not in shown and "【" not in shown:
+                        solved_exactly = page.locator("[data-search-next]").is_visible()
+                        break
+                self.assertTrue(solved_exactly)
+                self.assertEqual([], errors)
             finally:
                 context.close()
                 browser.close()
