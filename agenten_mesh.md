@@ -227,6 +227,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: 1 Klick zum vorbelegten Formular, mobil lesbar ohne Horizontal-Scroll. Ist gemessen: 4/4 Python-Tests (28–31 ISO-Tage, Heute-Link, Handler, Mobil-CSS), Browser-Tests (Chromium, CI): Klick auf 2026-11-19 → Formular mit 09:00/10:00, Mobil 360 px: Wochentage versteckt, Tage ≥ 80 % Breite, Plus-Ziele ≥ 44 px. Gates grün. |
 | Review und Abschluss | Offen als Follow-up: Drag-and-drop, Größenänderung, Wochen-/Tagesraster, Terminverknüpfungen (eigene Aufträge), physische Geräteprüfung. |
 
+## 19. November 2026 · Verknüpfungen: Aufgaben und Dokumente beidseitig verbinden
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Modelle vorhanden: Aufgaben mit `document_ids`/`contact_id`/`project_id`, Dokument-Relationen mit Zielauflösung, Aufgaben-Rücklinks in Detaildaten (ungenutzt im Template). Lücken: kein Anheften per Suche, keine Rücklinks auf Detailseiten, Picker fehlt. Keine zweite Datenbank nötig. |
+| Implementierung | Neue Route `POST /tasks/<id>/documents` (Sichtbarkeitsprüfung beider Seiten, idempotent, max. 50, Verlauf via Update); Picker je Aufgabenkarte (Live-Suche über Quick-Search-API, POST, Reload); Rücklink-Karte auf Dokumentdetailseite (Titel, Status, Fälligkeit); defekte Referenzen zeigen vorhandenen Hinweis statt Link. |
+| Tests und Soll-Ist-Vergleich | Soll: vollständiger Fall Anheften→beide Richtungen→Defekt→Rechte. Ist gemessen: 4/4 Tests (Rücklink erscheint, Idempotenz, unbekannte ID + anonym abgewiesen, Defekt-Hinweis, Picker-Marker). Ruff, Gates, Compile grün. |
+| Review und Abschluss | Offen als Follow-up: Picker für Kontakte/Projekte/Termine/Chats nach gleichem Muster, Verknüpfungen entfernen-UI, Verknüpfungsübersicht pro Objekt. |
+
 ## 19. November 2026 · Dateiverwaltung: Mehrfachauswahl mit Stapel-Tags und -Verschieben
 
 | Phase | Arbeit und Nachweis |

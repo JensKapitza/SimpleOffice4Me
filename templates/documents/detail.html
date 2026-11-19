@@ -197,6 +197,19 @@
 </div>{% if relationships %}<ul class="list-group list-group-flush">{% for link in relationships %}<li class="list-group-item">
 <span class="badge text-bg-light border">{{ link.type }}</span> {% if link.target %}<a href="{{ url_for('documents.detail', document_id=link.target.document_id) }}">{{ link.target.last_path }}</a>{% else %}<span class="text-break">{{ link.target_text or link.target_document_id }}</span>{% endif %}{% if link.label %} <small class="text-secondary">{{ link.label }}</small>{% endif %}</li>{% endfor %}</ul>{% endif %}</div>
 </section>
+{% if document_tasks %}
+<section class="card mb-4">
+<div class="card-header">{{ 'Linked tasks' if g.language == 'en' else 'Verknüpfte Aufgaben' }} <span class="badge text-bg-secondary">{{ document_tasks|length }}</span></div>
+<ul class="list-group list-group-flush">
+{% for task in document_tasks %}
+<li class="list-group-item d-flex justify-content-between align-items-center gap-2">
+<a href="{{ url_for('tasks.board') }}#task-{{ task.id }}">{{ task.title }}</a>
+<span class="badge text-bg-light border">{{ task.status }}{% if task.due %} · {{ task.due[:10] }}{% endif %}</span>
+</li>
+{% endfor %}
+</ul>
+</section>
+{% endif %}
 <aside class="col-lg-5">
 <div class="card mb-4">
 <div class="card-header d-flex justify-content-between"><span>{{ 'Malware protection' if g.language == 'en' else 'Schadsoftwareprüfung' }}</span>{% if malware_scan %}<span class="badge {% if not malware_scan.current %}text-bg-warning{% elif malware_scan.verdict == 'clean' %}text-bg-success{% elif malware_scan.verdict == 'infected' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">{% if not malware_scan.current %}{{ 'outdated' if g.language == 'en' else 'veraltet' }}{% else %}{{ malware_scan.verdict }}{% endif %}</span>{% else %}<span class="badge text-bg-secondary">{{ 'not scanned' if g.language == 'en' else 'nicht geprüft' }}</span>{% endif %}</div>
