@@ -15,6 +15,7 @@
         <h2 class="h4" id="bookmark-add-title">Lesezeichen hinzufügen</h2>
         <form method="post" action="{{ url_for('browser_bookmarks.add') }}">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="q" value="{{ query }}">
           <label class="form-label" for="bookmark-title">Titel</label><input class="form-control mb-3" id="bookmark-title" name="title" maxlength="500" placeholder="Name der Seite">
           <label class="form-label" for="bookmark-url">URL</label><input class="form-control mb-3" id="bookmark-url" name="url" type="url" maxlength="4096" required placeholder="https://example.org">
           <label class="form-label" for="bookmark-folder">Ordner</label><input class="form-control mb-3" id="bookmark-folder" name="folder" maxlength="256" placeholder="z. B. Arbeit/Recherche">
@@ -34,13 +35,15 @@
       </div></div>
     </section>
     <section class="col-lg-7" aria-labelledby="bookmark-list-title">
-      <div class="bookmark-list-heading d-flex justify-content-between align-items-center gap-3 mb-3"><h2 class="h4 mb-0" id="bookmark-list-title">Gespeicherte Lesezeichen ({{ bookmarks|length }})</h2>
+      <div class="bookmark-list-heading d-flex justify-content-between align-items-center gap-3 mb-3"><h2 class="h4 mb-0" id="bookmark-list-title">{{ "Suchtreffer" if query else "Gespeicherte Lesezeichen" }} ({{ bookmarks|length }})</h2>
         <form method="get" action="{{ url_for('browser_bookmarks.index') }}" class="bookmark-search d-flex gap-2"><label class="visually-hidden" for="bookmark-search">Suchen</label><input class="form-control" id="bookmark-search" name="q" value="{{ query }}" placeholder="Suchen"><button class="btn btn-outline-secondary" type="submit">Suchen</button></form>
       </div>
+      {% if query %}<a class="btn btn-outline-secondary mb-3 bookmark-reset" href="{{ url_for('browser_bookmarks.index') }}">Suche zurücksetzen</a>{% endif %}
       {% if bookmarks %}<div class="list-group">
         {% for item in bookmarks %}<article class="bookmark-item list-group-item">
           <form method="post" action="{{ url_for('browser_bookmarks.update', bookmark_id=item.id) }}">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="q" value="{{ query }}">
             <div class="row g-2">
               <div class="col-md-5"><label class="visually-hidden" for="title-{{ item.id }}">Titel</label><input class="form-control form-control-sm" id="title-{{ item.id }}" name="title" value="{{ item.title }}" maxlength="500"></div>
               <div class="col-md-7"><label class="visually-hidden" for="url-{{ item.id }}">URL</label><input class="form-control form-control-sm" id="url-{{ item.id }}" name="url" value="{{ item.url }}" maxlength="4096" required></div>
@@ -54,11 +57,11 @@
             </div>
           </form>
           <div class="bookmark-item-actions d-flex flex-wrap gap-2 mt-2">
-            <form method="post" action="{{ url_for('browser_bookmarks.pin', bookmark_id=item.id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-secondary" type="submit">{{ 'Lösen' if item.pinned else 'Anheften' }}</button></form>
-            <form method="post" action="{{ url_for('browser_bookmarks.delete', bookmark_id=item.id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-danger" type="submit">Löschen</button></form>
+            <form method="post" action="{{ url_for('browser_bookmarks.pin', bookmark_id=item.id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="q" value="{{ query }}"><button class="btn btn-sm btn-outline-secondary" type="submit">{{ 'Lösen' if item.pinned else 'Anheften' }}</button></form>
+            <form method="post" action="{{ url_for('browser_bookmarks.delete', bookmark_id=item.id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="q" value="{{ query }}"><button class="btn btn-sm btn-outline-danger" type="submit">Löschen</button></form>
           </div>
         </article>{% endfor %}
-      </div>{% else %}<p class="text-secondary">Noch keine Lesezeichen gespeichert.</p>{% endif %}
+      </div>{% else %}<p class="text-secondary">{{ "Keine passenden Lesezeichen gefunden." if query else "Noch keine Lesezeichen gespeichert." }}</p>{% endif %}
     </section>
   </div>
 </main>

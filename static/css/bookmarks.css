@@ -10,7 +10,8 @@
 
 .bookmark-edit-actions .btn,
 .bookmark-item-actions .btn,
-.bookmark-search .btn {
+.bookmark-search .btn,
+.bookmark-reset {
   min-height: 44px;
 }
 

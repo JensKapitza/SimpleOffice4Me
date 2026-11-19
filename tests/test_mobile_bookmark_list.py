@@ -98,6 +98,13 @@ class MobileBookmarkListBrowserTests(unittest.TestCase):
                 self.assertEqual(1, item.count())
                 self.assertEqual(long_url, item.locator("input[name='url']").input_value())
 
+                # Keep an unrelated bookmark in the list to prove filtering is active.
+                page.locator("#bookmark-title").fill("Weekend recipes")
+                page.locator("#bookmark-url").fill("https://example.net/cooking")
+                with page.expect_navigation(wait_until="domcontentloaded"):
+                    page.locator("form[action='/bookmarks/add'] button[type='submit']").tap()
+                self.assertEqual(2, page.locator("article.list-group-item").count())
+
                 # The narrow viewport must not require page-level horizontal scrolling.
                 overflow = page.evaluate("""() => ({
                     viewport: document.documentElement.clientWidth,
@@ -113,14 +120,19 @@ class MobileBookmarkListBrowserTests(unittest.TestCase):
                     page.locator(".bookmark-search button[type='submit']").tap()
                 item = page.locator("article.list-group-item").filter(has=page.locator("input[value='Mobile research source']"))
                 self.assertEqual(1, item.count())
-                item.locator("input[name='title']").fill("Edited research source")
+                self.assertEqual(1, page.locator("article.list-group-item").count(), "search should hide the nonmatching bookmark")
+                item.locator("input[name='title']").fill("Edited Mobile research source")
                 with page.expect_navigation(wait_until="domcontentloaded"):
                     item.locator(".bookmark-edit-actions button[type='submit']").tap()
-                item = page.locator("article.list-group-item").filter(has=page.locator("input[value='Edited research source']"))
+                item = page.locator("article.list-group-item").filter(has=page.locator("input[value='Edited Mobile research source']"))
                 self.assertEqual(1, item.count())
+                self.assertEqual("Mobile research", page.locator("#bookmark-search").input_value())
+                self.assertEqual(1, page.locator("article.list-group-item").count(), "renamed bookmark should still match the active search")
                 with page.expect_navigation(wait_until="domcontentloaded"):
                     item.locator(".bookmark-item-actions form:first-child button").tap()
-                item = page.locator("article.list-group-item").filter(has=page.locator("input[value='Edited research source']"))
+                item = page.locator("article.list-group-item").filter(has=page.locator("input[value='Edited Mobile research source']"))
+                self.assertEqual("Mobile research", page.locator("#bookmark-search").input_value())
+                self.assertEqual(1, page.locator("article.list-group-item").count(), "pin should preserve the filtered result")
                 self.assertEqual("Lösen", item.locator(".bookmark-item-actions form:first-child button").inner_text())
 
                 # Verify the actions are not clipped and can be tapped at 360 px.
@@ -142,7 +154,16 @@ class MobileBookmarkListBrowserTests(unittest.TestCase):
                 # Delete is a normal existing flow and removes the item from the list.
                 with page.expect_navigation(wait_until="domcontentloaded"):
                     item.locator(".bookmark-item-actions form:last-child button").tap()
-                self.assertTrue(page.get_by_text("Noch keine Lesezeichen gespeichert.", exact=True).is_visible())
+                self.assertEqual("Mobile research", page.locator("#bookmark-search").input_value())
+                self.assertEqual(0, page.locator("article.list-group-item").count())
+                self.assertTrue(page.get_by_text("Keine passenden Lesezeichen gefunden.", exact=True).is_visible())
+
+                # Clearing the query restores the distractor that was hidden by search.
+                with page.expect_navigation(wait_until="domcontentloaded"):
+                    page.get_by_role("link", name="Suche zurücksetzen").tap()
+                self.assertEqual("", page.locator("#bookmark-search").input_value())
+                self.assertEqual(1, page.locator("article.list-group-item").count())
+                self.assertEqual(1, page.locator("input[value='Weekend recipes']").count())
                 context.close()
 
                 desktop = browser.new_page(viewport={"width": 1280, "height": 900})
