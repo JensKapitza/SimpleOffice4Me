@@ -57,6 +57,14 @@
             <div class="col-12"><label class="form-label" for="inventory-codes">Gescannte Codes (eine Zeile pro Fund)</label><textarea class="form-control" id="inventory-codes" name="codes" rows="3" required></textarea></div>
             <div class="col-12 d-grid"><button class="btn btn-outline-primary" type="submit">Bestand zählen</button></div>
           </form>
+          <form method="post" action="{{ url_for('library.create_location_from_template') }}" class="row g-2 mt-3" data-library-template>
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div class="col-12"><label class="form-label" for="template-id">Vorlage</label><select class="form-select" id="template-id" name="template_id">{% for template in location_templates %}<option value="{{ template.template_id }}">{{ template.name }} ({{ template.default_count }} Fächer)</option>{% endfor %}</select></div>
+            <div class="col-12"><label class="form-label" for="template-name">Name</label><input required class="form-control" id="template-name" name="name" placeholder="z. B. Regal 2"></div>
+            <div class="col-6"><label class="form-label" for="template-parent">Übergeordnet</label><select class="form-select" id="template-parent" name="parent_id"><option value="">– oberste Ebene –</option>{% for location in locations %}<option value="{{ location.location_id }}">{{ location.name }} · {{ location.code }}</option>{% endfor %}</select></div>
+            <div class="col-6"><label class="form-label" for="template-count">Anzahl</label><input class="form-control" id="template-count" name="count" inputmode="numeric" placeholder="Standard"></div>
+            <div class="col-12 d-grid"><button class="btn btn-outline-success" type="submit">Struktur anlegen</button></div>
+          </form>
         </div>
         <div class="col-lg-7">
           <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th scope="col">Standort</th><th scope="col">Code</th><th scope="col">Aktion</th></tr></thead><tbody>
