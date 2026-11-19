@@ -234,45 +234,12 @@ def quick_search():
     query = request.args.get("q", "").strip()
     matches: list[dict[str, str]] = []
     if query:
-        needle = query.casefold()
-        try:
-            literal = json.dumps(query + "*", ensure_ascii=False)
-            rows = _store().search_page(f"name: {literal} ODER tag: {literal}", page_size=12)["results"]
-        except ValueError:
-            rows = []
-        matches.extend({
-            "kind": "document", "label": row["path"], "detail": row.get("state", ""),
-            "url": url_for("documents.detail", document_id=row["document_id"]),
-        } for row in rows)
-        matches.extend({
-            "kind": "object", "label": row.get("name", row["object_id"]), "detail": row.get("display_id", ""),
-            "url": url_for("documents.object_detail", object_id=row["object_id"]),
-        } for row in _objects().objects(query)[:12])
-        project_rows = [row for row in _projects().projects() if needle in json.dumps(row, ensure_ascii=False).casefold()][:12]
-        matches.extend({
-            "kind": "project", "label": row.get("title", row["project_id"]), "detail": row.get("status", ""),
-            "url": url_for("documents.project_detail", project_id=row["project_id"]),
-        } for row in project_rows)
-        actor = str(g.user["username"])
-        matches.extend({
-            "kind": "contact", "label": row.get("fields", {}).get("display_name", row["contact_id"]),
-            "detail": row.get("fields", {}).get("company", ""),
-            "url": url_for("documents.contact_detail", contact_id=row["contact_id"]),
-        } for row in _contacts().search(query, actor)[:12])
+        from .documents_routes_quicksearch import collect_quick_matches
 
-        # Local import avoids a blueprint startup cycle.
-        from .business_documents import invoices
-        contacts = _contacts()
-        for row in invoices(_store().root):
-            searchable = " ".join((str(row.get("invoice_number", "")), str(row.get("buyer", {}).get("name", "")))).casefold()
-            if needle not in searchable or not contacts.can_manage(row.get("contact_id", ""), actor):
-                continue
-            matches.append({
-                "kind": "invoice", "label": row.get("invoice_number", row["invoice_id"]),
-                "detail": row.get("buyer", {}).get("name", ""),
-                "url": url_for("contact_audit.business_documents.customer_billing", contact_id=row["contact_id"]),
-            })
-        matches = matches[:50]
+        matches = collect_quick_matches(query)
+        for match in matches:
+            if match["kind"] == "document":
+                _store().record_access(match["ref"], str(g.user["username"]), "found")
         if len(matches) == 1:
             return redirect(matches[0]["url"])
     from .search_narrow_hints import suggest_search_narrowing
