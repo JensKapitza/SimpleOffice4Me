@@ -1,5 +1,5 @@
 {% extends "layout.html" %}
-{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block header %}{% include "kids/_header.html" %}{% endblock %}
 {% block title %}{{ 'Quick play break' if g.language == 'en' else 'Kurze Spielpause' }} · SimpleOffice{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/kids_mini_games.css') }}">{% endblock %}
 {% block body %}

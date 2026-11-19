@@ -1,5 +1,5 @@
 {% extends "layout.html" %}
-{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block header %}{% include "kids/_header.html" %}{% endblock %}
 {% block title %}{{ 'Kids' if g.language == 'en' else 'Kinder' }} · SimpleOffice{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/kids_shared.css', v=app_build.version) }}">{% endblock %}
 {% block body %}
@@ -14,6 +14,16 @@
       <span aria-hidden="true">🧩</span>
       <strong>{{ 'Matching fun' if g.language == 'en' else 'Zuordnungsspiel' }}</strong>
       <small>{{ 'Colors, shapes, animals and sounds for ages 2-3' if g.language == 'en' else 'Farben, Formen, Tiere und Geräusche für 2- bis 3-Jährige' }}</small>
+    </a>
+    <a class="kids-symbol-card" href="{{ url_for('kids_numbers.index') }}">
+      <span aria-hidden="true">🔢</span>
+      <strong>{{ 'Counting fun' if g.language == 'en' else 'Zählspaß' }}</strong>
+      <small>{{ 'Quantities and first numbers for ages 4-5' if g.language == 'en' else 'Mengen und erste Zahlen für 4- bis 5-Jährige' }}</small>
+    </a>
+    <a class="kids-symbol-card" href="{{ url_for('kids_learning.syllables') }}">
+      <span aria-hidden="true">👏</span>
+      <strong>{{ 'Syllable clapping' if g.language == 'en' else 'Silben klatschen' }}</strong>
+      <small>{{ 'Clap, count and rhyme syllables' if g.language == 'en' else 'Silben klatschen, zählen und reimen' }}</small>
     </a>
     <a class="kids-symbol-card" href="{{ url_for('kids_learning.mini_games') }}">
       <span aria-hidden="true">🌟</span>

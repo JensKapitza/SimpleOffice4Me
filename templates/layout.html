@@ -42,7 +42,7 @@
     <button type="button" class="btn btn-sm btn-outline-primary" id="pwa-update-apply">{{ 'Update now' if g.language|default('de') == 'en' else 'Jetzt aktualisieren' }}</button>
   </div>
   {% block header %}{% endblock %}
-  {% if g.user and not session.get('web_export_read_only') %}
+  {% if g.user and not session.get('web_export_read_only') and not kids_mode|default(false) %}
   {% set export_available, export_reason = web_export_availability() %}
   <div class="container-fluid py-2 border-bottom bg-body-tertiary" data-web-export-toolbar>
     <form method="post" action="{{ url_for('web_export.download') }}" class="d-flex flex-wrap justify-content-end align-items-center gap-2 mb-0">
@@ -94,7 +94,7 @@
   <script src="{{ url_for('static', filename='js/global_ui.js') }}"></script>
   <script src="{{ url_for('static', filename='js/global_quickwins.js') }}"></script>
   <script src="{{ url_for('static', filename='js/unsaved_guard.js') }}" defer></script>
-  {% if g.user and v3_search_enabled %}<script src="{{ url_for('static', filename='js/v3_command_palette.js') }}"></script>{% endif %}
+  {% if g.user and v3_search_enabled and not kids_mode|default(false) %}<script src="{{ url_for('static', filename='js/v3_command_palette.js') }}"></script>{% endif %}
   <script src="{{ url_for('static', filename='js/mobile_viewport.js') }}"></script>
   <script src="{{ url_for('static', filename='js/scroll_to_top.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/pwa.js') }}"></script>

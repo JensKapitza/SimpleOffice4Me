@@ -32,21 +32,21 @@ def index():
         language_vocabulary = json.loads(vocabulary_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         language_vocabulary = []
-    return render_template("kids/learning.html", language_vocabulary=language_vocabulary)
+    return render_template("kids/learning.html", language_vocabulary=language_vocabulary, kids_mode=True)
 
 
 @bp.get("/spielpause")
 @login_required
 def mini_games():
     """Short, touch-friendly games for a quick break in the Kids area."""
-    return render_template("kids/mini_games.html")
+    return render_template("kids/mini_games.html", kids_mode=True)
 
 
 @bp.get("/silben")
 @login_required
 def syllables():
     """Preschool syllable game: clap, count and rhyme without reading."""
-    return render_template("kids/syllables.html")
+    return render_template("kids/syllables.html", kids_mode=True)
 
 
 @bp.get("/qr")
@@ -83,4 +83,4 @@ def share_game_qr():
             game_url = urlunsplit((scheme, f"{authority}:{proxy['port']}", parts.path, parts.query, ""))
             is_loopback = False
     qr_data = base64.b64encode(render_qr_svg(game_url).encode("utf-8")).decode("ascii")
-    return render_template("kids/share_qr.html", game_url=game_url, qr_data=qr_data, local_only=is_loopback)
+    return render_template("kids/share_qr.html", game_url=game_url, qr_data=qr_data, local_only=is_loopback, kids_mode=True)
