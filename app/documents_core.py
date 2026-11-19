@@ -392,6 +392,9 @@ def _document_detail_preview_context(document: dict) -> dict[str, Any]:
             document.get("extracted_text") or document.get("ocr_text") or ""
         )[:MAX_INLINE_TEXT_PREVIEW_CHARS]
         text_status = "ready" if text else ""
+    extraction = document.get("text_extraction") if isinstance(document.get("text_extraction"), dict) else {}
+    extraction_status = str(extraction.get("status", "")) if text and suffix not in TEXT_SUFFIXES else ""
+    extraction_updated = str(extraction.get("updated_at", "") or extraction.get("updated_by", "")) if extraction_status else ""
     return {
         "preview": {
             **_preview_data(document),
@@ -405,6 +408,8 @@ def _document_detail_preview_context(document: dict) -> dict[str, Any]:
             "text": text,
             "text_status": text_status,
             "text_truncated": text_truncated,
+            "extraction_status": extraction_status,
+            "extraction_updated": extraction_updated,
             "archive": archive_preview,
         },
         "document_path_parts": [part for part in str(document.get("last_path", "")).split("/") if part],
