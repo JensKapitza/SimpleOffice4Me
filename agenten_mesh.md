@@ -218,6 +218,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll je Spiel: 5–15 Min., Zufallsaufgaben, Stufen, Sofort-Feedback, ohne Lesen. Ist gemessen: Matching 15/15, Numbers 14/14, Syllables 8/8 Python- + 7/7 Node-Tests; Kids-Modus 8/8 (Containment aller 10 Kids-URLs, Gate richtig/falsch/ohne Frage, Erwachsenenseite behält Nav); kombiniert 29/29 bzw. 23/23 nach Zusammenführung; `node --check`, DOM-Stub-Proben (10 Runden/32 Ansagen bzw. 3×8 Aufgaben), Policy-/Größen-/Compile-Gates grün. CI je PR vollständig grün (36/36 bzw. 35 + Rest) vor Merge; dazwischen nur Ubuntu-Spiegel-503 und ein nicht-blockierender Python-3.15-Budget-Timeout (5924 Tests liefen, alle 8 Kids-Tests darunter). |
 | Review und Abschluss | Unabhängiges Review gab alle drei Zweige frei (keine externen Requests, kein Tracking, keine Timer, ermutigendes Feedback, keine Routenkollisionen). Offen als Follow-up: B1/B2-Fixes im Lernspiel, S2-Umsortierung im Alt-Code, Fortschritts-/Eltern-Backend, Offline-Arbeitsblätter/Bastelanleitungen sowie Praxisprüfung auf physischen Geräten (Touch, Tastatur, Lautsprecher/Mikrofon). |
 
+## 19. November 2026 · Maze-Tippmodus: Solve-Verhalten verifiziert, Vollbild-Fit hergestellt
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Live-Reproduktion per Headless-Chromium mit echter Tastatur: letzter Buchstabe löst exakt (Solve im selben Tastenschlag wie Aufdecken), Falschbuchstabe ohne Fortschritt, Pfeile ignoriert, keine JS-Fehler. Echter Befund: Panel 944 px auf 360×800 — kein Vollbild-Fit (Header 217 + Titel 165 + Panel). |
+| Implementierung | Nur CSS + 1 JS-Token (999-Zeilen-Gate): `is-typing`-Klasse am Panel, Kompaktregeln ≤576 px (Buchstaben 44 px/5 Spalten, Karte 38vmin, Optionen 2×2, Task 1,5rem), Kids-Nav und Seittitel während der Maze-Runde per `:has()` ausgeblendet (Zurück-Button bleibt, Nav kehrt automatisch zurück), Statuszeile einzeilig. Desktop unverändert. |
+| Tests und Soll-Ist-Vergleich | Soll: Solve exakt beim letzten Buchstaben, alles ohne Scrollen sichtbar. Ist gemessen: Solve-exakt per Tastatur in 5/5 Live-Läufen; Panel unten 748–790 px (Worst-Case 5-Buchstaben-Wort 749), vorher 955–1026. Neu: Browser-Test Tastatur-Solve + Fit ab Seitenanfang + Nav-Rückkehr, statischer Pin für Klasse/CSS. 7/7 Python-, Node-Suite grün, `node --check`, Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Weiter/Zurück-Buttons liegen 160 px unterhalb (kleiner Scroll, Fokus springt automatisch); `:has()` braucht moderne Browser, sonst wieder Scrollen; physische Geräteprüfung. |
+
 ## 19. November 2026 · Verknüpfungen: Aufgaben und Dokumente beidseitig verbinden
 
 | Phase | Arbeit und Nachweis |
