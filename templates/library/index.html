@@ -49,6 +49,7 @@
             <div class="col-12"><label class="form-label" for="location-name">Name</label><input required class="form-control" id="location-name" name="name" placeholder="z. B. Wohnzimmer · Regal 2 · Fach B"></div>
             <div class="col-12"><label class="form-label" for="location-parent">Übergeordnet</label><select class="form-select" id="location-parent" name="parent_id"><option value="">– oberste Ebene –</option>{% for location in locations %}<option value="{{ location.location_id }}">{{ location.name }} · {{ location.code }}</option>{% endfor %}</select></div>
             <div class="col-12"><label class="form-label" for="location-code">Eigener Barcode-Code (optional)</label><input class="form-control" id="location-code" name="code" maxlength="80" placeholder="leer = automatisch LIB-L0001"><div class="form-text">Der Code bleibt dauerhaft bestehen und kann als Barcode auf das Regal geklebt werden.</div></div>
+            <div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" value="1" id="location-temporary" name="temporary"><label class="form-check-label" for="location-temporary">Temporärer Ort (Werkbank, Fahrzeug, Reparatur)</label></div></div>
             <div class="col-12 d-grid"><button class="btn btn-success" type="submit">Standort anlegen</button></div>
           </form>
           <form method="post" action="{{ url_for('library.create_location_from_template') }}" class="row g-2 mt-3" data-library-template>
@@ -62,8 +63,9 @@
         </div>
         <div class="col-lg-7">
           <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th scope="col">Standort</th><th scope="col">Code</th><th scope="col">Aktion</th></tr></thead><tbody>
-            {% for location in locations %}<tr><td>{{ location.name }}</td><td><code>{{ location.code }}</code></td><td><form method="post" action="{{ url_for('library.print_location', location_id=location.location_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary" type="submit">Barcode drucken</button></form></td></tr>{% else %}<tr><td colspan="3" class="text-secondary">Noch kein Bibliotheksstandort angelegt.</td></tr>{% endfor %}
+            {% for location in locations %}<tr><td>{{ location.name }}{% if location.temporary %} <span class="badge text-bg-warning">temporär</span>{% endif %}</td><td><code>{{ location.code }}</code></td><td><form method="post" action="{{ url_for('library.print_location', location_id=location.location_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary" type="submit">Barcode drucken</button></form></td></tr>{% else %}<tr><td colspan="3" class="text-secondary">Noch kein Bibliotheksstandort angelegt.</td></tr>{% endfor %}
           </tbody></table></div>
+          <div class="mt-3" data-temporary-holds><strong>Temporäre Auslagen ({{ holds|length }})</strong>{% if holds %}<ul class="list-unstyled small mt-1 mb-0">{% for hold in holds %}<li>{{ hold.location_name }}: {{ hold.return_date or 'ohne Frist' }}{% if hold.overdue %} <span class="badge text-bg-danger">überfällig</span>{% endif %}</li>{% endfor %}</ul>{% else %}<p class="small text-secondary mb-0">Keine offenen Rückgaben.</p>{% endif %}</div>
         </div>
       </div>
     </div>

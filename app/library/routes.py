@@ -153,7 +153,7 @@ def _object_update_values(item: dict[str, Any], *, location: str, location_id: s
 
 def assign_object_to_location(
     object_id: str, location_id: str, actor: str, *,
-    scanned: str = "", root: str | Path | None = None,
+    scanned: str = "", root: str | Path | None = None, return_date: str = "",
 ) -> dict[str, Any]:
     """Assign an ObjectStore item and mirror the structured shelf into searchable fields."""
     objects = ObjectStore(root) if root is not None else _objects()
@@ -173,7 +173,7 @@ def assign_object_to_location(
         actor,
     )
     try:
-        assignment = library.assign(item["object_id"], location_id, actor, scanned=scanned)
+        assignment = library.assign(item["object_id"], location_id, actor, scanned=scanned, return_date=return_date)
     except Exception:
         try:
             objects.update(item["object_id"], previous, actor)
@@ -285,6 +285,7 @@ def index():
         ocr_available=bool(shutil.which("tesseract")),
         pdf_available=bool(shutil.which("pdftoppm")),
         location_templates=template_catalog(),
+        holds=_store().temporary_holds(),
     )
 
 
@@ -295,6 +296,7 @@ def create_location():
         row = _store().create_location(
             request.form.get("name", ""), _actor(),
             parent_id=request.form.get("parent_id", ""), code=request.form.get("code", ""),
+            temporary=request.form.get("temporary", "") == "1",
         )
         flash(f"Standort {row['name']} ({row['code']}) wurde angelegt.")
         return redirect(url_for("library.index", location=row["location_id"]) + "#bulk-scan")
