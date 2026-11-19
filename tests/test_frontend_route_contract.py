@@ -165,13 +165,17 @@ class FrontendRouteContractTests(unittest.TestCase):
         """Every literal UI asset and PWA shell asset must exist and return HTTP 200."""
         missing = sorted(
             filename for filename in _literal_static_files()
-            if not (STATIC / filename).is_file()
+            if not (STATIC / filename).is_file() and not (STATIC / filename).is_dir()
         )
         self.assertEqual([], missing, f"Frontend static files are missing: {missing}")
 
         client = app.test_client()
         failures: list[str] = []
+        # Existing directories are valid references for JS-resolved asset trees
+        # (per-file delivery is covered by dedicated tests, e.g. audio clips).
         for filename in sorted(_literal_static_files()):
+            if (STATIC / filename).is_dir():
+                continue
             response = client.get(f"/static/{filename}")
             if response.status_code != 200 or not response.data:
                 failures.append(f"/static/{filename}: HTTP {response.status_code}, {len(response.data)} bytes")
