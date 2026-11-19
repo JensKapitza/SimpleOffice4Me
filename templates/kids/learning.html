@@ -76,6 +76,7 @@
           <button type="button" class="btn btn-outline-primary btn-lg" data-maze-difficulty="easy" aria-pressed="true">🐢 {{ 'Easy' if g.language == 'en' else 'Leicht' }}</button>
           <button type="button" class="btn btn-outline-primary btn-lg" data-maze-difficulty="hard" aria-pressed="false">🐇 {{ 'Hard' if g.language == 'en' else 'Schwer' }}</button>
           <button type="button" class="btn btn-outline-primary btn-lg" data-maze-listen aria-pressed="false">🔊 {{ 'Listen mode off' if g.language == 'en' else 'Hörmodus aus' }}</button>
+          <button type="button" class="btn btn-outline-primary btn-lg" data-maze-typing aria-pressed="false">⌨️ {{ 'Typing mode' if g.language == 'en' else 'Tipp-Modus' }}</button>
         </div>
         <svg class="kids-maze-map mt-3" data-maze-map viewBox="0 0 400 400" role="img" aria-label="{{ 'Maze path' if g.language == 'en' else 'Labyrinthweg' }}"></svg>
         <div class="kids-maze-controls" data-maze-controls role="group" aria-label="{{ 'Choose a direction' if g.language == 'en' else 'Richtung auswählen' }}">
@@ -84,6 +85,7 @@
           <button type="button" class="kids-maze-direction" data-maze-direction="down" aria-label="{{ 'Down' if g.language == 'en' else 'Nach unten' }}">⬇️</button>
           <button type="button" class="kids-maze-direction" data-maze-direction="right" aria-label="{{ 'Right' if g.language == 'en' else 'Nach rechts' }}">➡️</button>
         </div>
+        <div class="kids-maze-letters" data-maze-letters role="group" aria-label="{{ 'Type the letter' if g.language == 'en' else 'Buchstaben tippen' }}" hidden></div>
       </div>
       <div class="kids-search-letters mt-3" data-letter-play hidden>
         <span class="kids-search-word-image" data-letter-image aria-hidden="true"></span>
@@ -131,5 +133,6 @@
 </main>
 <script src="{{ url_for('static', filename='js/kids_learning_content.js', v=app_build.version) }}" defer></script>
 <script src="{{ url_for('static', filename='js/kids_language_audio.js', v=app_build.version) }}" defer></script>
+<script src="{{ url_for('static', filename='js/kids_maze_draw.js', v=app_build.version) }}" defer></script>
 <script src="{{ url_for('static', filename='js/kids_learning.js', v=app_build.version) }}" defer></script>
 {% endblock %}

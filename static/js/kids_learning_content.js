@@ -418,6 +418,68 @@
       {word:'Kompass',image:'🧭',missing:3}, {word:'Teleskop',image:'🔭',missing:5}, {word:'Fahrrad',image:'🚲',missing:4}
     ]
   };
-    return {levels, subjects, bank, safetyCards, logicCards, arrowCards, mazeFriends, generateMaze, searchObjects, wordCards};
+  // Pure maze-typing helpers (tested in Node, reused by the maze game).
+  // Nodes: {id: {exits: {direction: nextId}}}; all functions take nodes
+  // explicitly so they stay independent of game state.
+  function mazeDistanceTo(nodes, from, target) {
+    if (from === target) return 0;
+    const queue = [[from, 0]];
+    const seen = new Set([from]);
+    while (queue.length) {
+      const [node, distance] = queue.shift();
+      const exits = nodes[node] ? Object.values(nodes[node].exits) : [];
+      for (const next of exits) {
+        if (next === target) return distance + 1;
+        if (!seen.has(next)) {
+          seen.add(next);
+          queue.push([next, distance + 1]);
+        }
+      }
+    }
+    return Infinity;
+  }
+  function mazeRouteTo(nodes, from, target) {
+    if (from === target) return [];
+    const queue = [[from, []]];
+    const seen = new Set([from]);
+    while (queue.length) {
+      const [node, path] = queue.shift();
+      const exits = nodes[node] ? Object.entries(nodes[node].exits) : [];
+      for (const [direction, next] of exits) {
+        if (seen.has(next)) continue;
+        if (next === target) return [...path, direction];
+        seen.add(next);
+        queue.push([next, [...path, direction]]);
+      }
+    }
+    return [];
+  }
+  function mazeLetterNode(nodes, letterIndex) {
+    return Object.keys(nodes).find(id => nodes[id].letterIndex === letterIndex) || '';
+  }
+  function mazeNextExpected(word, collected) {
+    const done = new Set(collected);
+    for (let index = 0; index < word.length; index += 1) {
+      if (!done.has(index)) return index;
+    }
+    return -1;
+  }
+  function mazeCorrectStep(nodes, current, target) {
+    const route = mazeRouteTo(nodes, current, target);
+    return route.length ? route[0] : '';
+  }
+  function mazeWrongStep(nodes, current, target, visited) {
+    if (!nodes[current]) return '';
+    const here = mazeDistanceTo(nodes, current, target);
+    const seen = new Set(visited || []);
+    const candidates = Object.entries(nodes[current].exits)
+      .filter(([, next]) => mazeDistanceTo(nodes, next, target) >= here)
+      .sort((a, b) => Number(seen.has(a[1])) - Number(seen.has(b[1])));
+    return candidates.length ? candidates[0][0] : '';
+  }
+  const mazeTyping = {
+    mazeDistanceTo, mazeRouteTo, mazeLetterNode, mazeNextExpected, mazeCorrectStep, mazeWrongStep,
+  };
+    return {levels, subjects, bank, safetyCards, logicCards, arrowCards, mazeFriends, generateMaze, searchObjects, wordCards, mazeTyping};
   };
 })();

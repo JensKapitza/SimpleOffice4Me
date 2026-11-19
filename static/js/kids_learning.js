@@ -18,7 +18,7 @@
     if (cursor < String(value || '').length) segments.push({text: String(value).slice(cursor), language: mainLanguage});
     return segments.filter(segment => segment.text.trim());
   }
-  const {levels, subjects, bank, safetyCards, logicCards, arrowCards, mazeFriends, generateMaze, searchObjects, wordCards} = window.KidsLearningContent(text, english, promptSpeechLanguage, splitQuotedSpeech);
+  const {levels, subjects, bank, safetyCards, logicCards, arrowCards, mazeFriends, generateMaze, searchObjects, wordCards, mazeTyping} = window.KidsLearningContent(text, english, promptSpeechLanguage, splitQuotedSpeech);
   let mazeNodes = {};
 
   const setup = root.querySelector('[data-setup]');
@@ -31,6 +31,9 @@
   const mazeMap = root.querySelector('[data-maze-map]');
   const mazeTask = root.querySelector('[data-maze-task]');
   const mazeListenButton = root.querySelector('[data-maze-listen]');
+  const mazeTypingButton = root.querySelector('[data-maze-typing]');
+  const mazeLetters = root.querySelector('[data-maze-letters]');
+  const mazeControls = root.querySelector('[data-maze-controls]');
   const searchNext = root.querySelector('[data-search-next]');
   const letterPlay = root.querySelector('[data-letter-play]');
   const letterChoices = root.querySelector('[data-letter-choices]');
@@ -66,6 +69,7 @@
   let mazeWrongTurns = {};
   let mazeHappy = false;
   let mazeHappyTimer = 0;
+  let mazeTypingMode = false;
   const maxWrongAttempts = 5;
   const audio = window.KidsLanguageAudio({text, speechStatus, selectedVoices:selectedSpeechVoices});
   const {speak, readQuestion, playSolution} = audio;
@@ -563,76 +567,70 @@
     root.querySelectorAll('[data-maze-difficulty]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.mazeDifficulty === mazeDifficulty)));
     mazePanel.focus();
     drawMaze();
+    setMazeTypingMode(mazeTypingMode);
     if (mazeListen) speakMazeRoute();
   }
   function updateMazeTask() {
-    const letters = [...mazeWord].map((letter,index) => mazeCollected.has(index) ? letter : '＿').join(' ');
-    mazeTask.textContent = `${mazeFriend.character}  ➜  ${mazeFriend.goal}   ·   ${letters}`;
+    const expected = mazeTypingMode ? mazeTyping.mazeNextExpected(mazeWord, mazeCollected) : -1;
+    const letters = [...mazeWord].map((letter, index) => {
+      if (mazeCollected.has(index)) return letter;
+      if (index === expected) return `【${letter}】`;
+      return '＿';
+    }).join(' ');
+    const goal = expected < 0 && mazeTypingMode ? ' ➜ 🎯' : '';
+    mazeTask.textContent = `${mazeFriend.character}  ➜  ${mazeFriend.goal}   ·   ${letters}${goal}`;
+    mazeTask.dataset.mazeExpected = expected >= 0 ? mazeWord[expected] : '';
+    if (mazeTypingMode) {
+      mazeTask.setAttribute('aria-label', expected >= 0
+        ? text(`Tippe den Buchstaben ${mazeWord[expected]}.`, `Type the letter ${mazeWord[expected]}.`)
+        : text('Wort fertig. Tippe einen Buchstaben zum Ziel.', 'Word complete. Type a letter to reach the goal.'));
+    }
+  }
+  function mazeTypingTarget() {
+    const expected = mazeTyping.mazeNextExpected(mazeWord, mazeCollected);
+    if (expected < 0) return {node: 'goal', letter: ''};
+    return {node: mazeTyping.mazeLetterNode(mazeNodes, expected), letter: mazeWord[expected]};
+  }
+  function answerMazeLetter(letter) {
+    if (mazeCompleted || !mazeTypingMode) return;
+    const typed = String(letter || '').toLocaleUpperCase();
+    if (!/^[A-ZÄÖÜ]$/.test(typed)) return;
+    const speechLang = english ? 'en-US' : 'de-DE';
+    const {node: target, letter: expected} = mazeTypingTarget();
+    if (!expected || typed === expected.toLocaleUpperCase()) {
+      const step = mazeTyping.mazeCorrectStep(mazeNodes, mazeCurrentNode, target);
+      if (step) moveMaze(step);
+      if (mazeCompleted) return;
+      const next = mazeTyping.mazeNextExpected(mazeWord, mazeCollected);
+      speak(next < 0
+        ? text('Wort fertig! Tippe einen Buchstaben zum Ziel.', 'Word complete! Type a letter to reach the goal.')
+        : text(`Richtig! Tippe ${mazeWord[next]}.`, `Correct! Type ${mazeWord[next]}.`), speechLang);
+      return;
+    }
+    const step = mazeTyping.mazeWrongStep(mazeNodes, mazeCurrentNode, target, mazeVisited);
+    if (!step) {
+      speak(text('Falsch getippt. Hier geht es nicht falsch weiter.', 'Wrong letter. There is no wrong way from here.'), speechLang);
+      return;
+    }
+    moveMaze(step);
+    if (!mazeCompleted) speak(text('Falsch getippt. Ein Schritt zurück.', 'Wrong letter. One step back.'), speechLang);
+  }
+  function setMazeTypingMode(on) {
+    mazeTypingMode = on;
+    mazeTypingButton.setAttribute('aria-pressed', String(on));
+    mazeTypingButton.innerHTML = `⌨️ ${text('Tipp-Modus', 'Typing mode')}${on ? ' ✓' : ''}`;
+    root.querySelectorAll('[data-maze-direction]').forEach(button => { button.disabled = on; });
+    mazeControls.hidden = on;
+    mazeLetters.hidden = !on;
+    updateMazeTask();
+    if (on) speak(text('Tipp-Modus. Tippe den eingeklammerten Buchstaben.', 'Typing mode. Type the bracketed letter.'), english ? 'en-US' : 'de-DE');
+    else if ('speechSynthesis' in window) window.speechSynthesis.cancel();
   }
   function drawMaze() {
-    mazeMap.replaceChildren();
-    mazeMap.setAttribute('aria-label', text(`Labyrinth: ${mazeFriend.character} soll zum ${mazeFriend.de}.`, `Maze: guide ${mazeFriend.character} to the ${mazeFriend.en}.`));
-    const svg = 'http://www.w3.org/2000/svg';
-    const point = node => ({x:50 + mazeNodes[node].col * 100, y:50 + mazeNodes[node].row * 100});
-    const drawnEdges = new Set();
-    Object.entries(mazeNodes).forEach(([node, config]) => Object.values(config.exits).forEach(next => {
-      const key = [node, next].sort().join(':');
-      if (drawnEdges.has(key)) return;
-      drawnEdges.add(key);
-      const start = point(node);
-      const end = point(next);
-      const road = document.createElementNS(svg, 'line');
-      road.setAttribute('x1', String(start.x));
-      road.setAttribute('y1', String(start.y));
-      road.setAttribute('x2', String(end.x));
-      road.setAttribute('y2', String(end.y));
-      road.setAttribute('stroke', '#b6c0cb');
-      road.setAttribute('stroke-width', '24');
-      road.setAttribute('stroke-linecap', 'round');
-      mazeMap.append(road);
-    }));
-    Object.keys(mazeNodes).forEach(node => {
-      const {x,y} = point(node);
-      const circle = document.createElementNS(svg, 'circle');
-      circle.setAttribute('cx', String(x));
-      circle.setAttribute('cy', String(y));
-      circle.setAttribute('r', '20');
-      circle.setAttribute('fill', node === 'goal' ? '#fff3cd' : '#fff');
-      circle.setAttribute('stroke', node === 'goal' ? '#f0ad00' : '#697586');
-      circle.setAttribute('stroke-width', '4');
-      mazeMap.append(circle);
-      if (mazeNodes[node].letter) {
-        const letter = document.createElementNS(svg, 'text');
-        letter.setAttribute('x', String(x));
-        letter.setAttribute('y', String(y - 29));
-        letter.setAttribute('text-anchor', 'middle');
-        letter.setAttribute('dominant-baseline', 'central');
-        letter.setAttribute('font-size', '27');
-        letter.setAttribute('font-weight', '800');
-        letter.setAttribute('fill', '#26364a');
-        letter.textContent = mazeNodes[node].letter;
-        mazeMap.append(letter);
-      }
-    });
-    const addIcon = (node, icon, label, offsetX = 0) => {
-      const {x,y} = point(node);
-      const marker = document.createElementNS(svg, 'text');
-      marker.setAttribute('x', String(x + offsetX));
-      marker.setAttribute('y', String(y + 1));
-      marker.setAttribute('text-anchor', 'middle');
-      marker.setAttribute('dominant-baseline', 'central');
-      marker.setAttribute('font-size', '32');
-      marker.setAttribute('aria-label', label);
-      marker.textContent = icon;
-      mazeMap.append(marker);
-    };
-    if (mazeCurrentNode !== 'start') addIcon('start', mazeFriend.character, text('Start','Start'));
-    addIcon('goal', mazeFriend.goal, text('Ziel','Goal'));
-    addIcon(mazeCurrentNode, mazeHappy ? `${mazeFriend.character}😊` : mazeFriend.character, text('Figur','Character'), mazeCurrentNode === 'goal' ? -30 : 0);
-    root.querySelectorAll('[data-maze-direction]').forEach(button => {
-      const key = `${mazeCurrentNode}:${button.dataset.mazeDirection}`;
-      const misses = mazeWrongTurns[key] || 0;
-      button.style.opacity = mazeDifficulty === 'easy' && misses ? String(Math.max(.28, 1 - misses * .24)) : '';
+    window.KidsMazeDraw.drawMaze({
+      mapEl: mazeMap, nodes: mazeNodes, current: mazeCurrentNode, happy: mazeHappy,
+      friend: mazeFriend, wrongTurns: mazeWrongTurns, difficulty: mazeDifficulty,
+      text, root,
     });
   }
   function fadeMazeChoice(direction) {
@@ -899,8 +897,24 @@
     else if ('speechSynthesis' in window) window.speechSynthesis.cancel();
   });
   root.querySelectorAll('[data-maze-direction]').forEach(button => button.addEventListener('click', () => moveMaze(button.dataset.mazeDirection)));
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').forEach(letter => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'kids-maze-letter';
+    button.textContent = letter;
+    button.setAttribute('aria-label', text(`Buchstabe ${letter}`, `Letter ${letter}`));
+    button.addEventListener('click', () => answerMazeLetter(letter));
+    mazeLetters.append(button);
+  });
+  mazeTypingButton.addEventListener('click', () => setMazeTypingMode(!mazeTypingMode));
   root.addEventListener('keydown', event => {
     if (selectedSearchMode !== 'maze' || searchGame.hidden || !mazePanel.contains(document.activeElement)) return;
+    if (mazeTypingMode) {
+      if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing || !/^[a-zäöü]$/i.test(event.key)) return;
+      event.preventDefault();
+      answerMazeLetter(event.key);
+      return;
+    }
     const direction = {ArrowUp:'up',ArrowRight:'right',ArrowDown:'down',ArrowLeft:'left'}[event.key];
     if (!direction) return;
     event.preventDefault();

@@ -11,7 +11,11 @@ anderem Zählen, Wörter, Richtungen, Gegenstandssuche, Verkehrsregeln und Logik
 Die Spielpause bietet kurze Runden ohne Zeitdruck. In den Lernspielen können
 Hörhinweise über die verfügbaren Gerätestimmen oder mitgelieferte Audiodateien
 abgespielt werden. Unter **Strom sicher erkennen** gibt es einen eigenen
-Einstieg in elektrische Sicherheit.
+Einstieg in elektrische Sicherheit. Das Labyrinth hat zusätzlich einen
+**Tipp-Modus**: Statt der Pfeile wird der eingeklammerte Buchstabe über die
+Tastatur oder das Buchstabenfeld eingetippt; ein falscher Buchstabe führt
+einen Schritt in die falsche Richtung, wo es keine gibt, bleibt die Figur
+stehen. Das Labyrinth passt sich der Bildschirmgröße an.
 
 Mit **Spiel per QR-Code öffnen** wird ein Link zur gewählten Aktivität erzeugt.
 Das zweite Gerät braucht Zugriff auf dieselbe Instanz und ein angemeldetes
