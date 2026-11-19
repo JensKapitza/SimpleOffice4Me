@@ -608,7 +608,8 @@ def item_detail(object_id: str):
     except ValueError:
         abort(404)
     meta = _inventory().object_meta(item["object_id"])
-    return render_template("inventory/detail.html", item=item, inventory=meta, today=date.today().isoformat())
+    links = _objects().related(item["object_id"])
+    return render_template("inventory/detail.html", item=item, inventory=meta, today=date.today().isoformat(), links=links)
 
 
 def _book_lookup_response(isbn: str, metadata: dict[str, Any]):
@@ -794,4 +795,5 @@ def inventory_media(object_id: str, filename: str):
 # `bp`, and a name import here would break if the routes module is
 # imported first (partial circular import).
 from . import inventory_capture_routes as _capture_routes  # noqa: E402,F401
+from . import inventory_relation_routes as _relation_routes  # noqa: E402,F401
 from .translations import translate

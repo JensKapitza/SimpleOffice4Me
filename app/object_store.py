@@ -14,6 +14,7 @@ from .file_lock import exclusive_file_lock
 from .revision_history import RevisionHistory
 
 OBJECT_STATES = {"active", "inactive", "lost", "retired"}
+RELATION_KINDS = {"accessory": "Zubehör", "member": "Set-Bestandteil"}
 MONEY = Decimal("0.01")
 INVOICE_DEFAULTS: dict[str, Any] = {
     "use_in_invoice": False,
@@ -202,6 +203,21 @@ class ObjectStore:
             if isinstance(item.get("fields"), dict) else {}
         )
         item["document_ids"] = cls._list(item.get("document_ids", []))
+        relations = item.get("relations", [])
+        item["relations"] = [
+            {
+                "relation_id": str(entry.get("relation_id", "") or "").strip(),
+                "kind": str(entry.get("kind", "") or "").strip(),
+                "target_id": str(entry.get("target_id", "") or "").strip(),
+                "note": str(entry.get("note", "") or "").strip(),
+                "created_at": str(entry.get("created_at", "") or "").strip(),
+                "created_by": str(entry.get("created_by", "") or "").strip(),
+            }
+            for entry in relations if isinstance(entry, dict)
+            if str(entry.get("relation_id", "") or "").strip()
+            and str(entry.get("kind", "") or "").strip() in RELATION_KINDS
+            and str(entry.get("target_id", "") or "").strip()
+        ] if isinstance(relations, list) else []
         notes = item.get("notes", [])
         item["notes"] = [
             {
@@ -235,6 +251,61 @@ class ObjectStore:
         item["notes"].append({"note_id": str(uuid.uuid4()), "text": text.strip(), "created_at": utc_now(), "created_by": actor})
         item["updated_at"] = utc_now(); item["updated_by"] = actor
         self._drop_transient(item); self._write(item, actor, "object_note_added")
+
+    def add_relation(self, object_id: str, kind: str, target_id: str, actor: str, note: str = "") -> dict[str, Any]:
+        """Link an accessory or set member; identical links are idempotent."""
+        item = self.object(object_id)
+        clean_kind = str(kind or "").strip()
+        if clean_kind not in RELATION_KINDS: raise ValueError("unknown relation kind")
+        try:
+            target = self.object(target_id)
+        except ValueError as exc:
+            raise ValueError("related object was not found") from exc
+        if target["object_id"] == item["object_id"]:
+            raise ValueError("an object cannot be related to itself")
+        if not actor.strip(): raise ValueError("user is required")
+        for entry in item["relations"]:
+            if entry["kind"] == clean_kind and entry["target_id"] == target["object_id"]:
+                return item
+        if len(item["relations"]) >= 50:
+            raise ValueError("too many relations for one object")
+        item["relations"].append({
+            "relation_id": str(uuid.uuid4()), "kind": clean_kind,
+            "target_id": target["object_id"], "note": str(note or "").strip()[:500],
+            "created_at": utc_now(), "created_by": actor,
+        })
+        item["updated_at"] = utc_now(); item["updated_by"] = actor
+        self._drop_transient(item); self._write(item, actor, "object_relation_added")
+        return self.object(item["object_id"])
+
+    def remove_relation(self, object_id: str, relation_id: str, actor: str) -> dict[str, Any]:
+        item = self.object(object_id)
+        if not actor.strip(): raise ValueError("user is required")
+        kept = [entry for entry in item["relations"] if entry["relation_id"] != str(relation_id or "").strip()]
+        if len(kept) == len(item["relations"]): raise ValueError("relation was not found")
+        item["relations"] = kept
+        item["updated_at"] = utc_now(); item["updated_by"] = actor
+        self._drop_transient(item); self._write(item, actor, "object_relation_removed")
+        return self.object(item["object_id"])
+
+    def related(self, object_id: str) -> dict[str, list[dict[str, Any]]]:
+        """Outgoing relations plus incoming backlinks with resolved targets."""
+        item = self.object(object_id)
+        outgoing = []
+        for entry in item["relations"]:
+            try:
+                target = self.object(entry["target_id"])
+            except ValueError:
+                target = None
+            outgoing.append({"relation": entry, "target": target})
+        incoming = []
+        for candidate in self.objects():
+            if candidate["object_id"] == item["object_id"]:
+                continue
+            for entry in candidate.get("relations", []):
+                if entry.get("target_id") == item["object_id"]:
+                    incoming.append({"relation": entry, "source": candidate})
+        return {"outgoing": outgoing, "incoming": incoming}
 
     @staticmethod
     def _drop_transient(item: dict[str, Any]) -> None:
