@@ -84,6 +84,15 @@ ipcMain.handle('screen:action', (event, action) => {
   return { ok: true, message: runDesktopScreenAction(normalized) };
 });
 
+ipcMain.handle('file:reveal', (event, target) => {
+  if (!trustedIpcSender(event)) throw new Error('Nicht vertrauenswürdiger IPC-Absender.');
+  const {resolveRevealTarget} = require('./reveal');
+  const resolved = resolveRevealTarget(target);
+  if (!resolved.ok) throw new Error(`Ungültiger Dateipfad (${resolved.reason}).`);
+  shell.showItemInFolder(resolved.path);
+  return { ok: true };
+});
+
 function packagedErrorReportUrl() {
   try {
     const configPath = path.join(__dirname, 'build-config.json');

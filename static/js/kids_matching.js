@@ -3,11 +3,19 @@
 (() => {
   const root = document.querySelector('[data-kids-matching]');
   if (!root || !window.KidsShared) return;
-  const {shuffle, speak, stopSpeaking, uiLanguage} = window.KidsShared;
+  const {shuffle, stopAudio, uiLanguage, playClips} = window.KidsShared;
 
   const english = root.dataset.language === 'en';
   const text = (de, en) => english ? en : de;
   const language = uiLanguage(english);
+  const audioBase = root.dataset.audioBase || '';
+  const audioVersion = root.dataset.audioVersion || '';
+  const clipLang = english ? 'en' : 'de';
+  let currentClips = [];
+  function say(parts) {
+    currentClips = parts;
+    return playClips(audioBase, audioVersion, clipLang, parts, language, speechStatus);
+  }
   const setup = root.querySelector('[data-setup]');
   const play = root.querySelector('[data-play]');
   const result = root.querySelector('[data-result]');
@@ -39,7 +47,6 @@
   let taskIndex = 0;
   let score = 0;
   let mistakes = 0;
-  let currentSpoken = '';
 
   const word = item => english ? item.en : item.de;
   const soundWord = item => english ? item.sound_en : item.sound_de;
@@ -122,8 +129,7 @@
       button.addEventListener('click', () => answer(button, item, task));
       stage.append(button);
     });
-    currentSpoken = taskSpoken(task);
-    speak(currentSpoken, language, speechStatus);
+    say([{key: task.target.prompt_audio, fallback: taskSpoken(task)}]);
   }
 
   function answer(button, item, task) {
@@ -134,7 +140,10 @@
       stage.querySelectorAll('button').forEach(choice => { choice.disabled = true; });
       const praise = text(`Richtig! ${word(task.target)}!`, `Correct! ${word(task.target)}!`);
       feedback.textContent = `🌟 ${praise}`;
-      speak(praise, language, speechStatus);
+      say([
+        {key: 'praise_right', fallback: text('Richtig!', 'Correct!')},
+        {key: task.target.word_audio, fallback: word(task.target)},
+      ]);
       next.hidden = false;
       next.focus();
       return;
@@ -149,7 +158,7 @@
     }
     const comfort = text('Fast! Versuch es noch einmal.', 'Almost! Try again.');
     feedback.textContent = comfort;
-    speak(comfort, language, speechStatus);
+    say([{key: 'try_again', fallback: comfort}]);
   }
 
   function revealAnswer(task) {
@@ -160,7 +169,10 @@
     });
     const solution = text(`Schau, hier ist: ${word(task.target)}.`, `Look, here is: ${word(task.target)}.`);
     feedback.textContent = solution;
-    speak(solution, language, speechStatus);
+    say([
+      {key: 'look_here', fallback: text('Schau, hier ist:', 'Look, here is:')},
+      {key: task.target.word_audio, fallback: word(task.target)},
+    ]);
     next.hidden = false;
     next.focus();
   }
@@ -183,11 +195,11 @@
       `You finished ${score} out of ${tasks.length} tasks.`,
     );
     root.querySelector('[data-result-title]').focus();
-    speak(heading, language, speechStatus);
+    say([{key: complete ? 'done_great' : 'nice_playing', fallback: heading}]);
   }
 
   function showSetup() {
-    stopSpeaking();
+    stopAudio();
     result.hidden = true;
     play.hidden = true;
     setup.hidden = false;
@@ -207,7 +219,7 @@
     });
   }));
   root.querySelectorAll('[data-category]').forEach(button => button.addEventListener('click', () => begin(button.dataset.category)));
-  repeat.addEventListener('click', () => { if (currentSpoken) speak(currentSpoken, language, speechStatus); });
+  repeat.addEventListener('click', () => { if (currentClips.length) say(currentClips); });
   next.addEventListener('click', nextTask);
   root.querySelector('[data-back]').addEventListener('click', showSetup);
   root.querySelector('[data-result-back]').addEventListener('click', showSetup);

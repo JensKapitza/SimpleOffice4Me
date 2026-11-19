@@ -32,6 +32,7 @@
       "main.js",
       "lan_proxy.js",
       "preload.js",
+      "reveal.js",
       "loading.html",
       "build-config.json"
     ],
