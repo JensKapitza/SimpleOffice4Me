@@ -61,6 +61,21 @@ class KidsModeContainmentTests(PublicHttpTestCase):
         self.assertIn('id="nav-kids"', html)
         self.assertNotIn("data-kids-header", html)
 
+    def test_global_nav_links_kids_overview_directly_without_submenu(self):
+        html = self.client.get("/documents/").get_data(as_text=True)
+        self.assertIn('id="nav-kids"', html)
+        self.assertIn('href="/kids/"', html)
+        self.assertNotIn("Kinder-Übersicht", html)
+        self.assertNotIn("Kids overview", html)
+
+    def test_game_pages_have_a_single_unified_nav(self):
+        for path in ("/kids/zuordnen", "/kids/numbers", "/kids/lernen/silben",
+                     "/kids/lernen/spielpause", "/kids/lernen/", "/kids/coloring/"):
+            with self.subTest(path=path):
+                html = self.client.get(path).get_data(as_text=True)
+                self.assertEqual(1, html.count("<nav"), path)
+                self.assertIn("data-kids-header", html)
+
 
 class KidsExitGateTests(PublicHttpTestCase):
     def test_exit_gate_requires_login(self):

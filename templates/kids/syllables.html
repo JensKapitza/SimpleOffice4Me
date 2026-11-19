@@ -6,10 +6,6 @@
 <main id="main-content" class="kids-syll-page container py-3 py-lg-4" data-kids-syllables data-language="{{ g.language }}">
   <header class="kids-syll-header d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4">
     <div><h1 class="h2 mb-1">{{ 'Syllable clapping' if g.language == 'en' else 'Silben klatschen' }} 👏</h1><p class="text-secondary mb-0">{{ 'Listen, clap the syllables and find rhymes. No timer and no reading needed.' if g.language == 'en' else 'Höre zu, klatsche die Silben und finde Reime. Ohne Zeitdruck und ohne Lesen.' }}</p></div>
-    <nav class="d-flex flex-wrap gap-2" aria-label="{{ 'Kids activities' if g.language == 'en' else 'Kinderangebote' }}">
-      <a class="btn btn-outline-secondary btn-lg" href="{{ url_for('kids_learning.mini_games') }}">{{ 'Quick play break' if g.language == 'en' else 'Kurze Spielpause' }} 🌟</a>
-      <a class="btn btn-outline-secondary btn-lg" href="{{ url_for('kids_learning.index') }}">{{ 'Learning games' if g.language == 'en' else 'Lernspiele' }}</a>
-    </nav>
   </header>
 
   <section class="kids-syll-picker" data-level-picker aria-labelledby="kids-syll-picker-title">

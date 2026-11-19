@@ -1,10 +1,12 @@
 # Kinderbereich
 
-Über das Menü **Kinder** sind die Ausmalwand, die kurze Spielpause, die
-Lernspiele und das Labyrinth erreichbar. Die Ausmalwand bietet Figuren sowie
-Vorlagen für Buchstaben und Zahlen. Zeichnungen werden im angemeldeten Konto
-gespeichert und lassen sich dort auf einem weiteren Gerät derselben Instanz
-wieder öffnen.
+Über das Menü **Kinder** gelangt man zur Kinder-Übersicht mit allen Angeboten:
+Zuordnungsspiel, Zählspaß, Silben klatschen, Ausmalwand, kurze Spielpause,
+Lernspiele und Labyrinth. Es gibt bewusst kein Untermenü; jede Kinderseite
+zeigt dieselbe einfache Navigation mit Rückweg zur Übersicht. Die Ausmalwand
+bietet Figuren sowie Vorlagen für Buchstaben und Zahlen. Zeichnungen werden im
+angemeldeten Konto gespeichert und lassen sich dort auf einem weiteren Gerät
+derselben Instanz wieder öffnen.
 
 Die Lernspiele reichen von Vorschule bis Klasse 5. Aufgaben umfassen unter
 anderem Zählen, Wörter, Richtungen, Gegenstandssuche, Verkehrsregeln und Logik.

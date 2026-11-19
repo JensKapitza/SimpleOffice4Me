@@ -7,10 +7,6 @@
   <script type="application/json" id="kids-numbers-config">{{ numbers_config|tojson }}</script>
   <header class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4">
     <div><h1 class="h2 mb-1">{{ 'Counting fun' if g.language == 'en' else 'Zählspaß' }} 🔢</h1><p class="text-secondary mb-0">{{ 'See how many, count along and meet the numbers. Everything is read aloud, no reading needed.' if g.language == 'en' else 'Schau wie viele es sind, zähle mit und lerne die Zahlen kennen. Alles wird vorgelesen, Lesen ist nicht nötig.' }}</p></div>
-    <nav class="d-flex flex-wrap gap-2" aria-label="{{ 'Kids activities' if g.language == 'en' else 'Kinderangebote' }}">
-      <a class="btn btn-outline-secondary btn-lg" href="{{ url_for('kids_learning.index') }}">{{ 'Learning games' if g.language == 'en' else 'Lernspiele' }}</a>
-      <a class="btn btn-outline-secondary btn-lg" href="{{ url_for('kids_coloring.index') }}">{{ 'Coloring wall' if g.language == 'en' else 'Ausmalwand' }} 🎨</a>
-    </nav>
   </header>
   <p class="small text-warning-emphasis mb-2" data-speech-status role="status" aria-live="polite"></p>
 
