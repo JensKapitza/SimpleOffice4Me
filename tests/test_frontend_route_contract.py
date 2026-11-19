@@ -608,7 +608,12 @@ class FrontendNavigationSmokeTests(unittest.TestCase):
             if response.status_code == 200 and response.mimetype == "text/html":
                 body = response.get_data(as_text=True)
                 if 'id="main-navigation"' not in body:
-                    failures.append(f"{endpoint} -> {rule.rule}: global navigation missing from rendered page")
+                    # Conscious spec change: kids pages deliberately replace the
+                    # global navbar with the kids-mode header so children cannot
+                    # wander into finance, vault, admin or logout. They must
+                    # instead offer in-area navigation plus the grown-ups exit.
+                    if 'data-kids-header' not in body or '/kids/erwachsene' not in body:
+                        failures.append(f"{endpoint} -> {rule.rule}: global navigation missing from rendered page")
             response.close()
 
         self.assertGreater(len(tested), 10, f"Too few navigation pages tested: {tested}")
