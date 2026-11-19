@@ -63,6 +63,14 @@
     return english ? 'en-US' : 'de-DE';
   }
 
+  function voiceRank(voice, language) {
+    // On-device voices first: same-language local voices must beat
+    // same-language cloud voices so prompts stay offline and private.
+    return (voice.lang.toLowerCase() === language.toLowerCase() ? 100 : 50)
+      + (voice.localService ? 24 : 0)
+      + (/natural|neural|premium|enhanced/i.test(voice.name) ? 6 : 0);
+  }
+
   function speak(value) {
     if (!('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) {
       if (speechStatus) speechStatus.textContent = text('Vorlesen geht auf diesem Gerät nicht. Schau dir die Bilder genau an.', 'Read-aloud is not available on this device. Look closely at the pictures.');
@@ -74,6 +82,14 @@
     utterance.lang = uiLanguage();
     utterance.rate = 0.9;
     utterance.pitch = 1.05;
+    const prefix = utterance.lang.slice(0, 2).toLowerCase();
+    const voices = window.speechSynthesis.getVoices().filter(voice => voice.lang.toLowerCase().startsWith(prefix));
+    let requested = '';
+    try { requested = window.localStorage.getItem(`kids-learning.voice.${prefix}`) || ''; } catch (error) { requested = ''; }
+    const voiceId = voice => voice.voiceURI || `${voice.name}|${voice.lang}`;
+    const chosen = voices.find(voice => voiceId(voice) === requested)
+      || [...voices].sort((a, b) => voiceRank(b, utterance.lang) - voiceRank(a, utterance.lang))[0];
+    if (chosen) utterance.voice = chosen;
     window.speechSynthesis.speak(utterance);
   }
 

@@ -133,6 +133,14 @@ class KidsNumbersAssetsTests(unittest.TestCase):
                        "Zählen bis 3", "Zahlen bis 10", "Weiter", "Nochmal spielen"):
             self.assertIn(german, template)
 
+    def test_spoken_feedback_prefers_on_device_voices(self):
+        script = SCRIPT.read_text(encoding="utf-8")
+        local = re.search(r"voice\.localService \? (\d+)", script)
+        cloud = re.search(r"natural\|neural[^?]*\? (\d+)", script)
+        self.assertIsNotNone(local)
+        self.assertIsNotNone(cloud)
+        self.assertGreater(int(local.group(1)), int(cloud.group(1)))
+
 
 if __name__ == "__main__":
     unittest.main()
