@@ -218,6 +218,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll je Spiel: 5–15 Min., Zufallsaufgaben, Stufen, Sofort-Feedback, ohne Lesen. Ist gemessen: Matching 15/15, Numbers 14/14, Syllables 8/8 Python- + 7/7 Node-Tests; Kids-Modus 8/8 (Containment aller 10 Kids-URLs, Gate richtig/falsch/ohne Frage, Erwachsenenseite behält Nav); kombiniert 29/29 bzw. 23/23 nach Zusammenführung; `node --check`, DOM-Stub-Proben (10 Runden/32 Ansagen bzw. 3×8 Aufgaben), Policy-/Größen-/Compile-Gates grün. CI je PR vollständig grün (36/36 bzw. 35 + Rest) vor Merge; dazwischen nur Ubuntu-Spiegel-503 und ein nicht-blockierender Python-3.15-Budget-Timeout (5924 Tests liefen, alle 8 Kids-Tests darunter). |
 | Review und Abschluss | Unabhängiges Review gab alle drei Zweige frei (keine externen Requests, kein Tracking, keine Timer, ermutigendes Feedback, keine Routenkollisionen). Offen als Follow-up: B1/B2-Fixes im Lernspiel, S2-Umsortierung im Alt-Code, Fortschritts-/Eltern-Backend, Offline-Arbeitsblätter/Bastelanleitungen sowie Praxisprüfung auf physischen Geräten (Touch, Tastatur, Lautsprecher/Mikrofon). |
 
+## 19. November 2026 · Kalender: Schnellerfassung per Tag-Klick und mobile Liste
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Server-seitig gerenderter Monatskalender (Tab-Arbeitsbereich, Termin-Modals mit Bearbeiten/Löschen/Freigaben, Serien/Zeitzonen/Erinnerungen/Konflikte vorhanden). Lücken: kein Anlegen per Tag-Klick (nur Formular), kein Heute-Sprung, 7-spaltiges Raster auf Handys unbedienbar (8,5rem-Zellen, 0,75rem-Termine). |
+| Implementierung | Plus-Button je Tag (`data-calendar-quick-add` mit ISO-Datum) öffnet Buchungsreiter mit vorbelegten 09:00–10:00 und Titel-Fokus; Heute-Link springt in den aktuellen Monat; unter 576 px wird das Raster zur Liste (Wochentage/leere Tage versteckt, Termine umbrechend, 44 px Ziele). Keine Backend- oder CalDAV-Änderung. |
+| Tests und Soll-Ist-Vergleich | Soll: 1 Klick zum vorbelegten Formular, mobil lesbar ohne Horizontal-Scroll. Ist gemessen: 4/4 Python-Tests (28–31 ISO-Tage, Heute-Link, Handler, Mobil-CSS), Browser-Tests (Chromium, CI): Klick auf 2026-11-19 → Formular mit 09:00/10:00, Mobil 360 px: Wochentage versteckt, Tage ≥ 80 % Breite, Plus-Ziele ≥ 44 px. Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Drag-and-drop, Größenänderung, Wochen-/Tagesraster, Terminverknüpfungen (eigene Aufträge), physische Geräteprüfung. |
+
 ## 19. November 2026 · Schnellsuche als Arbeitsoberfläche: Live-Suche, Vorschau, Verlauf
 
 | Phase | Arbeit und Nachweis |
