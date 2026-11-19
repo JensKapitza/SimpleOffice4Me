@@ -5,15 +5,37 @@ import vm from 'node:vm';
 
 const source = await readFile(new URL('../static/js/chat_room.js', import.meta.url), 'utf8');
 
-function harness(fetchImpl) {
+function messageIds(html) {
+  return [...html.matchAll(/<article\b[^>]*\bid=["'](message-[^"']+)["']/g)].map((match) => ({ id: match[1] }));
+}
+
+function harness(fetchImpl, initialHtml = '<p>initial</p>') {
   let poll;
-  const target = { innerHTML: '<p>initial</p>' };
+  const target = {
+    innerHTML: initialHtml,
+    querySelectorAll(selector) {
+      assert.equal(selector, 'article[id^="message-"]');
+      return messageIds(this.innerHTML);
+    },
+  };
   const scroll = { scrollHeight: 1000, scrollTop: 800, clientHeight: 200 };
+  let scrollListener;
+  scroll.addEventListener = (name, callback) => { if (name === 'scroll') scrollListener = callback; };
+  const buttonClasses = new Set(['d-none']);
+  const button = {
+    classList: {
+      add: name => buttonClasses.add(name),
+      remove: name => buttonClasses.delete(name),
+      contains: name => buttonClasses.has(name),
+    },
+  };
+  button.addEventListener = () => {};
   const root = { dataset: { chatFragmentUrl: '/chat/fragment' } };
   const elements = {
     'main-content': root,
     'chat-messages': target,
     'chat-scroll': scroll,
+    'chat-new-messages': button,
   };
   const document = {
     documentElement: { lang: 'en' },
@@ -29,7 +51,11 @@ function harness(fetchImpl) {
     setInterval(callback) { poll = callback; },
   };
   vm.runInNewContext(source, context);
-  return { target, scroll, runPoll: () => poll() };
+  return {
+    target, scroll, button,
+    runPoll: () => poll(),
+    scrollEvent: () => scrollListener?.(),
+  };
 }
 
 function deferred() {
@@ -79,4 +105,37 @@ test('bottom position is checked after the response arrives', async () => {
   pending.resolve({ ok: true, text: async () => '<p>new message</p>' });
   await request;
   assert.equal(app.scroll.scrollTop, 1000, 'poll update should keep a user who reached the bottom at the bottom');
+});
+
+test('new messages show a notice only when the user is scrolled up', async () => {
+  const oldMessage = '<article id="message-one">hello</article>';
+  const app = harness(async () => ({
+    ok: true,
+    text: async () => '<article id="message-one">hello</article><article id="message-two">new</article>',
+  }), oldMessage);
+  assert.equal(app.button.classList.contains('d-none'), true, 'notice starts hidden');
+  app.scroll.scrollTop = 400;
+  await app.runPoll();
+  assert.equal(app.button.classList.contains('d-none'), false, 'incoming message IDs reveal the notice while reading older messages');
+  assert.equal(app.scroll.scrollTop, 400, 'polling must leave the reader at their current position');
+  app.scroll.scrollTop = 900;
+  app.scrollEvent();
+  assert.equal(app.button.classList.contains('d-none'), true, 'manually scrolling back to the latest messages dismisses the notice');
+});
+
+test('reaction-only changes do not show a notice and new messages at bottom remain hidden', async () => {
+  let fragment = '<article id="message-one">hello</article>';
+  const app = harness(async () => ({ ok: true, text: async () => fragment }), fragment);
+  assert.equal(app.button.classList.contains('d-none'), true, 'notice starts hidden');
+
+  app.scroll.scrollTop = 400;
+  fragment = '<article id="message-one">hello <span>👍 1</span></article>';
+  await app.runPoll();
+  assert.equal(app.button.classList.contains('d-none'), true, 'updated reaction markup keeps existing message IDs');
+
+  app.scroll.scrollTop = app.scroll.scrollHeight;
+  fragment = '<article id="message-one">hello <span>👍 1</span></article><article id="message-two">new</article>';
+  await app.runPoll();
+  assert.equal(app.button.classList.contains('d-none'), true, 'a new message at bottom is followed automatically without a notice');
+  assert.equal(app.scroll.scrollTop, app.scroll.scrollHeight);
 });

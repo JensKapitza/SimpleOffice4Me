@@ -6,6 +6,7 @@ import shutil
 import tempfile
 import threading
 import unittest
+import uuid
 from pathlib import Path
 
 from werkzeug.serving import make_server
@@ -122,6 +123,83 @@ class ChatRoomStylesBrowserTests(unittest.TestCase):
                 }""")
                 self.assertEqual("important", bottom_priority)
                 self.assertEqual("0px", composer["bottom"])
+            finally:
+                browser.close()
+
+    def test_mobile_incoming_message_keeps_scroll_and_button_jumps_to_bottom(self):
+        from playwright.sync_api import sync_playwright
+
+        store = ChatStore(self.root)
+        room = store.upsert_remote_room(
+            str(uuid.uuid4()), "Incoming message browser test", "remote-peer",
+            ["chat-style-browser"], ["remote-friend"],
+        )
+        self.room_url = f"/chat/rooms/{room['room_id']}"
+        timestamp = 1_800_000_000
+        for index in range(24):
+            store.upsert_remote_message(
+                room["room_id"], "remote-peer", "remote-friend", str(uuid.uuid4()),
+                f"Earlier incoming message {index}: " + ("long mobile chat content " * 12),
+                created_at=timestamp + index,
+            )
+
+        with sync_playwright() as playwright:
+            executable = shutil.which("chromium") or (
+                playwright.chromium.executable_path
+                if Path(playwright.chromium.executable_path).is_file()
+                else None
+            )
+            if not executable:
+                self.skipTest("Chromium is not installed")
+            browser = playwright.chromium.launch(executable_path=executable, args=["--no-sandbox"])
+            try:
+                context = browser.new_context(
+                    viewport={"width": 390, "height": 844},
+                    is_mobile=True,
+                    has_touch=True,
+                )
+                context.add_cookies([{
+                    "name": app.config.get("SESSION_COOKIE_NAME", "session"),
+                    "value": self.cookie,
+                    "url": self.base_url,
+                }])
+                page = context.new_page()
+                response = page.goto(self.base_url + self.room_url, wait_until="networkidle")
+                self.assertEqual(200, response.status)
+                scroll = page.locator("#chat-scroll")
+                page.wait_for_function("""() => {
+                  const el = document.querySelector('#chat-scroll');
+                  return el && el.scrollHeight > el.clientHeight;
+                }""")
+                scroll.evaluate("el => { el.scrollTop = el.scrollHeight / 2; }")
+                before = scroll.evaluate("el => el.scrollTop")
+                self.assertGreater(before, 140, "start in the middle of the history")
+
+                store.upsert_remote_message(
+                    room["room_id"], "remote-peer", "remote-friend", str(uuid.uuid4()),
+                    "New incoming mobile message", created_at=timestamp + 100,
+                )
+                button = page.locator("#chat-new-messages")
+                button.wait_for(state="visible", timeout=10000)
+                self.assertIn("New incoming mobile message", page.locator("#chat-messages").inner_text())
+                after_update = scroll.evaluate("el => el.scrollTop")
+                self.assertAlmostEqual(before, after_update, delta=2, msg="polling must preserve the reader's scroll position")
+
+                with self.subTest(control="touch target inside message pane"):
+                    self.assertGreaterEqual(button.bounding_box()["height"], 44)
+                    self.assertTrue(button.evaluate("""el => {
+                      const box = el.getBoundingClientRect();
+                      const pane = el.closest('section').getBoundingClientRect();
+                      return box.top >= pane.top && box.bottom <= pane.bottom;
+                    }"""))
+                button.tap()
+                page.wait_for_function("""() => {
+                  const el = document.querySelector('#chat-scroll');
+                  return el && el.scrollHeight - el.scrollTop - el.clientHeight < 5;
+                }""")
+                self.assertGreater(scroll.evaluate("el => el.scrollTop"), after_update)
+                self.assertFalse(button.is_visible(), "the jump control should hide after reaching the newest message")
+                context.close()
             finally:
                 browser.close()
 

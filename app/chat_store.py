@@ -19,6 +19,15 @@ _USER_RE = re.compile(r"^[^\x00-\x1f\x7f]{1,120}$")
 _PEER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$")
 
 
+def rows_for_message_ids(db, statement, message_ids, *, parameters=()):
+    """Expand only the bind slots in an internal query. Keep IDs as bound values."""
+    # Reserve room for additional parameters below SQLite's legacy limit of 999.
+    for start in range(0, len(message_ids), 900):
+        batch = message_ids[start:start + 900]
+        slots = ",".join("?" for _ in batch)
+        yield from db.execute(statement.replace(":message_ids", slots), (*parameters, *batch))
+
+
 def _now() -> int: return int(time.time())
 def _json(value: Any) -> str: return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 def _load(value: str | None, default: Any) -> Any:
@@ -233,12 +242,29 @@ class ChatStore:
         return self._message(row)
 
     def messages(self, room_id: str, *, limit: int=300) -> list[dict[str,Any]]:
-        room_id=_uuid(room_id,"Chat-ID"); limit=max(1,min(int(limit),1000))
-        with self._db() as db: rows=db.execute("SELECT * FROM (SELECT * FROM chat_message WHERE room_id=? ORDER BY created_at DESC,message_id DESC LIMIT ?) ORDER BY created_at,message_id",(room_id,limit)).fetchall()
-        result=[self._message(r) for r in rows]
-        for item in result:
-            with self._db() as db: attachments=db.execute("SELECT * FROM chat_attachment WHERE message_id=? ORDER BY created_at,attachment_id",(item["message_id"],)).fetchall()
-            item["attachments"]=[self._attachment(r) for r in attachments]; item["deliveries"]=self.deliveries(item["message_id"])
+        room_id = _uuid(room_id, "Chat-ID")
+        limit = max(1, min(int(limit), 1000))
+        with self._db() as db:
+            db.execute("BEGIN")  # Read messages and their metadata from the same snapshot.
+            rows = db.execute(
+                "SELECT * FROM (SELECT * FROM chat_message WHERE room_id=? "
+                "ORDER BY created_at DESC,message_id DESC LIMIT ?) ORDER BY created_at,message_id",
+                (room_id, limit),
+            )
+            result = [dict(self._message(row), attachments=[], deliveries=[]) for row in rows]
+            by_id = {message["message_id"]: message for message in result}
+            ids = list(by_id)
+            for row in rows_for_message_ids(db, (
+                "SELECT * FROM chat_attachment WHERE message_id IN (:message_ids) "
+                "ORDER BY message_id,created_at,attachment_id"
+            ), ids):
+                by_id[row["message_id"]]["attachments"].append(self._attachment(row))
+            for row in rows_for_message_ids(db, (
+                "SELECT message_id,peer_id,status,error,updated_at FROM chat_delivery "
+                "WHERE message_id IN (:message_ids) ORDER BY message_id,peer_id"
+            ), ids):
+                delivery = dict(row)
+                by_id[delivery.pop("message_id")]["deliveries"].append(delivery)
         return result
 
     def register_attachment(self, message_id: str, attachment_id: str, filename: str, mime_type: str, size: int, sha256: str, visibility: str, *, document_id: str="", state: str="ready") -> dict[str,Any]:

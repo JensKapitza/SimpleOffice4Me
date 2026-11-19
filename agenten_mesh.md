@@ -58,6 +58,18 @@ Jede Übergabe enthält Paket-ID, Status, Ist, Soll, Dateien, Schritte, Zwischen
 
 **Ist und Soll.** Ein Fehler beim Kopieren in den temporären Vorschauspeicher konnte die Datei bis zur Speicherbereinigung offen lassen. Die Antwort soll bei Erfolg bis zum Ende lesbar bleiben und bei einem Fehler die Ressource sofort freigeben. **Umsetzung.** Die Fehlerbehandlung in `_verified_preview_response` umfasst jetzt das Kopieren und den gesamten Antwortaufbau. Der Regressionstest provoziert einen Kopierfehler, kontrolliert das Schließen und das Weiterreichen des Fehlers. Im HTTP-Integrationstest wird die erfolgreiche Antwort explizit geschlossen. Der kombinierte Lauf von `tests.test_verified_preview_cleanup` und `tests.test_v2_document_preview_storage` bestand alle drei Tests einschließlich Cache- und Inhaltsprüfung.
 
+### P2 · Chat lesen und Raumdaten laden · 19. November 2026
+
+| Phase | Arbeitsstand und Nachweis |
+| --- | --- |
+| Analyse | Beim Lesen weiter oben fehlte ein Hinweis auf neu eingetroffene Nachrichten. Anhänge, Zustellungen, Reaktionen und Rücknahmen wurden pro Nachricht geladen. |
+| Planung | Fünf GPT-6-Luna-Agenten arbeiteten parallel. `filter_impl` betreute die Oberfläche, `filter_review` die Polling-Regressionen und `filter_mobile` den mobilen Ablauf. `chat_batch` übernahm Anhänge und Zustellungen, `chat_reactions` die Dekoration der Nachrichten. Jeder Testbereich hatte einen eigenen Dateipfad. |
+| Implementierung | `chat_room.js` erkennt hinzugekommene Nachrichten-IDs. Vorlage und CSS platzieren einen antippbaren Hinweis im Nachrichtenbereich. `chat_store.py` und `chat_features.py` laden Metadaten für Gruppen von bis zu 900 IDs und erhalten die Reihenfolge der Nachrichten. |
+| Tests | `python -m unittest discover -s tests -p 'test_chat*.py'` bestand mit 60 Tests. Der Chromium-Test bei 390 × 844 prüft eine echte eingehende Nachricht, die Leseposition, die Erreichbarkeit des Hinweises und den Sprung ans Ende. Fünf Node-Pollingtests prüfen unter anderem reine Reaktionsänderungen. SQLite-Tests prüfen die Gruppengrenze, Raumzuordnung, Reihenfolge und Abfrageanzahl. |
+| Soll-Ist-Vergleich | Am Ende folgt die Ansicht neuen Nachrichten automatisch. Weiter oben bleibt die gemessene Scrollposition erhalten und der Hinweis führt zur neuen Nachricht. Bei 300 Nachrichten sank die Zahl der SELECTs für `messages` mit anschließendem `decorate` von 1.203 auf 6 (gleicher Testraum, ohne Anhänge oder Reaktionen). Gemessen wurde die Abfrageanzahl, die Ladezeit ist offen. |
+| Review | Die Koordination führte die SQL-Platzhaltererzeugung zusammen und prüfte die Bindung der IDs. Bandit, Ruff und Projektprüfungen bestanden. Der mobile Test prüft nach dem Review auch die Lage der Schaltfläche und mindestens 44 Pixel Höhe. |
+| Abschluss | Lokal getestet und zum PR-Review vorbereitet. Folgepaket für die mobile QA ist die sichtbare Nachricht beim Herausfallen der ältesten Zeile aus dem 300er-Fenster. Praxistests mit Android- und iOS-Tastaturen stehen aus. |
+
 ### P2 · Handhabung des Chats · mesh_chat
 
 **Ist und Soll.** Das Nachrichtenfeld beanspruchte mindestens 18 rem, selbst auf kurzen Handybildschirmen. Der Senden-Knopf konkurrierte mit Dateiauswahl und Status um dieselbe Zeile. Die Höhe soll sich der verfügbaren Fläche anpassen und Senden mit dem Daumen erreichbar bleiben. **Umsetzung.** `templates/chat/room.html` lädt die raumspezifische `static/css/chat.css`. Auf schmalen Bildschirmen erhalten Senden und Dateistatus eigene Zeilen. Im unabhängigen Review fiel auf, dass die Mindesthöhe bei geöffnetem Editor die Maximalhöhe überschreiten konnte. Bei der Nachprüfung mit 375 × 300 CSS-Pixeln ergaben sich 90 px Mindest- und 114 px Maximalhöhe. Physische Bildschirmtastaturen bleiben eine eigene Prüfung.

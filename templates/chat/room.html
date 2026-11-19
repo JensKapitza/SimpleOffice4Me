@@ -42,6 +42,11 @@
   </div>
 
   <section id="chat-scroll" class="chat-message-scroll border rounded-3 bg-body-tertiary p-2 p-md-3 mb-3 overflow-auto" aria-label="Nachrichten">
+    <div class="chat-message-notice">
+      <button id="chat-new-messages" class="btn btn-primary btn-sm d-none" type="button" aria-controls="chat-scroll">
+        {{ 'Show new messages' if g.language == 'en' else 'Neue Nachrichten anzeigen' }}
+      </button>
+    </div>
     <div id="chat-messages">{% include "chat/_messages.html" %}</div>
   </section>
 
