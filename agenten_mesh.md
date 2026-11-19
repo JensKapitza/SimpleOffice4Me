@@ -227,6 +227,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: mehrere Themen je Objekt, Lagerort unverändert, Validierung, Rechte. Ist gemessen: 5/5 Blackbox-HTTP-Tests (2 Objekte gruppiert+gezählt, Lagerorte beider unverändert, Entfernen+Zweitversuch, 4 Validierungs-400, anonym+Marker); Nachbar-Suites 54/54; Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen als Follow-up: Scanmodi pro Aktion, Objekt-Verleih, föderierte Rechte, Fotoerkennung, Offline-Sync, Mindestbestände. |
 
+## 19. November 2026 · Issue #1111 (P1-Slice 2): Lagerort-Vorlagen für verschachtelte Strukturen
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Zweiter P1-Slice nach der Umlagerung: Regale, Schränke, Kartons und Kommoden mussten Fach für Fach einzeln angelegt werden. Bestand wiederverwendet: `create_location` (Codes, Ereignisse, Regal-Objekte), Routenmuster aus Scan-/Move-Modulen, Bibliotheksseite. |
+| Implementierung | Neues Modul `location_templates.py` (4 Vorlagen: Regal, Schrank, Umzugskarton, Kommode; Zählung 1–max, Standard je Vorlage) plus `template_routes.py` mit `POST /library/locations/from-template` (JSON/Formular, Audit, Login) und `GET /location-templates`; Vorlagen-Formular auf der Bibliotheksseite; Vorlagen unter beliebigem Standort instanziierbar (beliebig tiefe Schachtelung durch Komposition). |
+| Tests und Soll-Ist-Vergleich | Soll: ganze Struktur in einer Aktion, Pfade rekursiv korrekt, Validierung, Rechte. Ist gemessen: 5/5 Blackbox-HTTP-Tests (Regal 3 Fächer mit Pfad, Kommode-Standard unter Kiste Tiefe 4, 4 Validierungs-400, anonym 302, Katalog+Formularmarker); Nachbar-Suites 23/23; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up (weitere #1111-Slices): Scanmodi pro Aktion, Exemplare für alle Objekttypen, Mengen/Seriennummern, System-/manuelle Metadatenwerte, CSV-Import, Inventur/Differenzen, Objekt-Verleih, föderierte Rechte. |
+
 ## 19. November 2026 · Maze-Tippmodus: Solve-Verhalten verifiziert, Vollbild-Fit hergestellt
 
 | Phase | Arbeit und Nachweis |
