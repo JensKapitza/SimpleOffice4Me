@@ -79,6 +79,13 @@
     bits.push(...SYNC, ...bitsFromBytes(header), ...bitsFromBytes(coded));
     return bits;
   }
+  function measure(text, fec) {
+    const payload = bytesOf(text);
+    const fits = payload.length <= MAX_PAYLOAD_BYTES;
+    const durationMs = fits ? frameBits(payload, { fec }).length * DEFAULT_SYMBOL_MS : null;
+    return { bytes: payload.length, fits, durationMs };
+  }
+
   function encode(text, options) {
     const p = params(options), bits = frameBits(bytesOf(text), options || {});
     const result = new Float32Array(Math.round(bits.length * p.symbolDuration));
@@ -180,6 +187,6 @@
     }
   }
 
-  root.AcousticCodec = Object.freeze({ encode, Decoder, crc16, MAX_PAYLOAD_BYTES, MAX_BYTES: MAX_PAYLOAD_BYTES, DEFAULT_SYMBOL_MS, FEC_MODES: Object.freeze(['hamming', 'repeat3', 'none']) });
+  root.AcousticCodec = Object.freeze({ encode, measure, Decoder, crc16, MAX_PAYLOAD_BYTES, MAX_BYTES: MAX_PAYLOAD_BYTES, DEFAULT_SYMBOL_MS, FEC_MODES: Object.freeze(['hamming', 'repeat3', 'none']) });
   if (typeof module !== 'undefined' && module.exports) module.exports = root.AcousticCodec;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

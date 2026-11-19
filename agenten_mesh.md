@@ -173,3 +173,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests | Node prüft Hamming-Einzelbitkorrektur, Erkennung zweier Fehler pro Codewort, Mehrheitsentscheidung, CRC, unpassende Einstellungen, UTF-8 und beide Richtungen zwischen 44,1 und 48 kHz. Mobiles Chromium sendet und empfängt eine synthetische Tonfolge über einen Web-Audio-Medienstream. Routentests prüfen die auf die Freigabeseite beschränkte Mikrofonberechtigung. |
 | Soll-Ist-Vergleich | Dieselbe Nachricht lässt sich im simulierten Audiokanal mit wählbarer Fehlerkorrektur übertragen. Gerätepaar, Reichweite und Hochtonfilter beeinflussen den Empfang über Luft. Physische Geräte wurden nicht gemessen. |
 | Review und Abschluss | Die Koordination begrenzte Nachrichten auf 128 UTF-8-Bytes, korrigierte die Rahmenlänge, prüfte Abtastratenwechsel und begrenzte Kopieraufwand und Ressourcenlebensdauer. Nächster Praxistest ist die Übertragung zwischen Notebook und Telefon in beiden Bändern. |
+
+### Dokumentaktionen · Datei oder logischen Pfad senden
+
+| Phase | Arbeitsstand und Nachweis |
+| --- | --- |
+| Analyse | Dokumente hatten Freigabelinks, der Chat bereits einen Dokumentanhang. QR und Ton waren nur über die separate Kurzfreigabe erreichbar. |
+| Planung | Vier GPT-6-Luna-Agenten übernahmen die Dokumentroute mit QR/Ton, Chatintegration, Dateipaket mit Empfang und mobile Browserprüfung. Die Koordination übernahm Dokumentliste, Detailansicht, Größen- und Daueranzeige, LAN-Adresse und Review. |
+| Implementierung | Eine gemeinsame Senden-Seite bereitet Pfad, Datei oder authentifizierten Link auf. Kleine Dateien enthalten Name, Bytezahl, SHA-256 und Inhalt. Im Chat wird der Pfad als Text gesendet oder das Dokument als Anhang referenziert. |
+| Tests | Tests prüfen Dateipaket und Hashfehler, veraltete Ergebnisse asynchroner Prüfung, FEC-Dauer und Bytebudget, Dateidownload, Zugriff nach Rechteentzug, LAN-Proxy mit IPv6, QR-/Ton-Fallback sowie Chat ohne und mit Anhang. Der mobile Chromium-Lauf deckt die Dokumentaktionen ab. |
+| Soll-Ist-Vergleich | Für QR stehen bis zu 1.100 Dateibytes zur Verfügung. Für Ton muss das gesamte Paket in 128 UTF-8-Bytes passen. Sobald es zu groß ist, zeigt die Oberfläche den Wechsel zum geschützten Download-Link an. Bei überlangen Adressen bleibt die Größenbegrenzung sichtbar. |
+| Review | Die Koordination hat den expliziten Ordnerrechtecheck im Legacy-Speicherpfad, die erneute Berechtigungsprüfung beim Chatdownload und den Bezug der Geräteadresse aus dem laufenden LAN-Proxy geprüft. Die Vorbereitung erzeugt keine öffentliche Dokumentfreigabe. |
+| Abschluss | Arbeitsumfang und Bedienung stehen in der Dokumentation zur schnellen Dateiansicht. Die Hardwareprüfung über Lautsprecher und Mikrofon zweier physischer Geräte bleibt offen. |

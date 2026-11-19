@@ -1,0 +1,35 @@
+{% set en = g.language == 'en' %}
+<section class="card mb-4" aria-labelledby="transfer-chat-title" data-chat-share>
+  <div class="card-body">
+    <h2 class="h4" id="transfer-chat-title">{{ 'Send in chat' if en else 'Im Chat senden' }}</h2>
+    <p class="text-secondary">{{ 'Choose a writable chat and send either the logical path as text or the document as an attachment.' if en else 'Wähle einen Chat, in dem du schreiben darfst, und sende entweder den logischen Pfad als Text oder das Dokument als Anhang.' }}</p>
+    {% if chat_rooms %}
+      <div class="d-grid gap-2">
+        {% for room in chat_rooms %}
+          <details class="border rounded p-3">
+            <summary class="fw-semibold">{{ room.title }}{% if room.remote_peer_id %} <span class="badge text-bg-secondary">{{ 'Federated' if en else 'Föderiert' }}</span>{% endif %}</summary>
+            <form method="post" action="{{ url_for('chat.share_object', room_id=room.room_id) }}" class="mt-3">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="kind" value="document">
+              <input type="hidden" name="document_id" value="{{ document.document_id }}">
+              <fieldset class="mb-3">
+                <legend class="fs-6">{{ 'What should be sent?' if en else 'Was soll gesendet werden?' }}</legend>
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="mode" value="path" id="chat-path-{{ loop.index }}" checked>
+                  <label class="form-check-label" for="chat-path-{{ loop.index }}">{{ 'Logical path as text' if en else 'Logischer Pfad als Text' }} <span class="text-secondary">({{ document.last_path }})</span></label>
+                </div>
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="mode" value="file" id="chat-file-{{ loop.index }}">
+                  <label class="form-check-label" for="chat-file-{{ loop.index }}">{{ 'Document as chat attachment' if en else 'Dokument als Chat-Anhang' }}</label>
+                </div>
+              </fieldset>
+              <button class="btn btn-outline-primary" type="submit">{{ 'Send to this chat' if en else 'An diesen Chat senden' }}</button>
+            </form>
+          </details>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="mb-0" role="status">{{ 'You are not a participant in any writable chat yet.' if en else 'Du bist noch in keinem Chat, in dem du schreiben kannst.' }}</p>
+    {% endif %}
+  </div>
+</section>
