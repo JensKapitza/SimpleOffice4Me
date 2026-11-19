@@ -299,13 +299,16 @@ class FrontendNavigationSmokeTests(unittest.TestCase):
         self.assertIn('id="mini-reservations"', body)
 
     def test_quick_share_temporary_history_pin_and_owner_access(self):
-        self.client.get("/quick-share")
+        share = self.client.get("/quick-share")
+        self.assertIn("microphone=(self)", share.headers["Permissions-Policy"])
+        self.assertIn("microphone=()", self.client.get("/").headers["Permissions-Policy"])
         with app.app_context():
             before = database.get_db().execute("SELECT COUNT(*) FROM quick_share_item").fetchone()[0]
         temporary = self.client.post("/quick-share", data={
             "kind": "text", "text": "Notiz fürs Handy", "save_mode": "temporary",
         })
         self.assertEqual(200, temporary.status_code)
+        self.assertIn("microphone=(self)", temporary.headers["Permissions-Policy"])
         self.assertIn("Temporary only; this QR is not stored", temporary.get_data(as_text=True))
         self.assertIn("Nothing saved yet", temporary.get_data(as_text=True))
         self.assertIn("data:image/svg+xml;base64,", temporary.get_data(as_text=True))

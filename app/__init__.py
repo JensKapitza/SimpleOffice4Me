@@ -765,7 +765,8 @@ def add_header(response):
     response.headers.setdefault("Referrer-Policy", "same-origin")
     camera_policy = "camera=(self)" if request.endpoint in CAMERA_SCANNER_ENDPOINTS else "camera=()"
     display_policy = "display-capture=(self)" if request.blueprint == "screen" else "display-capture=()"
-    response.headers.setdefault("Permissions-Policy", f"{camera_policy}, microphone=(), geolocation=(), {display_policy}")
+    microphone_policy = "microphone=(self)" if request.endpoint in {"quick_share.index", "quick_share.create"} else "microphone=()"
+    response.headers.setdefault("Permissions-Policy", f"{camera_policy}, {microphone_policy}, geolocation=(), {display_policy}")
     response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
     response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
     if request.is_secure:

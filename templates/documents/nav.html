@@ -120,7 +120,7 @@
             <li><a class="dropdown-item" href="{{ url_for('documents.logbook') }}">{{ tr('logbook') }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('documents.first_run_setup') }}">{{ 'Setup' if g.language == 'en' else 'Einrichten' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('documents.settings') }}">{{ tr('settings') }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('quick_share.index') }}">{{ 'QR share' if g.language == 'en' else 'QR an Handy' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('quick_share.index') }}">{{ 'QR & sound' if g.language == 'en' else 'QR & Ton' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('browser_bookmarks.index') }}">{{ 'Bookmarks' if g.language == 'en' else 'Lesezeichen' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('vault.index') }}">{{ 'Password vault' if g.language == 'en' else 'Passwort-Vault' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('mcp.settings') }}">MCP</a></li>

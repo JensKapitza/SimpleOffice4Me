@@ -162,3 +162,14 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 **Review und Tests.** Die Prüfung umfasste einen Rechteentzug nach Seite 1, geänderte Metadaten eines schon gelesenen Dokuments, native Volltext- und SQL-Abfragen, abgelaufene Links, fremde Benutzer sowie den tatsächlichen Weiter-Link im mobilen Chromium bei 375 × 812.
 
 **Abschlussprüfung.** Der ursprünglich rote SQL-Disjunktionstest hatte nur einen passenden Treffer und forderte deshalb versehentlich wieder die erste Seite an. Die korrigierte Fixture erzeugt einen echten Weiter-Link. Der kombinierte Lauf mit Such-, Store-, Kosten-, Browser- und Indexregressionen bestand alle 83 Tests. PR #1081 und #1082 sind inzwischen in main integriert.
+
+### P2 · Kurznachrichten per Ton übertragen
+
+| Phase | Arbeit und Ergebnis |
+| --- | --- |
+| Analyse | QR konnte Inhalte teilen. Es fehlten die akustische Übertragung zwischen zwei geöffneten Seiten sowie die Mikrofonfreigabe für den Empfang. |
+| Planung | Vier GPT-6-Luna-Agenten übernahmen getrennt PCM-Modem, Fehlerkorrektur, Browsersteuerung und mobilen Integrationstest. Die Koordination integrierte Navigation, Oberfläche und Berechtigungen. Nach Erschöpfung der Agenten-Credits übernahm sie die abschließenden Korrekturen und Tests. |
+| Implementierung | Zwei Frequenzbänder, drei Übertragungsmodi und CRC-16 für UTF-8-Nachrichten. Die Aufnahme beginnt auf Tastendruck und endet nach gültiger Nachricht, Abbruch oder Zeitablauf. Die eigene Entwurfsnachricht bleibt beim Empfang erhalten. |
+| Tests | Node prüft Hamming-Einzelbitkorrektur, Erkennung zweier Fehler pro Codewort, Mehrheitsentscheidung, CRC, unpassende Einstellungen, UTF-8 und beide Richtungen zwischen 44,1 und 48 kHz. Mobiles Chromium sendet und empfängt eine synthetische Tonfolge über einen Web-Audio-Medienstream. Routentests prüfen die auf die Freigabeseite beschränkte Mikrofonberechtigung. |
+| Soll-Ist-Vergleich | Dieselbe Nachricht lässt sich im simulierten Audiokanal mit wählbarer Fehlerkorrektur übertragen. Gerätepaar, Reichweite und Hochtonfilter beeinflussen den Empfang über Luft. Physische Geräte wurden nicht gemessen. |
+| Review und Abschluss | Die Koordination begrenzte Nachrichten auf 128 UTF-8-Bytes, korrigierte die Rahmenlänge, prüfte Abtastratenwechsel und begrenzte Kopieraufwand und Ressourcenlebensdauer. Nächster Praxistest ist die Übertragung zwischen Notebook und Telefon in beiden Bändern. |
