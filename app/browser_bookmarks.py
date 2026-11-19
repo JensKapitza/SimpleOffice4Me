@@ -78,6 +78,19 @@ def _user_id() -> int:
     return int(g.user["id"])
 
 
+def _index_redirect():
+    """Return to the filtered list when a form came from it.
+
+    Older clients may not send q; malformed or oversized values are ignored.
+    Redirect targets are always generated internally with url_for.
+    """
+    try:
+        query = _clean(request.form.get("q"), "Suche", 200)
+    except ValueError:
+        query = ""
+    return redirect(url_for("browser_bookmarks.index", q=query or None))
+
+
 @bp.get("/")
 @login_required
 def index():
@@ -122,7 +135,7 @@ def add():
             flash("Dieses Lesezeichen ist in diesem Ordner bereits vorhanden.")
         else:
             raise
-    return redirect(url_for("browser_bookmarks.index"))
+    return _index_redirect()
 
 
 @bp.post("/<bookmark_id>/update")
@@ -146,7 +159,7 @@ def update(bookmark_id):
             flash("Dieses Lesezeichen ist in diesem Ordner bereits vorhanden.")
         else:
             raise
-    return redirect(url_for("browser_bookmarks.index"))
+    return _index_redirect()
 
 
 @bp.post("/<bookmark_id>/delete")
@@ -158,7 +171,7 @@ def delete(bookmark_id):
     if not cur.rowcount:
         abort(404)
     flash("Lesezeichen gelöscht.")
-    return redirect(url_for("browser_bookmarks.index"))
+    return _index_redirect()
 
 
 @bp.post("/<bookmark_id>/pin")
@@ -169,7 +182,7 @@ def pin(bookmark_id):
     get_db().commit()
     if not cur.rowcount:
         abort(404)
-    return redirect(url_for("browser_bookmarks.index"))
+    return _index_redirect()
 
 
 class _FirefoxParser(HTMLParser):

@@ -2,6 +2,10 @@
 
 SimpleOffice stellt unter `/bookmarks/` eine persönliche Lesezeichensammlung bereit. Sie kann als Teil der installierbaren SimpleOffice-PWA genutzt werden; das Hauptmanifest bietet einen Lesezeichen-Shortcut.
 
+## In einer gefilterten Liste arbeiten
+
+Beim Bearbeiten, Anheften und Löschen bleibt die Suche aktiv. Passt ein geänderter Eintrag anschließend nicht mehr zum Suchbegriff, verschwindet er aus der Trefferliste. „Suche zurücksetzen“ öffnet die gesamte persönliche Sammlung.
+
 ## Firefox und andere Browser
 
 Eine Web-App kann aus Sicherheitsgründen nicht direkt die interne Lesezeichenleiste oder Datenbank von Firefox, Chrome oder Safari lesen und verändern. Für Firefox ist der unterstützte Austauschweg die Netscape-HTML-Datei:
