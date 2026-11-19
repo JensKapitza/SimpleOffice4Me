@@ -26,6 +26,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/quality-wins.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile-viewport.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile-workspace.css') }}">
   {% block styles %}{% endblock %}
   {% if v3_search_enabled %}<link rel="stylesheet" href="{{ url_for('static', filename='css/v3_command_palette.css') }}">{% endif %}
   <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
@@ -79,6 +80,7 @@
   {% block body %}{% endblock %}
   {% block footer %}{% endblock %}
   {% include "v3_command_palette.html" %}
+  {% if g.user and not kids_mode|default(false) %}{% include "_mobile_workspace.html" %}{% endif %}
   {% if license_ui.state.bad_client %}
   <div class="modal fade" id="licenseBlockedModal" tabindex="-1" aria-labelledby="licenseBlockedTitle" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h2 class="modal-title fs-5" id="licenseBlockedTitle">{{ 'Client blocked by license master' if g.language|default('de') == 'en' else 'Client vom Lizenz-Master gesperrt' }}</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><div class="modal-body"><p>{{ license_ui.state.message or ('Please contact the administrator or settle the outstanding billing issue.' if g.language|default('de') == 'en' else 'Bitte Abrechnungsstatus prüfen bzw. offene Rechnung klären.') }}</p><p class="small text-secondary mb-0">{{ 'The local application continues to work. Federation traffic is intentionally slower and peers may refuse this client.' if g.language|default('de') == 'en' else 'Die lokale Anwendung funktioniert weiter. Federation-Verkehr wird absichtlich verlangsamt und andere Peers dürfen diesen Client ablehnen.' }}</p></div><div class="modal-footer">{% if g.user and g.user['is_admin'] %}<a class="btn btn-primary" href="{{ url_for('licensing_admin.index') }}">{{ 'Open licensing' if g.language|default('de') == 'en' else 'Lizenzierung öffnen' }}</a>{% endif %}<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">OK</button></div></div></div>
@@ -96,6 +98,7 @@
   <script src="{{ url_for('static', filename='js/unsaved_guard.js') }}" defer></script>
   {% if g.user and v3_search_enabled and not kids_mode|default(false) %}<script src="{{ url_for('static', filename='js/v3_command_palette.js') }}"></script>{% endif %}
   <script src="{{ url_for('static', filename='js/mobile_viewport.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/mobile_workspace.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/scroll_to_top.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/pwa.js') }}"></script>
   <script src="{{ url_for('static', filename='js/password_toggle.js') }}" defer></script>
