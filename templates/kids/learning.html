@@ -43,6 +43,7 @@
       <button type="button" class="kids-learning-subject" data-subject="mixed"><span aria-hidden="true">🎲</span><strong>{{ 'Surprise me' if g.language == 'en' else 'Überrasch mich' }}</strong><small>{{ 'A random mix of subjects' if g.language == 'en' else 'Eine zufällige Mischung der Fächer' }}</small></button>
       <button type="button" class="kids-learning-subject" data-subject="search"><span aria-hidden="true">🔎</span><strong>{{ 'Search and letters' if g.language == 'en' else 'Suchbild & Buchstaben' }}</strong><small>{{ 'Find things and complete words' if g.language == 'en' else 'Dinge finden und Wörter ergänzen' }}</small></button>
     </div>
+    <p class="alert alert-warning mt-3 mb-0" data-setup-notice role="alert" hidden></p>
     <p class="small text-secondary mt-3 mb-0">{{ 'All 100 words and complete questions have pre-recorded voices. Audio is served locally and cached after you play it.' if g.language == 'en' else 'Alle 100 Wörter und vollständigen Fragen sind vorgesprochen. Die Audios kommen aus der App und werden beim Abspielen lokal zwischengespeichert.' }}</p>
   </section>
 

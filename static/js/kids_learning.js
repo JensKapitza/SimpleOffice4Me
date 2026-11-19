@@ -204,14 +204,14 @@
     const {german:word, image, id} = card;
     const answer = word[0].toLocaleUpperCase();
     const letters = [...new Set(cards.map(entry => entry.german[0].toLocaleUpperCase()))].filter(letter => letter !== answer);
-    const prompt = text(card.german_question_de, card.german_question_en);
+    const prompt = card.german_question_de;
     const pronunciationAudioUrl = audioUrl(`de/${id}.mp3`);
-    const questionAudioUrl = audioUrl(`prompts/german/${english?'en':'de'}/full/${id}.mp3`);
+    const questionAudioUrl = audioUrl(`prompts/german/de/full/${id}.mp3`);
     return {
       q:prompt, visual:['preschool','1','2'].includes(level)?image:null, a:answer,
       c:shuffle([answer,...shuffle(letters).slice(0,3)]), audioPrompt:prompt,
-      audioParts:splitQuotedSpeech(prompt, english?'en-US':'de-DE', 'de-DE'),
-      promptLang:english?'en-US':'de-DE', speak:word, speechLang:'de-DE',
+      audioParts:splitQuotedSpeech(prompt, 'de-DE', 'de-DE'),
+      promptLang:'de-DE', speak:word, speechLang:'de-DE',
       solutionWord:word.toLocaleUpperCase(), solutionText:text(`Das Lösungswort ist ${word.toLocaleUpperCase()}. Der Anfangslaut ist ${answer}.`,`The word is ${word.toLocaleUpperCase()}. Its first sound is ${answer}.`),
       questionAudioUrl, pronunciationAudioUrl, solutionAudioUrl:pronunciationAudioUrl,
     };
@@ -229,23 +229,21 @@
     const answers = selectedWords.map(entry => entry.german);
     const imageByAnswer = Object.fromEntries(selectedWords.map(entry => [entry.german,entry.image]));
     const early = ['preschool','1','2'].includes(level);
-    const prompt = early
-      ? text(card.english_early_de, card.english_early_en)
-      : text(card.english_question_de, card.english_question_en);
+    const prompt = early ? card.english_early_en : card.english_question_en;
     const pronunciationAudioUrl = audioUrl(`en/${id}.mp3`);
-    const questionAudioUrl = audioUrl(`prompts/english/${english?'en':'de'}/${early?'early':'full'}/${id}.mp3`);
+    const questionAudioUrl = audioUrl(`prompts/english/en/${early?'early':'full'}/${id}.mp3`);
     return {
       q:prompt, visual:early?'🔊':null, a:translation, c:answers,
       choiceImages:early?imageByAnswer:null, audioPrompt:prompt,
-      audioParts:splitQuotedSpeech(prompt, english?'en-US':'de-DE', 'en-US'),
-      promptLang:english?'en-US':'de-DE', speak:word, speechLang:'en-US',
+      audioParts:splitQuotedSpeech(prompt, 'en-US', 'en-US'),
+      promptLang:'en-US', speak:word, speechLang:'en-US',
       solutionWord:`${word.toLocaleUpperCase()} = ${translation.toLocaleUpperCase()}`,
       solutionText:text(`Das englische Wort ${word.toLocaleUpperCase()} heißt ${translation.toLocaleUpperCase()}.`,`The English word ${word.toLocaleUpperCase()} means ${translation.toLocaleUpperCase()}.`),
       questionAudioUrl, pronunciationAudioUrl, solutionAudioUrl:audioUrl(`de/${id}.mp3`),
     };
   }
   function buildEnglishRound(level) {
-    const cards = vocabularyForLevel(englishWordCards, level);
+    const cards = vocabularyForLevel(languageVocabulary, level);
     return shuffle(cards.map(card => createEnglishQuestion(level, card))).slice(0,3);
   }
   const worldQuestionCards = [
@@ -330,6 +328,15 @@
     searchGame.hidden = true;
     mazePanel.hidden = true;
     questions = subject === 'mixed' ? buildMixedRound(selectedLevel) : buildSubjectRound(subject, selectedLevel);
+    const notice = root.querySelector('[data-setup-notice]');
+    if (!questions.length || questions.some(question => !question || !question.q)) {
+      setup.hidden = false;
+      game.hidden = true;
+      notice.textContent = text('Für dieses Fach gibt es gerade keine Aufgaben. Bitte wähle ein anderes Fach.', 'No tasks are available for this subject right now. Please choose another one.');
+      notice.hidden = false;
+      return;
+    }
+    notice.hidden = true;
     index = 0;
     score = 0;
     setup.hidden = true;

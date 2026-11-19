@@ -10,6 +10,9 @@ derselben Instanz wieder öffnen.
 
 Die Lernspiele reichen von Vorschule bis Klasse 5. Aufgaben umfassen unter
 anderem Zählen, Wörter, Richtungen, Gegenstandssuche, Verkehrsregeln und Logik.
+Deutsch fragt auf Deutsch, Englisch fragt auf Englisch — unabhängig von der
+eingestellten Bedienoberflächensprache. Die Lösungsansage spielt jeden Clip
+genau einmal; Browsersprachen dienen nur als Ersatz, bevorzugt vom Gerät.
 Die Spielpause bietet kurze Runden ohne Zeitdruck. In den Lernspielen können
 Hörhinweise über die verfügbaren Gerätestimmen oder mitgelieferte Audiodateien
 abgespielt werden. Unter **Strom sicher erkennen** gibt es einen eigenen

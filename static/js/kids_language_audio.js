@@ -21,7 +21,7 @@
           const languageKey = utterance.lang.toLowerCase().startsWith('de') ? 'de' : 'en';
           const available = window.speechSynthesis.getVoices().filter(voice => voice.lang.toLowerCase().startsWith(languageKey));
           const requested = available.find(voice => (voice.voiceURI || `${voice.name}|${voice.lang}`) === selectedVoices[languageKey]);
-          const score = voice => (voice.lang.toLowerCase() === utterance.lang.toLowerCase() ? 100 : 50) + (voice.localService ? 8 : 0) + (/natural|neural|premium|enhanced/i.test(voice.name) ? 12 : 0) + (voice.default ? 1 : 0);
+          const score = voice => (voice.lang.toLowerCase() === utterance.lang.toLowerCase() ? 100 : 50) + (voice.localService ? 24 : 0) + (/natural|neural|premium|enhanced/i.test(voice.name) ? 6 : 0) + (voice.default ? 1 : 0);
           const chosen = requested || [...available].sort((a,b) => score(b) - score(a))[0];
           if (chosen) utterance.voice = chosen;
           utterance.onerror = event => {
