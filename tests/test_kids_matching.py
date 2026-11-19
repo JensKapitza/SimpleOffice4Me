@@ -142,6 +142,14 @@ class KidsMatchingHttpTests(PublicHttpTestCase):
         for forbidden in ("fetch(", "XMLHttpRequest", "http://", "https://"):
             self.assertNotIn(forbidden, shared)
 
+    def test_spoken_feedback_prefers_on_device_voices(self):
+        shared = (ROOT / "static" / "js" / "kids_shared.js").read_text(encoding="utf-8")
+        local = re.search(r"voice\.localService \? (\d+)", shared)
+        cloud = re.search(r"natural\|neural[^?]*\? (\d+)", shared)
+        self.assertIsNotNone(local)
+        self.assertIsNotNone(cloud)
+        self.assertGreater(int(local.group(1)), int(cloud.group(1)))
+
 
 if __name__ == "__main__":
     unittest.main()

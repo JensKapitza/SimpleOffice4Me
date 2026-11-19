@@ -11,9 +11,11 @@
   }
 
   function voiceRank(voice, language) {
+    // On-device voices first: same-language local voices must beat
+    // same-language cloud voices so prompts stay offline and private.
     return (voice.lang.toLowerCase() === language.toLowerCase() ? 100 : 50)
-      + (voice.localService ? 8 : 0)
-      + (/natural|neural|premium|enhanced/i.test(voice.name) ? 12 : 0);
+      + (voice.localService ? 24 : 0)
+      + (/natural|neural|premium|enhanced/i.test(voice.name) ? 6 : 0);
   }
 
   function speak(value, language, statusElement) {
