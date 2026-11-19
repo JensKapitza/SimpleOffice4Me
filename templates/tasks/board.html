@@ -75,6 +75,13 @@
                   <div class="small text-secondary mb-2">{{ 'Source file unavailable or not accessible' if g.language == 'en' else 'Quelldatei nicht verfügbar oder nicht zugänglich' }}</div>
                 {% endif %}
               {% endfor %}
+              <details class="small mb-2" data-link-picker data-search-url="{{ url_for('documents.quick_search_api') }}" data-attach-url="{{ url_for('tasks.attach_task_document', item_id=task.id) }}">
+                <summary>{{ 'Link document' if g.language == 'en' else 'Dokument verknüpfen' }}</summary>
+                <div class="pt-2">
+                  <input type="search" class="form-control form-control-sm" data-link-search placeholder="{{ 'Search documents' if g.language == 'en' else 'Dokumente suchen' }}" aria-label="{{ 'Search documents' if g.language == 'en' else 'Dokumente suchen' }}" autocomplete="off">
+                  <div class="list-group mt-1" data-link-results role="listbox" aria-label="{{ 'Document results' if g.language == 'en' else 'Dokumenttreffer' }}"></div>
+                </div>
+              </details>
               <div class="small d-flex flex-wrap gap-1 mb-2">
                 {% if task.due %}<span class="badge text-bg-light border">{{ 'Due' if g.language == 'en' else 'Fällig' }}: {{ task.due }}</span>{% endif %}
                 {% if task.rrule %}<span class="badge text-bg-info">↻ {{ task.rrule }}</span>{% endif %}
@@ -140,4 +147,18 @@
     {% endfor %}
   </div>
 </main>
+<script defer src="{{ url_for('static', filename='js/task_link_picker.js') }}"></script>
+<script>
+(function () {
+  'use strict';
+  if (window.location.hash === '#new-task') {
+    var form = document.getElementById('new-task');
+    if (form && window.bootstrap && window.bootstrap.Collapse) {
+      window.bootstrap.Collapse.getOrCreateInstance(form, {toggle: false}).show();
+    } else if (form) {
+      form.classList.add('show');
+    }
+  }
+})();
+</script>
 {% endblock %}

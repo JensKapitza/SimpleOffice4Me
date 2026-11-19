@@ -226,10 +226,10 @@
   }
   function renderCollections() {
     const recents = root.querySelector('[data-quick-recents-list]');
-    const favorites = root.querySelector('[data-quick-favorites-list]');
+    const favoritesEl = root.querySelector('[data-quick-favorites-list]');
     const show = input.value.trim().length < 2;
     if (recents) renderCollection(recents, show ? store(RECENTS_KEY) : []);
-    if (favorites) renderCollection(favorites, show ? favorites() : []);
+    if (favoritesEl) renderCollection(favoritesEl, show ? favorites() : []);
   }
 
   let requestId = 0;
@@ -254,7 +254,6 @@
       const visible = applyFilter(currentFilter());
       setActive(null);
       closePreview();
-      input.setAttribute('aria-expanded', String(visible > 0));
       if (feedback) feedback.textContent = text(
         `${visible} Treffer.`, `${visible} result${visible === 1 ? '' : 's'}.`);
     } catch (error) {
@@ -286,7 +285,6 @@
     updateCounts();
     applyFilter(currentFilter());
     setActive(null);
-    input.setAttribute('aria-expanded', 'false');
   }
 
   input.addEventListener('input', () => {
