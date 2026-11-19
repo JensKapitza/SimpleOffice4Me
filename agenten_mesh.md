@@ -227,6 +227,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: ganze Struktur in einer Aktion, Pfade rekursiv korrekt, Validierung, Rechte. Ist gemessen: 5/5 Blackbox-HTTP-Tests (Regal 3 Fächer mit Pfad, Kommode-Standard unter Kiste Tiefe 4, 4 Validierungs-400, anonym 302, Katalog+Formularmarker); Nachbar-Suites 23/23; Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen als Follow-up (weitere #1111-Slices): Scanmodi pro Aktion, Exemplare für alle Objekttypen, Mengen/Seriennummern, System-/manuelle Metadatenwerte, CSV-Import, Inventur/Differenzen, Objekt-Verleih, föderierte Rechte. |
 
+## 19. November 2026 · Maze-Tippmodus: Solve-Verhalten verifiziert, Vollbild-Fit hergestellt
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Live-Reproduktion per Headless-Chromium mit echter Tastatur: letzter Buchstabe löst exakt (Solve im selben Tastenschlag wie Aufdecken), Falschbuchstabe ohne Fortschritt, Pfeile ignoriert, keine JS-Fehler. Echter Befund: Panel 944 px auf 360×800 — kein Vollbild-Fit (Header 217 + Titel 165 + Panel). |
+| Implementierung | Nur CSS + 1 JS-Token (999-Zeilen-Gate): `is-typing`-Klasse am Panel, Kompaktregeln ≤576 px (Buchstaben 44 px/5 Spalten, Karte 38vmin, Optionen 2×2, Task 1,5rem), Kids-Nav und Seittitel während der Maze-Runde per `:has()` ausgeblendet (Zurück-Button bleibt, Nav kehrt automatisch zurück), Statuszeile einzeilig. Desktop unverändert. |
+| Tests und Soll-Ist-Vergleich | Soll: Solve exakt beim letzten Buchstaben, alles ohne Scrollen sichtbar. Ist gemessen: Solve-exakt per Tastatur in 5/5 Live-Läufen; Panel unten 748–790 px (Worst-Case 5-Buchstaben-Wort 749), vorher 955–1026. Neu: Browser-Test Tastatur-Solve + Fit ab Seitenanfang + Nav-Rückkehr, statischer Pin für Klasse/CSS. 7/7 Python-, Node-Suite grün, `node --check`, Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Weiter/Zurück-Buttons liegen 160 px unterhalb (kleiner Scroll, Fokus springt automatisch); `:has()` braucht moderne Browser, sonst wieder Scrollen; physische Geräteprüfung. |
+
 ## 19. November 2026 · Verknüpfungen: Aufgaben und Dokumente beidseitig verbinden
 
 | Phase | Arbeit und Nachweis |
