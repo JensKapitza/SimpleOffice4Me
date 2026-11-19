@@ -227,6 +227,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: 1 Klick zum vorbelegten Formular, mobil lesbar ohne Horizontal-Scroll. Ist gemessen: 4/4 Python-Tests (28–31 ISO-Tage, Heute-Link, Handler, Mobil-CSS), Browser-Tests (Chromium, CI): Klick auf 2026-11-19 → Formular mit 09:00/10:00, Mobil 360 px: Wochentage versteckt, Tage ≥ 80 % Breite, Plus-Ziele ≥ 44 px. Gates grün. |
 | Review und Abschluss | Offen als Follow-up: Drag-and-drop, Größenänderung, Wochen-/Tagesraster, Terminverknüpfungen (eigene Aufträge), physische Geräteprüfung. |
 
+## 19. November 2026 · Dateiverwaltung: Mehrfachauswahl mit Stapel-Tags und -Verschieben
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Ordnerbaum ohne Auswahl; Tag/Verschieben nur einzeln auf Detailseiten. Einzeloperationen (`set_tags`, Storage-`move`) wiederverwendbar, CSRF für fetch global vorhanden, kein Bulk-Endpunkt. |
+| Implementierung | Checkboxen je Baumzeile (ohne Details-Toggle), Stapel-Leiste (Zähler, Tag-/Ordnereingaben, Fortschrittsbalken, Status), gechunkte Anfragen (25er) mit Teilergebnissen und Reload. Neue Routen `POST /documents/bulk-tags` und `/bulk-move` in eigenem Modul (Größen-Gate): max. 200 IDs, je Eintrag aktualisiert/fehlerhaft, vorhandene Store-Prüfungen. |
+| Tests und Soll-Ist-Vergleich | Soll: mehrere Dateien gemeinsam taggen/verschieben mit Fortschritt und ohne Datenverlust. Ist gemessen: 4/4 Tests (Tags für 2, Verschieben mit ID-Erhalt + Teilfehler, 400/Anonym-Fälle, Marker), Browser-Test (Chromium, CI): 2 auswählen, taggen, Reload. Ruff, Gates, Compile grün. |
+| Review und Abschluss | Offen als Follow-up: Kachelansicht, Drag-and-drop, Kontextmenüs, Umbenennen/Favoriten im Stapel (eigene Schritte). |
+
 ## 19. November 2026 · Wiedervorlage-Hub: Fristenansichten, Verlauf, Kommentare
 
 | Phase | Arbeit und Nachweis |
@@ -252,6 +261,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | Geteiltes Partial `_text_preview.html` (Suchfeld mit Zähler, Markierung, vor/zurück, Text/Auswahl kopieren, alles client-seitig ohne Requests, `textContent`-sicher); zusätzlich unter PDF-/Office-/Bildvorschau bei vorhandenem Extrakt; Extraktionsstatus aus bereits geladenen Metadaten (keine Zusatz-Queries); neuer `document_preview.js`. Keine neue Extraktionsarchitektur. |
 | Tests und Soll-Ist-Vergleich | Soll: schnelle Vorschau mit Suche/Kopieren/Status ohne Serverlast. Ist gemessen: 4/4 Python-Tests (Marker, Extrakt-Status, Trennung Datei/Extrakt, Skript-Sicherheit), Browser-Test (Chromium, CI): 2 Treffer markiert, Zähler 1/2→2/2, Kopie in Zwischenablage, keine Konsolenfehler. Detailseite mit 500-Zeilen-Text: Median 141 ms (40 KiB); PDF mit Extrakt: Median 129 ms (42 KiB). `node --check`, Ruff, Gates grün. |
 | Review und Abschluss | Offen als Follow-up: asynchroner Einzel-Neustart der Extraktion mit Fortschritt, Office-Volltext ohne Größenkürzung auslagern, Bild-OCR-Vorschau mobil prüfen. |
+## 19. November 2026 · Mobile Arbeitsoberfläche: Schnellzugriff und Aktionsbutton
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Mobil kostete jedes Hauptziel 3 Taps (Hamburger, Dropdown, Link): Suche (Hamburger, Formular, Absenden), Kalender (Hamburger, Kommunikation, Kalender), Dateien (Hamburger, Dokumente, Dokumente), Aufgaben (Hamburger, Arbeit, Tasks), Chats (Hamburger, Kommunikation, Chat). Wiedervorlage existiert nur als Prüfungsregel mit Aufgabenerzeugung (Inventar/Bibliothek), kein zentrales Hub. Fundament vorhanden und wiederverwendet: `mobile-viewport.css`/`mobile_viewport.js` (Safe-Area, Tastatur-Status), alle expliziten Touch-Ziele ≥ 44 px. |
+| Implementierung | Neue `_mobile_workspace.html` (eingebunden für angemeldete Nutzer): Bottom-Bar mit 5 Direktlinks (64 px Ziele, Active-Markierung) nur unter 992 px, Aktionsbutton (56 px) mit kontextabhängigem Menü (Kalender/Aufgaben/Dateien/Chats: Termin, Wiedervorlage→Anlegeformular, Aufgabe, Erfassen, Text kopieren, Teilen), Web-Share-API mit Zwischenablage-Fallback, Textkopie aus Auswahl oder Titel+URL mit Rückmeldung, Button versteckt bei offener Tastatur, Body-Polster gegen Überdeckung. Desktop unverändert. Feature-Flags wie Hauptnavigation, kein Menü im Kids-Modus. |
+| Tests und Soll-Ist-Vergleich | Soll: 1 Tap zu jedem Hauptziel, 2 Taps zu Kontextaktionen, kein Desktop-Bruch. Ist gemessen: 5/5 Python-Tests (Marker, Links, Aktionen inkl. Wiedervorlage/Kopieren, Kids-Ausschluss, CSS-/JS-Regeln), Browser-Tests (Chromium, CI): 390×844 Ein-Tap-Navigation mit Active-Markierung und ≥ 44 px Zielen, Aktionsmenü mit Wiedervorlage-Fokus unter /tasks/, Kopie in Zwischenablage verifiziert, Escape schließt, Desktop 1280 versteckt Bar und Button. `node --check`, Policy- und Größen-Gates grün. |
+| Review und Abschluss | Offen: Wiedervorlage-Hub als eigenes Aktionsziel (eigener Auftrag), physische Geräteprüfung (Safe-Area, Tastatur, PWA), Desktop-Funktionen unangetastet verifiziert. |
+
 ## 19. November 2026 · Dateimanager-Brücke: lokale Dateien per Desktop-Shell zeigen
 
 | Phase | Arbeit und Nachweis |
