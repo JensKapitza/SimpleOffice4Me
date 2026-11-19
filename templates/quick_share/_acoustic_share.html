@@ -32,6 +32,6 @@
       <p class="small mt-2" role="status" data-acoustic-status aria-live="polite"></p>
       <label for="acoustic-result" class="form-label">{{ 'Received message' if en else 'Empfangene Nachricht' }}</label>
       <textarea id="acoustic-result" class="form-control" data-acoustic-result rows="2" readonly></textarea>
-      <a class="btn btn-outline-secondary mt-2" data-acoustic-link hidden target="_blank" rel="noopener noreferrer">{{ 'Open received link' if en else 'Empfangenen Link öffnen' }}</a>
+      <a class="btn btn-outline-secondary mt-2" data-acoustic-link href="#" hidden target="_blank" rel="noopener noreferrer">{{ 'Open received link' if en else 'Empfangenen Link öffnen' }}</a>
     </div>
   </details>
