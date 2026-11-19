@@ -6,6 +6,7 @@ from . import printer as _printer
 from .routes import bp
 from . import object_care as _object_care  # noqa: F401  # register shared object-care routes
 from . import scan_routes as _scan_routes  # noqa: F401  # register bulk-scan session routes
+from . import move_routes as _move_routes  # noqa: F401  # register location-move routes
 from . import printer_routes as _printer_routes  # noqa: F401  # register label-printer routes
 
 
