@@ -218,6 +218,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll je Spiel: 5–15 Min., Zufallsaufgaben, Stufen, Sofort-Feedback, ohne Lesen. Ist gemessen: Matching 15/15, Numbers 14/14, Syllables 8/8 Python- + 7/7 Node-Tests; Kids-Modus 8/8 (Containment aller 10 Kids-URLs, Gate richtig/falsch/ohne Frage, Erwachsenenseite behält Nav); kombiniert 29/29 bzw. 23/23 nach Zusammenführung; `node --check`, DOM-Stub-Proben (10 Runden/32 Ansagen bzw. 3×8 Aufgaben), Policy-/Größen-/Compile-Gates grün. CI je PR vollständig grün (36/36 bzw. 35 + Rest) vor Merge; dazwischen nur Ubuntu-Spiegel-503 und ein nicht-blockierender Python-3.15-Budget-Timeout (5924 Tests liefen, alle 8 Kids-Tests darunter). |
 | Review und Abschluss | Unabhängiges Review gab alle drei Zweige frei (keine externen Requests, kein Tracking, keine Timer, ermutigendes Feedback, keine Routenkollisionen). Offen als Follow-up: B1/B2-Fixes im Lernspiel, S2-Umsortierung im Alt-Code, Fortschritts-/Eltern-Backend, Offline-Arbeitsblätter/Bastelanleitungen sowie Praxisprüfung auf physischen Geräten (Touch, Tastatur, Lautsprecher/Mikrofon). |
 
+## 19. November 2026 · Issue #1111: Objekt-Verleih mit Fristen und Verlauf
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Elfter Slice: physischer Objektverleih fehlte (`rentals.py` ist Nebenkostenabrechnung). Bestand wiederverwendet: Objektauflösung, Routenregistrierung per Bottom-Import, Detailseite, Login/CSRF-Muster. Reservierung/Genehmigung/E-Mail/Föderation bewusst als Follow-up abgetrennt. |
+| Implementierung | Neues Modul `inventory_lending.py` (gesperrter Store: Entleiher, Fälligkeit, Notiz, Quelle; eine offene Leihe je Objekt) plus `inventory_lending_routes.py` (Entleihen/Rückbuchen/Liste offen+überfällig, JSON/Flash, Login); Verleih-Karte mit Verlauf auf der Detailseite. |
+| Tests und Soll-Ist-Vergleich | Soll: Zyklus Entleihen→Rückgabe, keine Doppelleihe, Validierung, Rechte. Ist gemessen: 4/4 Blackbox-HTTP-Tests (Zyklus+Verlauf, Doppelleihe-400, 4 Validierungsfälle, anonym+Marker); Nachbar-Suites 41/41; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Reservierung/Genehmigung, E-Mail-Erinnerungen, föderierte Rechte, Selbstentnahme per QR, Scanmodi, Fotoerkennung, Offline-Sync. |
+
 ## 19. November 2026 · Maze-Tippmodus: Solve-Verhalten verifiziert, Vollbild-Fit hergestellt
 
 | Phase | Arbeit und Nachweis |
