@@ -14,6 +14,7 @@ from . import documents_routes_task_source as _routes_9
 from . import documents_routes_smart_folders as _routes_10
 from . import documents_routes_recovery as _routes_11
 from . import documents_routes_transfer  # noqa: F401  -- registers document transfer routes
+from . import documents_routes_desktop  # noqa: F401  -- registers desktop integration routes
 
 _route_modules = (
     _routes_1, _routes_2, _routes_3, _routes_4, _routes_5, _routes_6,
