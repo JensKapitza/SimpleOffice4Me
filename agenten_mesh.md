@@ -227,6 +227,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: 1 Klick zum vorbelegten Formular, mobil lesbar ohne Horizontal-Scroll. Ist gemessen: 4/4 Python-Tests (28–31 ISO-Tage, Heute-Link, Handler, Mobil-CSS), Browser-Tests (Chromium, CI): Klick auf 2026-11-19 → Formular mit 09:00/10:00, Mobil 360 px: Wochentage versteckt, Tage ≥ 80 % Breite, Plus-Ziele ≥ 44 px. Gates grün. |
 | Review und Abschluss | Offen als Follow-up: Drag-and-drop, Größenänderung, Wochen-/Tagesraster, Terminverknüpfungen (eigene Aufträge), physische Geräteprüfung. |
 
+## 19. November 2026 · Maze-Tippmodus: Solve-Verhalten verifiziert, Vollbild-Fit hergestellt
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Live-Reproduktion per Headless-Chromium mit echter Tastatur: letzter Buchstabe löst exakt (Solve im selben Tastenschlag wie Aufdecken), Falschbuchstabe ohne Fortschritt, Pfeile ignoriert, keine JS-Fehler. Echter Befund: Panel 944 px auf 360×800 — kein Vollbild-Fit (Header 217 + Titel 165 + Panel). |
+| Implementierung | Nur CSS + 1 JS-Token (999-Zeilen-Gate): `is-typing`-Klasse am Panel, Kompaktregeln ≤576 px (Buchstaben 44 px/5 Spalten, Karte 38vmin, Optionen 2×2, Task 1,5rem), Kids-Nav und Seittitel während der Maze-Runde per `:has()` ausgeblendet (Zurück-Button bleibt, Nav kehrt automatisch zurück), Statuszeile einzeilig. Desktop unverändert. |
+| Tests und Soll-Ist-Vergleich | Soll: Solve exakt beim letzten Buchstaben, alles ohne Scrollen sichtbar. Ist gemessen: Solve-exakt per Tastatur in 5/5 Live-Läufen; Panel unten 748–790 px (Worst-Case 5-Buchstaben-Wort 749), vorher 955–1026. Neu: Browser-Test Tastatur-Solve + Fit ab Seitenanfang + Nav-Rückkehr, statischer Pin für Klasse/CSS. 7/7 Python-, Node-Suite grün, `node --check`, Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Weiter/Zurück-Buttons liegen 160 px unterhalb (kleiner Scroll, Fokus springt automatisch); `:has()` braucht moderne Browser, sonst wieder Scrollen; physische Geräteprüfung. |
+
 ## 19. November 2026 · Verknüpfungen: Aufgaben und Dokumente beidseitig verbinden
 
 | Phase | Arbeit und Nachweis |
