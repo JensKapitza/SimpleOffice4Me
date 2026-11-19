@@ -20,7 +20,8 @@ Einstieg in elektrische Sicherheit. Das Labyrinth hat zusätzlich einen
 **Tipp-Modus**: Statt der Pfeile wird der eingeklammerte Buchstabe über die
 Tastatur oder das Buchstabenfeld eingetippt; ein falscher Buchstabe führt
 einen Schritt in die falsche Richtung, wo es keine gibt, bleibt die Figur
-stehen. Das Labyrinth passt sich der Bildschirmgröße an.
+stehen. Mit dem letzten Buchstaben ist die Runde geschafft. Das Labyrinth
+passt sich der Bildschirmgröße an.
 
 Mit **Spiel per QR-Code öffnen** wird ein Link zur gewählten Aktivität erzeugt.
 Das zweite Gerät braucht Zugriff auf dieselbe Instanz und ein angemeldetes
@@ -46,3 +47,11 @@ Alle Kinderseiten laufen im **Kids-Modus**: Statt der vollständigen Navigation
 sehen Kinder nur Angebote für Kinder. Der Weg zurück für Erwachsene führt über
 **Erwachsene** und eine einfache Rechenaufgabe. Spielstände bleiben im Browser;
 es werden keine Nutzungsprofile angelegt.
+
+## Vorgespeicherte Spielstimmen
+
+Zuordnungsspiel, Zählspaß und Silbenspiel sprechen mit vorgespeicherten,
+gut verständlichen Audiodateien aus der App. Die Browsersprachausgabe dient
+nur als Ersatz, bevorzugt mit geräteeigenen Stimmen. Neue Wörter werden über
+`tools/generate_kids_game_audio.py` vertont (siehe
+`static/audio/kids/games/README.md`).

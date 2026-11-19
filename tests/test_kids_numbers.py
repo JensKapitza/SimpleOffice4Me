@@ -49,7 +49,7 @@ class KidsNumbersConfigTests(unittest.TestCase):
         self.assertGreaterEqual(len(kids_numbers.NUMBERS_ITEMS), 6)
         for item in kids_numbers.NUMBERS_ITEMS:
             with self.subTest(item=item.get("de")):
-                self.assertEqual({"emoji", "de", "de_plural", "en", "en_plural"}, set(item))
+                self.assertEqual({"emoji", "de", "de_plural", "en", "en_plural", "audio", "audio_plural"}, set(item))
                 for key, value in item.items():
                     self.assertIsInstance(value, str)
                     self.assertTrue(value.strip(), f"{key} must not be blank")
@@ -103,7 +103,8 @@ class KidsNumbersPageTests(PublicHttpTestCase):
 class KidsNumbersAssetsTests(unittest.TestCase):
     def test_script_speaks_and_needs_no_network(self):
         script = SCRIPT.read_text(encoding="utf-8")
-        self.assertIn("speechSynthesis", script)
+        self.assertIn("KidsShared", script)
+        self.assertIn("playClips", script)
         self.assertIn("kids-numbers-config", script)
         for forbidden in ("fetch(", "XMLHttpRequest", "http://", "https://"):
             self.assertNotIn(forbidden, script)
@@ -134,12 +135,19 @@ class KidsNumbersAssetsTests(unittest.TestCase):
             self.assertIn(german, template)
 
     def test_spoken_feedback_prefers_on_device_voices(self):
-        script = SCRIPT.read_text(encoding="utf-8")
-        local = re.search(r"voice\.localService \? (\d+)", script)
-        cloud = re.search(r"natural\|neural[^?]*\? (\d+)", script)
+        shared = (ROOT / "static" / "js" / "kids_shared.js").read_text(encoding="utf-8")
+        local = re.search(r"voice\.localService \? (\d+)", shared)
+        cloud = re.search(r"natural\|neural[^?]*\? (\d+)", shared)
         self.assertIsNotNone(local)
         self.assertIsNotNone(cloud)
         self.assertGreater(int(local.group(1)), int(cloud.group(1)))
+
+    def test_game_uses_prerecorded_clip_keys(self):
+        script = SCRIPT.read_text(encoding="utf-8")
+        for key in ("how_many", "see_you", "tap_on", "where_more", "where_less",
+                    "tap_it", "try_again", "amazing", "well_done", "nice_playing"):
+            self.assertIn(f"'{key}'", script)
+        self.assertIn("num_", script)
 
 
 if __name__ == "__main__":

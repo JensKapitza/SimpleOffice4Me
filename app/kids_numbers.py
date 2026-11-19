@@ -20,17 +20,20 @@ NUMBERS_LEVELS = {
 
 # Countable picture sets. Every item carries a symbol plus German and English
 # singular/plural words so prompts stay speakable without reading skills.
+# audio/audio_plural reference pre-generated clips under
+# static/audio/kids/games/numbers/<lang>/<key>.mp3 (see
+# tools/generate_kids_game_audio.py).
 NUMBERS_ITEMS = [
-    {"emoji": "🐶", "de": "Hund", "de_plural": "Hunde", "en": "dog", "en_plural": "dogs"},
-    {"emoji": "🐱", "de": "Katze", "de_plural": "Katzen", "en": "cat", "en_plural": "cats"},
-    {"emoji": "🐰", "de": "Hase", "de_plural": "Hasen", "en": "rabbit", "en_plural": "rabbits"},
-    {"emoji": "🐸", "de": "Frosch", "de_plural": "Frösche", "en": "frog", "en_plural": "frogs"},
-    {"emoji": "🐞", "de": "Käfer", "de_plural": "Käfer", "en": "ladybug", "en_plural": "ladybugs"},
-    {"emoji": "🦋", "de": "Schmetterling", "de_plural": "Schmetterlinge", "en": "butterfly", "en_plural": "butterflies"},
-    {"emoji": "🐟", "de": "Fisch", "de_plural": "Fische", "en": "fish", "en_plural": "fish"},
-    {"emoji": "🐤", "de": "Küken", "de_plural": "Küken", "en": "chick", "en_plural": "chicks"},
-    {"emoji": "🍎", "de": "Apfel", "de_plural": "Äpfel", "en": "apple", "en_plural": "apples"},
-    {"emoji": "⭐", "de": "Stern", "de_plural": "Sterne", "en": "star", "en_plural": "stars"},
+    {"emoji": "🐶", "de": "Hund", "de_plural": "Hunde", "en": "dog", "en_plural": "dogs", "audio": "n_hund", "audio_plural": "n_hunde"},
+    {"emoji": "🐱", "de": "Katze", "de_plural": "Katzen", "en": "cat", "en_plural": "cats", "audio": "n_katze", "audio_plural": "n_katzen"},
+    {"emoji": "🐰", "de": "Hase", "de_plural": "Hasen", "en": "rabbit", "en_plural": "rabbits", "audio": "n_hase", "audio_plural": "n_hasen"},
+    {"emoji": "🐸", "de": "Frosch", "de_plural": "Frösche", "en": "frog", "en_plural": "frogs", "audio": "n_frosch", "audio_plural": "n_froesche"},
+    {"emoji": "🐞", "de": "Käfer", "de_plural": "Käfer", "en": "ladybug", "en_plural": "ladybugs", "audio": "n_kaefer", "audio_plural": "n_kaefer_pl"},
+    {"emoji": "🦋", "de": "Schmetterling", "de_plural": "Schmetterlinge", "en": "butterfly", "en_plural": "butterflies", "audio": "n_schmetterling", "audio_plural": "n_schmetterlinge"},
+    {"emoji": "🐟", "de": "Fisch", "de_plural": "Fische", "en": "fish", "en_plural": "fish", "audio": "n_fisch", "audio_plural": "n_fische"},
+    {"emoji": "🐤", "de": "Küken", "de_plural": "Küken", "en": "chick", "en_plural": "chicks", "audio": "n_kueken", "audio_plural": "n_kueken_pl"},
+    {"emoji": "🍎", "de": "Apfel", "de_plural": "Äpfel", "en": "apple", "en_plural": "apples", "audio": "n_apfel", "audio_plural": "n_aepfel"},
+    {"emoji": "⭐", "de": "Stern", "de_plural": "Sterne", "en": "star", "en_plural": "stars", "audio": "n_stern", "audio_plural": "n_sterne"},
 ]
 
 

@@ -5,6 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const scriptSource = fs.readFileSync(path.join(__dirname, '../static/js/kids_syllables.js'), 'utf8');
+const sharedSource = fs.readFileSync(path.join(__dirname, '../static/js/kids_shared.js'), 'utf8');
 
 function matches(node, selector) {
   return selector.split(',').map(part => part.trim()).some(part => {
@@ -121,6 +122,7 @@ function buildPage(language = 'de') {
 function runScript(page) {
   const sandbox = {window: {}};
   if (page) sandbox.document = page.document;
+  vm.runInNewContext(sharedSource, sandbox);
   vm.runInNewContext(scriptSource, sandbox);
   return sandbox.window.KidsSyllables;
 }

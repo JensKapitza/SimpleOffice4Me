@@ -116,8 +116,10 @@ class KidsExitGateTests(PublicHttpTestCase):
 
     def test_exit_gate_post_without_question_stays_put(self):
         headers = self._csrf_headers(self.client, "/kids/erwachsene")
+        # Impossible answer: session answers range 12-38, so this deterministically
+        # exercises the error path regardless of leaked session state.
         response = self.client.post(
-            "/kids/erwachsene", data={"answer": "12"}, headers=headers,
+            "/kids/erwachsene", data={"answer": "99999"}, headers=headers,
         )
         self.assertEqual(200, response.status_code)
         self.assertIn("kids-exit-answer", response.get_data(as_text=True))
