@@ -1,12 +1,49 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
-{% block title %}{{ 'QR share' if g.language == 'en' else 'QR an Handy' }} · SimpleOffice{% endblock %}
+{% block title %}{{ 'QR & sound' if g.language == 'en' else 'QR & Ton' }} · SimpleOffice{% endblock %}
 {% block body %}
 <main id="main-content" class="container-xl py-4" style="max-width:1050px">
   <div class="mb-4">
-    <h1 class="h2 mb-1">{{ 'Send to phone with QR' if g.language == 'en' else 'Per QR ans Handy senden' }}</h1>
+    <h1 class="h2 mb-1">{{ 'Share by QR or sound' if g.language == 'en' else 'Per QR oder Ton übertragen' }}</h1>
     <p class="text-secondary mb-0">{{ 'Create a QR for text, links or calendar events. The QR contains the content itself, so the phone does not need to reach this server.' if g.language == 'en' else 'Erzeuge einen QR-Code für Text, Links oder Termine. Der QR-Code enthält den Inhalt direkt; das Handy muss diesen Server dafür nicht erreichen.' }}</p>
   </div>
+
+  {% set en = g.language == 'en' %}
+  <details class="card mb-4" data-acoustic-share>
+    <summary class="card-header py-3">{{ 'Send or receive by sound' if en else 'Per Ton senden oder empfangen' }}</summary>
+    <div class="card-body">
+      <p>{{ 'Open this page on both devices and choose the same frequency band and error correction. Start receiving first, then send.' if en else 'Öffne diese Seite auf beiden Geräten und wähle dasselbe Frequenzband und dieselbe Fehlerkorrektur. Starte zuerst den Empfang und sende dann.' }}</p>
+      <div class="row g-3 mb-3">
+        <div class="col-sm-6"><label class="form-label" for="acoustic-band">{{ 'Frequency band' if en else 'Frequenzband' }}</label>
+          <select class="form-select" id="acoustic-band" data-acoustic-band>
+            <option value="high">{{ 'High frequency (18 / 19.5 kHz)' if en else 'Hochfrequent (18 / 19,5 kHz)' }}</option>
+            <option value="audible">{{ 'Audible' if en else 'Hörbar' }}</option>
+          </select>
+          <div class="form-text">{{ 'Some people can hear high frequencies. If your speaker or microphone filters them out, try the audible band.' if en else 'Manche Menschen hören auch die hohen Töne. Filtert dein Lautsprecher oder Mikrofon sie heraus, probiere das hörbare Band.' }}</div>
+        </div>
+        <div class="col-sm-6"><label class="form-label" for="acoustic-fec">{{ 'Error correction' if en else 'Fehlerkorrektur' }}</label>
+          <select class="form-select" id="acoustic-fec" data-acoustic-fec>
+            <option value="hamming">Hamming (SECDED)</option>
+            <option value="repeat3">{{ 'Triple repetition' if en else 'Dreifache Wiederholung' }}</option>
+            <option value="none">{{ 'Checksum only' if en else 'Nur Prüfsumme' }}</option>
+          </select>
+          <div class="form-text">{{ 'Hamming corrects single bit errors. Triple repetition takes longer and uses a majority vote. Checksum only is fastest.' if en else 'Hamming korrigiert einzelne Bitfehler. Dreifache Wiederholung dauert länger und entscheidet per Mehrheitsvergleich. Nur die Prüfsumme zu verwenden geht am schnellsten.' }}</div>
+        </div>
+      </div>
+      <label for="acoustic-text" class="form-label">{{ 'Message to send' if en else 'Nachricht zum Senden' }}</label>
+      <textarea id="acoustic-text" data-acoustic-text class="form-control" rows="2" aria-describedby="acoustic-size">{{ selected.payload if selected else '' }}</textarea>
+      <div id="acoustic-size" class="form-text">{{ 'Up to 128 UTF-8 bytes. Longer messages can be shared by QR.' if en else 'Bis zu 128 UTF-8-Bytes. Längere Nachrichten kannst du per QR übertragen.' }}</div>
+      <p class="small mt-3">{{ 'Nearby devices can receive the message. Receive activates the microphone until a message arrives, you stop, or listening times out. Microphone access requires HTTPS or localhost.' if en else 'Geräte in Hörweite können mitlesen. Empfangen aktiviert das Mikrofon bis zum Eingang einer Nachricht, zum Stoppen oder zum Zeitablauf. Der Mikrofonzugriff erfordert HTTPS oder localhost.' }}</p>
+      <div class="d-flex flex-wrap gap-2">
+        <button type="button" class="btn btn-primary" data-acoustic-send>{{ 'Send' if en else 'Senden' }}</button>
+        <button type="button" class="btn btn-outline-primary" data-acoustic-receive>{{ 'Receive' if en else 'Empfangen' }}</button>
+        <button type="button" class="btn btn-outline-secondary" data-acoustic-stop disabled>{{ 'Stop' if en else 'Stoppen' }}</button>
+      </div>
+      <p class="small mt-2" role="status" data-acoustic-status aria-live="polite"></p>
+      <label for="acoustic-result" class="form-label">{{ 'Received message' if en else 'Empfangene Nachricht' }}</label>
+      <textarea id="acoustic-result" class="form-control" data-acoustic-result rows="2" readonly></textarea>
+    </div>
+  </details>
 
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   {% if form_error %}<div class="alert alert-danger" role="alert">{{ form_error }}</div>{% endif %}
@@ -92,4 +129,7 @@
   </div>
 </main>
 <script src="{{ url_for('static', filename='js/quick_share.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/acoustic_fec.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/acoustic_codec.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/acoustic_share.js') }}" defer></script>
 {% endblock %}

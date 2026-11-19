@@ -10,7 +10,7 @@
     {% if missing_prices %}<span class="small text-secondary d-block">{{ missing_prices }} Artikel ohne Preis wurden nicht eingerechnet.</span>{% else %}<span class="small text-secondary d-block">Alle offenen Artikel mit Preis eingerechnet.</span>{% endif %}
   </section>
   <div class="list-group">
-    {% for item in shared.items %}
+    {% for item in shared['items'] %}
     <article class="list-group-item d-flex flex-wrap justify-content-between gap-2">
       <div><strong>{{ item.name }}</strong><div class="small text-secondary">{% if item.quantity %}{{ item.quantity }} {{ item.unit }}{% endif %}</div></div>
       {% if item.price %}<span class="fw-semibold">{{ item.price }} €{% if item.estimated_line_total %}<span class="small text-secondary d-block">ca. {{ item.estimated_line_total }} für die Menge</span>{% endif %}</span>{% endif %}
