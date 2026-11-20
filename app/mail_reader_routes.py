@@ -344,7 +344,7 @@ def index():
                         str(message.get("message_id", "")).strip()
                     )
                 if uid:
-                    preview = web.message(account, folder, uid)
+                    preview = web.message(account, folder, uid, actor=_actor())
                     reference = _mail_reference(preview["sha512"])
                     preview_case_id = cases.case_for_message(_actor(), selected["id"], reference)
                     if preview_case_id:
@@ -885,7 +885,7 @@ def live_attachment(part_index: int):
     uid = request.args.get("uid", "").strip()
     try:
         account = _account(store, account_id)
-        attachment = ImapWebClient(store).attachment(account, folder, uid, part_index)
+        attachment = ImapWebClient(store).attachment(account, folder, uid, part_index, actor=_actor())
         # Live IMAP attachment downloads are read-only, but still run through the
         # same ClamAV gate as archived mail before bytes leave the application.
         record = scan_attachment_for_download(
