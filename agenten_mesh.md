@@ -218,6 +218,156 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll je Spiel: 5–15 Min., Zufallsaufgaben, Stufen, Sofort-Feedback, ohne Lesen. Ist gemessen: Matching 15/15, Numbers 14/14, Syllables 8/8 Python- + 7/7 Node-Tests; Kids-Modus 8/8 (Containment aller 10 Kids-URLs, Gate richtig/falsch/ohne Frage, Erwachsenenseite behält Nav); kombiniert 29/29 bzw. 23/23 nach Zusammenführung; `node --check`, DOM-Stub-Proben (10 Runden/32 Ansagen bzw. 3×8 Aufgaben), Policy-/Größen-/Compile-Gates grün. CI je PR vollständig grün (36/36 bzw. 35 + Rest) vor Merge; dazwischen nur Ubuntu-Spiegel-503 und ein nicht-blockierender Python-3.15-Budget-Timeout (5924 Tests liefen, alle 8 Kids-Tests darunter). |
 | Review und Abschluss | Unabhängiges Review gab alle drei Zweige frei (keine externen Requests, kein Tracking, keine Timer, ermutigendes Feedback, keine Routenkollisionen). Offen als Follow-up: B1/B2-Fixes im Lernspiel, S2-Umsortierung im Alt-Code, Fortschritts-/Eltern-Backend, Offline-Arbeitsblätter/Bastelanleitungen sowie Praxisprüfung auf physischen Geräten (Touch, Tastatur, Lautsprecher/Mikrofon). |
 
+## 19. November 2026 · Issue #1111: Bestandsbuchungen mit Grund
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Einundzwanzigster Slice (nach #1115-Merge): Mengen waren nur bei Anlage setzbar. Bestand wiederverwendet: Dezimalvalidierung, Update mit Verlauf, Notizen, Routenregistrierung per Bottom-Import. |
+| Implementierung | Neues Modul `inventory_stock_adjust_routes.py` mit `POST /inventory/<id>/stock` (Delta mit Komma, Pflichtgrund, kein Negativstand, JSON/Flash, Login, Notiz im Verlauf); Buchungsformular in der Bestandszeile; zukunftssichere Werterhaltung. |
+| Tests und Soll-Ist-Vergleich | Soll: rauf/runter buchen, kein Negativ, Einzelstück ausgenommen, Validierung, Rechte. Ist gemessen: 4/4 Blackbox-HTTP-Tests (50→42→45,5, Negativ abgelehnt ohne Änderung, Einzelstück-400, anonym+Marker); Nachbar-Suites 42/42 inkl. Mengen-Suite; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Scanmodi-Umlagern/Inventur, föderierte Rechte, Fotoerkennung, Offline-Sync. |
+## 19. November 2026 · Issue #1111: Freigabeschalter je Objekt für die Föderation
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Neunzehnter Slice: Freundes-Bestandssuche war alles-oder-nichts pro Gegenstelle. Bestand wiederverwendet: Index-Builder mit Minimalfeldern, Erfassungsroute, Bibliotheks-Aktualisierungspfade, Detailseite. |
+| Implementierung | `share_inventory`-Schalter je Objekt (Standard geteilt, Altdaten tolerant, Erhalt bei Updates); Ausschluss im Index-Builder; Opt-out-Kontrollkästchen im Erfassungsformular, Umschalt-Route mit Abzeichen auf der Detailseite. |
+| Tests und Soll-Ist-Vergleich | Soll: Standard geteilt, Opt-out wirkt im Index, Umschalten, Validierung, Rechte. Ist gemessen: 4/4 Blackbox-HTTP-Tests (Standard+Opt-out-beim-Anlegen, Umschalten mit Indexprüfung, 400/404-Fälle, anonym+Marker); Nachbar-Suites 61/61 inkl. Föderationsindex; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Rechte pro Identität/Gruppe, Fotoerkennung, Offline-Sync, E-Mail-Erinnerungen. |
+## 19. November 2026 · Issue #1111 (P1-Slice): Scanmodi Einlagern und Entnehmen
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Achtzehnter Slice: Stapelscans ohne Dialoge fehlten. Bestand wiederverwendet: Code-Auflösung, Zuordnung mit Rollback und Spiegelung, Auditmuster. Umlagern/Inventur als Modi folgen nach #1112/#1117-Merge. |
+| Implementierung | `LibraryStore.unassign` mit Ereignis; neues Modul `scan_dispatch_routes.py` mit `POST /library/scan` (Modus+Code+Ziel, JSON/Flash, Login, Audit): Einlagern ordnet zu, Entnehmen löst Zuordnung und Spiegelung (mit Wiederherstellung bei Spiegelfehler); Scan-Karte auf der Bibliotheksseite. |
+| Tests und Soll-Ist-Vergleich | Soll: beide Modi wirken, Spiegel konsistent, Validierung, Rechte. Ist gemessen: 4/4 Blackbox-HTTP-Tests (Einlagern per Code, Entnehmen löst+leert Spiegel, 3 Validierungsfälle, anonym+Marker); Nachbar-Suites 24/24; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Modi Umlagern/Inventur, Zielort-Gedächtnis, föderierte Rechte, Fotoerkennung, Offline-Sync. |
+## 19. November 2026 · Issue #1111: Reservierungen mit Zeiträumen
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Siebzehnter Slice: Vormerkungen waren von physischer Entleihe nicht getrennt. Bestand wiederverwendet: Objektauflösung, Routenregistrierung per Bottom-Import, Detailseite, S3-Coverage-Register. |
+| Implementierung | Neues Modul `inventory_reservations.py` (gesperrter Store: Zeitraum, Person, Notiz; Überschneidungsschutz, Storno) plus `inventory_reservation_routes.py` (Reservieren/Stornieren, JSON/Flash, Login); Reservierungskarte auf der Detailseite; Coverage-Eintrag. |
+| Tests und Soll-Ist-Vergleich | Soll: Zyklus, keine Doppelbelegung, Validierung, Rechte. Ist gemessen: 4/4 Blackbox-HTTP-Tests (Zyklus+Storno, Überschneidung-400, 4 Validierungsfälle, anonym+Marker); Nachbar-Suites 39/39 inkl. Coverage-Guard; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Entleihe-gegen-Reservierung-Prüfung nach #1123-Merge, Scanmodi, föderierte Rechte, Fotoerkennung, Offline-Sync, E-Mail-Erinnerungen. |
+
+## 19. November 2026 · Issue #1111 (P2-Slice): Garantiefristen und Kaufwert
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Sechzehnter Slice: Garantiedauer fehlte, Kaufwert war nur teilweise sichtbar. Bestand wiederverwendet: Feldvalidierung, Fehlerfeld-Zuordnung, Monatsarithmetik, Detailseite. |
+| Implementierung | `warranty_months` (0–120, validiert) im Erfassungsformular mit Fehlerfeld; Ablaufdatum aus Kaufdatum+Monaten mit Aktiv/Abgelaufen-Kennzeichen auf der Detailseite; Kaufwert-Anzeige verifiziert. |
+| Tests und Soll-Ist-Vergleich | Soll: Frist berechnen/kennzeichnen, ungültig ablehnen, Wert sichtbar. Ist gemessen: 5/5 Blackbox-HTTP-Tests (aktiv mit Datum, abgelaufen 2021-01-15, 2 Validierungs-400 mit Fehlerfeld, Wert+Händler, Formularmarker); Nachbar-Suites 43/43; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Scanmodi pro Aktion, föderierte Rechte, Fotoerkennung, Offline-Sync, E-Mail-Erinnerungen, Rechnungsbeleg-Verknüpfung. |
+
+## 19. November 2026 · Issue #1111 (P3-Slice): Mindestbestände mit Warnung
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Fünfzehnter Slice (nach #1115-Merge entblockt): Unterschreitungen fielen nicht auf. Bestand wiederverwendet: Mengenvalidierung, Erfassungsroute, Bibliotheks-Aktualisierungspfade, Routenregistrierung per Bottom-Import. |
+| Implementierung | Optionales `min_stock` in `ObjectStore` (gleiche Validierung, tolerante Altdaten); `low_stock`-Abfrage; `GET /inventory/low-stock` (JSON, Login); Mindestbestand-Feld im Erfassungsformular, Warnabzeichen auf der Detailseite; Erhalt bei Bibliotheks-Updates. |
+| Tests und Soll-Ist-Vergleich | Soll: Warnung unterhalb, Ruhe oberhalb/ohne, Validierung, Erhalt, Rechte. Ist gemessen: 5/5 Blackbox-HTTP-Tests (Warnung+Liste, keine Warnung, 2 Validierungs-400, Zuordnung erhält, anonym+Marker); Nachbar-Suites 63/63 inkl. Mengen-Suite; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Scanmodi pro Aktion, föderierte Rechte, Fotoerkennung, Offline-Sync, E-Mail-Erinnerungen, CSV-Mengen-Spalten. |
+
+## 19. November 2026 · Issue #1111 (P2-Slice): Objektzustände und Lebenszyklus
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Vierzehnter Slice: physischer Zustand (neu/gebraucht/defekt/in Reparatur/ausgesondert) war getrennt von Verfügbarkeit nicht abbildbar. Bestand wiederverwendet: `ObjectStore`-Validierungsmuster, Erfassungsroute, Bibliotheks-Aktualisierungspfade. |
+| Implementierung | Optionales `condition`-Feld in `ObjectStore` (tolerante Altdaten, keine Änderung am Status-Vokabular); Durchreichen im Erfassungsformular (Auswahlliste) und Anzeige auf der Detailseite; Erhalt bei Bibliotheks-Zuordnung/Identität. |
+| Tests und Soll-Ist-Vergleich | Soll: Zustand anlegen/anzeigen/validieren, Zuordnung ohne Verlust. Ist gemessen: 5/5 Blackbox-HTTP-Tests (Anzeige, Standard leer, ungültig 400, Zuordnung erhält, Formularmarker); Nachbar-Suites 59/59; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Scanmodi pro Aktion, föderierte Rechte, Fotoerkennung, Offline-Sync, Mindestbestände, Garantie/Belege/Wert. |
+
+## 19. November 2026 · Issue #1111: Fällige Wartungsprüfungen im Überblick
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Dreizehnter Slice: Prüftermine existierten nur je Objekt und als VTODO, ohne objektübergreifende Fälligkeitsliste. Bestand wiederverwendet: Inspektions-Sidecar, Detailseite, Routenregistrierung per Bottom-Import. |
+| Implementierung | `due_inspections` im Sidecar (Horizont, nur aktive, fälligst zuerst) plus neues Modul `inventory_inspection_routes.py` mit `GET /inventory/inspections/due` (JSON/HTML-Seite, Login); Verweis in der Prüfungen-Karte der Detailseite. |
+| Tests und Soll-Ist-Vergleich | Soll: fällige zuerst, Horizont filtert, erledigte verschwinden, Rechte, Seite. Ist gemessen: 3/3 Blackbox-HTTP-Tests (Sortierung+Objektname, Horizont+Erledigen, Seite+Login+Verweis); Nachbar-Suites 51/51; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Scanmodi pro Aktion, föderierte Rechte, Fotoerkennung, Offline-Sync, Mindestbestände, E-Mail-Erinnerungen. |
+
+## 19. November 2026 · Issue #1111 (P2-Slice): Temporäre Orte mit Rückgabefristen
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Zwölfter Slice: Werkbank/Fahrzeug/Reparatur waren von Dauerorten nicht unterscheidbar, Rückgaben ohne Frist. Bestand wiederverwendet: Standortanlage, Zuordnungsroute mit Rollback, Objektakte, Bibliotheksseite. |
+| Implementierung | `temporary`-Kennzeichen je Standort plus optionales Rückgabedatum je Zuordnung (ISO, nicht vergangen); `temporary_holds` (fälligst zuerst, Überfällig-Kennzeichen); neues Modul `hold_routes.py` mit `GET /library/temporary-holds`; Checkbox/Abzeichen/Rückgabefeld/Auslagenliste in der UI. |
+| Tests und Soll-Ist-Vergleich | Soll: Auslagen mit Frist sichtbar, Überfälligkeit erkennbar, Validierung, Rechte. Ist gemessen: 4/4 Blackbox-HTTP-Tests (Frist+3 Tage, Überfällig-Simulation, Vergangenheits-400, anonym+Marker); Nachbar-Suites 39/39 inkl. Coverage-Guard; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Scanmodi pro Aktion, föderierte Rechte, Fotoerkennung, Offline-Sync, Mindestbestände, Reservierung/Genehmigung. |
+
+## 19. November 2026 · Issue #1111: Objekt-Verleih mit Fristen und Verlauf
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Elfter Slice: physischer Objektverleih fehlte (`rentals.py` ist Nebenkostenabrechnung). Bestand wiederverwendet: Objektauflösung, Routenregistrierung per Bottom-Import, Detailseite, Login/CSRF-Muster. Reservierung/Genehmigung/E-Mail/Föderation bewusst als Follow-up abgetrennt. |
+| Implementierung | Neues Modul `inventory_lending.py` (gesperrter Store: Entleiher, Fälligkeit, Notiz, Quelle; eine offene Leihe je Objekt) plus `inventory_lending_routes.py` (Entleihen/Rückbuchen/Liste offen+überfällig, JSON/Flash, Login); Verleih-Karte mit Verlauf auf der Detailseite. |
+| Tests und Soll-Ist-Vergleich | Soll: Zyklus Entleihen→Rückgabe, keine Doppelleihe, Validierung, Rechte. Ist gemessen: 4/4 Blackbox-HTTP-Tests (Zyklus+Verlauf, Doppelleihe-400, 4 Validierungsfälle, anonym+Marker); Nachbar-Suites 41/41; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Reservierung/Genehmigung, E-Mail-Erinnerungen, föderierte Rechte, Selbstentnahme per QR, Scanmodi, Fotoerkennung, Offline-Sync. |
+
+## 19. November 2026 · Issue #1111 (P2-Slice): Virtuelle Sammlungen ohne Umlagerung
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Zehnter Slice: thematische Gruppierung gab es nur als Freitext-Tags ohne Identität. Bestand wiederverwendet: Objektauflösung, Routenregistrierung per Bottom-Import, Inventarseiten, Login/CSRF-Muster. |
+| Implementierung | Neues Modul `inventory_collections.py` (gesperrter JSON-Store: Name eindeutig, Mitglieder, Quelle) plus `inventory_collection_routes.py` (Liste/Anlegen/Hinzufügen/Entfernen, JSON/Flash, Login, Rücksprung validiert); Sammlungskarte auf der Inventarseite, Zugehörigkeitskarte auf der Detailseite. |
+| Tests und Soll-Ist-Vergleich | Soll: mehrere Themen je Objekt, Lagerort unverändert, Validierung, Rechte. Ist gemessen: 5/5 Blackbox-HTTP-Tests (2 Objekte gruppiert+gezählt, Lagerorte beider unverändert, Entfernen+Zweitversuch, 4 Validierungs-400, anonym+Marker); Nachbar-Suites 54/54; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Scanmodi pro Aktion, Objekt-Verleih, föderierte Rechte, Fotoerkennung, Offline-Sync, Mindestbestände. |
+
+## 19. November 2026 · Issue #1111 (P1-Slice): QR-Etiketten für Standorte
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Neunter Slice: Standorte druckten nur Barcode, QR-Renderer existierte nur für Bücher. Bestand wiederverwendet: `render_barcode`/`render_qr_code`, Buch-Vorschaumuster, Standortauflösung per Code (Scan- und Umlagerungsflüsse verstehen Codes bereits). |
+| Implementierung | Neues Modul `label_routes.py` mit `POST /locations/<id>/labels.preview` (Barcode/QR als PNG ohne Drucker); `print_location` um Stilwahl erweitert (Art protokolliert); Etikettenformular mit Stilauswahl und Vorschau-Button. QR kodiert den Standortcode. |
+| Tests und Soll-Ist-Vergleich | Soll: beide Arten als PNG, Validierung, Rechte, Code auflösbar. Ist gemessen: 5/5 Blackbox-HTTP-Tests (PNG-Magie beider Arten, Stil-400/Standort-404, anonym 302, Formularmarker, Code-Auflösung); Nachbar-Suites 46/46; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up: A4-Bögen/Thermoetiketten-Stapel, Scanmodi pro Aktion, Objekt-Verleih, föderierte Rechte, Fotoerkennung, Offline-Sync. |
+
+## 19. November 2026 · Issue #1111 (P2-Slice): Objektbeziehungen für Zubehör und Sets
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Achter Slice: Zubehör (Netzteil→Laptop) und Set-Zugehörigkeit waren nicht abbildbar. Bestand wiederverwendet: `ObjectStore`-ID-Auflösung, Routenregistrierung per Bottom-Import, Detailseite, Verknüpfungsmuster aus PR #1110. |
+| Implementierung | `relations`-Liste je Objekt (Art, Ziel, Notiz, Quelle; max. 50, idempotent, kein Selbstbezug); `add_relation`/`remove_relation`/`related` mit Rücklinks und defekttoleranter Zielauflösung; neues Modul `inventory_relation_routes.py` (Liste/Anlegen/Entfernen, JSON/Flash, Login); Beziehungs-Karte auf der Detailseite mit Anlege-Formular. |
+| Tests und Soll-Ist-Vergleich | Soll: beide Richtungen sichtbar, Idempotenz, Validierung, Entfernen, Rechte. Ist gemessen: 5/5 Blackbox-HTTP-Tests (Zubehör beidseitig+Notiz, Idempotenz, 3 Validierungs-400, Entfernen+404-Fall, anonym+Marker); Nachbar-Suites 45/45; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Suche/Picker für Ziele nach #1110-Muster, Scanmodi pro Aktion, Objekt-Verleih, föderierte Rechte, Fotoerkennung, Offline-Sync. |
+
+## 19. November 2026 · Issue #1111 (P2-Slice): CSV-Massenimport mit Vorschau und Dublettenprüfung
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Siebter Slice: Bestände mussten einzeln erfasst werden. Bestand wiederverwendet: `ObjectStore`-Validierung, Dublettensuche, Routenregistrierung per Bottom-Import, Login/CSRF-Muster. Mengen/Einheit-Spalten bewusst ausgespart bis PR #1115 gemergt ist (überschneidungsfreie Slices). |
+| Implementierung | Neues Modul `inventory_import.py` (Trennzeichen-Erkennung, feste Spalten mit Aliasen, max. 500 Zeilen/1 MB, Staging mit Einmal-Token/TTL/Akteurbindung) plus `inventory_import_routes.py` (`POST /inventory/import/preview` mit JSON/Vorschauseite, `POST /import/commit` mit Dubletten- und Fehlerbericht); Upload-Karte auf der Inventarseite. |
+| Tests und Soll-Ist-Vergleich | Soll: Zuordnung, Vorschau, Dubletten (Bestand+Datei), Fehlerbericht, Rechte. Ist gemessen: 5/5 Blackbox-HTTP-Tests (Abbildung+Zählung, 3 Problemarten, Anlegen+Token-Einmaligkeit, Datei-/Token-Fehler, anonym+Marker); Nachbar-Suites 41/41; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Mengen/Einheit-Spalten nach #1115-Merge, Scanmodi pro Aktion, Objekt-Verleih, föderierte Rechte, Fotoerkennung, Offline-Sync. |
+
+## 19. November 2026 · Issue #1111 (P1-Slice 5): System- und manuelle Metadatenwerte trennen
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Fünfter P1-Slice (sechster insgesamt): manuelle Korrekturen hätten Systemwerte aus Nachschlagen/OCR still überschrieben. Bestand wiederverwendet: `ObjectStore`-Validierungsmuster, Erfassungsroute, Detailseite, Routenregistrierung per Bottom-Import. |
+| Implementierung | `overrides`-Abbildung je Objekt (Feld → Wert/Zeitpunkt/Benutzer, tolerante Altdaten); `set_override`/`clear_override` mit Feldnamen- und Längenprüfung, `effective_fields` (manuell gewinnt); neues Modul `inventory_override_routes.py` mit Setzen/Zurücksetzen (JSON/Flash, Login); Metadaten-Karte auf der Detailseite (manuell umrandet, Systemwert mit Quelle sichtbar). |
+| Tests und Soll-Ist-Vergleich | Soll: beide Werte sichtbar, manuell bevorzugt, keine stillen Überschreibungen, Validierung, Rechte. Ist gemessen: 5/5 Blackbox-HTTP-Tests (beide sichtbar+Marker, Zurücksetzen stellt System wieder her, 5 Validierungsfälle, anonym 302, Formularmarker); Nachbar-Suites 46/46; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up (weitere #1111-Slices): Scanmodi pro Aktion, CSV-Import, Objekt-Verleih, föderierte Rechte, Fotoerkennung, Offline-Sync. |
+
+## 19. November 2026 · Issue #1111 (P2-Slice): Inventur mit Differenzprotokoll
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Fünfter Slice: Soll/Ist-Abgleich fehlte (P2-Abnahmetest „Inventur erkennt fehlende, zusätzliche und falsch gelagerte Gegenstände“). Bestand wiederverwendet: Standortzuordnungen, Code-Auflösung, Ereignisablage, Auditmuster. |
+| Implementierung | `LibraryStore.record_inventory` (Ereignis `inventory_counted`) plus neues Modul `inventory_routes.py` mit `POST /library/locations/inventory` (JSON/Formular, max. 500 Codes, Audit, Login): vorhanden/fehlend/falsch einsortiert (mit Soll-Pfad)/unbekannt, Duplikat-Scans entdoppelt; Zählformular auf der Bibliotheksseite, Ergebnis als Hinweis plus Ereignis. |
+| Tests und Soll-Ist-Vergleich | Soll: Differenzen je Kategorie korrekt, Verlauf sichtbar, Validierung, Rechte. Ist gemessen: 5/5 Blackbox-HTTP-Tests (1/1/1/1-Differenz mit Soll-Pfad, Ereignis auf Seite, leer/501/unbekannt, anonym 302, Formularmarker); Nachbar-Suites 24/24; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up (weitere #1111-Slices): Scanmodi pro Aktion, System-/manuelle Metadatenwerte, CSV-Import, Objekt-Verleih, föderierte Rechte, Fotoerkennung, Offline-Sync. |
+
+## 19. November 2026 · Kalender: Schnellerfassung per Tag-Klick und mobile Liste
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Server-seitig gerenderter Monatskalender (Tab-Arbeitsbereich, Termin-Modals mit Bearbeiten/Löschen/Freigaben, Serien/Zeitzonen/Erinnerungen/Konflikte vorhanden). Lücken: kein Anlegen per Tag-Klick (nur Formular), kein Heute-Sprung, 7-spaltiges Raster auf Handys unbedienbar (8,5rem-Zellen, 0,75rem-Termine). |
+| Implementierung | Plus-Button je Tag (`data-calendar-quick-add` mit ISO-Datum) öffnet Buchungsreiter mit vorbelegten 09:00–10:00 und Titel-Fokus; Heute-Link springt in den aktuellen Monat; unter 576 px wird das Raster zur Liste (Wochentage/leere Tage versteckt, Termine umbrechend, 44 px Ziele). Keine Backend- oder CalDAV-Änderung. |
+| Tests und Soll-Ist-Vergleich | Soll: 1 Klick zum vorbelegten Formular, mobil lesbar ohne Horizontal-Scroll. Ist gemessen: 4/4 Python-Tests (28–31 ISO-Tage, Heute-Link, Handler, Mobil-CSS), Browser-Tests (Chromium, CI): Klick auf 2026-11-19 → Formular mit 09:00/10:00, Mobil 360 px: Wochentage versteckt, Tage ≥ 80 % Breite, Plus-Ziele ≥ 44 px. Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Drag-and-drop, Größenänderung, Wochen-/Tagesraster, Terminverknüpfungen (eigene Aufträge), physische Geräteprüfung. |
+
 ## 19. November 2026 · Issue #1111: Standort-Etikettenbögen als PDF
 
 | Phase | Arbeit und Nachweis |
@@ -235,7 +385,6 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | `LibraryStore.move_location` (Umhängen mit Zyklenschutz, Ereignis `location_moved`) plus `children`/`descendants`/`subtree_contents`; neues Modul `move_routes.py` mit `POST /library/locations/<id>/move` (Ziel per ID oder Barcode-Code für QR-Scans, JSON oder Formular, Audit, Login-Pflicht); danach Spiegelauffrischung über vorhandenes `assign_object_to_location` und Regal-Objekte; Umlagern-Spalte auf der Bibliotheksseite. Keine neue Datenbank, keine Parallelarchitektur. |
 | Tests und Soll-Ist-Vergleich | Soll: ganze Kiste per Zielcode umlagern, alle Pfade rekursiv korrekt, Zyklen abgelehnt, Rechte geprüft. Ist gemessen: 5/5 Blackbox-HTTP-Tests (`test_library_location_move_http.py`: Kiste→anderer Raum mit Unterbox+2 Büchern, Zyklus-400 ohne Änderung, unbekanntes Ziel 400/unbekannter Standort 404/anonym 302, oberste Ebene+Selbst-400, Formularmarker); Nachbar-Suites 32/32; Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen als Follow-up (weitere P1/P2-Slices aus #1111): Standortvorlagen, Scanmodi pro Aktion, Exemplare für alle Objekttypen, Mengen/Seriennummern, System-/manuelle Metadatenwerte, CSV-Import, Inventur/Differenzen, Objekt-Verleih, föderierte Rechte. |
->>>>>>> origin/main
 
 ## 19. November 2026 · Issue #1111 (P1-Slice 4): Exemplare für alle Objekttypen
 

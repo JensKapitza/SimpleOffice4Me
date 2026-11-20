@@ -58,6 +58,14 @@ details.auth-card.auth-qr-attached[open] { padding-bottom: 2.25rem; }
 .calendar-workspace-caption { min-height: 1.25rem; }
 .calendar-workspace-panel[hidden] { display: none !important; }
 #calendar-month-view .card-body { overflow-x: auto; }
+.calendar-quick-add { line-height: 1; min-height: 32px; min-width: 32px; padding: .1rem .45rem; }
+@media (max-width: 575.98px) {
+  .calendar-grid { display: block; }
+  .calendar-weekday, .calendar-day.empty { display: none; }
+  .calendar-day { min-height: 0; border-right: 0; border-top: 1px solid #e5e7eb; }
+  .calendar-event { font-size: .85rem; padding: .45rem .5rem; white-space: normal; }
+  .calendar-quick-add { min-height: 44px; min-width: 44px; }
+}
 .document-tree { --tree-indent: 1.05rem; }
 .document-tree details { border-left: 1px solid var(--so-border); margin-left: .3rem; padding-left: var(--tree-indent); }
 .document-tree summary { align-items: center; cursor: pointer; display: flex; min-height: 2.55rem; padding: .35rem .25rem; }
