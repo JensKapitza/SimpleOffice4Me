@@ -799,4 +799,5 @@ def inventory_media(object_id: str, filename: str):
 # `bp`, and a name import here would break if the routes module is
 # imported first (partial circular import).
 from . import inventory_capture_routes as _capture_routes  # noqa: E402,F401
+from . import inventory_override_routes as _override_routes  # noqa: E402,F401
 from .translations import translate
