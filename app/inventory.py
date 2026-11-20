@@ -50,6 +50,7 @@ from .inventory_metadata import (
     parse_openlibrary,
     parse_openlibrary_search,
 )
+from .inventory_collections import CollectionStore
 from .inventory_values import date_only as _date_only
 from .inventory_values import fields_text as _fields_text
 from .inventory_values import money as _money
@@ -620,6 +621,7 @@ def index():
         meta_photo_consent_available=meta_photo_consent_available,
         angel_avatar=angel_avatar,
         photo_hints=suggest_missing_photos(rows),
+        collections=CollectionStore(current_app.config["DOCUMENT_ROOT"]).collections(),
     )
 
 
@@ -631,12 +633,19 @@ def item_detail(object_id: str):
     except ValueError:
         abort(404)
     meta = _inventory().object_meta(item["object_id"])
+    store = CollectionStore(current_app.config["DOCUMENT_ROOT"])
+    links = _objects().related(item["object_id"])
+    from .inventory_lending import LendingStore
     from .library.catalog import object_copies
+    lending = LendingStore(current_app.config["DOCUMENT_ROOT"])
     try:
         copies = object_copies(_objects(), item["object_id"])
     except ValueError:
         copies = []
-    return render_template("inventory/detail.html", item=item, inventory=meta, today=date.today().isoformat(), copies=copies)
+    return render_template("inventory/detail.html", item=item, inventory=meta, today=date.today().isoformat(),
+                           containing=store.containing(item["object_id"]), all_collections=store.collections(),
+                           links=links, copies=copies, open_loan=lending.open_loan(item["object_id"]),
+                           loan_history=lending.loans(item["object_id"])[:10])
 
 
 def _book_lookup_response(isbn: str, metadata: dict[str, Any]):
@@ -823,4 +832,9 @@ def inventory_media(object_id: str, filename: str):
 # imported first (partial circular import).
 from . import inventory_capture_routes as _capture_routes  # noqa: E402,F401
 from . import inventory_inspection_routes as _inspection_routes  # noqa: E402,F401
+from . import inventory_lending_routes as _lending_routes  # noqa: E402,F401
+from . import inventory_collection_routes as _collection_routes  # noqa: E402,F401
+from . import inventory_relation_routes as _relation_routes  # noqa: E402,F401
+from . import inventory_import_routes as _import_routes  # noqa: E402,F401
+from . import inventory_override_routes as _override_routes  # noqa: E402,F401
 from .translations import translate
