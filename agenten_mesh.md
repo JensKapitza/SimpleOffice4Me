@@ -227,6 +227,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: 1 Klick zum vorbelegten Formular, mobil lesbar ohne Horizontal-Scroll. Ist gemessen: 4/4 Python-Tests (28–31 ISO-Tage, Heute-Link, Handler, Mobil-CSS), Browser-Tests (Chromium, CI): Klick auf 2026-11-19 → Formular mit 09:00/10:00, Mobil 360 px: Wochentage versteckt, Tage ≥ 80 % Breite, Plus-Ziele ≥ 44 px. Gates grün. |
 | Review und Abschluss | Offen als Follow-up: Drag-and-drop, Größenänderung, Wochen-/Tagesraster, Terminverknüpfungen (eigene Aufträge), physische Geräteprüfung. |
 
+## 19. November 2026 · Issue #1111 (P1-Slice): Lagerorte rekursiv umlagern
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Issue #1111 Schritt 1 inventarisiert: `ObjectStore` (UUID+Folgenummer, Typ/Identifier/Standort-Freitext, Tags/Felder/Dokumente/Notizen, Verlauf), `LibraryStore` (hierarchische Standorte mit Pfad/Code, Objektzuordnung, Ereignisse, Etikettendruck), Buch-Exemplare/Ausgaben (`catalog.py`, nur Bücher), Exporte (CSV/RIS/BibTeX/Calibre), Amazon/eBay-Lookup (`inventory_marketplace.py`), Fotoerfassung mit Stapel (`inventory_capture_routes.py`), Federation-Katalog. Lücken: kein Umlagern ganzer Kisten, keine rekursiven Inhalte, gespiegelte Pfade würden veralten, kein Objekt-Verleih (`rentals.py` ist Nebenkostenabrechnung, kein Leihsystem). |
+| Implementierung | `LibraryStore.move_location` (Umhängen mit Zyklenschutz, Ereignis `location_moved`) plus `children`/`descendants`/`subtree_contents`; neues Modul `move_routes.py` mit `POST /library/locations/<id>/move` (Ziel per ID oder Barcode-Code für QR-Scans, JSON oder Formular, Audit, Login-Pflicht); danach Spiegelauffrischung über vorhandenes `assign_object_to_location` und Regal-Objekte; Umlagern-Spalte auf der Bibliotheksseite. Keine neue Datenbank, keine Parallelarchitektur. |
+| Tests und Soll-Ist-Vergleich | Soll: ganze Kiste per Zielcode umlagern, alle Pfade rekursiv korrekt, Zyklen abgelehnt, Rechte geprüft. Ist gemessen: 5/5 Blackbox-HTTP-Tests (`test_library_location_move_http.py`: Kiste→anderer Raum mit Unterbox+2 Büchern, Zyklus-400 ohne Änderung, unbekanntes Ziel 400/unbekannter Standort 404/anonym 302, oberste Ebene+Selbst-400, Formularmarker); Nachbar-Suites 32/32; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up (weitere P1/P2-Slices aus #1111): Standortvorlagen, Scanmodi pro Aktion, Exemplare für alle Objekttypen, Mengen/Seriennummern, System-/manuelle Metadatenwerte, CSV-Import, Inventur/Differenzen, Objekt-Verleih, föderierte Rechte. |
+
 ## 19. November 2026 · Issue #1111 (P1-Slice 4): Exemplare für alle Objekttypen
 
 | Phase | Arbeit und Nachweis |
