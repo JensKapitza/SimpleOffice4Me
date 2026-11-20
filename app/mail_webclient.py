@@ -24,6 +24,7 @@ from .contact_store import ContactStore
 from .document_store import atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
 from .mail_client import ImapArchive, MailStore, MAX_MESSAGE_BYTES
+from .mail_message_cache import cache_limit_bytes, message_cache
 
 MAX_LIST_MESSAGES = 100
 MAX_SEARCH_MESSAGES = 500
@@ -134,6 +135,19 @@ def _message_literal(response: Any) -> bytes:
     return ImapArchive._literal(response)
 
 
+def _configured_cache_limit() -> int:
+    try:
+        from flask import current_app, has_app_context
+    except ImportError:
+        return cache_limit_bytes(None)
+    try:
+        if has_app_context():
+            return cache_limit_bytes(current_app.config.get("MAIL_CACHE_MAX_BYTES"))
+    except (AttributeError, RuntimeError, TypeError, ValueError):
+        pass
+    return cache_limit_bytes(None)
+
+
 class MailAccountPolicy:
     """Per-user write policy. Missing rows deliberately mean read-only."""
 
@@ -157,20 +171,20 @@ class MailAccountPolicy:
         row = self._read().get("accounts", {}).get(self._key(actor, account_id), {})
         return bool(row.get("read_only", True))
 
-    def set_read_only(self, actor: str, account_id: str, value: bool) -> bool:
+    def _update_row(self, actor: str, account_id: str, fields: dict[str, Any]) -> dict[str, Any]:
         # Ownership check without persisting or validating the supplied placeholder.
         self.store.account(actor, account_id, password="ownership-check")
         with exclusive_file_lock(self.lock):
             payload = self._read()
             payload.setdefault("version", 1)
-            payload.setdefault("accounts", {})[self._key(actor, account_id)] = {
-                "account_id": account_id,
-                "owner": actor,
-                "read_only": bool(value),
-                "updated_at": utc_now(),
-            }
+            row = payload.setdefault("accounts", {}).setdefault(self._key(actor, account_id), {})
+            row.update({"account_id": account_id, "owner": actor, **fields, "updated_at": utc_now()})
             self.path.parent.mkdir(parents=True, exist_ok=True)
             atomic_json_write(self.path, payload)
+            return dict(row)
+
+    def set_read_only(self, actor: str, account_id: str, value: bool) -> bool:
+        self._update_row(actor, account_id, {"read_only": bool(value)})
         self.store.history.record(
             "mail_account_readonly_changed",
             actor,
@@ -186,11 +200,38 @@ class MailAccountPolicy:
                 "Dieses Mailkonto ist schreibgeschützt. Schreibzugriff muss in den Kontoeinstellungen ausdrücklich freigegeben werden."
             )
 
+    def seen_dwell(self, actor: str, account_id: str) -> int:
+        """Seconds an open message waits before auto-marking seen; 0 disables."""
+        row = self._read().get("accounts", {}).get(self._key(actor, account_id), {})
+        try:
+            seconds = int(row.get("seen_dwell", 5))
+        except (TypeError, ValueError):
+            return 5
+        return max(0, min(seconds, 120))
+
+    def set_seen_dwell(self, actor: str, account_id: str, seconds: Any) -> int:
+        try:
+            value = int(seconds)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Verweildauer muss eine Sekundenzahl sein") from exc
+        value = max(0, min(value, 120))
+        self._update_row(actor, account_id, {"seen_dwell": value})
+        self.store.history.record(
+            "mail_account_seen_dwell_changed",
+            actor,
+            "mail-accounts",
+            account_id,
+            {"seen_dwell": value, "updated_at": utc_now()},
+        )
+        return value
+
 
 class ImapWebClient:
-    def __init__(self, store: MailStore):
+    def __init__(self, store: MailStore, cache=None):
         self.store = store
         self.account_policy = MailAccountPolicy(store)
+        self._cache = cache if cache is not None else message_cache()
+        self._cache.configure(_configured_cache_limit())
 
     def _connect(self, account: dict[str, Any]):
         # Reuse the existing hardened TLS/authentication implementation.
@@ -404,10 +445,30 @@ class ImapWebClient:
             })
         return result
 
-    def _raw_message(self, account: dict[str, Any], folder: str, uid: str) -> tuple[bytes, set[str]]:
+    @staticmethod
+    def _response_flags(response: Any) -> set[str]:
+        metadata = b""
+        for item in response or []:
+            if isinstance(item, tuple) and item and isinstance(item[0], bytes):
+                metadata = item[0]
+                break
+        return _flag_names(metadata)
+
+    def _raw_message(
+        self, account: dict[str, Any], folder: str, uid: str, *, actor: str = ""
+    ) -> tuple[bytes, set[str]]:
+        account_id = str(account.get("id", ""))
+        clean_actor = str(actor or "")
+        cached = self._cache.get(clean_actor, account_id, folder, _uid(uid)) if clean_actor else None
         connection = self._connect(account)
         try:
             self._select(connection, folder, readonly=True)
+            if cached is not None:
+                # Flags stay fresh: a lightweight FLAGS fetch never downloads
+                # the body again and never mutates server state.
+                status, response = connection.uid("fetch", _uid(uid), "(FLAGS)")
+                flags = self._response_flags(response) if status == "OK" else set()
+                return cached, flags
             status, response = connection.uid("fetch", _uid(uid), "(FLAGS RFC822.SIZE BODY.PEEK[])")
             if status != "OK":
                 raise KeyError("message not found")
@@ -416,20 +477,17 @@ class ImapWebClient:
                 raise KeyError("message not found")
             if len(raw) > MAX_MESSAGE_BYTES:
                 raise ValueError("message exceeds maximum supported size")
-            metadata = b""
-            for item in response or []:
-                if isinstance(item, tuple) and item and isinstance(item[0], bytes):
-                    metadata = item[0]
-                    break
-            return raw, _flag_names(metadata)
+            if clean_actor:
+                self._cache.put(clean_actor, account_id, folder, _uid(uid), raw)
+            return raw, self._response_flags(response)
         finally:
             try:
                 connection.logout()
             except Exception:
                 pass
 
-    def message(self, account: dict[str, Any], folder: str, uid: str) -> dict[str, Any]:
-        raw, flags = self._raw_message(account, folder, uid)
+    def message(self, account: dict[str, Any], folder: str, uid: str, *, actor: str = "") -> dict[str, Any]:
+        raw, flags = self._raw_message(account, folder, uid, actor=actor)
         parsed = BytesParser(policy=policy.default).parsebytes(raw)
         return {
             "uid": _uid(uid),
@@ -449,8 +507,10 @@ class ImapWebClient:
             "size": len(raw),
         }
 
-    def attachment(self, account: dict[str, Any], folder: str, uid: str, index: int) -> dict[str, Any]:
-        raw, _ = self._raw_message(account, folder, uid)
+    def attachment(
+        self, account: dict[str, Any], folder: str, uid: str, index: int, *, actor: str = ""
+    ) -> dict[str, Any]:
+        raw, _ = self._raw_message(account, folder, uid, actor=actor)
         parsed = BytesParser(policy=policy.default).parsebytes(raw)
         attachments = []
         for part in parsed.walk():

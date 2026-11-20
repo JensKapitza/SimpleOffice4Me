@@ -32,7 +32,7 @@ Status legend: **Done** (merged), **In review** (implementation submitted),
 | CSV mass import with preview, duplicates, error report | Done | [#1119](https://github.com/JensKapitza/SimpleOffice4Me/pull/1119) |
 | CSV quantity/unit columns | Open | Extend the existing CSV preview and import mapping with quantity and unit fields. |
 | Inventory with difference report | Done | [#1117](https://github.com/JensKapitza/SimpleOffice4Me/pull/1117) |
-| Reconcile a counted quantity with the recorded bulk stock and record the reason | In review | [#1135](https://github.com/JensKapitza/SimpleOffice4Me/pull/1135) |
+| Reconcile a counted quantity with the recorded bulk stock and record the reason | Done | [#1135](https://github.com/JensKapitza/SimpleOffice4Me/pull/1135) |
 | Object relations (accessories, kits) | Done | [#1120](https://github.com/JensKapitza/SimpleOffice4Me/pull/1120) |
 | Virtual collections without relocation | Done | [#1122](https://github.com/JensKapitza/SimpleOffice4Me/pull/1122) |
 | Temporary locations with return dates | Done | [#1124](https://github.com/JensKapitza/SimpleOffice4Me/pull/1124) |
