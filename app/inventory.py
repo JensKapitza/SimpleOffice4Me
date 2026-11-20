@@ -611,6 +611,7 @@ def item_detail(object_id: str):
         abort(404)
     meta = _inventory().object_meta(item["object_id"])
     store = CollectionStore(current_app.config["DOCUMENT_ROOT"])
+    links = _objects().related(item["object_id"])
     from .library.catalog import object_copies
     try:
         copies = object_copies(_objects(), item["object_id"])
@@ -618,7 +619,7 @@ def item_detail(object_id: str):
         copies = []
     return render_template("inventory/detail.html", item=item, inventory=meta, today=date.today().isoformat(),
                            containing=store.containing(item["object_id"]), all_collections=store.collections(),
-                           copies=copies)
+                           links=links, copies=copies)
 
 
 def _book_lookup_response(isbn: str, metadata: dict[str, Any]):
@@ -805,4 +806,7 @@ def inventory_media(object_id: str, filename: str):
 # imported first (partial circular import).
 from . import inventory_capture_routes as _capture_routes  # noqa: E402,F401
 from . import inventory_collection_routes as _collection_routes  # noqa: E402,F401
+from . import inventory_relation_routes as _relation_routes  # noqa: E402,F401
+from . import inventory_import_routes as _import_routes  # noqa: E402,F401
+from . import inventory_override_routes as _override_routes  # noqa: E402,F401
 from .translations import translate

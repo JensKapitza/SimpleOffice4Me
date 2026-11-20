@@ -221,6 +221,10 @@
         </div>
       </div>
       <div class="card shadow-sm mt-3" id="collections" data-collections><div class="card-header"><strong>Sammlungen</strong></div><div class="list-group list-group-flush">{% for collection in collections %}<div class="list-group-item d-flex justify-content-between align-items-center"><span>{{ collection.name }} <span class="text-secondary small">({{ collection.members|length }})</span></span></div>{% else %}<div class="list-group-item text-secondary">Noch keine Sammlungen.</div>{% endfor %}</div><div class="card-body"><form method="post" action="{{ url_for('inventory.create_collection') }}" class="d-flex gap-2"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input required class="form-control" name="name" maxlength="200" placeholder="Neue Sammlung"><button class="btn btn-outline-primary" type="submit">Anlegen</button></form></div></div>
+      <div class="card shadow-sm mt-3" id="import" data-csv-import><div class="card-header"><strong>CSV-Massenimport</strong></div><div class="card-body">
+        <p class="small text-secondary">Spalten: Name (Pflicht), Typ, Kennung, Standort, Seriennummer, Hersteller, Modell, NFC, Tags, Beschreibung. Komma oder Semikolon, UTF-8, max. 500 Zeilen.</p>
+        <form method="post" action="{{ url_for('inventory.preview_csv_import') }}" enctype="multipart/form-data" class="d-flex gap-2"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input required type="file" name="file" accept=".csv,text/csv" class="form-control"><button class="btn btn-outline-primary" type="submit">Vorschau</button></form>
+      </div></div>
     </aside>
   </div>
 </main>
