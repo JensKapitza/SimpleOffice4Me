@@ -227,6 +227,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: fällige zuerst, Horizont filtert, erledigte verschwinden, Rechte, Seite. Ist gemessen: 3/3 Blackbox-HTTP-Tests (Sortierung+Objektname, Horizont+Erledigen, Seite+Login+Verweis); Nachbar-Suites 51/51; Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen als Follow-up: Scanmodi pro Aktion, föderierte Rechte, Fotoerkennung, Offline-Sync, Mindestbestände, E-Mail-Erinnerungen. |
 
+## 19. November 2026 · Issue #1111 (P1-Slice 4): Exemplare für alle Objekttypen
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Vierter P1-Slice: physische Exemplare (eigene ID, eigener Standort) gab es nur für Bücher (`Nur Bücher`-Tor, Test-pin bleibt). Bestand wiederverwendet: Werk/Ausgabe/Exemplar-Identitäten, Zuordnungsroute, Detailseite, Auditmuster. |
+| Implementierung | `catalog.py`-Kern mit `require_book`-Schalter refactoriert (Buchverhalten und -meldungen unverändert), generische `object_copies`/`create_object_copy`/`object_copy_inventory` daneben; neues Modul `copy_routes.py` mit `GET/POST /library/objects/<id>/copies` (JSON/Flash, Audit, Login); Exemplar-Karte mit Liste und Anlege-Button auf der Inventar-Detailseite. Seriennummern werden nicht vererbt. |
+| Tests und Soll-Ist-Vergleich | Soll: zwei PCs als Exemplare an zwei Orten, keine Serien-Dubletten, Validierung, Rechte. Ist gemessen: 5/5 Blackbox-HTTP-Tests (2 PCs + Standorte + Liste, Serien-Nichtvererbung, 404/400-Fälle, anonym 302, Detailmarker); Nachbar-Suites 67/67 inkl. Buch-Gate-Test; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up (weitere #1111-Slices): Scanmodi pro Aktion, System-/manuelle Metadatenwerte, CSV-Import, Inventur/Differenzen, Objekt-Verleih, föderierte Rechte. |
+
 ## 19. November 2026 · Issue #1111 (P1-Slice 3): Mengen und Einzelstücke unterscheiden
 
 | Phase | Arbeit und Nachweis |
