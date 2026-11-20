@@ -107,6 +107,8 @@ class ObjectStore:
             "description": str(values.get("description", "")).strip(),
             "identifier": str(values.get("identifier", "")).strip(),
             "location": str(values.get("location", "")).strip(), "expires_at": expires_at,
+            "quantity": self._quantity(values.get("quantity", "")),
+            "unit": self._unit(values.get("unit", "")),
             "tags": self._list(values.get("tags", "")), "fields": self._fields(values.get("fields", "")),
             "invoice": self._invoice_values(values), "document_ids": [], "notes": [],
             "created_at": now, "created_by": actor, "updated_at": now, "updated_by": actor,
@@ -124,6 +126,8 @@ class ObjectStore:
             "identifier": str(values.get("identifier", "")).strip(),
             "location": str(values.get("location", "")).strip(),
             "expires_at": self._date(values.get("expires_at", "")),
+            "quantity": self._quantity(values.get("quantity", "")),
+            "unit": self._unit(values.get("unit", "")),
             "tags": self._list(values.get("tags", "")), "fields": self._fields(values.get("fields", "")),
             "invoice": self._invoice_values(values, existing=item.get("invoice", {})),
             "updated_at": utc_now(), "updated_by": actor,
@@ -189,8 +193,13 @@ class ObjectStore:
         for key in (
             "object_id", "name", "type", "description", "identifier", "location",
             "expires_at", "created_at", "created_by", "updated_at", "updated_by",
+            "unit",
         ):
             item[key] = str(item.get(key, "") or "").strip()
+        try:
+            item["quantity"] = cls._quantity(item.get("quantity", ""))
+        except ValueError:
+            item["quantity"] = ""
         status = str(item.get("status", "") or "").strip()
         item["status"] = status if status in OBJECT_STATES else "active"
         try:
@@ -460,6 +469,24 @@ class ObjectStore:
         if not text: return ""
         try: return date.fromisoformat(text).isoformat()
         except ValueError as exc: raise ValueError("object expiry must be an ISO date") from exc
+
+    @staticmethod
+    def _quantity(value: Any) -> str:
+        """Normalize bulk quantities; blank means a single tracked piece."""
+        text = str(value or "").strip().replace(",", ".")
+        if not text: return ""
+        try: number = Decimal(text)
+        except InvalidOperation as exc: raise ValueError("object quantity must be a number") from exc
+        if number < 0: raise ValueError("object quantity must not be negative")
+        if number > 999999999: raise ValueError("object quantity is too large")
+        quantized = number.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+        return format(quantized.normalize(), "f")
+
+    @staticmethod
+    def _unit(value: Any) -> str:
+        text = str(value or "").strip()
+        if len(text) > 24: raise ValueError("object unit must not exceed 24 characters")
+        return text
 
     @staticmethod
     def _list(value: Any) -> list[str]:

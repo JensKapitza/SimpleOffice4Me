@@ -227,6 +227,24 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: beide Richtungen sichtbar, Idempotenz, Validierung, Entfernen, Rechte. Ist gemessen: 5/5 Blackbox-HTTP-Tests (Zubehör beidseitig+Notiz, Idempotenz, 3 Validierungs-400, Entfernen+404-Fall, anonym+Marker); Nachbar-Suites 45/45; Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen als Follow-up: Suche/Picker für Ziele nach #1110-Muster, Scanmodi pro Aktion, Objekt-Verleih, föderierte Rechte, Fotoerkennung, Offline-Sync. |
 
+## 19. November 2026 · Issue #1111 (P1-Slice 3): Mengen und Einzelstücke unterscheiden
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Dritter P1-Slice: Stapelartikel (50 Schrauben) und Einzelstücke (Seriennummer) waren im Modell nicht unterscheidbar; Seriennummern existierten nur als Freitextfeld, Mengen gar nicht. Bestand wiederverwendet: `ObjectStore`-Validierungsmuster, Erfassungsroute, Bibliotheks-Aktualisierungspfade. |
+| Implementierung | Optionale `quantity` (≥ 0, max. 3 Dezimalen, Komma zulässig) + `unit` (≤ 24 Zeichen) in `ObjectStore` (leer = Einzelstück, alte Datensätze tolerant); Durchreichen im Erfassungsformular (Menge/Einheit mit Vorschlagsliste) und Bestandsanzeige auf der Detailseite; Mengen bleiben bei Bibliotheks-Zuordnung/Identität erhalten, neue Exemplare starten als Einzelstück. |
+| Tests und Soll-Ist-Vergleich | Soll: Stapel vs. Stück anlegen/anzeigen/validieren, Zuordnung/Kopie ohne Mengenverlust. Ist gemessen: 4/4 Blackbox-HTTP-Tests (50 Stück, Einzelstück+Seriennummer, 4 ungültige Eingaben 400, Zuordnung+Kopie erhalten Quelle); Nachbar-Suites 59/59; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up (weitere #1111-Slices): Scanmodi pro Aktion, Exemplare für alle Objekttypen, System-/manuelle Metadatenwerte, CSV-Import, Inventur/Differenzen, Objekt-Verleih, föderierte Rechte. |
+
+## 19. November 2026 · Issue #1111 (P1-Slice 2): Lagerort-Vorlagen für verschachtelte Strukturen
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Zweiter P1-Slice nach der Umlagerung: Regale, Schränke, Kartons und Kommoden mussten Fach für Fach einzeln angelegt werden. Bestand wiederverwendet: `create_location` (Codes, Ereignisse, Regal-Objekte), Routenmuster aus Scan-/Move-Modulen, Bibliotheksseite. |
+| Implementierung | Neues Modul `location_templates.py` (4 Vorlagen: Regal, Schrank, Umzugskarton, Kommode; Zählung 1–max, Standard je Vorlage) plus `template_routes.py` mit `POST /library/locations/from-template` (JSON/Formular, Audit, Login) und `GET /location-templates`; Vorlagen-Formular auf der Bibliotheksseite; Vorlagen unter beliebigem Standort instanziierbar (beliebig tiefe Schachtelung durch Komposition). |
+| Tests und Soll-Ist-Vergleich | Soll: ganze Struktur in einer Aktion, Pfade rekursiv korrekt, Validierung, Rechte. Ist gemessen: 5/5 Blackbox-HTTP-Tests (Regal 3 Fächer mit Pfad, Kommode-Standard unter Kiste Tiefe 4, 4 Validierungs-400, anonym 302, Katalog+Formularmarker); Nachbar-Suites 23/23; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up (weitere #1111-Slices): Scanmodi pro Aktion, Exemplare für alle Objekttypen, Mengen/Seriennummern, System-/manuelle Metadatenwerte, CSV-Import, Inventur/Differenzen, Objekt-Verleih, föderierte Rechte. |
+
 ## 19. November 2026 · Maze-Tippmodus: Solve-Verhalten verifiziert, Vollbild-Fit hergestellt
 
 | Phase | Arbeit und Nachweis |

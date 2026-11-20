@@ -33,6 +33,7 @@ from .printer import (
 from .catalog import create_new_edition, create_physical_copy, edition_copy_inventory
 from .imports import bibtex_import_rows, calibre_import_rows, calibre_isbn, ris_import_rows
 from .label_pdf import book_labels_pdf
+from .location_templates import template_catalog
 from .store import LibraryStore
 
 bp = Blueprint("library", __name__, url_prefix="/library")
@@ -145,6 +146,8 @@ def _object_update_values(item: dict[str, Any], *, location: str, location_id: s
         "identifier": item.get("identifier", ""),
         "location": location,
         "expires_at": item.get("expires_at", ""),
+        "quantity": item.get("quantity", ""),
+        "unit": item.get("unit", ""),
         "tags": item.get("tags", []),
         "fields": fields,
     }
@@ -283,6 +286,7 @@ def index():
         events=_store().recent_events(25),
         ocr_available=bool(shutil.which("tesseract")),
         pdf_available=bool(shutil.which("pdftoppm")),
+        location_templates=template_catalog(),
     )
 
 
