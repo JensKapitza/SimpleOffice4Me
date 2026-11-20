@@ -218,6 +218,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll je Spiel: 5–15 Min., Zufallsaufgaben, Stufen, Sofort-Feedback, ohne Lesen. Ist gemessen: Matching 15/15, Numbers 14/14, Syllables 8/8 Python- + 7/7 Node-Tests; Kids-Modus 8/8 (Containment aller 10 Kids-URLs, Gate richtig/falsch/ohne Frage, Erwachsenenseite behält Nav); kombiniert 29/29 bzw. 23/23 nach Zusammenführung; `node --check`, DOM-Stub-Proben (10 Runden/32 Ansagen bzw. 3×8 Aufgaben), Policy-/Größen-/Compile-Gates grün. CI je PR vollständig grün (36/36 bzw. 35 + Rest) vor Merge; dazwischen nur Ubuntu-Spiegel-503 und ein nicht-blockierender Python-3.15-Budget-Timeout (5924 Tests liefen, alle 8 Kids-Tests darunter). |
 | Review und Abschluss | Unabhängiges Review gab alle drei Zweige frei (keine externen Requests, kein Tracking, keine Timer, ermutigendes Feedback, keine Routenkollisionen). Offen als Follow-up: B1/B2-Fixes im Lernspiel, S2-Umsortierung im Alt-Code, Fortschritts-/Eltern-Backend, Offline-Arbeitsblätter/Bastelanleitungen sowie Praxisprüfung auf physischen Geräten (Touch, Tastatur, Lautsprecher/Mikrofon). |
 
+## 20. November 2026 · Issue #1136 (Slice 3): Lese-Timing und Gelesen+Nächste
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | #1136 fordert konfigurierbare Verweildauer bis Gelesen + Schnellaktion „Gelesen und nächste“. Ist: nur manuelles Umschalten per Formular+Redirect. Entwurf: Policy-Feld `seen_dwell` (Default 5 s, 0–120, 0=aus), `set_seen` mit validiertem `next_uid`-Redirect, `next_uid`-Berechnung aus Listenreihenfolge, JS-Timer nur bei (schreibbar + ungelesen + dwell>0). |
+| Implementierung | `MailAccountPolicy.seen_dwell/set_seen_dwell` (+ Audit, Zeilen-Merge statt Überschreiben in `set_read_only`, damit Dwell erhalten bleibt); Route `POST /accounts/<id>/seen-dwell` (Header-Auswahl 0/3/5/10/30 s); `set_seen` mit `next_uid`-Validierung (UID-Regex, Fallback aktuelle Mail); Template-Marker (`data-mail-autoseen/dwell-seconds`, `seen-next`-Formular mit `n`-Kürzel); JS-Timer mit Einmal-Schutz. |
+| Tests und Soll-Ist-Vergleich | Soll: Default/Clamp, Marker+Setting, Gelesen+Nächste mit genau 1 STORE, gefälschte Ziele abgelehnt, Readonly blockt STORE. Ist gemessen: 5/5 Blackbox-HTTP mit Fake-IMAP; vererbte Slice-1-Tests + Nachbarn 38/38; `node --check`, Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Gestapelt auf Slice 1 (erst nach dessen Review mergen); kein Auto-Merge (Issue-Vorgabe). Offen: Slices 4–7 (Tags, Überführen, Signaturen, Archiv-Härtung). |
+
 ## 20. November 2026 · Issue #1136 (Slice 1): Mail-UI-Shell mit Tastatur, Palette, mobilen Panes
 
 | Phase | Arbeit und Nachweis |

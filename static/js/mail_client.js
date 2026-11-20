@@ -183,6 +183,21 @@
     });
   }
 
+  /* ---- dwell timing: auto-mark the open message seen ---- */
+
+  function initAutoseen() {
+    const pane = document.querySelector('[data-mail-has-preview][data-mail-autoseen="1"]');
+    if (!pane) return;
+    const seconds = parseInt(pane.getAttribute('data-mail-dwell-seconds') || '0', 10);
+    if (!seconds || seconds <= 0) return;
+    let done = false;
+    window.setTimeout(() => {
+      if (done) return;
+      done = true;
+      submitAction('seen');
+    }, seconds * 1000);
+  }
+
   /* ---- events ---- */
 
   function initPaletteInput() {
@@ -244,6 +259,9 @@
       case 'r':
         if (submitAction('reply')) event.preventDefault();
         break;
+      case 'n':
+        if (submitAction('seen-next')) event.preventDefault();
+        break;
       case 'c': {
         const panel = document.getElementById('compose-panel');
         const field = document.getElementById('compose-to');
@@ -269,4 +287,5 @@
 
   initPanes();
   initPaletteInput();
+  initAutoseen();
 })();
