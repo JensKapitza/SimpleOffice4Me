@@ -227,6 +227,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: beide Modi wirken, Spiegel konsistent, Validierung, Rechte. Ist gemessen: 4/4 Blackbox-HTTP-Tests (Einlagern per Code, Entnehmen löst+leert Spiegel, 3 Validierungsfälle, anonym+Marker); Nachbar-Suites 24/24; Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen als Follow-up: Modi Umlagern/Inventur, Zielort-Gedächtnis, föderierte Rechte, Fotoerkennung, Offline-Sync. |
 
+## 19. November 2026 · Issue #1111: Standort-Etikettenbögen als PDF
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Zwanzigster Slice: Bögen gab es nur für Bücher. Bestand wiederverwendet: Etiketten-PDF-Renderer (Medien+A4-3×7), Buch-Bogenmuster, Druckerbereich der Seite. |
+| Implementierung | Neues Modul `sheet_routes.py` mit `POST /library/locations/labels.pdf` (Auswahl max. 200, Barcode/QR, Medien/A4, Login, Download); Bogenformular im Druckerbereich; QR kodiert den auflösbaren Standortcode. |
+| Tests und Soll-Ist-Vergleich | Soll: gültiges PDF beider Layouts, Auswahl validiert, Rechte, UI. Ist gemessen: 3/3 Blackbox-HTTP-Tests (PDF-Magie beider Layouts, 4 Validierungs-400, anonym+Marker); Nachbar-Suites 30/30; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Thermoetiketten-Stapel, föderierte Rechte, Fotoerkennung, Offline-Sync. |
+
 ## 19. November 2026 · Issue #1111 (P1-Slice): Lagerorte rekursiv umlagern
 
 | Phase | Arbeit und Nachweis |
