@@ -277,6 +277,24 @@ class LibraryStore:
             self._write(state)
             return dict(assignment)
 
+    def unassign(self, object_id: str, actor: str) -> dict[str, Any]:
+        """Remove one object assignment (physical removal from the shelf)."""
+        clean_object = str(object_id or "").strip()
+        if not clean_object:
+            raise ValueError("Objekt-ID fehlt")
+        self.directory.mkdir(parents=True, exist_ok=True)
+        with exclusive_file_lock(self.lock_path):
+            state = self._read()
+            assignment = state["assignments"].pop(clean_object, None)
+            if not isinstance(assignment, dict):
+                raise ValueError("Objekt ist keinem Standort zugeordnet")
+            self._event(state, "object_unassigned", actor, {
+                "object_id": clean_object,
+                "location_id": str(assignment.get("location_id", "")),
+            })
+            self._write(state)
+            return dict(assignment)
+
     def contents(self, location_id: str) -> list[str]:
         wanted = str(location_id or "").strip()
         return [
