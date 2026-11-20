@@ -25,6 +25,7 @@
           <dt class="col-sm-4">Bestand</dt><dd class="col-sm-8" data-stock>{% if item.quantity %}{{ item.quantity }}{% if item.unit %} {{ item.unit }}{% endif %}{% else %}Einzelstück{% endif %}</dd>
           <dt class="col-sm-4">Standort</dt><dd class="col-sm-8">{{ item.location or '—' }}</dd>
           <dt class="col-sm-4">Kaufdatum</dt><dd class="col-sm-8">{{ item.fields.purchase_date or '—' }}</dd>
+          <dt class="col-sm-4">Freundes-Bestandssuche</dt><dd class="col-sm-8" data-sharing>{% if item.share_inventory %}<span class="badge text-bg-success">geteilt</span>{% else %}<span class="badge text-bg-secondary">privat</span>{% endif %}<form method="post" action="{{ url_for('inventory.set_object_sharing', object_id=item.object_id) }}" class="d-inline ms-2"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="share_inventory" value="{% if item.share_inventory %}0{% else %}1{% endif %}"><button class="btn btn-sm btn-outline-secondary" type="submit">{% if item.share_inventory %}Nicht mehr teilen{% else %}Teilen{% endif %}</button></form></dd>
           {% if item.fields.isbn %}<dt class="col-sm-4">ISBN</dt><dd class="col-sm-8">{{ item.fields.isbn }}</dd>{% endif %}
           {% if item.description %}<dt class="col-sm-4">Beschreibung</dt><dd class="col-sm-8" style="white-space:pre-wrap">{{ item.description }}</dd>{% endif %}
         </dl>

@@ -403,6 +403,7 @@ def _create_inventory_item(
                 "expires_at": "",
                 "quantity": str(request.form.get("quantity", "") or "").strip(),
                 "unit": str(request.form.get("unit", "") or "").strip(),
+                "share_inventory": "0" if str(request.form.get("share_private", "") or "") == "1" else "1",
                 "tags": ",".join(sorted(tags, key=str.casefold)),
                 "fields": inventory._fields_text(fields),
             },

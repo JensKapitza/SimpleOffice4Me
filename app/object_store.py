@@ -108,6 +108,7 @@ class ObjectStore:
             "location": str(values.get("location", "")).strip(), "expires_at": expires_at,
             "quantity": self._quantity(values.get("quantity", "")),
             "unit": self._unit(values.get("unit", "")),
+            "share_inventory": self._share_flag(values.get("share_inventory", True)),
             "tags": self._list(values.get("tags", "")), "fields": self._fields(values.get("fields", "")),
             "invoice": self._invoice_values(values), "document_ids": [], "notes": [],
             "created_at": now, "created_by": actor, "updated_at": now, "updated_by": actor,
@@ -127,6 +128,7 @@ class ObjectStore:
             "expires_at": self._date(values.get("expires_at", "")),
             "quantity": self._quantity(values.get("quantity", "")),
             "unit": self._unit(values.get("unit", "")),
+            "share_inventory": self._share_flag(values.get("share_inventory", item.get("share_inventory", True))),
             "tags": self._list(values.get("tags", "")), "fields": self._fields(values.get("fields", "")),
             "invoice": self._invoice_values(values, existing=item.get("invoice", {})),
             "updated_at": utc_now(), "updated_by": actor,
@@ -199,6 +201,7 @@ class ObjectStore:
             item["quantity"] = cls._quantity(item.get("quantity", ""))
         except ValueError:
             item["quantity"] = ""
+        item["share_inventory"] = True if "share_inventory" not in item else bool(item.get("share_inventory"))
         status = str(item.get("status", "") or "").strip()
         item["status"] = status if status in OBJECT_STATES else "active"
         try:
@@ -416,6 +419,12 @@ class ObjectStore:
         text = str(value or "").strip()
         if len(text) > 24: raise ValueError("object unit must not exceed 24 characters")
         return text
+
+    @staticmethod
+    def _share_flag(value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        return str(value or "").strip().casefold() in {"1", "true", "yes", "on"}
 
     @staticmethod
     def _list(value: Any) -> list[str]:
