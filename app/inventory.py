@@ -668,11 +668,14 @@ def item_detail(object_id: str):
         copies = object_copies(_objects(), item["object_id"])
     except ValueError:
         copies = []
+    from .inventory_reservations import ReservationStore
+    reservations = ReservationStore(current_app.config["DOCUMENT_ROOT"]).reservations(item["object_id"])
     return render_template("inventory/detail.html", item=item, inventory=meta, today=date.today().isoformat(),
                            containing=store.containing(item["object_id"]), all_collections=store.collections(),
                            links=links, copies=copies, open_loan=lending.open_loan(item["object_id"]),
                            loan_history=lending.loans(item["object_id"])[:10],
-                           low_stock=_is_low_stock(item), warranty=_warranty_info(item))
+                           low_stock=_is_low_stock(item), warranty=_warranty_info(item),
+                           reservations=reservations)
 
 
 def _warranty_info(item: dict[str, Any]) -> dict[str, Any]:
@@ -871,6 +874,7 @@ def inventory_media(object_id: str, filename: str):
 # `bp`, and a name import here would break if the routes module is
 # imported first (partial circular import).
 from . import inventory_capture_routes as _capture_routes  # noqa: E402,F401
+from . import inventory_reservation_routes as _reservation_routes  # noqa: E402,F401
 from . import inventory_stock_routes as _stock_routes  # noqa: E402,F401
 from . import inventory_inspection_routes as _inspection_routes  # noqa: E402,F401
 from . import inventory_lending_routes as _lending_routes  # noqa: E402,F401
