@@ -35,19 +35,6 @@
         </dl>
       </div></div>
 
-      <div class="card shadow-sm mb-3"><div class="card-header"><strong>Fehlmenge klären</strong></div><div class="card-body">
-        <form method="post" action="{{ url_for('inventory.adjust_object_stock', object_id=item.object_id) }}" class="row g-2" data-stock-adjust>
-          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-          <div class="col-sm-4"><label for="stock-reconcile-counted" class="form-label">Gezählt{% if item.unit %} ({{ item.unit }}){% endif %}</label><input required id="stock-reconcile-counted" name="counted" inputmode="decimal" class="form-control" placeholder="z. B. 3"></div>
-          <div class="col-sm-4"><label for="stock-reconcile-reason" class="form-label">Grund</label><select id="stock-reconcile-reason" name="reason" class="form-select"><option value="zaehlfehler">Zählfehler</option><option value="schwund">Schwund / Verlust</option><option value="zugang">Zugang / Fund</option><option value="korrektur">Korrektur</option></select></div>
-          <div class="col-sm-4"><label for="stock-reconcile-note" class="form-label">Notiz</label><input id="stock-reconcile-note" name="note" class="form-control" maxlength="500" placeholder="optional"></div>
-          <div class="col-12"><button class="btn btn-primary" type="submit">Bestand übernehmen</button></div>
-        </form>
-        {% if item.stock_adjustments %}<div class="table-responsive mt-3"><table class="table table-sm mb-0"><thead><tr><th scope="col">Zeitpunkt</th><th scope="col">Vorher</th><th scope="col">Gezählt</th><th scope="col">Grund</th><th scope="col">Von</th></tr></thead><tbody>
-          {% for event in item.stock_adjustments|reverse %}<tr><td>{{ event.adjusted_at }}</td><td>{{ event.previous or 'Einzelstück' }}</td><td>{{ event.counted or 'Einzelstück' }}</td><td>{{ event.reason }}{% if event.note %} · {{ event.note }}{% endif %}</td><td>{{ event.adjusted_by }}</td></tr>{% endfor %}
-        </tbody></table></div>{% endif %}
-      </div></div>
-
       <div class="card shadow-sm mb-3" data-object-reservations><div class="card-header"><strong>Reservierungen</strong></div><div class="card-body">
         {% if reservations %}<ul class="list-unstyled mb-2">{% for entry in reservations %}<li>{{ entry.start_date }} bis {{ entry.end_date }}: <strong>{{ entry.reserver }}</strong><form method="post" action="{{ url_for('inventory.cancel_object_reservation', reservation_id=entry.reservation_id) }}" class="d-inline ms-2"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="return_to" value="{{ url_for('inventory.item_detail', object_id=item.object_id) }}"><button class="btn btn-sm btn-outline-secondary" type="submit">Stornieren</button></form></li>{% endfor %}</ul>{% else %}<p class="text-secondary mb-2">Keine aktiven Reservierungen.</p>{% endif %}
         <form method="post" action="{{ url_for('inventory.reserve_object', object_id=item.object_id) }}" class="row g-2"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><div class="col-md-4"><label class="form-label" for="reserve-who">Für</label><input required class="form-control" id="reserve-who" name="reserver" maxlength="200" placeholder="Name"></div><div class="col-md-3"><label class="form-label" for="reserve-from">Von</label><input required class="form-control" id="reserve-from" name="start_date" type="date"></div><div class="col-md-3"><label class="form-label" for="reserve-to">Bis</label><input required class="form-control" id="reserve-to" name="end_date" type="date"></div><div class="col-md-2 d-grid align-content-end"><button class="btn btn-outline-primary" type="submit">Reservieren</button></div></form>
