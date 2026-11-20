@@ -600,6 +600,18 @@ def index():
     )
 
 
+def _is_low_stock(item: dict[str, Any]) -> bool:
+    from decimal import Decimal, InvalidOperation
+
+    quantity, minimum = str(item.get("quantity", "") or ""), str(item.get("min_stock", "") or "")
+    if not quantity or not minimum:
+        return False
+    try:
+        return Decimal(quantity) < Decimal(minimum)
+    except InvalidOperation:
+        return False
+
+
 @bp.get("/<object_id>")
 @login_required
 def item_detail(object_id: str):
@@ -613,7 +625,8 @@ def item_detail(object_id: str):
         copies = object_copies(_objects(), item["object_id"])
     except ValueError:
         copies = []
-    return render_template("inventory/detail.html", item=item, inventory=meta, today=date.today().isoformat(), copies=copies)
+    return render_template("inventory/detail.html", item=item, inventory=meta, today=date.today().isoformat(), copies=copies,
+                           low_stock=_is_low_stock(item))
 
 
 def _book_lookup_response(isbn: str, metadata: dict[str, Any]):
@@ -799,4 +812,5 @@ def inventory_media(object_id: str, filename: str):
 # `bp`, and a name import here would break if the routes module is
 # imported first (partial circular import).
 from . import inventory_capture_routes as _capture_routes  # noqa: E402,F401
+from . import inventory_stock_routes as _stock_routes  # noqa: E402,F401
 from .translations import translate

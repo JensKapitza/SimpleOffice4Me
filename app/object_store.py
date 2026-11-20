@@ -77,6 +77,21 @@ class ObjectStore:
             item["display_id"] = self.format_sequence(item.get("sequence_id", 0), width)
             yield item
 
+    def low_stock(self) -> list[dict[str, Any]]:
+        """Bulk items whose quantity fell below their minimum stock."""
+        rows = []
+        for item in self.objects():
+            quantity, minimum = str(item.get("quantity", "") or ""), str(item.get("min_stock", "") or "")
+            if not quantity or not minimum:
+                continue
+            try:
+                low = Decimal(quantity) < Decimal(minimum)
+            except InvalidOperation:
+                continue
+            if low:
+                rows.append(item)
+        return sorted(rows, key=lambda item: (item.get("name", "").casefold(), int(item.get("sequence_id", 0))))
+
     def object(self, object_id: str) -> dict[str, Any]:
         """Resolve a UUID or any zero-padded representation of the permanent sequence ID."""
         self._ensure_sequences()
@@ -108,6 +123,7 @@ class ObjectStore:
             "location": str(values.get("location", "")).strip(), "expires_at": expires_at,
             "quantity": self._quantity(values.get("quantity", "")),
             "unit": self._unit(values.get("unit", "")),
+            "min_stock": self._quantity(values.get("min_stock", "")),
             "tags": self._list(values.get("tags", "")), "fields": self._fields(values.get("fields", "")),
             "invoice": self._invoice_values(values), "document_ids": [], "notes": [],
             "created_at": now, "created_by": actor, "updated_at": now, "updated_by": actor,
@@ -127,6 +143,7 @@ class ObjectStore:
             "expires_at": self._date(values.get("expires_at", "")),
             "quantity": self._quantity(values.get("quantity", "")),
             "unit": self._unit(values.get("unit", "")),
+            "min_stock": self._quantity(values.get("min_stock", "")),
             "tags": self._list(values.get("tags", "")), "fields": self._fields(values.get("fields", "")),
             "invoice": self._invoice_values(values, existing=item.get("invoice", {})),
             "updated_at": utc_now(), "updated_by": actor,
@@ -199,6 +216,10 @@ class ObjectStore:
             item["quantity"] = cls._quantity(item.get("quantity", ""))
         except ValueError:
             item["quantity"] = ""
+        try:
+            item["min_stock"] = cls._quantity(item.get("min_stock", ""))
+        except ValueError:
+            item["min_stock"] = ""
         status = str(item.get("status", "") or "").strip()
         item["status"] = status if status in OBJECT_STATES else "active"
         try:
