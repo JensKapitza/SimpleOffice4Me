@@ -228,6 +228,7 @@ def index():
     messages: list[dict] = []
     mailbox = {"page": page, "total": 0, "has_prev": False, "has_next": False}
     preview = None
+    next_uid = ""
     archive_preview = None
     archive_rows: list[dict] = []
     connection_error = ""
@@ -345,6 +346,9 @@ def index():
                     )
                 if uid:
                     preview = web.message(account, folder, uid, actor=_actor())
+                    ordered = [str(row.get("uid", "")) for row in messages]
+                    if uid in ordered and ordered.index(uid) + 1 < len(ordered):
+                        next_uid = ordered[ordered.index(uid) + 1]
                     reference = _mail_reference(preview["sha512"])
                     preview_case_id = cases.case_for_message(_actor(), selected["id"], reference)
                     if preview_case_id:
@@ -372,6 +376,8 @@ def index():
         messages=messages,
         mailbox=mailbox,
         preview=preview,
+        next_uid=next_uid,
+        seen_dwell=MailAccountPolicy(store).seen_dwell(_actor(), selected["id"]) if selected else 5,
         archive_preview=archive_preview,
         archive_rows=archive_rows,
         connection_error=connection_error,
@@ -814,6 +820,9 @@ def set_seen():
     folder = request.form.get("folder", "").strip()
     uid = request.form.get("uid", "").strip()
     seen = request.form.get("seen") == "1"
+    next_uid = request.form.get("next_uid", "").strip()
+    if not re.fullmatch(r"[1-9][0-9]{0,19}", next_uid):
+        next_uid = ""
     try:
         account = _account(store, account_id)
         ImapWebClient(store).set_seen(_actor(), account, folder, uid, seen)
@@ -823,7 +832,7 @@ def set_seen():
     except Exception as exc:
         current_app.logger.warning("IMAP seen update failed for %s: %s", _actor(), type(exc).__name__)
         flash(f"Status konnte nicht geändert werden ({type(exc).__name__}).")
-    return redirect(url_for("mail_reader.index", account=account_id, folder=folder, uid=uid))
+    return redirect(url_for("mail_reader.index", account=account_id, folder=folder, uid=next_uid or uid))
 
 
 @bp.post("/message/move")

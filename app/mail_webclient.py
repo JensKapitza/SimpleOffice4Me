@@ -171,20 +171,20 @@ class MailAccountPolicy:
         row = self._read().get("accounts", {}).get(self._key(actor, account_id), {})
         return bool(row.get("read_only", True))
 
-    def set_read_only(self, actor: str, account_id: str, value: bool) -> bool:
+    def _update_row(self, actor: str, account_id: str, fields: dict[str, Any]) -> dict[str, Any]:
         # Ownership check without persisting or validating the supplied placeholder.
         self.store.account(actor, account_id, password="ownership-check")
         with exclusive_file_lock(self.lock):
             payload = self._read()
             payload.setdefault("version", 1)
-            payload.setdefault("accounts", {})[self._key(actor, account_id)] = {
-                "account_id": account_id,
-                "owner": actor,
-                "read_only": bool(value),
-                "updated_at": utc_now(),
-            }
+            row = payload.setdefault("accounts", {}).setdefault(self._key(actor, account_id), {})
+            row.update({"account_id": account_id, "owner": actor, **fields, "updated_at": utc_now()})
             self.path.parent.mkdir(parents=True, exist_ok=True)
             atomic_json_write(self.path, payload)
+            return dict(row)
+
+    def set_read_only(self, actor: str, account_id: str, value: bool) -> bool:
+        self._update_row(actor, account_id, {"read_only": bool(value)})
         self.store.history.record(
             "mail_account_readonly_changed",
             actor,
@@ -199,6 +199,31 @@ class MailAccountPolicy:
             raise MailReadOnlyError(
                 "Dieses Mailkonto ist schreibgeschützt. Schreibzugriff muss in den Kontoeinstellungen ausdrücklich freigegeben werden."
             )
+
+    def seen_dwell(self, actor: str, account_id: str) -> int:
+        """Seconds an open message waits before auto-marking seen; 0 disables."""
+        row = self._read().get("accounts", {}).get(self._key(actor, account_id), {})
+        try:
+            seconds = int(row.get("seen_dwell", 5))
+        except (TypeError, ValueError):
+            return 5
+        return max(0, min(seconds, 120))
+
+    def set_seen_dwell(self, actor: str, account_id: str, seconds: Any) -> int:
+        try:
+            value = int(seconds)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Verweildauer muss eine Sekundenzahl sein") from exc
+        value = max(0, min(value, 120))
+        self._update_row(actor, account_id, {"seen_dwell": value})
+        self.store.history.record(
+            "mail_account_seen_dwell_changed",
+            actor,
+            "mail-accounts",
+            account_id,
+            {"seen_dwell": value, "updated_at": utc_now()},
+        )
+        return value
 
 
 class ImapWebClient:

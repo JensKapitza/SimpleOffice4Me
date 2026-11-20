@@ -149,6 +149,7 @@ def _object_update_values(item: dict[str, Any], *, location: str, location_id: s
         "expires_at": item.get("expires_at", ""),
         "quantity": item.get("quantity", ""),
         "unit": item.get("unit", ""),
+        "share_inventory": item.get("share_inventory", True),
         "min_stock": item.get("min_stock", ""),
         "tags": item.get("tags", []),
         "fields": fields,

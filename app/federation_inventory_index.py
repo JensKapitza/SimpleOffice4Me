@@ -10,6 +10,7 @@ Both sides decide separately with an explicit default-deny flag:
 the serving peer needs ``policy.inventory.send is True``, the
 syncing peer needs ``policy.inventory.receive is True`` before any
 network access. Only locally synchronized rows are ever consulted.
+Individual objects can additionally opt out via ``share_inventory``.
 """
 from __future__ import annotations
 
@@ -37,6 +38,8 @@ def build_inventory_rows(root: str | Path) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for item in ObjectStore(root).objects():
         if str(item.get("status", "") or "") != "active":
+            continue
+        if not item.get("share_inventory", True):
             continue
         identifier = clean_identifier(item.get("identifier", ""))
         if not identifier:

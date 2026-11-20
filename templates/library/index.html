@@ -54,7 +54,7 @@
           </form>
           <form method="post" action="{{ url_for('library.count_location_inventory') }}" class="row g-2 mt-3" data-library-inventory>
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-            <div class="col-12"><label class="form-label" for="inventory-location">Inventur für Standort</label><select class="form-select" id="inventory-location" name="location_id" required>{% for location in locations %}<option value="{{ location.location_id }}">{{ location.name }} · {{ location.code }}</option>{% endfor %}</select></div>
+            <div class="col-12"><label class="form-label" for="inventory-location">Inventur für Standort</label><select class="form-select" id="inventory-location" name="location_id" required><option value="" disabled selected>Bitte Standort wählen</option>{% for location in locations %}<option value="{{ location.location_id }}">{{ location.name }} · {{ location.code }}</option>{% endfor %}</select></div>
             <div class="col-12"><label class="form-label" for="inventory-codes">Gescannte Codes (eine Zeile pro Fund)</label><textarea class="form-control" id="inventory-codes" name="codes" rows="3" required></textarea></div>
             <div class="col-12 d-grid"><button class="btn btn-outline-primary" type="submit">Bestand zählen</button></div>
           </form>
