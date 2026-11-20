@@ -242,6 +242,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | `LibraryStore.unassign` mit Ereignis; neues Modul `scan_dispatch_routes.py` mit `POST /library/scan` (Modus+Code+Ziel, JSON/Flash, Login, Audit): Einlagern ordnet zu, Entnehmen löst Zuordnung und Spiegelung (mit Wiederherstellung bei Spiegelfehler); Scan-Karte auf der Bibliotheksseite. |
 | Tests und Soll-Ist-Vergleich | Soll: beide Modi wirken, Spiegel konsistent, Validierung, Rechte. Ist gemessen: 4/4 Blackbox-HTTP-Tests (Einlagern per Code, Entnehmen löst+leert Spiegel, 3 Validierungsfälle, anonym+Marker); Nachbar-Suites 24/24; Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen als Follow-up: Modi Umlagern/Inventur, Zielort-Gedächtnis, föderierte Rechte, Fotoerkennung, Offline-Sync. |
+## 19. November 2026 · Issue #1111 (P1-Slice): Inventur-Abgleichmodus am Objekt
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Inventur-Slice aus #1111 (Schritt 10/12): gezählte Menge vs. Sollmenge hatte keinen Klärpfad. Auf `origin/main` plus `origin/feature/inventory-stock-adjust` (#1133, offene Delta-Buchungen `POST /inventory/<id>/stock`) aufgebaut, um eine Routenkollision zu vermeiden: eigene `adjust_stock`-Route entfernt, gezählter Abgleich als Modus der #1133-Route. Bestand wiederverwendet: `quantity`-Normalisierung, `_write`-Audit, `item_detail`-Route, Flash-i18n. |
+| Implementierung | `ObjectStore.adjust_quantity` (Grund-Whitelist `zaehlfehler/schwund/zugang/korrektur`, Mengenvalidierung, `stock_adjustments`-Historie mit Vorwert/Zählwert/Grund/Notiz/Akteur/Zeit, Normalisierung in `_normalized_item`, Audit-Aktion `object_quantity_adjusted`) behalten; `inventory_stock_adjust_routes.adjust_object_stock` um gezählten Modus erweitert (Feld `counted` nicht-leer in Formular/JSON → `adjust_quantity` mit Grund-Whitelist, Notiz, Flash `inv.stock.adjusted` de/en; sonst Delta-Modus exakt unverändert); „Fehlmenge klären"-Karte postet `counted/reason/note` an `inventory.adjust_object_stock`, Historientabelle bleibt. Keine neue Datenbank. |
+| Tests und Soll-Ist-Vergleich | Soll: Zählwert übernehmen (Formular+JSON), Vorwert+Grund auditiert, ungültige Gründe/Mengen abgelehnt, anonym blockiert, Historie nach Reload, leerer `counted`-Wert fällt auf Delta-Modus zurück. Ist gemessen: 6/6 Blackbox-HTTP-Tests (`test_object_stock_adjust_http.py`: 10→7 mit Audit+Historie, anonym 302 ohne Änderung, Grund/Menge/negativ abgelehnt ohne Änderung, JSON-Abgleich 10→6, Delta-Fallback 10→8 ohne Abgleichhistorie, 2 Einträge nach Reload); Nachbar-Suite `test_inventory_stock_adjust_http` 4/4 unverändert. |
+| Review und Abschluss | Finaler Rebase nach #1133-Merge hiermit erledigt; Branch frisch ab Main (Redo nach #1141-Revert).dlösung). Offen als Follow-up (weitere #1111-Slices): Scanmodi pro Aktion, System-/manuelle Metadatenwerte, CSV-Import, Objekt-Verleih, föderierte Rechte. |
+
 ## 20. November 2026 · Revert des #1134-Merges (fremde Branches eingeschleppt)
 
 | Phase | Arbeit und Nachweis |
