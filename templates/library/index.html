@@ -54,7 +54,7 @@
           </form>
           <form method="post" action="{{ url_for('library.count_location_inventory') }}" class="row g-2 mt-3" data-library-inventory>
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-            <div class="col-12"><label class="form-label" for="inventory-location">Inventur für Standort</label><select class="form-select" id="inventory-location" name="location_id" required>{% for location in locations %}<option value="{{ location.location_id }}">{{ location.name }} · {{ location.code }}</option>{% endfor %}</select></div>
+            <div class="col-12"><label class="form-label" for="inventory-location">Inventur für Standort</label><select class="form-select" id="inventory-location" name="location_id" required><option value="" disabled selected>Bitte Standort wählen</option>{% for location in locations %}<option value="{{ location.location_id }}">{{ location.name }} · {{ location.code }}</option>{% endfor %}</select></div>
             <div class="col-12"><label class="form-label" for="inventory-codes">Gescannte Codes (eine Zeile pro Fund)</label><textarea class="form-control" id="inventory-codes" name="codes" rows="3" required></textarea></div>
             <div class="col-12 d-grid"><button class="btn btn-outline-primary" type="submit">Bestand zählen</button></div>
           </form>
@@ -74,6 +74,19 @@
           <div class="mt-3" data-temporary-holds><strong>Temporäre Auslagen ({{ holds|length }})</strong>{% if holds %}<ul class="list-unstyled small mt-1 mb-0">{% for hold in holds %}<li>{{ hold.location_name }}: {{ hold.return_date or 'ohne Frist' }}{% if hold.overdue %} <span class="badge text-bg-danger">überfällig</span>{% endif %}</li>{% endfor %}</ul>{% else %}<p class="small text-secondary mb-0">Keine offenen Rückgaben.</p>{% endif %}</div>
         </div>
       </div>
+    </div>
+  </section>
+
+  <section class="card shadow-sm mb-3" id="scan" data-scan-dispatch>
+    <div class="card-header"><strong>Scan-Aktion: Einlagern oder Entnehmen</strong></div>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('library.dispatch_scan') }}" class="row g-2">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-3"><label class="form-label" for="scan-mode">Modus</label><select class="form-select form-select-lg" id="scan-mode" name="mode"><option value="einlagern">Einlagern</option><option value="entnehmen">Entnehmen</option></select></div>
+        <div class="col-md-4"><label class="form-label" for="scan-target">Zielort (nur Einlagern)</label><select class="form-select form-select-lg" id="scan-target" name="target"><option value="">– wählen –</option>{% for location in locations %}<option value="{{ location.location_id }}">{{ location.name }} · {{ location.code }}</option>{% endfor %}</select></div>
+        <div class="col-md-3"><label class="form-label" for="scan-code">Objektcode</label><input required class="form-control form-control-lg" id="scan-code" name="code" autocomplete="off" placeholder="Kennung oder Nr."></div>
+        <div class="col-md-2 d-grid align-content-end"><button class="btn btn-primary btn-lg" type="submit">Anwenden</button></div>
+      </form>
     </div>
   </section>
 

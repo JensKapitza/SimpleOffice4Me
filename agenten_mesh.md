@@ -227,6 +227,48 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: Erstellen/Downloaden funktioniert, Fehler kontrolliert, Rechte geprüft. Ist gemessen: 5/5 Blackbox-HTTP-Tests grün; Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Issue #759 nach Merge mit Nachweis schließen. Offen: site-packages-Kopie im Test-Venv bei Bedarf aktualisieren (Umgebung, kein Repo). |
 
+## 20. November 2026 · Issue #1136 (Slice 3): Lese-Timing und Gelesen+Nächste
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | #1136 fordert konfigurierbare Verweildauer bis Gelesen + Schnellaktion „Gelesen und nächste“. Ist: nur manuelles Umschalten per Formular+Redirect. Entwurf: Policy-Feld `seen_dwell` (Default 5 s, 0–120, 0=aus), `set_seen` mit validiertem `next_uid`-Redirect, `next_uid`-Berechnung aus Listenreihenfolge, JS-Timer nur bei (schreibbar + ungelesen + dwell>0). |
+| Implementierung | `MailAccountPolicy.seen_dwell/set_seen_dwell` (+ Audit, Zeilen-Merge statt Überschreiben in `set_read_only`, damit Dwell erhalten bleibt); Route `POST /accounts/<id>/seen-dwell` (Header-Auswahl 0/3/5/10/30 s); `set_seen` mit `next_uid`-Validierung (UID-Regex, Fallback aktuelle Mail); Template-Marker (`data-mail-autoseen/dwell-seconds`, `seen-next`-Formular mit `n`-Kürzel); JS-Timer mit Einmal-Schutz. |
+| Tests und Soll-Ist-Vergleich | Soll: Default/Clamp, Marker+Setting, Gelesen+Nächste mit genau 1 STORE, gefälschte Ziele abgelehnt, Readonly blockt STORE. Ist gemessen: 5/5 Blackbox-HTTP mit Fake-IMAP; vererbte Slice-1-Tests + Nachbarn 38/38; `node --check`, Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Gestapelt auf Slice 1 (erst nach dessen Review mergen); kein Auto-Merge (Issue-Vorgabe). Offen: Slices 4–7 (Tags, Überführen, Signaturen, Archiv-Härtung). |
+
+## 20. November 2026 · Issue #1136 (Slice 1): Mail-UI-Shell mit Tastatur, Palette, mobilen Panes
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | #1136-Ist verifiziert: Mehrkonten-IMAP/SMTP, BODY.PEEK-Lesen, `require_writable`-Schreibschutz, Ordner/Liste/Lesebereich als 3-Spalten-Template, Archiv/Vorgänge vorhanden. Lücken: keine Tastaturbedienung, keine Befehlspalette, kein mobiles Pane-Verhalten, kein LRU-Cache, kein Lese-Timing, keine Tag-/Aufgaben-Integration. Plan mit 7 Slices in `docs/ISSUE_1136_PLAN.md`. |
+| Implementierung | Slice 1 ohne Backend-Änderung: `static/js/mail_client.js` (j/k/Enter-Navigation, Kürzel e/u/r/c//, Strg+K-Palette aus gerenderten `data-mail-action`-Aktionen, mobile Pane-Umschaltung), `static/css/mail_client.css`, Template-Marker (`data-mail-pane/uid/action`, Palette, Hinweise). Nur bestehende Routen; ohne JS bleibt alles Link/Formular; Readonly liefert konstruktionsbedingt keine Schreibaktionen. |
+| Tests und Soll-Ist-Vergleich | Soll: 3 Panes + Palette rendern, Zeilen/Key-Hooks, Preview-Aktionen, Readonly ohne Schreibaktionen, ohne Konto stabil. Ist gemessen: 5/5 Blackbox-HTTP-Tests mit Fake-IMAP (`test_mail_client_shell_http.py`); Nachbarn 40/40; `node --check`, Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Kein Auto-Merge (Issue-Vorgabe). Offen: Slices 2–7 (Cache, Timing, Tags, Überführen, Signaturen, Archiv-Härtung). |
+
+## 19. November 2026 · Issue #1111: Bestandsbuchungen mit Grund
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Einundzwanzigster Slice (nach #1115-Merge): Mengen waren nur bei Anlage setzbar. Bestand wiederverwendet: Dezimalvalidierung, Update mit Verlauf, Notizen, Routenregistrierung per Bottom-Import. |
+| Implementierung | Neues Modul `inventory_stock_adjust_routes.py` mit `POST /inventory/<id>/stock` (Delta mit Komma, Pflichtgrund, kein Negativstand, JSON/Flash, Login, Notiz im Verlauf); Buchungsformular in der Bestandszeile; zukunftssichere Werterhaltung. |
+| Tests und Soll-Ist-Vergleich | Soll: rauf/runter buchen, kein Negativ, Einzelstück ausgenommen, Validierung, Rechte. Ist gemessen: 4/4 Blackbox-HTTP-Tests (50→42→45,5, Negativ abgelehnt ohne Änderung, Einzelstück-400, anonym+Marker); Nachbar-Suites 42/42 inkl. Mengen-Suite; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Scanmodi-Umlagern/Inventur, föderierte Rechte, Fotoerkennung, Offline-Sync. |
+## 19. November 2026 · Issue #1111: Freigabeschalter je Objekt für die Föderation
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Neunzehnter Slice: Freundes-Bestandssuche war alles-oder-nichts pro Gegenstelle. Bestand wiederverwendet: Index-Builder mit Minimalfeldern, Erfassungsroute, Bibliotheks-Aktualisierungspfade, Detailseite. |
+| Implementierung | `share_inventory`-Schalter je Objekt (Standard geteilt, Altdaten tolerant, Erhalt bei Updates); Ausschluss im Index-Builder; Opt-out-Kontrollkästchen im Erfassungsformular, Umschalt-Route mit Abzeichen auf der Detailseite. |
+| Tests und Soll-Ist-Vergleich | Soll: Standard geteilt, Opt-out wirkt im Index, Umschalten, Validierung, Rechte. Ist gemessen: 4/4 Blackbox-HTTP-Tests (Standard+Opt-out-beim-Anlegen, Umschalten mit Indexprüfung, 400/404-Fälle, anonym+Marker); Nachbar-Suites 61/61 inkl. Föderationsindex; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Rechte pro Identität/Gruppe, Fotoerkennung, Offline-Sync, E-Mail-Erinnerungen. |
+## 19. November 2026 · Issue #1111 (P1-Slice): Scanmodi Einlagern und Entnehmen
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Achtzehnter Slice: Stapelscans ohne Dialoge fehlten. Bestand wiederverwendet: Code-Auflösung, Zuordnung mit Rollback und Spiegelung, Auditmuster. Umlagern/Inventur als Modi folgen nach #1112/#1117-Merge. |
+| Implementierung | `LibraryStore.unassign` mit Ereignis; neues Modul `scan_dispatch_routes.py` mit `POST /library/scan` (Modus+Code+Ziel, JSON/Flash, Login, Audit): Einlagern ordnet zu, Entnehmen löst Zuordnung und Spiegelung (mit Wiederherstellung bei Spiegelfehler); Scan-Karte auf der Bibliotheksseite. |
+| Tests und Soll-Ist-Vergleich | Soll: beide Modi wirken, Spiegel konsistent, Validierung, Rechte. Ist gemessen: 4/4 Blackbox-HTTP-Tests (Einlagern per Code, Entnehmen löst+leert Spiegel, 3 Validierungsfälle, anonym+Marker); Nachbar-Suites 24/24; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Modi Umlagern/Inventur, Zielort-Gedächtnis, föderierte Rechte, Fotoerkennung, Offline-Sync. |
 ## 19. November 2026 · Issue #1111: Reservierungen mit Zeiträumen
 
 | Phase | Arbeit und Nachweis |
