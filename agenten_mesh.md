@@ -251,6 +251,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: alles über Piper, Maze mit Serverstimme, kein Synthesis-Rest, Fehler kontrolliert. Ist gemessen: 12/12 neue Blackbox-Tests (`test_kids_tts.py`: Audio, Caching, EN-Fallback, Validierung, 503, Login, Engine-Wiederverwendung, kein Synthesis, Maze-Stimme, Template-Verdrahtung) + 46/46 angepasste Kids-Suites + 2/2 Node-Audiotests; `node --check`, Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Supervisor/Dev-Struktur verwendet; Koordinator hat nach Agenten-Stillstand Review + Fertigstellung übernommen. Offen: Piper-Modell muss in Medien-Einstellungen hinterlegt sein (sonst 503-Hinweis); physischer Hörtest auf Endgerät. |
 
+## 19. November 2026 · Issue #1111 (P1-Slice): Inventur-Abgleichmodus am Objekt
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Inventur-Slice aus #1111 (Schritt 10/12): gezählte Menge vs. Sollmenge hatte keinen Klärpfad. Auf `origin/main` plus `origin/feature/inventory-stock-adjust` (#1133, offene Delta-Buchungen `POST /inventory/<id>/stock`) aufgebaut, um eine Routenkollision zu vermeiden: eigene `adjust_stock`-Route entfernt, gezählter Abgleich als Modus der #1133-Route. Bestand wiederverwendet: `quantity`-Normalisierung, `_write`-Audit, `item_detail`-Route, Flash-i18n. |
+| Implementierung | `ObjectStore.adjust_quantity` (Grund-Whitelist `zaehlfehler/schwund/zugang/korrektur`, Mengenvalidierung, `stock_adjustments`-Historie mit Vorwert/Zählwert/Grund/Notiz/Akteur/Zeit, Normalisierung in `_normalized_item`, Audit-Aktion `object_quantity_adjusted`) behalten; `inventory_stock_adjust_routes.adjust_object_stock` um gezählten Modus erweitert (Feld `counted` nicht-leer in Formular/JSON → `adjust_quantity` mit Grund-Whitelist, Notiz, Flash `inv.stock.adjusted` de/en; sonst Delta-Modus exakt unverändert); „Fehlmenge klären"-Karte postet `counted/reason/note` an `inventory.adjust_object_stock`, Historientabelle bleibt. Keine neue Datenbank. |
+| Tests und Soll-Ist-Vergleich | Soll: Zählwert übernehmen (Formular+JSON), Vorwert+Grund auditiert, ungültige Gründe/Mengen abgelehnt, anonym blockiert, Historie nach Reload, leerer `counted`-Wert fällt auf Delta-Modus zurück. Ist gemessen: 6/6 Blackbox-HTTP-Tests (`test_object_stock_adjust_http.py`: 10→7 mit Audit+Historie, anonym 302 ohne Änderung, Grund/Menge/negativ abgelehnt ohne Änderung, JSON-Abgleich 10→6, Delta-Fallback 10→8 ohne Abgleichhistorie, 2 Einträge nach Reload); Nachbar-Suite `test_inventory_stock_adjust_http` 4/4 unverändert. |
+| Review und Abschluss | Finaler Rebase nach #1133-Merge hiermit erledigt; Branch frisch ab Main (Redo nach #1141-Revert).dlösung). Offen als Follow-up (weitere #1111-Slices): Scanmodi pro Aktion, System-/manuelle Metadatenwerte, CSV-Import, Objekt-Verleih, föderierte Rechte. |
+
 ## 20. November 2026 · Revert des #1134-Merges (fremde Branches eingeschleppt)
 
 | Phase | Arbeit und Nachweis |
@@ -259,6 +268,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | Revert per `git revert -m 1 56394d17` (Vorwärts-Fix, kein History-Rewrite): 21 Dateien, Fremdcode vollständig entfernt, legitime #1117–#1133-Inhalte verifiziert intakt. Danach: #1134-Doku neu aufsetzen, Slice-Branches frisch vom neuen Main abzweigen (neue Hashes, saubere PR-Diffs). |
 | Tests und Soll-Ist-Vergleich | Soll: Fremddateien weg, legitime Slices da, Suite grün. Ist gemessen: 6/6 Fremddateien entfernt, 4/4 Slice-Module + share-Flag vorhanden; Mail-/Inventur-/Bibliotheks-Nachbarsuites + Gates vor Push grün (siehe PR-CI). |
 | Review und Abschluss | Lehre: Merge-Agents dürfen nur `git merge origin/main` ausführen, nie fremde Branches integrieren; Merges künftig per Diff gegen PR-Branch verifizieren. Offen: #1134-Doku neu, #1135/#1137 normal mergen, #1136-Slices bleiben zur Nutzer-Review offen. |
+
+## 20. November 2026 · Issue #759: Berichts-Erstellung/Download verifiziert + Regressionstests
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Issue #759 (20.10.2026): Berichte weder erstell- noch downloadbar. Inventarisiert: Ortstermin-Berichtspfade `GET /site-visits/<id>/report` (Vorschau), `POST /site-visits/<id>/report.pdf` (Erstellung+Download), `GET /site-visits/<id>/reports/<rid>.pdf` (gespeicherter Download) mit `build_visit_report` (reportlab), Versionierung, SHA-256, Audit. Reproduktion auf aktuellem Main: Fehler tritt NICHT mehr auf (Vorschau 200, Erstellung 200 mit %PDF-, Download 200 byteidentisch). Nebenbefund: veraltete installierte `app`-Kopie in site-packages des Test-Venvs (Templates fehlten dort) — kein Repo-Fehler. |
+| Implementierung | Keine Produktänderung nötig; Absicherung durch neue Blackbox-Regressionssuite `tests/test_site_visit_report_http.py` (Vorschau, Erstellung+Versionierung, Byteidentität, kontrollierte Fehler ohne Teilspeicherung, Login-Pflicht). |
+| Tests und Soll-Ist-Vergleich | Soll: Erstellen/Downloaden funktioniert, Fehler kontrolliert, Rechte geprüft. Ist gemessen: 5/5 Blackbox-HTTP-Tests grün; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Issue #759 nach Merge mit Nachweis schließen. Offen: site-packages-Kopie im Test-Venv bei Bedarf aktualisieren (Umgebung, kein Repo). |
 
 ## 19. November 2026 · Issue #1111: Reservierungen mit Zeiträumen
 
