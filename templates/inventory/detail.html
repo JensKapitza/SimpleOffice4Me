@@ -22,6 +22,7 @@
           <dt class="col-sm-4">NFC</dt><dd class="col-sm-8">{{ item.fields.nfc_id or '—' }}</dd>
           <dt class="col-sm-4">Hersteller / Modell</dt><dd class="col-sm-8">{{ item.fields.manufacturer or '—' }}{% if item.fields.model %} · {{ item.fields.model }}{% endif %}</dd>
           <dt class="col-sm-4">Seriennummer</dt><dd class="col-sm-8">{{ item.fields.serial_number or '—' }}</dd>
+          <dt class="col-sm-4">Bestand</dt><dd class="col-sm-8" data-stock>{% if item.quantity %}{{ item.quantity }}{% if item.unit %} {{ item.unit }}{% endif %}{% else %}Einzelstück{% endif %}</dd>
           <dt class="col-sm-4">Standort</dt><dd class="col-sm-8">{{ item.location or '—' }}</dd>
           <dt class="col-sm-4">Kaufdatum</dt><dd class="col-sm-8">{{ item.fields.purchase_date or '—' }}</dd>
           <dt class="col-sm-4">Zustand</dt><dd class="col-sm-8" data-condition>{{ {'new': 'Neu', 'used': 'Gebraucht', 'defective': 'Defekt', 'in_repair': 'In Reparatur', 'retired': 'Ausgesondert'}.get(item.condition, '—') }}</dd>

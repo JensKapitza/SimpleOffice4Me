@@ -44,6 +44,8 @@ def _update_values(item: dict[str, Any], fields: dict[str, Any]) -> dict[str, An
         "identifier": item.get("identifier", ""),
         "location": item.get("location", ""),
         "expires_at": item.get("expires_at", ""),
+        "quantity": item.get("quantity", ""),
+        "unit": item.get("unit", ""),
         "tags": item.get("tags", []),
         "fields": fields,
     }
