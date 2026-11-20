@@ -39,6 +39,7 @@ def _update_values(item: dict[str, Any], fields: dict[str, Any]) -> dict[str, An
         "name": item.get("name", ""),
         "type": item.get("type", "book"),
         "status": item.get("status", "active"),
+        "condition": item.get("condition", ""),
         "description": item.get("description", ""),
         "identifier": item.get("identifier", ""),
         "location": item.get("location", ""),
@@ -46,6 +47,7 @@ def _update_values(item: dict[str, Any], fields: dict[str, Any]) -> dict[str, An
         "quantity": item.get("quantity", ""),
         "unit": item.get("unit", ""),
         "share_inventory": item.get("share_inventory", True),
+        "min_stock": item.get("min_stock", ""),
         "tags": item.get("tags", []),
         "fields": fields,
     }

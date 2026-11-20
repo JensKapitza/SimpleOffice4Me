@@ -126,7 +126,8 @@
           {% if assigned_path %}<div class="alert alert-success py-2">Aktuell: {{ assigned_path }}</div>{% endif %}
           <form method="post" action="{{ url_for('library.object_care_location', object_id=item.object_id) }}" class="row g-2 mb-3">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-            <div class="col-12"><label class="form-label">Standort / Regal</label><select required class="form-select" name="location_id"><option value="">– auswählen –</option>{% for location in locations %}<option value="{{ location.location_id }}" {% if assignment.location_id == location.location_id %}selected{% endif %}>{{ location.name }} · {{ location.code }}</option>{% endfor %}</select></div>
+            <div class="col-12"><label class="form-label">Standort / Regal</label><select required class="form-select" name="location_id"><option value="">– auswählen –</option>{% for location in locations %}<option value="{{ location.location_id }}" {% if assignment.location_id == location.location_id %}selected{% endif %}>{{ location.name }} · {{ location.code }}{% if location.temporary %} (temporär){% endif %}</option>{% endfor %}</select></div>
+            <div class="col-12"><label class="form-label">Rückgabe bis (optional, für temporäre Orte)</label><input class="form-control" type="date" name="return_date" value="{{ assignment.return_date or '' }}"></div>
             <div class="col-12"><button class="btn btn-outline-primary" type="submit">Objekt zuordnen</button></div>
           </form>
           <form method="post" action="{{ url_for('library.sync_location_objects') }}">

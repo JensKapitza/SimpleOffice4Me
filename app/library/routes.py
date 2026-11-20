@@ -142,6 +142,7 @@ def _object_update_values(item: dict[str, Any], *, location: str, location_id: s
         "name": item.get("name", ""),
         "type": item.get("type", "object"),
         "status": item.get("status", "active"),
+        "condition": item.get("condition", ""),
         "description": item.get("description", ""),
         "identifier": item.get("identifier", ""),
         "location": location,
@@ -149,6 +150,7 @@ def _object_update_values(item: dict[str, Any], *, location: str, location_id: s
         "quantity": item.get("quantity", ""),
         "unit": item.get("unit", ""),
         "share_inventory": item.get("share_inventory", True),
+        "min_stock": item.get("min_stock", ""),
         "tags": item.get("tags", []),
         "fields": fields,
     }
@@ -156,7 +158,7 @@ def _object_update_values(item: dict[str, Any], *, location: str, location_id: s
 
 def assign_object_to_location(
     object_id: str, location_id: str, actor: str, *,
-    scanned: str = "", root: str | Path | None = None,
+    scanned: str = "", root: str | Path | None = None, return_date: str = "",
 ) -> dict[str, Any]:
     """Assign an ObjectStore item and mirror the structured shelf into searchable fields."""
     objects = ObjectStore(root) if root is not None else _objects()
@@ -176,7 +178,7 @@ def assign_object_to_location(
         actor,
     )
     try:
-        assignment = library.assign(item["object_id"], location_id, actor, scanned=scanned)
+        assignment = library.assign(item["object_id"], location_id, actor, scanned=scanned, return_date=return_date)
     except Exception:
         try:
             objects.update(item["object_id"], previous, actor)
@@ -288,6 +290,7 @@ def index():
         ocr_available=bool(shutil.which("tesseract")),
         pdf_available=bool(shutil.which("pdftoppm")),
         location_templates=template_catalog(),
+        holds=_store().temporary_holds(),
     )
 
 
@@ -298,6 +301,7 @@ def create_location():
         row = _store().create_location(
             request.form.get("name", ""), _actor(),
             parent_id=request.form.get("parent_id", ""), code=request.form.get("code", ""),
+            temporary=request.form.get("temporary", "") == "1",
         )
         flash(f"Standort {row['name']} ({row['code']}) wurde angelegt.")
         return redirect(url_for("library.index", location=row["location_id"]) + "#bulk-scan")
@@ -431,10 +435,14 @@ def print_location(location_id: str):
     library = _store()
     try:
         location = library.location(location_id)
+        style = str(request.form.get("label_style", "barcode")).strip()
+        if style not in {"barcode", "qr"}:
+            raise ValueError("Ungültige Etikettenart")
         share, printer, settings = _label_printer_configuration()
-        image = render_barcode(str(location["code"]), settings, caption=library.location_path(location_id))
+        image = (render_qr_code if style == "qr" else render_barcode)(
+            str(location["code"]), settings, caption=library.location_path(location_id))
         byte_count = _send_label_image(image, share, printer, settings)
-        library.record_print(_actor(), kind="location", status="printed", summary=f"{location['code']} {location['name']}", byte_count=byte_count)
+        library.record_print(_actor(), kind=f"location-{style}", status="printed", summary=f"{location['code']} {location['name']}", byte_count=byte_count)
         flash(f"Regaletikett {location['code']} wurde an {printer['label']} gesendet.")
     except (OSError, PrinterError, RuntimeError, ValueError) as exc:
         library.record_print(_actor(), kind="location", status="failed", summary=location_id, error=str(exc))
