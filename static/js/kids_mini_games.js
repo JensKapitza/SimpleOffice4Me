@@ -259,7 +259,7 @@
   }
 
   function showPicker() {
-    window.speechSynthesis?.cancel();
+    if (window.KidsPiperVoice) window.KidsPiperVoice.stop();
     result.hidden = true;
     play.hidden = true;
     picker.hidden = false;
@@ -268,28 +268,10 @@
 
   function uiLanguage() { return english ? 'en-US' : 'de-DE'; }
 
+  // All prompts play through the local Piper TTS endpoint (offline-first,
+  // one consistent voice). There is intentionally no SpeechSynthesis fallback.
   function speak(value, language) {
-    if (!('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(value);
-    utterance.lang = language;
-    utterance.rate = .86;
-    const prefix = language.slice(0, 2).toLowerCase();
-    const voices = window.speechSynthesis.getVoices().filter(voice => voice.lang.toLowerCase().startsWith(prefix));
-    let requested = '';
-    try { requested = localStorage.getItem(`kids-learning.voice.${prefix}`) || ''; } catch {}
-    const voiceId = voice => voice.voiceURI || `${voice.name}|${voice.lang}`;
-    const chosen = voices.find(voice => voiceId(voice) === requested) || [...voices].sort((a, b) => voiceRank(b, language) - voiceRank(a, language))[0];
-    if (chosen) utterance.voice = chosen;
-    window.speechSynthesis.speak(utterance);
-  }
-
-  function voiceRank(voice, language) {
-    // On-device voices first: same-language local voices must beat
-    // same-language cloud voices so prompts stay offline and private.
-    return (voice.lang.toLowerCase() === language.toLowerCase() ? 100 : 50)
-      + (voice.localService ? 24 : 0)
-      + (/natural|neural|premium|enhanced/i.test(voice.name) ? 6 : 0);
+    if (window.KidsPiperVoice) window.KidsPiperVoice.speak(value, language, null);
   }
 
   root.querySelectorAll('[data-mini-game]').forEach(button => button.addEventListener('click', () => begin(button.dataset.miniGame)));

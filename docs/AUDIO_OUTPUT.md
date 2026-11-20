@@ -12,7 +12,11 @@ Für automatisch erkannte PulseAudio-/PipeWire-Ausgänge werden die vorhandenen
 Programme `pactl` und `paplay` benötigt. Manuell definierte lokale Ausgänge nutzen
 die vorhandenen Alternativen `pw-play`, `aplay` oder `ffplay`. Piper plus das
 lokale Modell aus den Medien-Einstellungen (`media.piper_model`, Admin →
-Dokumente & Medien) werden nur für Sprachausgabe benötigt.
+Dokumente & Medien) werden nur für Sprachausgabe benötigt. Die deutsche
+Standardstimme ist Thorsten (medium); englische Ansagen nutzen optional
+`media.piper_model_en` (empfohlen: LibriTTS-R, medium) und fallen sonst auf
+die deutsche Standardstimme zurück. Es gibt bewusst keinen Browser- oder
+Netzwerk-Stimmen-Fallback.
 Signaltöne entstehen mit Python-Standardbibliothek als WAV. Nichts wird durch
 den Audio-Worker installiert oder heruntergeladen.
 
@@ -122,6 +126,13 @@ auf 45 Sekunden begrenzt und abbrechbar; Wiedergabe auf 300 Sekunden.
 - **Keine lokalen Ausgänge:** Benutzersitzung und `pactl` prüfen, erneut scannen.
 - **Piper/Modell fehlt:** vorhandenes Modell konfigurieren; zunächst einen
   Signalton testen. Kein automatischer Modell-Download.
+- **Kids-Vorlesen (`GET /kids/lernen/sprache`, Anmeldung erforderlich):** kurze
+  Lern- und Spieltexte (1–500 Zeichen, `lang` `de-DE`/`en-US`) rendert die
+  lokale Piper-CLI und legt sie per Texthash auf dem Server ab (Cache
+  `audio/kids-tts`, wiederverwendete `render_tts`-Engine). Wiederholte Maze-
+  und Quizansagen brauchen keine Neuberechnung; der Browser cached zusätzlich
+  per unveränderlicher URL. Ohne Modell/CLI antwortet der Endpunkt `503` mit
+  Handlungsanweisung statt Ersatzstimme.
 - **Externer Knoten:** Ohne explizite RTP-Bindung scheitert der Auftrag verständlich.
   Transport speichern und auf dem Ziel den Audio-Streamer-Empfänger starten.
   Bei ausbleibendem Ton Ports, Empfängerstatus und Lautsprecher prüfen; erfolgreicher

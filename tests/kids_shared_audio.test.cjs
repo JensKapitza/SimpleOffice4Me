@@ -9,6 +9,7 @@ const source = fs.readFileSync(path.join(__dirname, '../static/js/kids_shared.js
 function fixture() {
   const events = [];
   const players = [];
+  const piperSpoken = [];
   class FakeAudio {
     constructor(url) {
       this.url = url; this.listeners = {}; players.push(this);
@@ -23,15 +24,18 @@ function fixture() {
     end() { events.push(`end:${this.url}`); (this.listeners.ended || []).forEach(fn => fn()); }
     fail() { events.push(`error:${this.url}`); (this.listeners.error || []).forEach(fn => fn()); }
   }
-  const speechSynthesis = {
-    cancel() { events.push('tts-cancel'); },
-    getVoices() { return []; },
-    speak(u) { events.push(`tts:${u.text}`); setImmediate(() => u.onend && u.onend()); },
+  // Server Piper voice stub: records prompts instead of browser speech.
+  const KidsPiperVoice = {
+    stop() { events.push('piper-stop'); },
+    speak(text, language) {
+      piperSpoken.push([String(text), language]);
+      events.push(`piper:${text}`);
+      return Promise.resolve(true);
+    },
   };
-  function SpeechSynthesisUtterance(t) { this.text = t; }
-  const window = {Audio: FakeAudio, speechSynthesis, SpeechSynthesisUtterance, localStorage: {getItem: () => ''}};
-  vm.runInNewContext(source, {window, SpeechSynthesisUtterance});
-  return {api: window.KidsShared, events, players};
+  const window = {Audio: FakeAudio, KidsPiperVoice};
+  vm.runInNewContext(source, {window});
+  return {api: window.KidsShared, events, players, piperSpoken};
 }
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
@@ -51,7 +55,7 @@ test('clips play in order with versioned same-origin urls', async () => {
   assert.equal(await done, true);
 });
 
-test('missing clip falls back to speech and continues the sequence', async () => {
+test('missing clip falls back to piper speech and continues the sequence', async () => {
   const f = fixture();
   const done = f.api.playClips('/base', '', 'en', [
     {key: 'gone', fallback: 'Fallback words'},
@@ -60,7 +64,8 @@ test('missing clip falls back to speech and continues the sequence', async () =>
   await tick();
   f.players[0].fail();
   await tick(); await tick(); await tick();
-  assert.ok(f.events.includes('tts:Fallback words'));
+  assert.ok(f.events.includes('piper:Fallback words'));
+  assert.deepEqual(f.piperSpoken, [['Fallback words', 'en-US']]);
   assert.ok(f.events.includes('play:/base/en/there.mp3'));
   f.players[1].end();
   assert.equal(await done, true);

@@ -242,6 +242,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | `LibraryStore.unassign` mit Ereignis; neues Modul `scan_dispatch_routes.py` mit `POST /library/scan` (Modus+Code+Ziel, JSON/Flash, Login, Audit): Einlagern ordnet zu, Entnehmen löst Zuordnung und Spiegelung (mit Wiederherstellung bei Spiegelfehler); Scan-Karte auf der Bibliotheksseite. |
 | Tests und Soll-Ist-Vergleich | Soll: beide Modi wirken, Spiegel konsistent, Validierung, Rechte. Ist gemessen: 4/4 Blackbox-HTTP-Tests (Einlagern per Code, Entnehmen löst+leert Spiegel, 3 Validierungsfälle, anonym+Marker); Nachbar-Suites 24/24; Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen als Follow-up: Modi Umlagern/Inventur, Zielort-Gedächtnis, föderierte Rechte, Fotoerkennung, Offline-Sync. |
+## 20. November 2026 · Kids-Vorlesestimme: überall Piper statt Browser-Stimmen
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Browser-SpeechSynthesis war geräteabhängig unverständlich (u. a. Maze falsche Stimme). Vollinventar: 4 Kids-JS (`kids_learning/matching/mini_games/language/shared`) + Stimmwahl-Template. Bestand: `audio_output_engine.render_tts` (lokale Piper-CLI, Disk-Cache), Medien-Settings mit `piper_model`. |
+| Implementierung | Neuer Endpunkt `GET /kids/lernen/sprache` (Login, 1–500 Zeichen, de-DE/en-US, deutsches Standardmodell + optionales EN-Modell, 503-Code bei fehlender Stimme, immutable Browser-Cache); neuer Client `static/js/kids_piper_voice.js` (Queue, Abbruch, Statusmeldung, kein Synthesis-Fallback); alle 4 Kids-JS + 5 Templates umgestellt; Stimmwahl durch Hinweis ersetzt; `piper_model_en`-Setting + Doku. |
+| Tests und Soll-Ist-Vergleich | Soll: alles über Piper, Maze mit Serverstimme, kein Synthesis-Rest, Fehler kontrolliert. Ist gemessen: 12/12 neue Blackbox-Tests (`test_kids_tts.py`: Audio, Caching, EN-Fallback, Validierung, 503, Login, Engine-Wiederverwendung, kein Synthesis, Maze-Stimme, Template-Verdrahtung) + 46/46 angepasste Kids-Suites + 2/2 Node-Audiotests; `node --check`, Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Supervisor/Dev-Struktur verwendet; Koordinator hat nach Agenten-Stillstand Review + Fertigstellung übernommen. Offen: Piper-Modell muss in Medien-Einstellungen hinterlegt sein (sonst 503-Hinweis); physischer Hörtest auf Endgerät. |
+
 ## 19. November 2026 · Issue #1111 (P1-Slice): Inventur-Abgleichmodus am Objekt
 
 | Phase | Arbeit und Nachweis |

@@ -105,6 +105,7 @@ class VideoPreviewServiceTest(unittest.TestCase):
                     "archive_max_content_files": 20,
                     "archive_max_compression_ratio": 320,
                     "piper_model": "",
+                    "piper_model_en": "",
                 },
                 store.settings()["media"],
             )
