@@ -191,6 +191,19 @@ def _advance_due(value: str, interval: Any, unit: str) -> str:
     raise ValueError("Unbekannte Einheit für das Prüfintervall")
 
 
+def _warranty_months(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        months = int(text)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Garantie muss eine Monatszahl sein") from exc
+    if not 0 <= months <= 120:
+        raise ValueError("Garantie muss zwischen 0 und 120 Monaten liegen")
+    return str(months)
+
+
 def _object_fields(form: Any, isbn: str) -> dict[str, str]:
     values = {
         "isbn": isbn,
@@ -200,6 +213,7 @@ def _object_fields(form: Any, isbn: str) -> dict[str, str]:
         "model": _single_line(form.get("model"), 240),
         "serial_number": _single_line(form.get("serial_number"), 240),
         "purchase_date": _date_only(form.get("purchase_date"), "Kaufdatum") if form.get("purchase_date") else "",
+        "warranty_months": _warranty_months(form.get("warranty_months")),
         "authors": _single_line(form.get("authors"), 600),
         "publisher": _single_line(form.get("publisher"), 300),
         "published_date": _single_line(form.get("published_date"), 80),
@@ -613,7 +627,21 @@ def item_detail(object_id: str):
         copies = object_copies(_objects(), item["object_id"])
     except ValueError:
         copies = []
-    return render_template("inventory/detail.html", item=item, inventory=meta, today=date.today().isoformat(), copies=copies)
+    return render_template("inventory/detail.html", item=item, inventory=meta, today=date.today().isoformat(), copies=copies,
+                           warranty=_warranty_info(item))
+
+
+def _warranty_info(item: dict[str, Any]) -> dict[str, Any]:
+    fields = item.get("fields", {}) if isinstance(item.get("fields"), dict) else {}
+    purchase = str(fields.get("purchase_date", "") or "").strip()
+    months = str(fields.get("warranty_months", "") or "").strip()
+    if not purchase or not months:
+        return {"expires": "", "expired": False, "months": months}
+    try:
+        expires = _advance_due(purchase, int(months), "months")
+    except (ValueError, TypeError):
+        return {"expires": "", "expired": False, "months": months}
+    return {"expires": expires, "expired": expires < date.today().isoformat(), "months": months}
 
 
 def _book_lookup_response(isbn: str, metadata: dict[str, Any]):
