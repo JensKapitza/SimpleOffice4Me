@@ -251,6 +251,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: Fremddateien weg, legitime Slices da, Suite grün. Ist gemessen: 6/6 Fremddateien entfernt, 4/4 Slice-Module + share-Flag vorhanden; Mail-/Inventur-/Bibliotheks-Nachbarsuites + Gates vor Push grün (siehe PR-CI). |
 | Review und Abschluss | Lehre: Merge-Agents dürfen nur `git merge origin/main` ausführen, nie fremde Branches integrieren; Merges künftig per Diff gegen PR-Branch verifizieren. Offen: #1134-Doku neu, #1135/#1137 normal mergen, #1136-Slices bleiben zur Nutzer-Review offen. |
 
+## 20. November 2026 · Issue #1136 (Slice 3): Lese-Timing und Gelesen+Nächste
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | #1136 fordert konfigurierbare Verweildauer bis Gelesen + Schnellaktion „Gelesen und nächste“. Ist: nur manuelles Umschalten per Formular+Redirect. Entwurf: Policy-Feld `seen_dwell` (Default 5 s, 0–120, 0=aus), `set_seen` mit validiertem `next_uid`-Redirect, `next_uid`-Berechnung aus Listenreihenfolge, JS-Timer nur bei (schreibbar + ungelesen + dwell>0). |
+| Implementierung | `MailAccountPolicy.seen_dwell/set_seen_dwell` (+ Audit, Zeilen-Merge statt Überschreiben in `set_read_only`, damit Dwell erhalten bleibt); Route `POST /accounts/<id>/seen-dwell` (Header-Auswahl 0/3/5/10/30 s); `set_seen` mit `next_uid`-Validierung (UID-Regex, Fallback aktuelle Mail); Template-Marker (`data-mail-autoseen/dwell-seconds`, `seen-next`-Formular mit `n`-Kürzel); JS-Timer mit Einmal-Schutz. |
+| Tests und Soll-Ist-Vergleich | Soll: Default/Clamp, Marker+Setting, Gelesen+Nächste mit genau 1 STORE, gefälschte Ziele abgelehnt, Readonly blockt STORE. Ist gemessen: 5/5 Blackbox-HTTP mit Fake-IMAP; vererbte Slice-1-Tests + Nachbarn 38/38; `node --check`, Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Gestapelt auf Slice 1 (erst nach dessen Review mergen); kein Auto-Merge (Issue-Vorgabe). Offen: Slices 4–7 (Tags, Überführen, Signaturen, Archiv-Härtung). |
+
 ## 20. November 2026 · Issue #1136 (Slice 1): Mail-UI-Shell mit Tastatur, Palette, mobilen Panes
 
 | Phase | Arbeit und Nachweis |
