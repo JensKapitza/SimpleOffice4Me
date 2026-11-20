@@ -251,6 +251,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: Fremddateien weg, legitime Slices da, Suite grün. Ist gemessen: 6/6 Fremddateien entfernt, 4/4 Slice-Module + share-Flag vorhanden; Mail-/Inventur-/Bibliotheks-Nachbarsuites + Gates vor Push grün (siehe PR-CI). |
 | Review und Abschluss | Lehre: Merge-Agents dürfen nur `git merge origin/main` ausführen, nie fremde Branches integrieren; Merges künftig per Diff gegen PR-Branch verifizieren. Offen: #1134-Doku neu, #1135/#1137 normal mergen, #1136-Slices bleiben zur Nutzer-Review offen. |
 
+## 20. November 2026 · Issue #759: Berichts-Erstellung/Download verifiziert + Regressionstests
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Issue #759 (20.10.2026): Berichte weder erstell- noch downloadbar. Inventarisiert: Ortstermin-Berichtspfade `GET /site-visits/<id>/report` (Vorschau), `POST /site-visits/<id>/report.pdf` (Erstellung+Download), `GET /site-visits/<id>/reports/<rid>.pdf` (gespeicherter Download) mit `build_visit_report` (reportlab), Versionierung, SHA-256, Audit. Reproduktion auf aktuellem Main: Fehler tritt NICHT mehr auf (Vorschau 200, Erstellung 200 mit %PDF-, Download 200 byteidentisch). Nebenbefund: veraltete installierte `app`-Kopie in site-packages des Test-Venvs (Templates fehlten dort) — kein Repo-Fehler. |
+| Implementierung | Keine Produktänderung nötig; Absicherung durch neue Blackbox-Regressionssuite `tests/test_site_visit_report_http.py` (Vorschau, Erstellung+Versionierung, Byteidentität, kontrollierte Fehler ohne Teilspeicherung, Login-Pflicht). |
+| Tests und Soll-Ist-Vergleich | Soll: Erstellen/Downloaden funktioniert, Fehler kontrolliert, Rechte geprüft. Ist gemessen: 5/5 Blackbox-HTTP-Tests grün; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Issue #759 nach Merge mit Nachweis schließen. Offen: site-packages-Kopie im Test-Venv bei Bedarf aktualisieren (Umgebung, kein Repo). |
+
 ## 19. November 2026 · Issue #1111: Reservierungen mit Zeiträumen
 
 | Phase | Arbeit und Nachweis |
