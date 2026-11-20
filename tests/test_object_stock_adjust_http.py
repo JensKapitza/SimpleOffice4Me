@@ -84,6 +84,16 @@ class ObjectStockAdjustHttpTests(unittest.TestCase):
         self.assertEqual("6", stored["quantity"])
         self.assertEqual("10", stored["stock_adjustments"][0]["previous"])
 
+    def test_numeric_zero_is_a_valid_count_and_nan_is_rejected(self):
+        endpoint = f"/inventory/{self.item['object_id']}/stock"
+        invalid = self.client.post(endpoint, json={"counted": "NaN", "reason": "korrektur"})
+        self.assertEqual(400, invalid.status_code)
+        response = self.client.post(endpoint, json={"counted": 0, "reason": "schwund"})
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("0", response.get_json()["quantity"])
+        events = self.objects.object(self.item["object_id"])["stock_adjustments"]
+        self.assertEqual(["0"], [event["counted"] for event in events])
+
     def test_empty_counted_falls_back_to_delta_mode(self):
         response = self.client.post(
             f"/inventory/{self.item['object_id']}/stock",

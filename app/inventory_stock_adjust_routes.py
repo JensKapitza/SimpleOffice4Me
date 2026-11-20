@@ -58,7 +58,8 @@ def adjust_object_stock(object_id: str):
         flash("Objekt wurde nicht gefunden.")
         return redirect(url_for("inventory.index"))
     current = str(item.get("quantity", "") or "").strip()
-    counted_raw = str(fields.get("counted", "") or "").strip()
+    counted = fields.get("counted")
+    counted_raw = str(counted).strip() if counted is not None else ""
     if counted_raw:
         return _reconcile_counted(item, fields, counted_raw, current)
     if not current:

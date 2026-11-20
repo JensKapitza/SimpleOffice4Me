@@ -128,6 +128,7 @@ class ObjectStore:
             "location": str(values.get("location", "")).strip(), "expires_at": expires_at,
             "quantity": self._quantity(values.get("quantity", "")),
             "unit": self._unit(values.get("unit", "")),
+            "share_inventory": self._share_flag(values.get("share_inventory", True)),
             "min_stock": self._quantity(values.get("min_stock", "")),
             "tags": self._list(values.get("tags", "")), "fields": self._fields(values.get("fields", "")),
             "invoice": self._invoice_values(values), "document_ids": [], "notes": [],
@@ -149,6 +150,7 @@ class ObjectStore:
             "expires_at": self._date(values.get("expires_at", "")),
             "quantity": self._quantity(values.get("quantity", "")),
             "unit": self._unit(values.get("unit", "")),
+            "share_inventory": self._share_flag(values.get("share_inventory", item.get("share_inventory", True))),
             "min_stock": self._quantity(values.get("min_stock", "")),
             "tags": self._list(values.get("tags", "")), "fields": self._fields(values.get("fields", "")),
             "invoice": self._invoice_values(values, existing=item.get("invoice", {})),
@@ -222,6 +224,7 @@ class ObjectStore:
             item["quantity"] = cls._quantity(item.get("quantity", ""))
         except ValueError:
             item["quantity"] = ""
+        item["share_inventory"] = True if "share_inventory" not in item else bool(item.get("share_inventory"))
         try:
             item["min_stock"] = cls._quantity(item.get("min_stock", ""))
         except ValueError:
@@ -603,6 +606,7 @@ class ObjectStore:
         if not text: return ""
         try: number = Decimal(text)
         except InvalidOperation as exc: raise ValueError("object quantity must be a number") from exc
+        if not number.is_finite(): raise ValueError("object quantity must be finite")
         if number < 0: raise ValueError("object quantity must not be negative")
         if number > 999999999: raise ValueError("object quantity is too large")
         quantized = number.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
@@ -613,6 +617,12 @@ class ObjectStore:
         text = str(value or "").strip()
         if len(text) > 24: raise ValueError("object unit must not exceed 24 characters")
         return text
+
+    @staticmethod
+    def _share_flag(value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        return str(value or "").strip().casefold() in {"1", "true", "yes", "on"}
 
     @staticmethod
     def _list(value: Any) -> list[str]:

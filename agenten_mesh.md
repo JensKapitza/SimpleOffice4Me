@@ -225,7 +225,41 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Analyse | Inventur-Slice aus #1111 (Schritt 10/12): gezählte Menge vs. Sollmenge hatte keinen Klärpfad. Auf `origin/main` plus `origin/feature/inventory-stock-adjust` (#1133, offene Delta-Buchungen `POST /inventory/<id>/stock`) aufgebaut, um eine Routenkollision zu vermeiden: eigene `adjust_stock`-Route entfernt, gezählter Abgleich als Modus der #1133-Route. Bestand wiederverwendet: `quantity`-Normalisierung, `_write`-Audit, `item_detail`-Route, Flash-i18n. |
 | Implementierung | `ObjectStore.adjust_quantity` (Grund-Whitelist `zaehlfehler/schwund/zugang/korrektur`, Mengenvalidierung, `stock_adjustments`-Historie mit Vorwert/Zählwert/Grund/Notiz/Akteur/Zeit, Normalisierung in `_normalized_item`, Audit-Aktion `object_quantity_adjusted`) behalten; `inventory_stock_adjust_routes.adjust_object_stock` um gezählten Modus erweitert (Feld `counted` nicht-leer in Formular/JSON → `adjust_quantity` mit Grund-Whitelist, Notiz, Flash `inv.stock.adjusted` de/en; sonst Delta-Modus exakt unverändert); „Fehlmenge klären"-Karte postet `counted/reason/note` an `inventory.adjust_object_stock`, Historientabelle bleibt. Keine neue Datenbank. |
 | Tests und Soll-Ist-Vergleich | Soll: Zählwert übernehmen (Formular+JSON), Vorwert+Grund auditiert, ungültige Gründe/Mengen abgelehnt, anonym blockiert, Historie nach Reload, leerer `counted`-Wert fällt auf Delta-Modus zurück. Ist gemessen: 6/6 Blackbox-HTTP-Tests (`test_object_stock_adjust_http.py`: 10→7 mit Audit+Historie, anonym 302 ohne Änderung, Grund/Menge/negativ abgelehnt ohne Änderung, JSON-Abgleich 10→6, Delta-Fallback 10→8 ohne Abgleichhistorie, 2 Einträge nach Reload); Nachbar-Suite `test_inventory_stock_adjust_http` 4/4 unverändert. |
-| Review und Abschluss | Nach #1133-Merge ist ein finaler Rebase nötig (Entwicklungsbasis, keine Endlösung). Offen als Follow-up (weitere #1111-Slices): Scanmodi pro Aktion, System-/manuelle Metadatenwerte, CSV-Import, Objekt-Verleih, föderierte Rechte. |
+| Review und Abschluss | Nach dem Merge von #1133 mit dem aktuellen Bestand zusammengeführt. Der Inventurabgleich und die Reservierungen sind auf derselben Objektseite erreichbar. Offen als Follow-up (weitere #1111-Slices): Scanmodi pro Aktion, System-/manuelle Metadatenwerte, CSV-Import, Objekt-Verleih, föderierte Rechte. |
+
+
+## 19. November 2026 · Issue #1111: Bestandsbuchungen mit Grund
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Einundzwanzigster Slice (nach #1115-Merge): Mengen waren nur bei Anlage setzbar. Bestand wiederverwendet: Dezimalvalidierung, Update mit Verlauf, Notizen, Routenregistrierung per Bottom-Import. |
+| Implementierung | Neues Modul `inventory_stock_adjust_routes.py` mit `POST /inventory/<id>/stock` (Delta mit Komma, Pflichtgrund, kein Negativstand, JSON/Flash, Login, Notiz im Verlauf); Buchungsformular in der Bestandszeile; zukunftssichere Werterhaltung. |
+| Tests und Soll-Ist-Vergleich | Soll: rauf/runter buchen, kein Negativ, Einzelstück ausgenommen, Validierung, Rechte. Ist gemessen: 4/4 Blackbox-HTTP-Tests (50→42→45,5, Negativ abgelehnt ohne Änderung, Einzelstück-400, anonym+Marker); Nachbar-Suites 42/42 inkl. Mengen-Suite; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Scanmodi-Umlagern/Inventur, föderierte Rechte, Fotoerkennung, Offline-Sync. |
+## 19. November 2026 · Issue #1111: Freigabeschalter je Objekt für die Föderation
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Neunzehnter Slice: Freundes-Bestandssuche war alles-oder-nichts pro Gegenstelle. Bestand wiederverwendet: Index-Builder mit Minimalfeldern, Erfassungsroute, Bibliotheks-Aktualisierungspfade, Detailseite. |
+| Implementierung | `share_inventory`-Schalter je Objekt (Standard geteilt, Altdaten tolerant, Erhalt bei Updates); Ausschluss im Index-Builder; Opt-out-Kontrollkästchen im Erfassungsformular, Umschalt-Route mit Abzeichen auf der Detailseite. |
+| Tests und Soll-Ist-Vergleich | Soll: Standard geteilt, Opt-out wirkt im Index, Umschalten, Validierung, Rechte. Ist gemessen: 4/4 Blackbox-HTTP-Tests (Standard+Opt-out-beim-Anlegen, Umschalten mit Indexprüfung, 400/404-Fälle, anonym+Marker); Nachbar-Suites 61/61 inkl. Föderationsindex; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Rechte pro Identität/Gruppe, Fotoerkennung, Offline-Sync, E-Mail-Erinnerungen. |
+## 19. November 2026 · Issue #1111 (P1-Slice): Scanmodi Einlagern und Entnehmen
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Achtzehnter Slice: Stapelscans ohne Dialoge fehlten. Bestand wiederverwendet: Code-Auflösung, Zuordnung mit Rollback und Spiegelung, Auditmuster. Umlagern/Inventur als Modi folgen nach #1112/#1117-Merge. |
+| Implementierung | `LibraryStore.unassign` mit Ereignis; neues Modul `scan_dispatch_routes.py` mit `POST /library/scan` (Modus+Code+Ziel, JSON/Flash, Login, Audit): Einlagern ordnet zu, Entnehmen löst Zuordnung und Spiegelung (mit Wiederherstellung bei Spiegelfehler); Scan-Karte auf der Bibliotheksseite. |
+| Tests und Soll-Ist-Vergleich | Soll: beide Modi wirken, Spiegel konsistent, Validierung, Rechte. Ist gemessen: 4/4 Blackbox-HTTP-Tests (Einlagern per Code, Entnehmen löst+leert Spiegel, 3 Validierungsfälle, anonym+Marker); Nachbar-Suites 24/24; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Modi Umlagern/Inventur, Zielort-Gedächtnis, föderierte Rechte, Fotoerkennung, Offline-Sync. |
+## 19. November 2026 · Issue #1111: Reservierungen mit Zeiträumen
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Siebzehnter Slice: Vormerkungen waren von physischer Entleihe nicht getrennt. Bestand wiederverwendet: Objektauflösung, Routenregistrierung per Bottom-Import, Detailseite, S3-Coverage-Register. |
+| Implementierung | Neues Modul `inventory_reservations.py` (gesperrter Store: Zeitraum, Person, Notiz; Überschneidungsschutz, Storno) plus `inventory_reservation_routes.py` (Reservieren/Stornieren, JSON/Flash, Login); Reservierungskarte auf der Detailseite; Coverage-Eintrag. |
+| Tests und Soll-Ist-Vergleich | Soll: Zyklus, keine Doppelbelegung, Validierung, Rechte. Ist gemessen: 4/4 Blackbox-HTTP-Tests (Zyklus+Storno, Überschneidung-400, 4 Validierungsfälle, anonym+Marker); Nachbar-Suites 39/39 inkl. Coverage-Guard; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Entleihe-gegen-Reservierung-Prüfung nach #1123-Merge, Scanmodi, föderierte Rechte, Fotoerkennung, Offline-Sync, E-Mail-Erinnerungen. |
 
 ## 19. November 2026 · Issue #1111 (P2-Slice): Garantiefristen und Kaufwert
 
@@ -343,15 +377,6 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | Plus-Button je Tag (`data-calendar-quick-add` mit ISO-Datum) öffnet Buchungsreiter mit vorbelegten 09:00–10:00 und Titel-Fokus; Heute-Link springt in den aktuellen Monat; unter 576 px wird das Raster zur Liste (Wochentage/leere Tage versteckt, Termine umbrechend, 44 px Ziele). Keine Backend- oder CalDAV-Änderung. |
 | Tests und Soll-Ist-Vergleich | Soll: 1 Klick zum vorbelegten Formular, mobil lesbar ohne Horizontal-Scroll. Ist gemessen: 4/4 Python-Tests (28–31 ISO-Tage, Heute-Link, Handler, Mobil-CSS), Browser-Tests (Chromium, CI): Klick auf 2026-11-19 → Formular mit 09:00/10:00, Mobil 360 px: Wochentage versteckt, Tage ≥ 80 % Breite, Plus-Ziele ≥ 44 px. Gates grün. |
 | Review und Abschluss | Offen als Follow-up: Drag-and-drop, Größenänderung, Wochen-/Tagesraster, Terminverknüpfungen (eigene Aufträge), physische Geräteprüfung. |
-
-## 19. November 2026 · Issue #1111: Bestandsbuchungen mit Grund
-
-| Phase | Arbeit und Nachweis |
-|---|---|
-| Analyse | Einundzwanzigster Slice (nach #1115-Merge): Mengen waren nur bei Anlage setzbar. Bestand wiederverwendet: Dezimalvalidierung, Update mit Verlauf, Notizen, Routenregistrierung per Bottom-Import. |
-| Implementierung | Neues Modul `inventory_stock_adjust_routes.py` mit `POST /inventory/<id>/stock` (Delta mit Komma, Pflichtgrund, kein Negativstand, JSON/Flash, Login, Notiz im Verlauf); Buchungsformular in der Bestandszeile; zukunftssichere Werterhaltung. |
-| Tests und Soll-Ist-Vergleich | Soll: rauf/runter buchen, kein Negativ, Einzelstück ausgenommen, Validierung, Rechte. Ist gemessen: 4/4 Blackbox-HTTP-Tests (50→42→45,5, Negativ abgelehnt ohne Änderung, Einzelstück-400, anonym+Marker); Nachbar-Suites 42/42 inkl. Mengen-Suite; Ruff, Policy-, Größen-, Compile-Gates grün. |
-| Review und Abschluss | Offen als Follow-up: Scanmodi-Umlagern/Inventur, föderierte Rechte, Fotoerkennung, Offline-Sync. |
 
 ## 19. November 2026 · Issue #1111: Standort-Etikettenbögen als PDF
 
