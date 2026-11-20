@@ -174,6 +174,11 @@ def _create_error_fields(form, inventory) -> dict[str, str]:
             inventory._date_only(form.get("purchase_date"), "Kaufdatum")
         except ValueError:
             fields["purchase_date"] = "invalid"
+    if form.get("warranty_months"):
+        try:
+            inventory._warranty_months(form.get("warranty_months"))
+        except ValueError:
+            fields["warranty_months"] = "invalid"
     return fields
 
 

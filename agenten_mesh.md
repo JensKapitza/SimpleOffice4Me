@@ -218,6 +218,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll je Spiel: 5–15 Min., Zufallsaufgaben, Stufen, Sofort-Feedback, ohne Lesen. Ist gemessen: Matching 15/15, Numbers 14/14, Syllables 8/8 Python- + 7/7 Node-Tests; Kids-Modus 8/8 (Containment aller 10 Kids-URLs, Gate richtig/falsch/ohne Frage, Erwachsenenseite behält Nav); kombiniert 29/29 bzw. 23/23 nach Zusammenführung; `node --check`, DOM-Stub-Proben (10 Runden/32 Ansagen bzw. 3×8 Aufgaben), Policy-/Größen-/Compile-Gates grün. CI je PR vollständig grün (36/36 bzw. 35 + Rest) vor Merge; dazwischen nur Ubuntu-Spiegel-503 und ein nicht-blockierender Python-3.15-Budget-Timeout (5924 Tests liefen, alle 8 Kids-Tests darunter). |
 | Review und Abschluss | Unabhängiges Review gab alle drei Zweige frei (keine externen Requests, kein Tracking, keine Timer, ermutigendes Feedback, keine Routenkollisionen). Offen als Follow-up: B1/B2-Fixes im Lernspiel, S2-Umsortierung im Alt-Code, Fortschritts-/Eltern-Backend, Offline-Arbeitsblätter/Bastelanleitungen sowie Praxisprüfung auf physischen Geräten (Touch, Tastatur, Lautsprecher/Mikrofon). |
 
+## 19. November 2026 · Issue #1111 (P2-Slice): Garantiefristen und Kaufwert
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Sechzehnter Slice: Garantiedauer fehlte, Kaufwert war nur teilweise sichtbar. Bestand wiederverwendet: Feldvalidierung, Fehlerfeld-Zuordnung, Monatsarithmetik, Detailseite. |
+| Implementierung | `warranty_months` (0–120, validiert) im Erfassungsformular mit Fehlerfeld; Ablaufdatum aus Kaufdatum+Monaten mit Aktiv/Abgelaufen-Kennzeichen auf der Detailseite; Kaufwert-Anzeige verifiziert. |
+| Tests und Soll-Ist-Vergleich | Soll: Frist berechnen/kennzeichnen, ungültig ablehnen, Wert sichtbar. Ist gemessen: 5/5 Blackbox-HTTP-Tests (aktiv mit Datum, abgelaufen 2021-01-15, 2 Validierungs-400 mit Fehlerfeld, Wert+Händler, Formularmarker); Nachbar-Suites 43/43; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Scanmodi pro Aktion, föderierte Rechte, Fotoerkennung, Offline-Sync, E-Mail-Erinnerungen, Rechnungsbeleg-Verknüpfung. |
+
 ## 19. November 2026 · Issue #1111 (P3-Slice): Mindestbestände mit Warnung
 
 | Phase | Arbeit und Nachweis |

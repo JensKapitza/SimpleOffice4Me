@@ -25,6 +25,7 @@
           <dt class="col-sm-4">Bestand</dt><dd class="col-sm-8" data-stock>{% if item.quantity %}{{ item.quantity }}{% if item.unit %} {{ item.unit }}{% endif %}{% if item.min_stock %} (mind. {{ item.min_stock }}){% endif %}{% if low_stock %} <span class="badge text-bg-danger">nachbestellen</span>{% endif %}{% else %}Einzelstück{% endif %}</dd>
           <dt class="col-sm-4">Standort</dt><dd class="col-sm-8">{{ item.location or '—' }}</dd>
           <dt class="col-sm-4">Kaufdatum</dt><dd class="col-sm-8">{{ item.fields.purchase_date or '—' }}</dd>
+          <dt class="col-sm-4">Garantie</dt><dd class="col-sm-8" data-warranty>{% if warranty.months %}{{ warranty.months }} Monate{% if warranty.expires %} bis {{ warranty.expires }}{% endif %}{% if warranty.expired %} <span class="badge text-bg-secondary">abgelaufen</span>{% elif warranty.expires %} <span class="badge text-bg-success">aktiv</span>{% endif %}{% else %}—{% endif %}</dd>
           <dt class="col-sm-4">Zustand</dt><dd class="col-sm-8" data-condition>{{ {'new': 'Neu', 'used': 'Gebraucht', 'defective': 'Defekt', 'in_repair': 'In Reparatur', 'retired': 'Ausgesondert'}.get(item.condition, '—') }}</dd>
           {% if item.fields.isbn %}<dt class="col-sm-4">ISBN</dt><dd class="col-sm-8">{{ item.fields.isbn }}</dd>{% endif %}
           {% if item.description %}<dt class="col-sm-4">Beschreibung</dt><dd class="col-sm-8" style="white-space:pre-wrap">{{ item.description }}</dd>{% endif %}
