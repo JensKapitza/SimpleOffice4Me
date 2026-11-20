@@ -227,6 +227,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: Differenzen je Kategorie korrekt, Verlauf sichtbar, Validierung, Rechte. Ist gemessen: 5/5 Blackbox-HTTP-Tests (1/1/1/1-Differenz mit Soll-Pfad, Ereignis auf Seite, leer/501/unbekannt, anonym 302, Formularmarker); Nachbar-Suites 24/24; Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen als Follow-up (weitere #1111-Slices): Scanmodi pro Aktion, System-/manuelle Metadatenwerte, CSV-Import, Objekt-Verleih, föderierte Rechte, Fotoerkennung, Offline-Sync. |
 
+## 19. November 2026 · Kalender: Schnellerfassung per Tag-Klick und mobile Liste
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Server-seitig gerenderter Monatskalender (Tab-Arbeitsbereich, Termin-Modals mit Bearbeiten/Löschen/Freigaben, Serien/Zeitzonen/Erinnerungen/Konflikte vorhanden). Lücken: kein Anlegen per Tag-Klick (nur Formular), kein Heute-Sprung, 7-spaltiges Raster auf Handys unbedienbar (8,5rem-Zellen, 0,75rem-Termine). |
+| Implementierung | Plus-Button je Tag (`data-calendar-quick-add` mit ISO-Datum) öffnet Buchungsreiter mit vorbelegten 09:00–10:00 und Titel-Fokus; Heute-Link springt in den aktuellen Monat; unter 576 px wird das Raster zur Liste (Wochentage/leere Tage versteckt, Termine umbrechend, 44 px Ziele). Keine Backend- oder CalDAV-Änderung. |
+| Tests und Soll-Ist-Vergleich | Soll: 1 Klick zum vorbelegten Formular, mobil lesbar ohne Horizontal-Scroll. Ist gemessen: 4/4 Python-Tests (28–31 ISO-Tage, Heute-Link, Handler, Mobil-CSS), Browser-Tests (Chromium, CI): Klick auf 2026-11-19 → Formular mit 09:00/10:00, Mobil 360 px: Wochentage versteckt, Tage ≥ 80 % Breite, Plus-Ziele ≥ 44 px. Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Drag-and-drop, Größenänderung, Wochen-/Tagesraster, Terminverknüpfungen (eigene Aufträge), physische Geräteprüfung. |
+
 ## 19. November 2026 · Issue #1111: Standort-Etikettenbögen als PDF
 
 | Phase | Arbeit und Nachweis |
