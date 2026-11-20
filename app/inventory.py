@@ -50,6 +50,7 @@ from .inventory_metadata import (
     parse_openlibrary,
     parse_openlibrary_search,
 )
+from .inventory_collections import CollectionStore
 from .inventory_values import date_only as _date_only
 from .inventory_values import fields_text as _fields_text
 from .inventory_values import money as _money
@@ -332,6 +333,29 @@ class InventoryEnrichmentStore:
             atomic_json_write(self.index_path, data)
         return rule
 
+    def due_inspections(self, horizon_days: int = 30) -> list[dict[str, Any]]:
+        """Active inspection rules due within the horizon, soonest first."""
+        try:
+            horizon = max(0, min(int(horizon_days), 3650))
+        except (TypeError, ValueError):
+            horizon = 30
+        latest = (date.today() + timedelta(days=horizon)).isoformat()
+        found: list[dict[str, Any]] = []
+        for object_id, entry in self._read(self.index_path).get("objects", {}).items():
+            if not isinstance(entry, dict):
+                continue
+            for rule in entry.get("inspections", []):
+                if not isinstance(rule, dict) or not rule.get("active", True):
+                    continue
+                due = str(rule.get("next_due", "") or "").strip()
+                if not due or due > latest:
+                    continue
+                found.append({"object_id": str(object_id), **{key: rule.get(key, "") for key in (
+                    "rule_id", "name", "next_due", "interval", "unit",
+                    "responsible", "last_completed_at")}})
+        found.sort(key=lambda row: (str(row.get("next_due", "")), str(row.get("name", ""))))
+        return found
+
     def inspection_by_task(self, object_id: str, task_id: str) -> dict[str, Any] | None:
         return next(
             (
@@ -597,6 +621,7 @@ def index():
         meta_photo_consent_available=meta_photo_consent_available,
         angel_avatar=angel_avatar,
         photo_hints=suggest_missing_photos(rows),
+        collections=CollectionStore(current_app.config["DOCUMENT_ROOT"]).collections(),
     )
 
 
@@ -608,12 +633,19 @@ def item_detail(object_id: str):
     except ValueError:
         abort(404)
     meta = _inventory().object_meta(item["object_id"])
+    store = CollectionStore(current_app.config["DOCUMENT_ROOT"])
+    links = _objects().related(item["object_id"])
+    from .inventory_lending import LendingStore
     from .library.catalog import object_copies
+    lending = LendingStore(current_app.config["DOCUMENT_ROOT"])
     try:
         copies = object_copies(_objects(), item["object_id"])
     except ValueError:
         copies = []
-    return render_template("inventory/detail.html", item=item, inventory=meta, today=date.today().isoformat(), copies=copies)
+    return render_template("inventory/detail.html", item=item, inventory=meta, today=date.today().isoformat(),
+                           containing=store.containing(item["object_id"]), all_collections=store.collections(),
+                           links=links, copies=copies, open_loan=lending.open_loan(item["object_id"]),
+                           loan_history=lending.loans(item["object_id"])[:10])
 
 
 def _book_lookup_response(isbn: str, metadata: dict[str, Any]):
@@ -799,4 +831,10 @@ def inventory_media(object_id: str, filename: str):
 # `bp`, and a name import here would break if the routes module is
 # imported first (partial circular import).
 from . import inventory_capture_routes as _capture_routes  # noqa: E402,F401
+from . import inventory_inspection_routes as _inspection_routes  # noqa: E402,F401
+from . import inventory_lending_routes as _lending_routes  # noqa: E402,F401
+from . import inventory_collection_routes as _collection_routes  # noqa: E402,F401
+from . import inventory_relation_routes as _relation_routes  # noqa: E402,F401
+from . import inventory_import_routes as _import_routes  # noqa: E402,F401
+from . import inventory_override_routes as _override_routes  # noqa: E402,F401
 from .translations import translate
