@@ -126,7 +126,9 @@ class KidsMatchingHttpTests(PublicHttpTestCase):
         self.assertIn("role=", html)
         js = (ROOT / "static" / "js" / "kids_matching.js").read_text(encoding="utf-8")
         self.assertIn("aria-label", js)
-        self.assertIn("speechSynthesis", (ROOT / "static" / "js" / "kids_shared.js").read_text(encoding="utf-8"))
+        # Bewusste Spezifikationsänderung: Vorlesen nutzt die lokale
+        # Piper-Serverstimme statt per-Gerät variierender Browser-Stimmen.
+        self.assertIn("KidsPiperVoice", (ROOT / "static" / "js" / "kids_shared.js").read_text(encoding="utf-8"))
         self.assertIn("data-repeat", js)
         for hook in ("data-stage", "data-next", "data-category", "data-level", "data-result-title"):
             self.assertIn(hook, js)
@@ -142,13 +144,13 @@ class KidsMatchingHttpTests(PublicHttpTestCase):
         for forbidden in ("fetch(", "XMLHttpRequest", "http://", "https://"):
             self.assertNotIn(forbidden, shared)
 
-    def test_spoken_feedback_prefers_on_device_voices(self):
+    def test_spoken_feedback_uses_server_piper_voice(self):
+        # Bewusste Spezifikationsänderung: eine feste lokale Piper-Stimme
+        # ersetzt alle Browser-Stimmen (Offline-first, Kids-Datenschutz).
         shared = (ROOT / "static" / "js" / "kids_shared.js").read_text(encoding="utf-8")
-        local = re.search(r"voice\.localService \? (\d+)", shared)
-        cloud = re.search(r"natural\|neural[^?]*\? (\d+)", shared)
-        self.assertIsNotNone(local)
-        self.assertIsNotNone(cloud)
-        self.assertGreater(int(local.group(1)), int(cloud.group(1)))
+        self.assertIn("KidsPiperVoice", shared)
+        self.assertNotIn("speechSynthesis", shared)
+        self.assertNotIn("SpeechSynthesisUtterance", shared)
 
 
 if __name__ == "__main__":

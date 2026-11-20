@@ -100,13 +100,13 @@ class KidsSyllablesPageTests(PublicHttpTestCase):
             self.assertFalse(match.strip().strip("'\"").startswith("http"), match)
         self.assertNotIn("cdn", html.lower() + script.lower())
 
-    def test_spoken_feedback_prefers_on_device_voices(self):
+    def test_spoken_feedback_uses_server_piper_voice(self):
+        # Bewusste Spezifikationsänderung: eine feste lokale Piper-Stimme
+        # ersetzt alle Browser-Stimmen (Offline-first, Kids-Datenschutz).
         shared = (REPO_ROOT / "static" / "js" / "kids_shared.js").read_text(encoding="utf-8")
-        local = re.search(r"voice\.localService \? (\d+)", shared)
-        cloud = re.search(r"natural\|neural[^?]*\? (\d+)", shared)
-        self.assertIsNotNone(local)
-        self.assertIsNotNone(cloud)
-        self.assertGreater(int(local.group(1)), int(cloud.group(1)))
+        self.assertIn("KidsPiperVoice", shared)
+        self.assertNotIn("speechSynthesis", shared)
+        self.assertNotIn("SpeechSynthesisUtterance", shared)
 
     def test_game_uses_prerecorded_clip_keys(self):
         script = SCRIPT.read_text(encoding="utf-8")
