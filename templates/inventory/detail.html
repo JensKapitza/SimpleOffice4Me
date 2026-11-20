@@ -56,7 +56,7 @@
         <form method="post" action="{{ url_for('library.create_object_copy_route', object_id=item.object_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary" type="submit">Weiteres Exemplar anlegen</button></form>
       </div></div>
 
-      <div class="card shadow-sm mb-3"><div class="card-header d-flex justify-content-between align-items-center"><strong>Prüfungen und Wiedervorlagen</strong>{% if feature_enabled('projects') %}<a class="small" href="{{ url_for('tasks.board', q='Inventar #' ~ item.display_id) }}">Aufgaben anzeigen</a>{% endif %}</div><div class="card-body">
+      <div class="card shadow-sm mb-3"><div class="card-header d-flex justify-content-between align-items-center"><strong>Prüfungen und Wiedervorlagen</strong><span><a class="small me-2" href="{{ url_for('inventory.due_inspections') }}">Alle fälligen</a>{% if feature_enabled('projects') %}<a class="small" href="{{ url_for('tasks.board', q='Inventar #' ~ item.display_id) }}">Aufgaben anzeigen</a>{% endif %}</span></div><div class="card-body">
         {% set rules = inventory.inspections|default([]) %}
         {% for rule in rules %}
           <article class="border rounded p-3 mb-3 {{ 'border-danger' if rule.active and rule.next_due and rule.next_due < today else '' }}">
