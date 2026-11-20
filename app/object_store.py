@@ -14,6 +14,8 @@ from .file_lock import exclusive_file_lock
 from .revision_history import RevisionHistory
 
 OBJECT_STATES = {"active", "inactive", "lost", "retired"}
+OBJECT_CONDITIONS = {"new": "Neu", "used": "Gebraucht", "defective": "Defekt",
+                     "in_repair": "In Reparatur", "retired": "Ausgesondert"}
 RELATION_KINDS = {"accessory": "Zubehör", "member": "Set-Bestandteil"}
 MONEY = Decimal("0.01")
 INVOICE_DEFAULTS: dict[str, Any] = {
@@ -104,6 +106,7 @@ class ObjectStore:
             "object_id": str(uuid.uuid4()), "sequence_id": self._next_sequence(),
             "name": str(values["name"]).strip(), "type": str(values["type"]).strip(),
             "status": self._status(values.get("status", "active")),
+            "condition": self._condition(values.get("condition", "")),
             "description": str(values.get("description", "")).strip(),
             "identifier": str(values.get("identifier", "")).strip(),
             "location": str(values.get("location", "")).strip(), "expires_at": expires_at,
@@ -122,6 +125,7 @@ class ObjectStore:
         item.update({
             "name": str(values["name"]).strip(), "type": str(values["type"]).strip(),
             "status": self._status(values.get("status", "active")),
+            "condition": self._condition(values.get("condition", "")),
             "description": str(values.get("description", "")).strip(),
             "identifier": str(values.get("identifier", "")).strip(),
             "location": str(values.get("location", "")).strip(),
@@ -202,6 +206,8 @@ class ObjectStore:
             item["quantity"] = ""
         status = str(item.get("status", "") or "").strip()
         item["status"] = status if status in OBJECT_STATES else "active"
+        condition = str(item.get("condition", "") or "").strip()
+        item["condition"] = condition if condition in OBJECT_CONDITIONS else ""
         try:
             item["sequence_id"] = max(0, int(item.get("sequence_id", 0) or 0))
         except (TypeError, ValueError):
@@ -514,6 +520,13 @@ class ObjectStore:
         status = str(value).strip() or "active"
         if status not in OBJECT_STATES: raise ValueError("invalid object status")
         return status
+
+    @staticmethod
+    def _condition(value: Any) -> str:
+        condition = str(value or "").strip()
+        if condition and condition not in OBJECT_CONDITIONS:
+            raise ValueError("invalid object condition")
+        return condition
 
     @staticmethod
     def _date(value: Any) -> str:

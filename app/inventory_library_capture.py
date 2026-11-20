@@ -397,6 +397,7 @@ def _create_inventory_item(
                 "name": title,
                 "type": item_type,
                 "status": "active",
+                "condition": str(request.form.get("condition", "") or "").strip(),
                 "description": str(request.form.get("description", "") or "").strip()[:8000],
                 "identifier": identifier,
                 "location": inventory._single_line(request.form.get("location", ""), 300),

@@ -142,6 +142,7 @@ def _object_update_values(item: dict[str, Any], *, location: str, location_id: s
         "name": item.get("name", ""),
         "type": item.get("type", "object"),
         "status": item.get("status", "active"),
+        "condition": item.get("condition", ""),
         "description": item.get("description", ""),
         "identifier": item.get("identifier", ""),
         "location": location,
