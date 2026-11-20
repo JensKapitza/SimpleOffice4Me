@@ -35,6 +35,11 @@
         {% if all_collections %}<form method="post" action="{{ url_for('inventory.add_collection_member') }}" class="d-flex gap-2"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="object_id" value="{{ item.object_id }}"><input type="hidden" name="return_to" value="{{ url_for('inventory.item_detail', object_id=item.object_id) }}"><label class="visually-hidden" for="add-collection">Zu Sammlung hinzufügen</label><select class="form-select" id="add-collection" name="collection_id" required>{% for collection in all_collections %}<option value="{{ collection.collection_id }}">{{ collection.name }}</option>{% endfor %}</select><button class="btn btn-outline-primary" type="submit">Hinzufügen</button></form>{% endif %}
       </div></div>
 
+      <div class="card shadow-sm mb-3" data-object-copies><div class="card-header"><strong>Exemplare ({{ copies|length }})</strong></div><div class="card-body">
+        {% if copies|length > 1 %}<ul class="list-unstyled mb-2">{% for copy in copies %}<li><a href="{{ url_for('inventory.item_detail', object_id=copy.object_id) }}">#{{ copy.display_id }} · {{ copy.name }}</a>{% if copy.location %} <span class="text-secondary small">{{ copy.location }}</span>{% endif %}{% if copy.object_id == item.object_id %} <span class="badge text-bg-primary">dieses</span>{% endif %}</li>{% endfor %}</ul>{% else %}<p class="text-secondary mb-2">Noch keine weiteren Exemplare.</p>{% endif %}
+        <form method="post" action="{{ url_for('library.create_object_copy_route', object_id=item.object_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary" type="submit">Weiteres Exemplar anlegen</button></form>
+      </div></div>
+
       <div class="card shadow-sm mb-3"><div class="card-header d-flex justify-content-between align-items-center"><strong>Prüfungen und Wiedervorlagen</strong>{% if feature_enabled('projects') %}<a class="small" href="{{ url_for('tasks.board', q='Inventar #' ~ item.display_id) }}">Aufgaben anzeigen</a>{% endif %}</div><div class="card-body">
         {% set rules = inventory.inspections|default([]) %}
         {% for rule in rules %}

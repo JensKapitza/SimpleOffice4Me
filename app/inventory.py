@@ -611,8 +611,14 @@ def item_detail(object_id: str):
         abort(404)
     meta = _inventory().object_meta(item["object_id"])
     store = CollectionStore(current_app.config["DOCUMENT_ROOT"])
+    from .library.catalog import object_copies
+    try:
+        copies = object_copies(_objects(), item["object_id"])
+    except ValueError:
+        copies = []
     return render_template("inventory/detail.html", item=item, inventory=meta, today=date.today().isoformat(),
-                           containing=store.containing(item["object_id"]), all_collections=store.collections())
+                           containing=store.containing(item["object_id"]), all_collections=store.collections(),
+                           copies=copies)
 
 
 def _book_lookup_response(isbn: str, metadata: dict[str, Any]):
