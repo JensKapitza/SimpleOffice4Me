@@ -30,6 +30,19 @@
         </dl>
       </div></div>
 
+      <div class="card shadow-sm mb-3"><div class="card-header"><strong>Fehlmenge klären</strong></div><div class="card-body">
+        <form method="post" action="{{ url_for('inventory.adjust_stock', object_id=item.object_id) }}" class="row g-2" data-stock-adjust>
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <div class="col-sm-4"><label class="form-label">Gezählt{% if item.unit %} ({{ item.unit }}){% endif %}</label><input required name="counted" inputmode="decimal" class="form-control" placeholder="z. B. 3"></div>
+          <div class="col-sm-4"><label class="form-label">Grund</label><select name="reason" class="form-select"><option value="zaehlfehler">Zählfehler</option><option value="schwund">Schwund / Verlust</option><option value="zugang">Zugang / Fund</option><option value="korrektur">Korrektur</option></select></div>
+          <div class="col-sm-4"><label class="form-label">Notiz</label><input name="note" class="form-control" maxlength="500" placeholder="optional"></div>
+          <div class="col-12"><button class="btn btn-primary" type="submit">Bestand übernehmen</button></div>
+        </form>
+        {% if item.stock_adjustments %}<div class="table-responsive mt-3"><table class="table table-sm mb-0"><thead><tr><th scope="col">Zeitpunkt</th><th scope="col">Vorher</th><th scope="col">Gezählt</th><th scope="col">Grund</th><th scope="col">Von</th></tr></thead><tbody>
+          {% for event in item.stock_adjustments|reverse %}<tr><td>{{ event.adjusted_at }}</td><td>{{ event.previous or 'Einzelstück' }}</td><td>{{ event.counted or 'Einzelstück' }}</td><td>{{ event.reason }}{% if event.note %} · {{ event.note }}{% endif %}</td><td>{{ event.adjusted_by }}</td></tr>{% endfor %}
+        </tbody></table></div>{% endif %}
+      </div></div>
+
       <div class="card shadow-sm mb-3" data-object-copies><div class="card-header"><strong>Exemplare ({{ copies|length }})</strong></div><div class="card-body">
         {% if copies|length > 1 %}<ul class="list-unstyled mb-2">{% for copy in copies %}<li><a href="{{ url_for('inventory.item_detail', object_id=copy.object_id) }}">#{{ copy.display_id }} · {{ copy.name }}</a>{% if copy.location %} <span class="text-secondary small">{{ copy.location }}</span>{% endif %}{% if copy.object_id == item.object_id %} <span class="badge text-bg-primary">dieses</span>{% endif %}</li>{% endfor %}</ul>{% else %}<p class="text-secondary mb-2">Noch keine weiteren Exemplare.</p>{% endif %}
         <form method="post" action="{{ url_for('library.create_object_copy_route', object_id=item.object_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary" type="submit">Weiteres Exemplar anlegen</button></form>

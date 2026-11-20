@@ -747,6 +747,29 @@ def add_inspection(object_id: str):
     return redirect(url_for("inventory.item_detail", object_id=object_id))
 
 
+@bp.post("/<object_id>/stock")
+@login_required
+def adjust_stock(object_id: str):
+    actor = str(g.user["username"])
+    try:
+        item = _objects().object(object_id)
+        previous = str(item.get("quantity", "") or "")
+        updated = _objects().adjust_quantity(
+            item["object_id"],
+            request.form.get("counted", ""),
+            request.form.get("reason", ""),
+            request.form.get("note", ""),
+            actor,
+        )
+        flash(translate(g.language, "inv.stock.adjusted").format(
+            counted=updated.get("quantity") or "Einzelstück",
+            previous=previous or "Einzelstück",
+        ))
+    except (OSError, ValueError) as exc:
+        flash(str(exc))
+    return redirect(url_for("inventory.item_detail", object_id=object_id))
+
+
 @bp.post("/<object_id>/inspections/<rule_id>/complete")
 @login_required
 def complete_inspection(object_id: str, rule_id: str):

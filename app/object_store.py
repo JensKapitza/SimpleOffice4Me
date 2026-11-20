@@ -14,6 +14,7 @@ from .file_lock import exclusive_file_lock
 from .revision_history import RevisionHistory
 
 OBJECT_STATES = {"active", "inactive", "lost", "retired"}
+STOCK_ADJUST_REASONS = {"zaehlfehler", "schwund", "zugang", "korrektur"}
 MONEY = Decimal("0.01")
 INVOICE_DEFAULTS: dict[str, Any] = {
     "use_in_invoice": False,
@@ -222,7 +223,46 @@ class ObjectStore:
             for note in notes if isinstance(note, dict)
         ] if isinstance(notes, list) else []
         item["invoice"] = cls._normalized_invoice(item.get("invoice"))
+        raw_adjustments = item.get("stock_adjustments", [])
+        item["stock_adjustments"] = [
+            {
+                "adjustment_id": str(row.get("adjustment_id", "") or "").strip(),
+                "counted": str(row.get("counted", "") or "").strip(),
+                "previous": str(row.get("previous", "") or "").strip(),
+                "reason": str(row.get("reason", "") or "").strip(),
+                "note": str(row.get("note", "") or "").strip(),
+                "adjusted_at": str(row.get("adjusted_at", "") or "").strip(),
+                "adjusted_by": str(row.get("adjusted_by", "") or "").strip(),
+            }
+            for row in raw_adjustments if isinstance(row, dict)
+        ] if isinstance(raw_adjustments, list) else []
         return item
+
+    def adjust_quantity(self, object_id: str, counted: Any, reason: str, note: str, actor: str) -> dict[str, Any]:
+        """Reconcile counted stock with the recorded quantity and keep an audit trail."""
+        item = self.object(object_id)
+        if not str(actor).strip():
+            raise ValueError("user is required")
+        code = str(reason or "").strip().lower()
+        if code not in STOCK_ADJUST_REASONS:
+            raise ValueError("invalid stock adjustment reason")
+        counted_quantity = self._quantity(counted)
+        previous = str(item.get("quantity", "") or "")
+        adjustments = item.get("stock_adjustments", [])
+        if not isinstance(adjustments, list):
+            adjustments = []
+        adjustments.append({
+            "adjustment_id": str(uuid.uuid4()), "counted": counted_quantity, "previous": previous,
+            "reason": code, "note": str(note or "").strip()[:500],
+            "adjusted_at": utc_now(), "adjusted_by": str(actor).strip(),
+        })
+        item["stock_adjustments"] = adjustments
+        item["quantity"] = counted_quantity
+        item["updated_at"] = utc_now()
+        item["updated_by"] = str(actor).strip()
+        self._drop_transient(item)
+        self._write(item, str(actor).strip(), "object_quantity_adjusted")
+        return self.object(item["object_id"])
 
     def attach_document(self, object_id: str, document_id: str, actor: str) -> None:
         item = self.object(object_id)
