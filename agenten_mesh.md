@@ -218,6 +218,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll je Spiel: 5–15 Min., Zufallsaufgaben, Stufen, Sofort-Feedback, ohne Lesen. Ist gemessen: Matching 15/15, Numbers 14/14, Syllables 8/8 Python- + 7/7 Node-Tests; Kids-Modus 8/8 (Containment aller 10 Kids-URLs, Gate richtig/falsch/ohne Frage, Erwachsenenseite behält Nav); kombiniert 29/29 bzw. 23/23 nach Zusammenführung; `node --check`, DOM-Stub-Proben (10 Runden/32 Ansagen bzw. 3×8 Aufgaben), Policy-/Größen-/Compile-Gates grün. CI je PR vollständig grün (36/36 bzw. 35 + Rest) vor Merge; dazwischen nur Ubuntu-Spiegel-503 und ein nicht-blockierender Python-3.15-Budget-Timeout (5924 Tests liefen, alle 8 Kids-Tests darunter). |
 | Review und Abschluss | Unabhängiges Review gab alle drei Zweige frei (keine externen Requests, kein Tracking, keine Timer, ermutigendes Feedback, keine Routenkollisionen). Offen als Follow-up: B1/B2-Fixes im Lernspiel, S2-Umsortierung im Alt-Code, Fortschritts-/Eltern-Backend, Offline-Arbeitsblätter/Bastelanleitungen sowie Praxisprüfung auf physischen Geräten (Touch, Tastatur, Lautsprecher/Mikrofon). |
 
+## 19. November 2026 · Issue #1111 (P1-Slice 4): Exemplare für alle Objekttypen
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Vierter P1-Slice: physische Exemplare (eigene ID, eigener Standort) gab es nur für Bücher (`Nur Bücher`-Tor, Test-pin bleibt). Bestand wiederverwendet: Werk/Ausgabe/Exemplar-Identitäten, Zuordnungsroute, Detailseite, Auditmuster. |
+| Implementierung | `catalog.py`-Kern mit `require_book`-Schalter refactoriert (Buchverhalten und -meldungen unverändert), generische `object_copies`/`create_object_copy`/`object_copy_inventory` daneben; neues Modul `copy_routes.py` mit `GET/POST /library/objects/<id>/copies` (JSON/Flash, Audit, Login); Exemplar-Karte mit Liste und Anlege-Button auf der Inventar-Detailseite. Seriennummern werden nicht vererbt. |
+| Tests und Soll-Ist-Vergleich | Soll: zwei PCs als Exemplare an zwei Orten, keine Serien-Dubletten, Validierung, Rechte. Ist gemessen: 5/5 Blackbox-HTTP-Tests (2 PCs + Standorte + Liste, Serien-Nichtvererbung, 404/400-Fälle, anonym 302, Detailmarker); Nachbar-Suites 67/67 inkl. Buch-Gate-Test; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up (weitere #1111-Slices): Scanmodi pro Aktion, System-/manuelle Metadatenwerte, CSV-Import, Inventur/Differenzen, Objekt-Verleih, föderierte Rechte. |
+
 ## 19. November 2026 · Issue #1111 (P1-Slice 3): Mengen und Einzelstücke unterscheiden
 
 | Phase | Arbeit und Nachweis |
