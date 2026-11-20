@@ -6,6 +6,10 @@ from . import printer as _printer
 from .routes import bp
 from . import object_care as _object_care  # noqa: F401  # register shared object-care routes
 from . import scan_routes as _scan_routes  # noqa: F401  # register bulk-scan session routes
+from . import scan_dispatch_routes as _scan_dispatch_routes  # noqa: F401  # register scan-dispatch routes
+from . import hold_routes as _hold_routes  # noqa: F401  # register temporary-hold routes
+from . import label_routes as _label_routes  # noqa: F401  # register label-preview routes
+from . import inventory_routes as _inventory_routes  # noqa: F401  # register inventory-count routes
 from . import sheet_routes as _sheet_routes  # noqa: F401  # register label-sheet routes
 from . import move_routes as _move_routes  # noqa: F401  # register location-move routes
 from . import copy_routes as _copy_routes  # noqa: F401  # register generic copy routes
