@@ -77,6 +77,19 @@
     </div>
   </section>
 
+  <section class="card shadow-sm mb-3" id="scan" data-scan-dispatch>
+    <div class="card-header"><strong>Scan-Aktion: Einlagern oder Entnehmen</strong></div>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('library.dispatch_scan') }}" class="row g-2">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-3"><label class="form-label" for="scan-mode">Modus</label><select class="form-select form-select-lg" id="scan-mode" name="mode"><option value="einlagern">Einlagern</option><option value="entnehmen">Entnehmen</option></select></div>
+        <div class="col-md-4"><label class="form-label" for="scan-target">Zielort (nur Einlagern)</label><select class="form-select form-select-lg" id="scan-target" name="target"><option value="">– wählen –</option>{% for location in locations %}<option value="{{ location.location_id }}">{{ location.name }} · {{ location.code }}</option>{% endfor %}</select></div>
+        <div class="col-md-3"><label class="form-label" for="scan-code">Objektcode</label><input required class="form-control form-control-lg" id="scan-code" name="code" autocomplete="off" placeholder="Kennung oder Nr."></div>
+        <div class="col-md-2 d-grid align-content-end"><button class="btn btn-primary btn-lg" type="submit">Anwenden</button></div>
+      </form>
+    </div>
+  </section>
+
   <section class="card shadow-sm mb-3" id="bulk-scan">
     <div class="card-header"><strong>3 · Ein Regal voller Bücher erfassen</strong></div>
     <div class="card-body">
