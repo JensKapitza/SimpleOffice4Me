@@ -218,42 +218,6 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll je Spiel: 5–15 Min., Zufallsaufgaben, Stufen, Sofort-Feedback, ohne Lesen. Ist gemessen: Matching 15/15, Numbers 14/14, Syllables 8/8 Python- + 7/7 Node-Tests; Kids-Modus 8/8 (Containment aller 10 Kids-URLs, Gate richtig/falsch/ohne Frage, Erwachsenenseite behält Nav); kombiniert 29/29 bzw. 23/23 nach Zusammenführung; `node --check`, DOM-Stub-Proben (10 Runden/32 Ansagen bzw. 3×8 Aufgaben), Policy-/Größen-/Compile-Gates grün. CI je PR vollständig grün (36/36 bzw. 35 + Rest) vor Merge; dazwischen nur Ubuntu-Spiegel-503 und ein nicht-blockierender Python-3.15-Budget-Timeout (5924 Tests liefen, alle 8 Kids-Tests darunter). |
 | Review und Abschluss | Unabhängiges Review gab alle drei Zweige frei (keine externen Requests, kein Tracking, keine Timer, ermutigendes Feedback, keine Routenkollisionen). Offen als Follow-up: B1/B2-Fixes im Lernspiel, S2-Umsortierung im Alt-Code, Fortschritts-/Eltern-Backend, Offline-Arbeitsblätter/Bastelanleitungen sowie Praxisprüfung auf physischen Geräten (Touch, Tastatur, Lautsprecher/Mikrofon). |
 
-## 19. November 2026 · Issue #1111 (P1-Slice): Inventur-Abgleichmodus am Objekt
-
-| Phase | Arbeit und Nachweis |
-|---|---|
-| Analyse | Inventur-Slice aus #1111 (Schritt 10/12): gezählte Menge vs. Sollmenge hatte keinen Klärpfad. Auf `origin/main` plus `origin/feature/inventory-stock-adjust` (#1133, offene Delta-Buchungen `POST /inventory/<id>/stock`) aufgebaut, um eine Routenkollision zu vermeiden: eigene `adjust_stock`-Route entfernt, gezählter Abgleich als Modus der #1133-Route. Bestand wiederverwendet: `quantity`-Normalisierung, `_write`-Audit, `item_detail`-Route, Flash-i18n. |
-| Implementierung | `ObjectStore.adjust_quantity` (Grund-Whitelist `zaehlfehler/schwund/zugang/korrektur`, Mengenvalidierung, `stock_adjustments`-Historie mit Vorwert/Zählwert/Grund/Notiz/Akteur/Zeit, Normalisierung in `_normalized_item`, Audit-Aktion `object_quantity_adjusted`) behalten; `inventory_stock_adjust_routes.adjust_object_stock` um gezählten Modus erweitert (Feld `counted` nicht-leer in Formular/JSON → `adjust_quantity` mit Grund-Whitelist, Notiz, Flash `inv.stock.adjusted` de/en; sonst Delta-Modus exakt unverändert); „Fehlmenge klären"-Karte postet `counted/reason/note` an `inventory.adjust_object_stock`, Historientabelle bleibt. Keine neue Datenbank. |
-| Tests und Soll-Ist-Vergleich | Soll: Zählwert übernehmen (Formular+JSON), Vorwert+Grund auditiert, ungültige Gründe/Mengen abgelehnt, anonym blockiert, Historie nach Reload, leerer `counted`-Wert fällt auf Delta-Modus zurück. Ist gemessen: 6/6 Blackbox-HTTP-Tests (`test_object_stock_adjust_http.py`: 10→7 mit Audit+Historie, anonym 302 ohne Änderung, Grund/Menge/negativ abgelehnt ohne Änderung, JSON-Abgleich 10→6, Delta-Fallback 10→8 ohne Abgleichhistorie, 2 Einträge nach Reload); Nachbar-Suite `test_inventory_stock_adjust_http` 4/4 unverändert. |
-| Review und Abschluss | Nach dem Merge von #1133 mit dem aktuellen Bestand zusammengeführt. Der Inventurabgleich und die Reservierungen sind auf derselben Objektseite erreichbar. Offen als Follow-up (weitere #1111-Slices): Scanmodi pro Aktion, System-/manuelle Metadatenwerte, CSV-Import, Objekt-Verleih, föderierte Rechte. |
-
-## 20. November 2026 · Issue #759: Berichts-Erstellung/Download verifiziert + Regressionstests
-
-| Phase | Arbeit und Nachweis |
-|---|---|
-| Analyse | Issue #759 (20.10.2026): Berichte weder erstell- noch downloadbar. Inventarisiert: Ortstermin-Berichtspfade `GET /site-visits/<id>/report` (Vorschau), `POST /site-visits/<id>/report.pdf` (Erstellung+Download), `GET /site-visits/<id>/reports/<rid>.pdf` (gespeicherter Download) mit `build_visit_report` (reportlab), Versionierung, SHA-256, Audit. Reproduktion auf aktuellem Main: Fehler tritt NICHT mehr auf (Vorschau 200, Erstellung 200 mit %PDF-, Download 200 byteidentisch). Nebenbefund: veraltete installierte `app`-Kopie in site-packages des Test-Venvs (Templates fehlten dort) — kein Repo-Fehler. |
-| Implementierung | Keine Produktänderung nötig; Absicherung durch neue Blackbox-Regressionssuite `tests/test_site_visit_report_http.py` (Vorschau, Erstellung+Versionierung, Byteidentität, kontrollierte Fehler ohne Teilspeicherung, Login-Pflicht). |
-| Tests und Soll-Ist-Vergleich | Soll: Erstellen/Downloaden funktioniert, Fehler kontrolliert, Rechte geprüft. Ist gemessen: 5/5 Blackbox-HTTP-Tests grün; Ruff, Policy-, Größen-, Compile-Gates grün. |
-| Review und Abschluss | Issue #759 nach Merge mit Nachweis schließen. Offen: site-packages-Kopie im Test-Venv bei Bedarf aktualisieren (Umgebung, kein Repo). |
-
-## 20. November 2026 · Issue #1136 (Slice 3): Lese-Timing und Gelesen+Nächste
-
-| Phase | Arbeit und Nachweis |
-|---|---|
-| Analyse | #1136 fordert konfigurierbare Verweildauer bis Gelesen + Schnellaktion „Gelesen und nächste“. Ist: nur manuelles Umschalten per Formular+Redirect. Entwurf: Policy-Feld `seen_dwell` (Default 5 s, 0–120, 0=aus), `set_seen` mit validiertem `next_uid`-Redirect, `next_uid`-Berechnung aus Listenreihenfolge, JS-Timer nur bei (schreibbar + ungelesen + dwell>0). |
-| Implementierung | `MailAccountPolicy.seen_dwell/set_seen_dwell` (+ Audit, Zeilen-Merge statt Überschreiben in `set_read_only`, damit Dwell erhalten bleibt); Route `POST /accounts/<id>/seen-dwell` (Header-Auswahl 0/3/5/10/30 s); `set_seen` mit `next_uid`-Validierung (UID-Regex, Fallback aktuelle Mail); Template-Marker (`data-mail-autoseen/dwell-seconds`, `seen-next`-Formular mit `n`-Kürzel); JS-Timer mit Einmal-Schutz. |
-| Tests und Soll-Ist-Vergleich | Soll: Default/Clamp, Marker+Setting, Gelesen+Nächste mit genau 1 STORE, gefälschte Ziele abgelehnt, Readonly blockt STORE. Ist gemessen: 5/5 Blackbox-HTTP mit Fake-IMAP; vererbte Slice-1-Tests + Nachbarn 38/38; `node --check`, Ruff, Policy-, Größen-, Compile-Gates grün. |
-| Review und Abschluss | Gestapelt auf Slice 1 (erst nach dessen Review mergen); kein Auto-Merge (Issue-Vorgabe). Offen: Slices 4–7 (Tags, Überführen, Signaturen, Archiv-Härtung). |
-
-## 20. November 2026 · Issue #1136 (Slice 1): Mail-UI-Shell mit Tastatur, Palette, mobilen Panes
-
-| Phase | Arbeit und Nachweis |
-|---|---|
-| Analyse | #1136-Ist verifiziert: Mehrkonten-IMAP/SMTP, BODY.PEEK-Lesen, `require_writable`-Schreibschutz, Ordner/Liste/Lesebereich als 3-Spalten-Template, Archiv/Vorgänge vorhanden. Lücken: keine Tastaturbedienung, keine Befehlspalette, kein mobiles Pane-Verhalten, kein LRU-Cache, kein Lese-Timing, keine Tag-/Aufgaben-Integration. Plan mit 7 Slices in `docs/ISSUE_1136_PLAN.md`. |
-| Implementierung | Slice 1 ohne Backend-Änderung: `static/js/mail_client.js` (j/k/Enter-Navigation, Kürzel e/u/r/c//, Strg+K-Palette aus gerenderten `data-mail-action`-Aktionen, mobile Pane-Umschaltung), `static/css/mail_client.css`, Template-Marker (`data-mail-pane/uid/action`, Palette, Hinweise). Nur bestehende Routen; ohne JS bleibt alles Link/Formular; Readonly liefert konstruktionsbedingt keine Schreibaktionen. |
-| Tests und Soll-Ist-Vergleich | Soll: 3 Panes + Palette rendern, Zeilen/Key-Hooks, Preview-Aktionen, Readonly ohne Schreibaktionen, ohne Konto stabil. Ist gemessen: 5/5 Blackbox-HTTP-Tests mit Fake-IMAP (`test_mail_client_shell_http.py`); Nachbarn 40/40; `node --check`, Ruff, Policy-, Größen-, Compile-Gates grün. |
-| Review und Abschluss | Kein Auto-Merge (Issue-Vorgabe). Offen: Slices 2–7 (Cache, Timing, Tags, Überführen, Signaturen, Archiv-Härtung). |
-
 ## 19. November 2026 · Issue #1111: Bestandsbuchungen mit Grund
 
 | Phase | Arbeit und Nachweis |
@@ -278,15 +242,6 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | `LibraryStore.unassign` mit Ereignis; neues Modul `scan_dispatch_routes.py` mit `POST /library/scan` (Modus+Code+Ziel, JSON/Flash, Login, Audit): Einlagern ordnet zu, Entnehmen löst Zuordnung und Spiegelung (mit Wiederherstellung bei Spiegelfehler); Scan-Karte auf der Bibliotheksseite. |
 | Tests und Soll-Ist-Vergleich | Soll: beide Modi wirken, Spiegel konsistent, Validierung, Rechte. Ist gemessen: 4/4 Blackbox-HTTP-Tests (Einlagern per Code, Entnehmen löst+leert Spiegel, 3 Validierungsfälle, anonym+Marker); Nachbar-Suites 24/24; Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen als Follow-up: Modi Umlagern/Inventur, Zielort-Gedächtnis, föderierte Rechte, Fotoerkennung, Offline-Sync. |
-## 20. November 2026 · Issue #1136 (Slice 2): Flüchtiger LRU-Nachrichtencache
-
-| Phase | Arbeit und Nachweis |
-|---|---|
-| Analyse | #1136 fordert flüchtigen Cache (256 MiB, 200–300 konfigurierbar, LRU, Neustart-Leerung, Benutzerisolation, Flags separat, keine Server-Mutationen). Ist: jeder Aufruf lädt BODY.PEEK[] neu. Entwurf: prozess-lokales Singleton (Neustart-leer per Konstruktion), Schlüssel (Benutzer, Konto, Ordner, UID), Flags per leichtem `(FLAGS)`-Fetch frisch, Actor wird an den zwei `message`/`attachment`-Aufrufern durchgereicht. |
-| Implementierung | Neues Modul `app/mail_message_cache.py` (Thread-Lock, Byte-Bilanz, LRU-Verdrängung, Clamp 200–300 MiB, `MAIL_CACHE_MAX_BYTES`-Konfiguration); `ImapWebClient` mit Cache-Injektion, `_raw_message(..., actor=)` (Treffer → nur FLAGS-Fetch), `message`/`attachment` mit `actor`-Parameter, Routen reichen `_actor()` durch. |
-| Tests und Soll-Ist-Vergleich | Soll: Zweitöffnung ohne Body-Re-Download, Flags frisch, Isolation, Clamp, keine Mutation. Ist gemessen: 5/5 Unit-Tests (Clamp, Roundtrip+Stats, Isolation, LRU, Oversize/Invalidate) + 4/4 Blackbox-HTTP mit Fake-IMAP (1 Body-Fetch bei 2 Öffnungen, FLAGS-Refresh, 2 Fetches bei 2 Benutzern, Config-Clamp, 0 Mutationen); Nachbar-Suites OK; Ruff, Policy-, Größen-, Compile-Gates grün. |
-| Review und Abschluss | Kein Auto-Merge (Issue-Vorgabe). Offen: Slices 3–7 (Timing, Tags, Überführen, Signaturen, Archiv-Härtung). |
-
 ## 19. November 2026 · Issue #1111: Reservierungen mit Zeiträumen
 
 | Phase | Arbeit und Nachweis |
