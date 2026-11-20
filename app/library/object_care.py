@@ -474,7 +474,8 @@ def object_care_compliance(object_id: str):
 @login_required
 def object_care_location(object_id: str):
     try:
-        result = assign_object_to_location(object_id, request.form.get("location_id", ""), _actor())
+        result = assign_object_to_location(object_id, request.form.get("location_id", ""), _actor(),
+                                           return_date=request.form.get("return_date", ""))
         flash(f"Objekt wurde {result['location_path']} zugeordnet.")
     except (OSError, ValueError) as exc:
         flash(str(exc))
