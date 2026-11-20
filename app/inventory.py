@@ -901,4 +901,5 @@ from . import inventory_collection_routes as _collection_routes  # noqa: E402,F4
 from . import inventory_relation_routes as _relation_routes  # noqa: E402,F401
 from . import inventory_import_routes as _import_routes  # noqa: E402,F401
 from . import inventory_override_routes as _override_routes  # noqa: E402,F401
+from . import inventory_stock_adjust_routes as _stock_adjust_routes  # noqa: E402,F401
 from .translations import translate
