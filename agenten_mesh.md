@@ -227,6 +227,24 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: ganze Kiste per Zielcode umlagern, alle Pfade rekursiv korrekt, Zyklen abgelehnt, Rechte geprüft. Ist gemessen: 5/5 Blackbox-HTTP-Tests (`test_library_location_move_http.py`: Kiste→anderer Raum mit Unterbox+2 Büchern, Zyklus-400 ohne Änderung, unbekanntes Ziel 400/unbekannter Standort 404/anonym 302, oberste Ebene+Selbst-400, Formularmarker); Nachbar-Suites 32/32; Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen als Follow-up (weitere P1/P2-Slices aus #1111): Standortvorlagen, Scanmodi pro Aktion, Exemplare für alle Objekttypen, Mengen/Seriennummern, System-/manuelle Metadatenwerte, CSV-Import, Inventur/Differenzen, Objekt-Verleih, föderierte Rechte. |
 
+## 19. November 2026 · Issue #1111 (P1-Slice 4): Exemplare für alle Objekttypen
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Vierter P1-Slice: physische Exemplare (eigene ID, eigener Standort) gab es nur für Bücher (`Nur Bücher`-Tor, Test-pin bleibt). Bestand wiederverwendet: Werk/Ausgabe/Exemplar-Identitäten, Zuordnungsroute, Detailseite, Auditmuster. |
+| Implementierung | `catalog.py`-Kern mit `require_book`-Schalter refactoriert (Buchverhalten und -meldungen unverändert), generische `object_copies`/`create_object_copy`/`object_copy_inventory` daneben; neues Modul `copy_routes.py` mit `GET/POST /library/objects/<id>/copies` (JSON/Flash, Audit, Login); Exemplar-Karte mit Liste und Anlege-Button auf der Inventar-Detailseite. Seriennummern werden nicht vererbt. |
+| Tests und Soll-Ist-Vergleich | Soll: zwei PCs als Exemplare an zwei Orten, keine Serien-Dubletten, Validierung, Rechte. Ist gemessen: 5/5 Blackbox-HTTP-Tests (2 PCs + Standorte + Liste, Serien-Nichtvererbung, 404/400-Fälle, anonym 302, Detailmarker); Nachbar-Suites 67/67 inkl. Buch-Gate-Test; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up (weitere #1111-Slices): Scanmodi pro Aktion, System-/manuelle Metadatenwerte, CSV-Import, Inventur/Differenzen, Objekt-Verleih, föderierte Rechte. |
+
+## 19. November 2026 · Issue #1111 (P1-Slice 3): Mengen und Einzelstücke unterscheiden
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Dritter P1-Slice: Stapelartikel (50 Schrauben) und Einzelstücke (Seriennummer) waren im Modell nicht unterscheidbar; Seriennummern existierten nur als Freitextfeld, Mengen gar nicht. Bestand wiederverwendet: `ObjectStore`-Validierungsmuster, Erfassungsroute, Bibliotheks-Aktualisierungspfade. |
+| Implementierung | Optionale `quantity` (≥ 0, max. 3 Dezimalen, Komma zulässig) + `unit` (≤ 24 Zeichen) in `ObjectStore` (leer = Einzelstück, alte Datensätze tolerant); Durchreichen im Erfassungsformular (Menge/Einheit mit Vorschlagsliste) und Bestandsanzeige auf der Detailseite; Mengen bleiben bei Bibliotheks-Zuordnung/Identität erhalten, neue Exemplare starten als Einzelstück. |
+| Tests und Soll-Ist-Vergleich | Soll: Stapel vs. Stück anlegen/anzeigen/validieren, Zuordnung/Kopie ohne Mengenverlust. Ist gemessen: 4/4 Blackbox-HTTP-Tests (50 Stück, Einzelstück+Seriennummer, 4 ungültige Eingaben 400, Zuordnung+Kopie erhalten Quelle); Nachbar-Suites 59/59; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up (weitere #1111-Slices): Scanmodi pro Aktion, Exemplare für alle Objekttypen, System-/manuelle Metadatenwerte, CSV-Import, Inventur/Differenzen, Objekt-Verleih, föderierte Rechte. |
+
 ## 19. November 2026 · Issue #1111 (P1-Slice 2): Lagerort-Vorlagen für verschachtelte Strukturen
 
 | Phase | Arbeit und Nachweis |

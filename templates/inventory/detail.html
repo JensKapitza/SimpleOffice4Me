@@ -22,11 +22,17 @@
           <dt class="col-sm-4">NFC</dt><dd class="col-sm-8">{{ item.fields.nfc_id or '—' }}</dd>
           <dt class="col-sm-4">Hersteller / Modell</dt><dd class="col-sm-8">{{ item.fields.manufacturer or '—' }}{% if item.fields.model %} · {{ item.fields.model }}{% endif %}</dd>
           <dt class="col-sm-4">Seriennummer</dt><dd class="col-sm-8">{{ item.fields.serial_number or '—' }}</dd>
+          <dt class="col-sm-4">Bestand</dt><dd class="col-sm-8" data-stock>{% if item.quantity %}{{ item.quantity }}{% if item.unit %} {{ item.unit }}{% endif %}{% else %}Einzelstück{% endif %}</dd>
           <dt class="col-sm-4">Standort</dt><dd class="col-sm-8">{{ item.location or '—' }}</dd>
           <dt class="col-sm-4">Kaufdatum</dt><dd class="col-sm-8">{{ item.fields.purchase_date or '—' }}</dd>
           {% if item.fields.isbn %}<dt class="col-sm-4">ISBN</dt><dd class="col-sm-8">{{ item.fields.isbn }}</dd>{% endif %}
           {% if item.description %}<dt class="col-sm-4">Beschreibung</dt><dd class="col-sm-8" style="white-space:pre-wrap">{{ item.description }}</dd>{% endif %}
         </dl>
+      </div></div>
+
+      <div class="card shadow-sm mb-3" data-object-copies><div class="card-header"><strong>Exemplare ({{ copies|length }})</strong></div><div class="card-body">
+        {% if copies|length > 1 %}<ul class="list-unstyled mb-2">{% for copy in copies %}<li><a href="{{ url_for('inventory.item_detail', object_id=copy.object_id) }}">#{{ copy.display_id }} · {{ copy.name }}</a>{% if copy.location %} <span class="text-secondary small">{{ copy.location }}</span>{% endif %}{% if copy.object_id == item.object_id %} <span class="badge text-bg-primary">dieses</span>{% endif %}</li>{% endfor %}</ul>{% else %}<p class="text-secondary mb-2">Noch keine weiteren Exemplare.</p>{% endif %}
+        <form method="post" action="{{ url_for('library.create_object_copy_route', object_id=item.object_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary" type="submit">Weiteres Exemplar anlegen</button></form>
       </div></div>
 
       <div class="card shadow-sm mb-3"><div class="card-header d-flex justify-content-between align-items-center"><strong>Prüfungen und Wiedervorlagen</strong>{% if feature_enabled('projects') %}<a class="small" href="{{ url_for('tasks.board', q='Inventar #' ~ item.display_id) }}">Aufgaben anzeigen</a>{% endif %}</div><div class="card-body">
