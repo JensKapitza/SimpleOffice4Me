@@ -17,7 +17,7 @@
       <span><strong class="d-block">{{ 'Need a little play break?' if g.language == 'en' else 'Lust auf eine kleine Spielpause?' }}</strong><span>{{ 'Try animal pairs, counting and picture puzzles.' if g.language == 'en' else 'Probiere Tierpaare, Zählen und Bilderrätsel.' }}</span></span>
       <span class="btn btn-primary">{{ 'Play' if g.language == 'en' else 'Spielen' }} 🎲</span>
     </a>
-    <div class="alert alert-info mb-4" role="note">
+    <div class="alert alert-info mb-4" role="status" aria-live="polite">
       {{ 'Everything is read aloud by one consistent offline voice from this app (Piper). There is no per-device voice setting; online voices are never used.' if g.language == 'en' else 'Alles wird von einer festen Offline-Stimme dieser App vorgelesen (Piper). Es gibt keine geräteabhängige Stimmenauswahl; Online-Stimmen werden nie verwendet.' }}
     </div>
     <h2 class="h4" id="kids-learning-level-heading">{{ 'Choose an age group' if g.language == 'en' else 'Für welches Alter?' }}</h2>
