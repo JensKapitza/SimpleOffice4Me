@@ -609,9 +609,14 @@ def item_detail(object_id: str):
         abort(404)
     meta = _inventory().object_meta(item["object_id"])
     from .inventory_lending import LendingStore
+    from .library.catalog import object_copies
     lending = LendingStore(current_app.config["DOCUMENT_ROOT"])
+    try:
+        copies = object_copies(_objects(), item["object_id"])
+    except ValueError:
+        copies = []
     return render_template("inventory/detail.html", item=item, inventory=meta, today=date.today().isoformat(),
-                           open_loan=lending.open_loan(item["object_id"]),
+                           copies=copies, open_loan=lending.open_loan(item["object_id"]),
                            loan_history=lending.loans(item["object_id"])[:10])
 
 
