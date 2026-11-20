@@ -608,7 +608,12 @@ def item_detail(object_id: str):
     except ValueError:
         abort(404)
     meta = _inventory().object_meta(item["object_id"])
-    return render_template("inventory/detail.html", item=item, inventory=meta, today=date.today().isoformat())
+    from .library.catalog import object_copies
+    try:
+        copies = object_copies(_objects(), item["object_id"])
+    except ValueError:
+        copies = []
+    return render_template("inventory/detail.html", item=item, inventory=meta, today=date.today().isoformat(), copies=copies)
 
 
 def _book_lookup_response(isbn: str, metadata: dict[str, Any]):
