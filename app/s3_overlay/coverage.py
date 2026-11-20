@@ -39,6 +39,8 @@ PERSISTENCE_COVERAGE = {
     "contextflow.case_links": "excluded: cross-domain links require joined owner and resource authorization before any S3 projection",
     "inventory": "pending-provider:inventory enrichment has no principal-aware read API",
     "inventory_lending": "pending-provider:loan records hold borrower personal data and have no principal-aware read API",
+    "inventory_collections": "pending-provider:virtual collections have no principal-aware read API",
+    "inventory_import": "excluded:short-lived single-use CSV staging with TTL is not a user-facing read model",
     "contact_extensions": "pending-provider:CRM extensions use contact-scoped permissions",
     # Federation payload/state is withheld until each resource has an explicit
     # trust and directional visibility policy. Secrets are never exportable.
