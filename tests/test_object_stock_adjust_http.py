@@ -71,6 +71,30 @@ class ObjectStockAdjustHttpTests(unittest.TestCase):
         self.assertEqual("10", stored["quantity"])
         self.assertEqual([], stored["stock_adjustments"])
 
+    def test_counted_mode_also_works_as_json(self):
+        response = self.client.post(
+            f"/inventory/{self.item['object_id']}/stock",
+            json={"counted": "6", "reason": "zaehlfehler", "note": "JSON-Abgleich"})
+        self.assertEqual(200, response.status_code)
+        body = response.get_json()
+        self.assertTrue(body["ok"])
+        self.assertEqual("6", body["quantity"])
+        self.assertEqual("zaehlfehler", body["reason"])
+        stored = self.objects.object(self.item["object_id"])
+        self.assertEqual("6", stored["quantity"])
+        self.assertEqual("10", stored["stock_adjustments"][0]["previous"])
+
+    def test_empty_counted_falls_back_to_delta_mode(self):
+        response = self.client.post(
+            f"/inventory/{self.item['object_id']}/stock",
+            data={"counted": "", "delta": "-2", "reason": "Werkstatt"},
+            follow_redirects=True)
+        self.assertEqual(200, response.status_code)
+        self.assertIn("8 Stk", response.get_data(as_text=True))
+        stored = self.objects.object(self.item["object_id"])
+        self.assertEqual("8", stored["quantity"])
+        self.assertEqual([], stored["stock_adjustments"])
+
     def test_adjustment_history_survives_reload(self):
         self.adjust(counted="8", reason="zaehlfehler")
         self.adjust(counted="8", reason="korrektur", note="Nachkontrolle ok")

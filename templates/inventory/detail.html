@@ -34,7 +34,7 @@
       </div></div>
 
       <div class="card shadow-sm mb-3"><div class="card-header"><strong>Fehlmenge klären</strong></div><div class="card-body">
-        <form method="post" action="{{ url_for('inventory.adjust_stock', object_id=item.object_id) }}" class="row g-2" data-stock-adjust>
+        <form method="post" action="{{ url_for('inventory.adjust_object_stock', object_id=item.object_id) }}" class="row g-2" data-stock-adjust>
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <div class="col-sm-4"><label class="form-label">Gezählt{% if item.unit %} ({{ item.unit }}){% endif %}</label><input required name="counted" inputmode="decimal" class="form-control" placeholder="z. B. 3"></div>
           <div class="col-sm-4"><label class="form-label">Grund</label><select name="reason" class="form-select"><option value="zaehlfehler">Zählfehler</option><option value="schwund">Schwund / Verlust</option><option value="zugang">Zugang / Fund</option><option value="korrektur">Korrektur</option></select></div>
