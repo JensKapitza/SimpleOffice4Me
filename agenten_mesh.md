@@ -227,6 +227,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: fällige zuerst, Horizont filtert, erledigte verschwinden, Rechte, Seite. Ist gemessen: 3/3 Blackbox-HTTP-Tests (Sortierung+Objektname, Horizont+Erledigen, Seite+Login+Verweis); Nachbar-Suites 51/51; Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen als Follow-up: Scanmodi pro Aktion, föderierte Rechte, Fotoerkennung, Offline-Sync, Mindestbestände, E-Mail-Erinnerungen. |
 
+## 19. November 2026 · Issue #1111 (P1-Slice 3): Mengen und Einzelstücke unterscheiden
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Dritter P1-Slice: Stapelartikel (50 Schrauben) und Einzelstücke (Seriennummer) waren im Modell nicht unterscheidbar; Seriennummern existierten nur als Freitextfeld, Mengen gar nicht. Bestand wiederverwendet: `ObjectStore`-Validierungsmuster, Erfassungsroute, Bibliotheks-Aktualisierungspfade. |
+| Implementierung | Optionale `quantity` (≥ 0, max. 3 Dezimalen, Komma zulässig) + `unit` (≤ 24 Zeichen) in `ObjectStore` (leer = Einzelstück, alte Datensätze tolerant); Durchreichen im Erfassungsformular (Menge/Einheit mit Vorschlagsliste) und Bestandsanzeige auf der Detailseite; Mengen bleiben bei Bibliotheks-Zuordnung/Identität erhalten, neue Exemplare starten als Einzelstück. |
+| Tests und Soll-Ist-Vergleich | Soll: Stapel vs. Stück anlegen/anzeigen/validieren, Zuordnung/Kopie ohne Mengenverlust. Ist gemessen: 4/4 Blackbox-HTTP-Tests (50 Stück, Einzelstück+Seriennummer, 4 ungültige Eingaben 400, Zuordnung+Kopie erhalten Quelle); Nachbar-Suites 59/59; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up (weitere #1111-Slices): Scanmodi pro Aktion, Exemplare für alle Objekttypen, System-/manuelle Metadatenwerte, CSV-Import, Inventur/Differenzen, Objekt-Verleih, föderierte Rechte. |
+
 ## 19. November 2026 · Issue #1111 (P1-Slice 2): Lagerort-Vorlagen für verschachtelte Strukturen
 
 | Phase | Arbeit und Nachweis |
