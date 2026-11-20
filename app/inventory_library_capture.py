@@ -174,6 +174,11 @@ def _create_error_fields(form, inventory) -> dict[str, str]:
             inventory._date_only(form.get("purchase_date"), "Kaufdatum")
         except ValueError:
             fields["purchase_date"] = "invalid"
+    if form.get("warranty_months"):
+        try:
+            inventory._warranty_months(form.get("warranty_months"))
+        except ValueError:
+            fields["warranty_months"] = "invalid"
     return fields
 
 
@@ -397,12 +402,14 @@ def _create_inventory_item(
                 "name": title,
                 "type": item_type,
                 "status": "active",
+                "condition": str(request.form.get("condition", "") or "").strip(),
                 "description": str(request.form.get("description", "") or "").strip()[:8000],
                 "identifier": identifier,
                 "location": inventory._single_line(request.form.get("location", ""), 300),
                 "expires_at": "",
                 "quantity": str(request.form.get("quantity", "") or "").strip(),
                 "unit": str(request.form.get("unit", "") or "").strip(),
+                "min_stock": str(request.form.get("min_stock", "") or "").strip(),
                 "tags": ",".join(sorted(tags, key=str.casefold)),
                 "fields": inventory._fields_text(fields),
             },
