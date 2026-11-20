@@ -874,6 +874,8 @@ def inventory_media(object_id: str, filename: str):
 # `bp`, and a name import here would break if the routes module is
 # imported first (partial circular import).
 from . import inventory_capture_routes as _capture_routes  # noqa: E402,F401
+from . import inventory_stock_adjust_routes as _stock_adjust_routes  # noqa: E402,F401
+from . import inventory_sharing_routes as _sharing_routes  # noqa: E402,F401
 from . import inventory_reservation_routes as _reservation_routes  # noqa: E402,F401
 from . import inventory_stock_routes as _stock_routes  # noqa: E402,F401
 from . import inventory_inspection_routes as _inspection_routes  # noqa: E402,F401
