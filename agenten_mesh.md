@@ -251,6 +251,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: Fremddateien weg, legitime Slices da, Suite grün. Ist gemessen: 6/6 Fremddateien entfernt, 4/4 Slice-Module + share-Flag vorhanden; Mail-/Inventur-/Bibliotheks-Nachbarsuites + Gates vor Push grün (siehe PR-CI). |
 | Review und Abschluss | Lehre: Merge-Agents dürfen nur `git merge origin/main` ausführen, nie fremde Branches integrieren; Merges künftig per Diff gegen PR-Branch verifizieren. Offen: #1134-Doku neu, #1135/#1137 normal mergen, #1136-Slices bleiben zur Nutzer-Review offen. |
 
+## 20. November 2026 · Issue #1136 (Slice 1): Mail-UI-Shell mit Tastatur, Palette, mobilen Panes
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | #1136-Ist verifiziert: Mehrkonten-IMAP/SMTP, BODY.PEEK-Lesen, `require_writable`-Schreibschutz, Ordner/Liste/Lesebereich als 3-Spalten-Template, Archiv/Vorgänge vorhanden. Lücken: keine Tastaturbedienung, keine Befehlspalette, kein mobiles Pane-Verhalten, kein LRU-Cache, kein Lese-Timing, keine Tag-/Aufgaben-Integration. Plan mit 7 Slices in `docs/ISSUE_1136_PLAN.md`. |
+| Implementierung | Slice 1 ohne Backend-Änderung: `static/js/mail_client.js` (j/k/Enter-Navigation, Kürzel e/u/r/c//, Strg+K-Palette aus gerenderten `data-mail-action`-Aktionen, mobile Pane-Umschaltung), `static/css/mail_client.css`, Template-Marker (`data-mail-pane/uid/action`, Palette, Hinweise). Nur bestehende Routen; ohne JS bleibt alles Link/Formular; Readonly liefert konstruktionsbedingt keine Schreibaktionen. |
+| Tests und Soll-Ist-Vergleich | Soll: 3 Panes + Palette rendern, Zeilen/Key-Hooks, Preview-Aktionen, Readonly ohne Schreibaktionen, ohne Konto stabil. Ist gemessen: 5/5 Blackbox-HTTP-Tests mit Fake-IMAP (`test_mail_client_shell_http.py`); Nachbarn 40/40; `node --check`, Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Kein Auto-Merge (Issue-Vorgabe). Offen: Slices 2–7 (Cache, Timing, Tags, Überführen, Signaturen, Archiv-Härtung). |
+
 ## 19. November 2026 · Issue #1111: Reservierungen mit Zeiträumen
 
 | Phase | Arbeit und Nachweis |
