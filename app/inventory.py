@@ -801,4 +801,6 @@ def inventory_media(object_id: str, filename: str):
 # imported first (partial circular import).
 from . import inventory_capture_routes as _capture_routes  # noqa: E402,F401
 from . import inventory_relation_routes as _relation_routes  # noqa: E402,F401
+from . import inventory_import_routes as _import_routes  # noqa: E402,F401
+from . import inventory_override_routes as _override_routes  # noqa: E402,F401
 from .translations import translate
