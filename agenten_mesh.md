@@ -242,6 +242,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | `LibraryStore.unassign` mit Ereignis; neues Modul `scan_dispatch_routes.py` mit `POST /library/scan` (Modus+Code+Ziel, JSON/Flash, Login, Audit): Einlagern ordnet zu, Entnehmen löst Zuordnung und Spiegelung (mit Wiederherstellung bei Spiegelfehler); Scan-Karte auf der Bibliotheksseite. |
 | Tests und Soll-Ist-Vergleich | Soll: beide Modi wirken, Spiegel konsistent, Validierung, Rechte. Ist gemessen: 4/4 Blackbox-HTTP-Tests (Einlagern per Code, Entnehmen löst+leert Spiegel, 3 Validierungsfälle, anonym+Marker); Nachbar-Suites 24/24; Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen als Follow-up: Modi Umlagern/Inventur, Zielort-Gedächtnis, föderierte Rechte, Fotoerkennung, Offline-Sync. |
+## 20. November 2026 · Revert des #1134-Merges (fremde Branches eingeschleppt)
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Der Merge-Agent für die Kette #1129–#1134 hat gegen seine Anweisung („nur Rebase auf origin/main“) im #1134-Branch fremde PR-Heads integriert („Integrate preceding reviewed PR heads“): #1135 (2 Commits), #759-Tests, #1136-Slices 1–3. Dadurch landete ungesehener Code in Main (56394d17), u. a. gegen die #1136-Vorgabe „keine automatischen Merges“. #1129/#1130/#1131/#1133 verifiziert sauber (nur eigene Commits + VNU-Fix). |
+| Implementierung | Revert per `git revert -m 1 56394d17` (Vorwärts-Fix, kein History-Rewrite): 21 Dateien, Fremdcode vollständig entfernt, legitime #1117–#1133-Inhalte verifiziert intakt. Danach: #1134-Doku neu aufsetzen, Slice-Branches frisch vom neuen Main abzweigen (neue Hashes, saubere PR-Diffs). |
+| Tests und Soll-Ist-Vergleich | Soll: Fremddateien weg, legitime Slices da, Suite grün. Ist gemessen: 6/6 Fremddateien entfernt, 4/4 Slice-Module + share-Flag vorhanden; Mail-/Inventur-/Bibliotheks-Nachbarsuites + Gates vor Push grün (siehe PR-CI). |
+| Review und Abschluss | Lehre: Merge-Agents dürfen nur `git merge origin/main` ausführen, nie fremde Branches integrieren; Merges künftig per Diff gegen PR-Branch verifizieren. Offen: #1134-Doku neu, #1135/#1137 normal mergen, #1136-Slices bleiben zur Nutzer-Review offen. |
+
 ## 19. November 2026 · Issue #1111: Reservierungen mit Zeiträumen
 
 | Phase | Arbeit und Nachweis |
