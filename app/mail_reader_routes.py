@@ -345,7 +345,7 @@ def index():
                         str(message.get("message_id", "")).strip()
                     )
                 if uid:
-                    preview = web.message(account, folder, uid)
+                    preview = web.message(account, folder, uid, actor=_actor())
                     ordered = [str(row.get("uid", "")) for row in messages]
                     if uid in ordered and ordered.index(uid) + 1 < len(ordered):
                         next_uid = ordered[ordered.index(uid) + 1]
@@ -894,7 +894,7 @@ def live_attachment(part_index: int):
     uid = request.args.get("uid", "").strip()
     try:
         account = _account(store, account_id)
-        attachment = ImapWebClient(store).attachment(account, folder, uid, part_index)
+        attachment = ImapWebClient(store).attachment(account, folder, uid, part_index, actor=_actor())
         # Live IMAP attachment downloads are read-only, but still run through the
         # same ClamAV gate as archived mail before bytes leave the application.
         record = scan_attachment_for_download(

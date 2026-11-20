@@ -269,6 +269,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | `LibraryStore.unassign` mit Ereignis; neues Modul `scan_dispatch_routes.py` mit `POST /library/scan` (Modus+Code+Ziel, JSON/Flash, Login, Audit): Einlagern ordnet zu, Entnehmen löst Zuordnung und Spiegelung (mit Wiederherstellung bei Spiegelfehler); Scan-Karte auf der Bibliotheksseite. |
 | Tests und Soll-Ist-Vergleich | Soll: beide Modi wirken, Spiegel konsistent, Validierung, Rechte. Ist gemessen: 4/4 Blackbox-HTTP-Tests (Einlagern per Code, Entnehmen löst+leert Spiegel, 3 Validierungsfälle, anonym+Marker); Nachbar-Suites 24/24; Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen als Follow-up: Modi Umlagern/Inventur, Zielort-Gedächtnis, föderierte Rechte, Fotoerkennung, Offline-Sync. |
+## 20. November 2026 · Issue #1136 (Slice 2): Flüchtiger LRU-Nachrichtencache
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | #1136 fordert flüchtigen Cache (256 MiB, 200–300 konfigurierbar, LRU, Neustart-Leerung, Benutzerisolation, Flags separat, keine Server-Mutationen). Ist: jeder Aufruf lädt BODY.PEEK[] neu. Entwurf: prozess-lokales Singleton (Neustart-leer per Konstruktion), Schlüssel (Benutzer, Konto, Ordner, UID), Flags per leichtem `(FLAGS)`-Fetch frisch, Actor wird an den zwei `message`/`attachment`-Aufrufern durchgereicht. |
+| Implementierung | Neues Modul `app/mail_message_cache.py` (Thread-Lock, Byte-Bilanz, LRU-Verdrängung, Clamp 200–300 MiB, `MAIL_CACHE_MAX_BYTES`-Konfiguration); `ImapWebClient` mit Cache-Injektion, `_raw_message(..., actor=)` (Treffer → nur FLAGS-Fetch), `message`/`attachment` mit `actor`-Parameter, Routen reichen `_actor()` durch. |
+| Tests und Soll-Ist-Vergleich | Soll: Zweitöffnung ohne Body-Re-Download, Flags frisch, Isolation, Clamp, keine Mutation. Ist gemessen: 5/5 Unit-Tests (Clamp, Roundtrip+Stats, Isolation, LRU, Oversize/Invalidate) + 4/4 Blackbox-HTTP mit Fake-IMAP (1 Body-Fetch bei 2 Öffnungen, FLAGS-Refresh, 2 Fetches bei 2 Benutzern, Config-Clamp, 0 Mutationen); Nachbar-Suites OK; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Kein Auto-Merge (Issue-Vorgabe). Offen: Slices 3–7 (Timing, Tags, Überführen, Signaturen, Archiv-Härtung). |
+
 ## 19. November 2026 · Issue #1111: Reservierungen mit Zeiträumen
 
 | Phase | Arbeit und Nachweis |
