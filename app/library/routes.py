@@ -146,6 +146,8 @@ def _object_update_values(item: dict[str, Any], *, location: str, location_id: s
         "identifier": item.get("identifier", ""),
         "location": location,
         "expires_at": item.get("expires_at", ""),
+        "quantity": item.get("quantity", ""),
+        "unit": item.get("unit", ""),
         "tags": item.get("tags", []),
         "fields": fields,
     }

@@ -401,6 +401,8 @@ def _create_inventory_item(
                 "identifier": identifier,
                 "location": inventory._single_line(request.form.get("location", ""), 300),
                 "expires_at": "",
+                "quantity": str(request.form.get("quantity", "") or "").strip(),
+                "unit": str(request.form.get("unit", "") or "").strip(),
                 "tags": ",".join(sorted(tags, key=str.casefold)),
                 "fields": inventory._fields_text(fields),
             },
