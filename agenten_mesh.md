@@ -218,6 +218,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll je Spiel: 5–15 Min., Zufallsaufgaben, Stufen, Sofort-Feedback, ohne Lesen. Ist gemessen: Matching 15/15, Numbers 14/14, Syllables 8/8 Python- + 7/7 Node-Tests; Kids-Modus 8/8 (Containment aller 10 Kids-URLs, Gate richtig/falsch/ohne Frage, Erwachsenenseite behält Nav); kombiniert 29/29 bzw. 23/23 nach Zusammenführung; `node --check`, DOM-Stub-Proben (10 Runden/32 Ansagen bzw. 3×8 Aufgaben), Policy-/Größen-/Compile-Gates grün. CI je PR vollständig grün (36/36 bzw. 35 + Rest) vor Merge; dazwischen nur Ubuntu-Spiegel-503 und ein nicht-blockierender Python-3.15-Budget-Timeout (5924 Tests liefen, alle 8 Kids-Tests darunter). |
 | Review und Abschluss | Unabhängiges Review gab alle drei Zweige frei (keine externen Requests, kein Tracking, keine Timer, ermutigendes Feedback, keine Routenkollisionen). Offen als Follow-up: B1/B2-Fixes im Lernspiel, S2-Umsortierung im Alt-Code, Fortschritts-/Eltern-Backend, Offline-Arbeitsblätter/Bastelanleitungen sowie Praxisprüfung auf physischen Geräten (Touch, Tastatur, Lautsprecher/Mikrofon). |
 
+## 19. November 2026 · Issue #1111: Bestandsbuchungen mit Grund
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Einundzwanzigster Slice (nach #1115-Merge): Mengen waren nur bei Anlage setzbar. Bestand wiederverwendet: Dezimalvalidierung, Update mit Verlauf, Notizen, Routenregistrierung per Bottom-Import. |
+| Implementierung | Neues Modul `inventory_stock_adjust_routes.py` mit `POST /inventory/<id>/stock` (Delta mit Komma, Pflichtgrund, kein Negativstand, JSON/Flash, Login, Notiz im Verlauf); Buchungsformular in der Bestandszeile; zukunftssichere Werterhaltung. |
+| Tests und Soll-Ist-Vergleich | Soll: rauf/runter buchen, kein Negativ, Einzelstück ausgenommen, Validierung, Rechte. Ist gemessen: 4/4 Blackbox-HTTP-Tests (50→42→45,5, Negativ abgelehnt ohne Änderung, Einzelstück-400, anonym+Marker); Nachbar-Suites 42/42 inkl. Mengen-Suite; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up: Scanmodi-Umlagern/Inventur, föderierte Rechte, Fotoerkennung, Offline-Sync. |
+
 ## 19. November 2026 · Issue #1111 (P1-Slice 4): Exemplare für alle Objekttypen
 
 | Phase | Arbeit und Nachweis |
