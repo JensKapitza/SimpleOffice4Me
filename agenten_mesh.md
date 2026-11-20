@@ -218,6 +218,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll je Spiel: 5–15 Min., Zufallsaufgaben, Stufen, Sofort-Feedback, ohne Lesen. Ist gemessen: Matching 15/15, Numbers 14/14, Syllables 8/8 Python- + 7/7 Node-Tests; Kids-Modus 8/8 (Containment aller 10 Kids-URLs, Gate richtig/falsch/ohne Frage, Erwachsenenseite behält Nav); kombiniert 29/29 bzw. 23/23 nach Zusammenführung; `node --check`, DOM-Stub-Proben (10 Runden/32 Ansagen bzw. 3×8 Aufgaben), Policy-/Größen-/Compile-Gates grün. CI je PR vollständig grün (36/36 bzw. 35 + Rest) vor Merge; dazwischen nur Ubuntu-Spiegel-503 und ein nicht-blockierender Python-3.15-Budget-Timeout (5924 Tests liefen, alle 8 Kids-Tests darunter). |
 | Review und Abschluss | Unabhängiges Review gab alle drei Zweige frei (keine externen Requests, kein Tracking, keine Timer, ermutigendes Feedback, keine Routenkollisionen). Offen als Follow-up: B1/B2-Fixes im Lernspiel, S2-Umsortierung im Alt-Code, Fortschritts-/Eltern-Backend, Offline-Arbeitsblätter/Bastelanleitungen sowie Praxisprüfung auf physischen Geräten (Touch, Tastatur, Lautsprecher/Mikrofon). |
 
+## 20. November 2026 · Issue #1136 (Slice 1): Mail-UI-Shell mit Tastatur, Palette, mobilen Panes
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | #1136-Ist verifiziert: Mehrkonten-IMAP/SMTP, BODY.PEEK-Lesen, `require_writable`-Schreibschutz, Ordner/Liste/Lesebereich als 3-Spalten-Template, Archiv/Vorgänge vorhanden. Lücken: keine Tastaturbedienung, keine Befehlspalette, kein mobiles Pane-Verhalten, kein LRU-Cache, kein Lese-Timing, keine Tag-/Aufgaben-Integration. Plan mit 7 Slices in `docs/ISSUE_1136_PLAN.md`. |
+| Implementierung | Slice 1 ohne Backend-Änderung: `static/js/mail_client.js` (j/k/Enter-Navigation, Kürzel e/u/r/c//, Strg+K-Palette aus gerenderten `data-mail-action`-Aktionen, mobile Pane-Umschaltung), `static/css/mail_client.css`, Template-Marker (`data-mail-pane/uid/action`, Palette, Hinweise). Nur bestehende Routen; ohne JS bleibt alles Link/Formular; Readonly liefert konstruktionsbedingt keine Schreibaktionen. |
+| Tests und Soll-Ist-Vergleich | Soll: 3 Panes + Palette rendern, Zeilen/Key-Hooks, Preview-Aktionen, Readonly ohne Schreibaktionen, ohne Konto stabil. Ist gemessen: 5/5 Blackbox-HTTP-Tests mit Fake-IMAP (`test_mail_client_shell_http.py`); Nachbarn 40/40; `node --check`, Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Kein Auto-Merge (Issue-Vorgabe). Offen: Slices 2–7 (Cache, Timing, Tags, Überführen, Signaturen, Archiv-Härtung). |
+
 ## 19. November 2026 · Issue #1111: Reservierungen mit Zeiträumen
 
 | Phase | Arbeit und Nachweis |
