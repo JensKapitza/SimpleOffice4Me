@@ -38,6 +38,7 @@ PERSISTENCE_COVERAGE = {
     "kids_coloring": "excluded: children's drawings are private account-owned content with no explicit cross-user sharing policy",
     "contextflow.case_links": "excluded: cross-domain links require joined owner and resource authorization before any S3 projection",
     "inventory": "pending-provider:inventory enrichment has no principal-aware read API",
+    "inventory_reservations": "pending-provider:reservation records hold reserver personal data and have no principal-aware read API",
     "contact_extensions": "pending-provider:CRM extensions use contact-scoped permissions",
     # Federation payload/state is withheld until each resource has an explicit
     # trust and directional visibility policy. Secrets are never exportable.
