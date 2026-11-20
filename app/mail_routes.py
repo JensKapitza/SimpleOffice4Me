@@ -312,6 +312,25 @@ def set_readonly(account_id: str):
     return redirect(url_for("mail_client.index", account=account_id))
 
 
+@bp.post("/accounts/<account_id>/seen-dwell")
+@login_required
+def set_seen_dwell(account_id: str):
+    from .mail_webclient import MailAccountPolicy
+    store = _store()
+    try:
+        seconds = MailAccountPolicy(store).set_seen_dwell(_actor(), account_id, request.form.get("seconds", ""))
+        if seconds:
+            flash(f"Offene Nachrichten werden nach {seconds} Sekunden als gelesen markiert.")
+        else:
+            flash("Automatisches Gelesen-Markieren ist deaktiviert.")
+    except (OSError, ValueError) as exc:
+        flash(str(exc))
+    target = request.form.get("return_to", "").strip()
+    if target == "reader":
+        return redirect(url_for("mail_reader.index", account=account_id, folder=request.form.get("folder", "")))
+    return redirect(url_for("mail_client.index", account=account_id))
+
+
 @bp.post("/accounts/<account_id>/delegation")
 @login_required
 def save_send_delegation(account_id: str):
