@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -126,7 +127,7 @@ class LibraryStore:
             current = str(row.get("parent_id", ""))
         return " / ".join(reversed([name for name in names if name]))
 
-    def create_location(self, name: str, actor: str, *, parent_id: str = "", code: str = "") -> dict[str, Any]:
+    def create_location(self, name: str, actor: str, *, parent_id: str = "", code: str = "", temporary: bool = False) -> dict[str, Any]:
         clean_name = " ".join(str(name or "").split()).strip()[:200]
         if not clean_name:
             raise ValueError("Name des Regals/Standorts fehlt")
@@ -146,6 +147,7 @@ class LibraryStore:
                 "code": clean_code,
                 "name": clean_name,
                 "parent_id": clean_parent,
+                "temporary": bool(temporary),
                 "created_at": now,
                 "created_by": actor,
                 "updated_at": now,
@@ -255,11 +257,12 @@ class LibraryStore:
         value = self._read()["assignments"].get(str(object_id or ""))
         return dict(value) if isinstance(value, dict) else None
 
-    def assign(self, object_id: str, location_id: str, actor: str, *, scanned: str = "") -> dict[str, Any]:
+    def assign(self, object_id: str, location_id: str, actor: str, *, scanned: str = "", return_date: str = "") -> dict[str, Any]:
         clean_object = str(object_id or "").strip()
         if not clean_object:
             raise ValueError("Objekt-ID fehlt")
         location = self.location(location_id)
+        clean_return = self._return_date(return_date)
         self.directory.mkdir(parents=True, exist_ok=True)
         with exclusive_file_lock(self.lock_path):
             state = self._read()
@@ -271,6 +274,7 @@ class LibraryStore:
                 "assigned_at": now,
                 "assigned_by": actor,
                 "scanned": str(scanned or "")[:160],
+                "return_date": clean_return,
             }
             state["assignments"][clean_object] = assignment
             self._event(state, "object_assigned", actor, assignment)
@@ -295,12 +299,77 @@ class LibraryStore:
             self._write(state)
             return dict(assignment)
 
+    @staticmethod
+    def _return_date(value: Any) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        try:
+            parsed = date.fromisoformat(text)
+        except ValueError as exc:
+            raise ValueError("Rückgabedatum muss ein ISO-Datum sein") from exc
+        if parsed < date.today():
+            raise ValueError("Rückgabedatum liegt in der Vergangenheit")
+        return parsed.isoformat()
+
+    def temporary_holds(self, today: str = "") -> list[dict[str, Any]]:
+        """Assignments at temporary locations or with a return date, soonest first."""
+        try:
+            current = date.fromisoformat(str(today or "").strip()) if str(today or "").strip() else date.today()
+        except ValueError:
+            current = date.today()
+        locations = {str(row.get("location_id", "")): row for row in self.locations()}
+        holds: list[dict[str, Any]] = []
+        for object_id, value in self._read()["assignments"].items():
+            if not isinstance(value, dict):
+                continue
+            location = locations.get(str(value.get("location_id", "")), {})
+            return_date = str(value.get("return_date", "") or "").strip()
+            if not return_date and not bool(location.get("temporary", False)):
+                continue
+            days_left: int | None = None
+            if return_date:
+                try:
+                    days_left = (date.fromisoformat(return_date) - current).days
+                except ValueError:
+                    days_left = None
+            holds.append({
+                "object_id": str(object_id),
+                "location_id": str(value.get("location_id", "")),
+                "location_name": str(location.get("name", "")),
+                "location_code": str(location.get("code", "")),
+                "temporary": bool(location.get("temporary", False)),
+                "return_date": return_date,
+                "days_left": days_left,
+                "overdue": days_left is not None and days_left < 0,
+                "assigned_by": str(value.get("assigned_by", "")),
+                "assigned_at": str(value.get("assigned_at", "")),
+            })
+        holds.sort(key=lambda row: (row["return_date"] or "9999", row["location_name"]))
+        return holds
+
     def contents(self, location_id: str) -> list[str]:
         wanted = str(location_id or "").strip()
         return [
             object_id for object_id, value in self._read()["assignments"].items()
             if isinstance(value, dict) and str(value.get("location_id", "")) == wanted
         ]
+
+    def record_inventory(self, location_id: str, actor: str, summary: dict[str, Any]) -> dict[str, Any]:
+        """Append one stock-count result to the location event trail."""
+        location = self.location(location_id)
+        event = {
+            "location_id": location["location_id"],
+            "code": str(location.get("code", "")),
+            "summary": {str(key): summary.get(key) for key in (
+                "scanned", "present", "missing", "misplaced", "unknown")},
+        }
+        self.directory.mkdir(parents=True, exist_ok=True)
+        with exclusive_file_lock(self.lock_path):
+            state = self._read()
+            self._event(state, "inventory_counted", actor, event)
+            self._write(state)
+        return event
 
     def children(self, location_id: str) -> list[dict[str, Any]]:
         wanted = str(location_id or "").strip()
