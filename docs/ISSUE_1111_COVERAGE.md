@@ -18,7 +18,7 @@ Status legend: **Done** (merged), **In review** (implementation submitted),
 | Location templates (shelf, cabinet, box, drawers) | Done | [#1114](https://github.com/JensKapitza/SimpleOffice4Me/pull/1114) |
 | Bulk quantities vs single pieces, serials | Done | [#1115](https://github.com/JensKapitza/SimpleOffice4Me/pull/1115) |
 | Bulk booking with reasons | Done | [#1133](https://github.com/JensKapitza/SimpleOffice4Me/pull/1133) |
-| Reconcile a counted quantity with the recorded bulk stock and record the reason | In review | [#1135](https://github.com/JensKapitza/SimpleOffice4Me/pull/1135) |
+| Reconcile a counted quantity with the recorded bulk stock and record the reason | In review | [#1144](https://github.com/JensKapitza/SimpleOffice4Me/pull/1144) |
 | System vs manual metadata values per field | Done | [#1118](https://github.com/JensKapitza/SimpleOffice4Me/pull/1118) |
 | QR labels for locations | Done | [#1121](https://github.com/JensKapitza/SimpleOffice4Me/pull/1121) |
 | Scan modes: store and remove | Done | [#1130](https://github.com/JensKapitza/SimpleOffice4Me/pull/1130) |
