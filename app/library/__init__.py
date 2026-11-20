@@ -7,6 +7,7 @@ from .routes import bp
 from . import object_care as _object_care  # noqa: F401  # register shared object-care routes
 from . import scan_routes as _scan_routes  # noqa: F401  # register bulk-scan session routes
 from . import inventory_routes as _inventory_routes  # noqa: F401  # register inventory-count routes
+from . import copy_routes as _copy_routes  # noqa: F401  # register generic copy routes
 from . import template_routes as _template_routes  # noqa: F401  # register location-template routes
 from . import printer_routes as _printer_routes  # noqa: F401  # register label-printer routes
 
