@@ -284,6 +284,83 @@ class LibraryStore:
             if isinstance(value, dict) and str(value.get("location_id", "")) == wanted
         ]
 
+    def children(self, location_id: str) -> list[dict[str, Any]]:
+        wanted = str(location_id or "").strip()
+        return [row for row in self.locations() if str(row.get("parent_id", "")) == wanted]
+
+    def descendants(self, location_id: str) -> list[str]:
+        wanted = str(location_id or "").strip()
+        by_parent: dict[str, list[str]] = {}
+        for row in self.locations():
+            by_parent.setdefault(str(row.get("parent_id", "")), []).append(str(row.get("location_id", "")))
+        found: list[str] = []
+        stack = list(by_parent.get(wanted, []))
+        while stack:
+            current = stack.pop()
+            if current == wanted or current in found:
+                continue
+            found.append(current)
+            stack.extend(by_parent.get(current, []))
+        return found
+
+    def subtree_contents(self, location_id: str) -> dict[str, str]:
+        """Map object_id to its location for everything stored in the subtree."""
+        wanted = str(location_id or "").strip()
+        scope = {wanted} | set(self.descendants(wanted))
+        result: dict[str, str] = {}
+        for object_id, value in self._read()["assignments"].items():
+            if isinstance(value, dict) and str(value.get("location_id", "")) in scope:
+                result[str(object_id)] = str(value.get("location_id", ""))
+        return result
+
+    def move_location(self, location_id: str, new_parent_id: str, actor: str) -> dict[str, Any]:
+        """Reparent a location with its whole subtree; mirrored paths refresh afterwards."""
+        wanted = str(location_id or "").strip()
+        target = str(new_parent_id or "").strip()
+        self.directory.mkdir(parents=True, exist_ok=True)
+        with exclusive_file_lock(self.lock_path):
+            state = self._read()
+            rows = [row for row in state["locations"] if isinstance(row, dict)]
+            row = next((value for value in rows if str(value.get("location_id", "")) == wanted), None)
+            if row is None:
+                raise ValueError("Unbekannter Bibliotheksstandort")
+            if target:
+                parent = next((value for value in rows if str(value.get("location_id", "")) == target), None)
+                if parent is None:
+                    raise ValueError("Übergeordneter Standort ist unbekannt")
+                if target == wanted:
+                    raise ValueError("Ein Standort kann nicht in sich selbst verschoben werden")
+                if target in self._descendant_ids(rows, wanted):
+                    raise ValueError("Ein Standort kann nicht in seinen eigenen Unterstandort verschoben werden")
+            old_parent = str(row.get("parent_id", ""))
+            if old_parent == target:
+                return dict(row)
+            row["parent_id"] = target
+            now = utc_now()
+            row["updated_at"] = now
+            row["updated_by"] = actor
+            self._event(state, "location_moved", actor, {
+                "location_id": wanted, "code": str(row.get("code", "")),
+                "from_parent_id": old_parent, "to_parent_id": target,
+            })
+            self._write(state)
+        return self.location(wanted)
+
+    @staticmethod
+    def _descendant_ids(rows: list[dict[str, Any]], location_id: str) -> set[str]:
+        by_parent: dict[str, list[str]] = {}
+        for row in rows:
+            by_parent.setdefault(str(row.get("parent_id", "")), []).append(str(row.get("location_id", "")))
+        found: set[str] = set()
+        stack = list(by_parent.get(location_id, []))
+        while stack:
+            current = stack.pop()
+            if current == location_id or current in found:
+                continue
+            found.add(current)
+            stack.extend(by_parent.get(current, []))
+        return found
+
     def printer_settings(self) -> dict[str, Any]:
         return dict(self._read()["printer"])
 
