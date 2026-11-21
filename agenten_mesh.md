@@ -554,6 +554,14 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: Reveal nur für lesbare lokale Dateien, kein Traversal/Injection, Linux/Windows/macOS. Ist gemessen: 5/5 Python-Tests (Pfad absolut+Datei, 404, Login, fehlende Datei→`not_local`, Marker), 6/6 Node-Plattformtests (posix/win32/darwin, relativ/fehlend/Verzeichnis/Fehlformen ohne fs-Zugriff), Browser-Tests (Chromium, CI): ohne Bridge versteckt, mit simulierter Bridge Pfadaufruf. `node --check`, Ruff, Gates grün. |
 | Review und Abschluss | Offen als Follow-up: Reveal-Aktion in Schnellsuche/Dateilisten nach deren Merge, Praxisprüfung in Desktop-Builds je OS, Tauri bleibt ohne Shell-Zugriff (Design). |
 
+## 21. November 2026 · Issue #1136 Slice 5: Mail/Anhang als Aufgabe oder Termin überführen
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Bestand: `TodoStore.add` (mit `due`, als CalDAV-VTODO exponiert), `CalendarStore.add`, `ImapWebClient.message` (nur lesend), `load_local_eml_by_id` (Archiv-Rechte). Keine Handover-Funktion vorhanden; Vorgangs-Erstellung archiviert EML-Kopien, für Aufgaben/Termine wäre das Kopienflut. Vorgabe: stabile Referenzen, keine Kopien, Rechte prüfen, Bestand wiederverwenden. |
+| Implementierung | Neues Modul `app/mail_handover.py`: `live_source`/`archive_source` (nur Metadaten; Ownership via `store.account`, Archiv-Rechte via Loader), `normalize_attachments` (live-/archiv-Form vereinheitlicht, nie Payload-Bytes), `create_task` (Titel Pflicht, Notiz max 2000, Due ISO-validiert, `can_create`-Recht, Audit `mail_handover_task_created`), `create_followup_event` (Start/Ende ISO-validiert, Audit `mail_handover_event_created`). Referenzen als Textblock (Message-ID, SHA-512, Konto/Ordner/UID bzw. Archiv-ID, Anhang-Metadaten). Routenmodul `app/mail_handover_routes.py` (eigener Blueprint, gleiche URL-Basis; `mail_reader_routes.py` am 1000-Zeilen-Gate). Template: Überführen-Boxen in Live- und Archiv-Vorschau (Aufgabe mit Fälligkeit/Anhangwahl/Notiz, Wiedervorlage mit Start/Ende). Doku: Abschnitt in `docs/MAIL_ACCOUNT_SETUP.md`. |
+| Tests und Soll-Ist-Vergleich | Soll: Aufgabe/Termin aus Live- und Archiv-Mail mit stabilen Referenzen, ohne Bytes-Kopie, ohne IMAP-STORE, Fremdkonto und ungültige Anhänge abgewiesen. Ist gemessen: 6/6 Blackbox-HTTP-Tests mit Fake-IMAP (`tests/test_mail_handover_http.py`: Live→Aufgabe mit Due/VTODO-fähiger UID, Anhang→Aufgabe ohne Payload, Live→Termin, ungültiger Anhang legt nichts an, Fremdkonto abgewiesen, Archiv→Aufgabe mit Archiv-Referenz; überall STORE-frei), 65/65 Todo-/Kalender-/CalDAV-/Reader-Nachbarsuites sowie Calendar-Store/Task-Suites, Ruff/Compileall/Policy/Datei-/Funktionsgrößen grün. |
+| Review und Abschluss | Offen: keine. Kein Merge (Issue-Verbot #1136); PR zur Nutzer-Review. |
 ## 21. November 2026 · Issue #679: Federation-Testnetz-Slice (fed-testnet)
 
 | Phase | Arbeit und Nachweis |
