@@ -12,6 +12,12 @@ SimpleOffice4Me is a Python-based office and document management application. Tr
 6. SQL injection, template injection, XSS, command injection, unsafe deserialization, dependency vulnerabilities.
 7. API and MCP endpoints: permissions, untrusted tool inputs and privilege escalation.
 
+## Assets, actors and scan evidence
+
+Use the repository-root SECURITY.md for assets, protocol scopes, host authority and security invariants. Include low-privilege users, unauthenticated callers, peers, uploaded content and external responses. Evaluate actual exposure for browser, DAV, MCP, S3, federation, desktop and LAN services at the scanned revision.
+
+For a full scan follow docs/SICHERHEITSPRUEFUNG.md. Pin the commit, inventory tracked blobs, record inclusive line ranges, evidence and unresolved dependencies, then reconcile coverage against the inventory. Keep static review, tool output and tests separate. A partial run must identify the next unread range.
+
 ## Exercise
 Source code is under /src. Python dependencies are installed in the scanner image. Inspect application routes, tests and security-related code. Run targeted pytest suites where feasible; tests may require fixtures and external services.
 

@@ -5,7 +5,8 @@ pre-generated, compressed audio served from the local app. The service worker
 caches a clip after it is played, so previously used words and questions remain
 available offline. Questions use German, English, or joined bilingual speech
 segments so target vocabulary keeps its language pronunciation. If a clip
-cannot be played, the browser voice is used as a fallback.
+cannot be played, the prompt renders through the local Piper TTS endpoint
+(`GET /kids/lernen/sprache`); there is no browser-voice fallback.
 
 - Piper text-to-speech: https://github.com/OHF-Voice/piper1-gpl (GPL-3.0-or-later)
 - German voice: Thorsten, medium, based on Thorsten-Voice; voice dataset CC0:

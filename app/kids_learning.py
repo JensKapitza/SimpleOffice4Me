@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
-from flask import Blueprint, abort, current_app, render_template, request, url_for
+from flask import Blueprint, abort, current_app, jsonify, render_template, request, send_file, url_for
 
 from .auth import login_required
 from .federation_qr_image import render_qr_svg
@@ -14,13 +14,88 @@ from .settings_store import SettingsStore
 
 bp = Blueprint("kids_learning", __name__, url_prefix="/kids/lernen")
 
+#: Highest text length the read-aloud endpoint renders in one request.
+#: Maze instructions and quiz prompts are short; the cap keeps Piper renders
+#: small, cacheable and responsive on low-end devices.
+MAX_KIDS_TTS_CHARS = 500
+
+_PIPER_MISSING_MESSAGE = (
+    "Vorlesestimme ist nicht eingerichtet. "
+    "Bitte in den Medien-Einstellungen ein Piper-Stimmenmodell hinterlegen "
+    "(Admin-Bereich, Piper-CLI plus Modell erforderlich)."
+)
+
 
 @bp.after_request
 def _private_response(response):
-    response.headers["Cache-Control"] = "private, no-store"
+    if request.endpoint == "kids_learning.sprache" and response.status_code == 200:
+        # Rendered speech is addressed by its (text, language) hash, so a
+        # successful render is immutable and safe to cache on the device.
+        response.headers["Cache-Control"] = "private, max-age=31536000, immutable"
+    else:
+        response.headers["Cache-Control"] = "private, no-store"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["X-Robots-Tag"] = "noindex, nofollow"
     return response
+
+
+def _kids_tts_model(language: str) -> str:
+    """Pick the configured Piper model for a read-aloud language.
+
+    German is the default voice (Thorsten, medium). English uses its own
+    optional model and falls back to the default voice when unset, so the
+    endpoint never reaches out to an external network TTS service.
+    """
+    try:
+        media = SettingsStore(current_app.config["DOCUMENT_ROOT"]).settings()["media"]
+    except (OSError, ValueError, KeyError):
+        return ""
+    english = language.lower().startswith("en")
+    model = str(media.get("piper_model_en", "") or "") if english else ""
+    if not model:
+        model = str(media.get("piper_model", "") or "")
+    return model.strip()
+
+
+def _kids_tts_cache_dir() -> Path:
+    from .mini_services import default_config_path
+
+    return default_config_path().parent / "audio" / "kids-tts"
+
+
+@bp.get("/sprache")
+@login_required
+def sprache():
+    """Render short read-aloud texts with the local Piper voice.
+
+    Offline-first: speech is synthesized by the local Piper CLI and cached on
+    disk by text hash, so repeated maze and quiz prompts need no recompute.
+    Query params: ``text`` (1..500 chars), ``lang`` (``de-DE`` or ``en-US``).
+    """
+    language = (request.args.get("lang", "de-DE") or "de-DE").strip()
+    if language not in {"de-DE", "en-US"}:
+        return jsonify(error="Unbekannte Sprache. Erlaubt sind de-DE und en-US."), 400
+    text = " ".join((request.args.get("text", "") or "").split())
+    if not text or len(text) > MAX_KIDS_TTS_CHARS:
+        return jsonify(error="Vorlesetext muss 1 bis 500 Zeichen enthalten."), 400
+    if any(ord(char) < 32 or ord(char) == 127 for char in text):
+        return jsonify(error="Vorlesetext enthält ungültige Zeichen."), 400
+    model = _kids_tts_model(language)
+    if not model:
+        return jsonify(error=_PIPER_MISSING_MESSAGE, code="piper_unavailable"), 503
+    try:
+        from .audio_output_engine import render_tts
+
+        audio_path = render_tts(
+            text,
+            "kids-de" if language == "de-DE" else "kids-en",
+            _kids_tts_cache_dir(),
+            model=model,
+        )
+    except (RuntimeError, TimeoutError, ValueError, OSError) as exc:
+        current_app.logger.warning("Kids read-aloud failed: %s", type(exc).__name__)
+        return jsonify(error=_PIPER_MISSING_MESSAGE, code="piper_unavailable"), 503
+    return send_file(audio_path, mimetype="audio/wav", max_age=31536000)
 
 
 @bp.get("")

@@ -42,9 +42,7 @@
   const choicesNode = root.querySelector('[data-choices]');
   const progress = root.querySelector('[data-progress]');
   const speakButton = root.querySelector('[data-speak]');
-  const speechVoiceSelects = [...root.querySelectorAll('[data-speech-voice]')];
   const speechStatus = root.querySelector('[data-speech-status]');
-  const selectedSpeechVoices = {de:'',en:''};
   let selectedLevel = 'preschool';
   let selectedSubject = 'math';
   let selectedSearchMode = 'objects';
@@ -71,8 +69,8 @@
   let mazeHappyTimer = 0;
   let mazeTypingMode = false;
   const maxWrongAttempts = 5;
-  const audio = window.KidsLanguageAudio({text, speechStatus, selectedVoices:selectedSpeechVoices});
-  const {speak, readQuestion, playSolution} = audio;
+  const audio = window.KidsLanguageAudio({text, speechStatus});
+  const {speak, readQuestion, playSolution, stop: stopAudio} = audio;
 
   function setQuizFeedback(kind, message) {
     root.querySelector('[data-feedback-status-icon]').textContent = kind === 'wrong' ? '😟 ' : kind === 'right' ? '🌼😊 ' : '';
@@ -284,48 +282,8 @@
   function buildMixedRound(level) {
     return shuffle(['math','german','english','world']).slice(0,3).map(subject => shuffle(buildSubjectRound(subject,level))[0]);
   }
-  function voiceId(voice) {
-    return voice.voiceURI || `${voice.name}|${voice.lang}`;
-  }
-  function renderSpeechVoices() {
-    if (!('speechSynthesis' in window)) return;
-    const voices = window.speechSynthesis.getVoices();
-    speechVoiceSelects.forEach(select => {
-      const language = select.dataset.speechVoice;
-      const matching = voices.filter(voice => voice.lang.toLocaleLowerCase().startsWith(language));
-      if (!matching.length) return;
-      select.replaceChildren();
-      const automatic = document.createElement('option');
-      automatic.value = '';
-      automatic.textContent = text('Automatisch – beste passende Stimme','Automatic – best matching voice');
-      select.append(automatic);
-      matching.sort((a,b)=>a.name.localeCompare(b.name)).forEach(voice=>{
-        const option = document.createElement('option');
-        option.value = voiceId(voice);
-        option.textContent = `${voice.name} (${voice.lang}) · ${voice.localService ? text('Gerät','Device') : text('Online','Online')}`;
-        select.append(option);
-      });
-      select.value = selectedSpeechVoices[language];
-      if (select.value !== selectedSpeechVoices[language]) {
-        selectedSpeechVoices[language] = '';
-        select.value = '';
-      }
-      select.hidden = false;
-    });
-  }
-  speechVoiceSelects.forEach(select => {
-    const language = select.dataset.speechVoice;
-    try { selectedSpeechVoices[language] = window.localStorage.getItem(`kids-learning.voice.${language}`) || ''; } catch {}
-    select.addEventListener('change', () => {
-      selectedSpeechVoices[language] = select.value;
-      try { window.localStorage.setItem(`kids-learning.voice.${language}`, select.value); } catch {}
-    });
-  });
-  if ('speechSynthesis' in window) {
-    renderSpeechVoices();
-    if (typeof window.speechSynthesis.addEventListener === 'function') window.speechSynthesis.addEventListener('voiceschanged', renderSpeechVoices);
-    else window.speechSynthesis.onvoiceschanged = renderSpeechVoices;
-  }
+  // Read-aloud voice is the single server-side Piper voice (see KidsPiperVoice):
+  // no per-device browser voice selection anymore.
   function start(subject) {
     selectedSubject = subject;
     searchModes.hidden = true;
@@ -631,7 +589,7 @@
     mazeLetters.hidden = !on; mazePanel.classList.toggle('is-typing', on);
     updateMazeTask();
     if (on) speak(text('Tipp-Modus. Tippe den eingeklammerten Buchstaben.', 'Typing mode. Type the bracketed letter.'), english ? 'en-US' : 'de-DE');
-    else if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    else stopAudio();
   }
   function drawMaze() {
     window.KidsMazeDraw.drawMaze({
@@ -650,7 +608,7 @@
   }
   function moveMaze(direction) {
     if (mazeCompleted) return;
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    stopAudio();
     const next = mazeNodes[mazeCurrentNode].exits[direction];
     if (!next) {
       fadeMazeChoice(direction);
@@ -685,7 +643,7 @@
       searchReadyForNext = true;
       searchNext.hidden = false;
       searchNext.focus();
-      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+      stopAudio();
     } else if (mazeListen) speakMazeRoute();
     window.clearTimeout(mazeHappyTimer);
     if (mazeHappy && !mazeCompleted) mazeHappyTimer = window.setTimeout(() => { mazeHappy = false; drawMaze(); }, 850);
@@ -891,7 +849,7 @@
       mazeListenButton.setAttribute('aria-pressed', 'false');
       mazeListenButton.textContent = `🔊 ${text('Hörmodus aus','Listen mode off')}`;
       mazeListenButton.disabled = true;
-      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+      stopAudio();
     } else mazeListenButton.disabled = false;
     mazeCurrentNode = 'start';
       mazePreviousNode = '';
@@ -908,7 +866,7 @@
     mazeListenButton.setAttribute('aria-pressed', String(mazeListen));
     mazeListenButton.textContent = `🔊 ${mazeListen ? text('Hörmodus an','Listen mode on') : text('Hörmodus aus','Listen mode off')}`;
     if (mazeListen) speakMazeRoute();
-    else if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    else stopAudio();
   });
   root.querySelectorAll('[data-maze-direction]').forEach(button => button.addEventListener('click', () => moveMaze(button.dataset.mazeDirection)));
   'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').forEach(letter => {

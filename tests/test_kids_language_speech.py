@@ -1,7 +1,6 @@
 """Regression tests for Kids language subjects: English works, questions follow the subject language."""
 from __future__ import annotations
 
-import re
 import unittest
 from pathlib import Path
 
@@ -48,15 +47,18 @@ class KidsLanguageSubjectTests(unittest.TestCase):
         self.assertIn("questions.some(question => !question || !question.q)", script)
         self.assertIn("data-setup-notice", script)
 
-    def test_legacy_voice_ranking_prefers_on_device_voices(self):
+    def test_read_aloud_uses_server_piper_voice(self):
+        # Bewusste Spezifikationsänderung: statt per-Gerät variierender
+        # Browser-Stimmen (Maze teils unverständlich) spricht überall die eine
+        # lokale Piper-Serverstimme; Online-Stimmen entfielen ersatzlos
+        # (Offline-first, Kids-Datenschutz).
         for path in (AUDIO_SCRIPT, MINI_SCRIPT):
             with self.subTest(script=path.name):
                 script = path.read_text(encoding="utf-8")
-                local = re.search(r"voice\.localService \? (\d+)", script)
-                cloud = re.search(r"natural\|neural[^?]*\? (\d+)", script)
-                self.assertIsNotNone(local)
-                self.assertIsNotNone(cloud)
-                self.assertGreater(int(local.group(1)), int(cloud.group(1)))
+                self.assertIn("KidsPiperVoice", script)
+                self.assertNotIn("speechSynthesis", script)
+                self.assertNotIn("SpeechSynthesisUtterance", script)
+                self.assertNotIn("localService", script)
 
 
 class KidsLearningPageTests(PublicHttpTestCase):
