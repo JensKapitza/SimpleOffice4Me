@@ -577,3 +577,12 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | `COLUMNS`-Mapping um `quantity` (menge/anzahl/bestand/qty/count/stueckzahl/stückzahl) und `unit` (einheit/masseinheit) erweitert; `validate_row` normalisiert und meldet ungültige Mengen/zu lange Einheiten auf Deutsch; JSON- und HTML-Vorschau zeigen Menge/Einheit, Commit legt sie per `ObjectStore.create` an. |
 | Tests und Soll-Ist-Vergleich | Soll: Alias-Abbildung, Vorschau, Validierung, Anlage mit Menge/Einheit, Rechte. Ist gemessen: 2 neue Blackbox-HTTP-Tests (Alias-Mapping + Commit mit Mengenanlage; ungültige Menge/zu lange Einheit), 7/7 CSV-Suite, 366/366 `test_inventory*.py`; Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen als Follow-up (weitere #1111-Slices): Leih-/Reservierungs-Überschneidungscheck (eigener Slice), Scanmodi pro Aktion, Fotoerkennung, Offline-Sync, föderierte Rechte. |
+
+## 21. November 2026 · Issue #1111 (Slice): Leih-/Reservierungs-Überschneidungscheck
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Checkout und Reservierung prüften nur ihre eigene Store-Hälfte (Leihe blockt Leihe, Reservierung blockt Reservierung); eine Leihe konnte in eine aktive Reservierung hineinlaufen und umgekehrt. Bestand wiederverwendet: `LendingStore`/`ReservationStore` mit eigenen Locks/Dateien, keine neue DB, keine Auto-Stornierung. |
+| Implementierung | `LendingStore.blocking_loan` und `ReservationStore.conflicts` als reine Prüfungen; Checkout lehnt bei überlappender aktiver Reservierung ab, Reservierung bei überlappender offener Leihe — je mit klarer deutscher Meldung (Zeitraum + Person). Ungültige Daten liefern weiterhin die bestehenden Validierungsfehler. |
+| Tests und Soll-Ist-Vergleich | Soll: beide Blockrichtungen, Freigabe außerhalb des Fensters, stornierte Reservierung/Rückgabe geben frei, Rechte. Ist gemessen: 5/5 Blackbox-HTTP-Tests (beide Richtungen, Fenster-daneben erlaubt, Storno/Rückgabe entsperrt); Nachbar-Suites 13/13 (lending/reservations/neu), 369/369 `test_inventory*.py`; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up (weitere #1111-Slices): Scanmodi pro Aktion, Fotoerkennung, Offline-Sync, föderierte Rechte. |
