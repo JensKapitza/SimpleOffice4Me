@@ -99,6 +99,36 @@ class CsvImportHttpTests(unittest.TestCase):
                                          json={"token": "0" * 32})
         self.assertEqual(400, unknown_token.status_code)
 
+    def test_preview_maps_quantity_and_unit_aliases(self):
+        staged = self.preview(
+            "name;menge;einheit\nSchrauben;50;Stück\nEinzelteil;;\n").get_json()
+        self.assertTrue(staged["ok"])
+        self.assertEqual(2, staged["valid"])
+        self.assertEqual([], staged["problems"])
+        first = staged["preview"][0]
+        self.assertEqual("50", first["quantity"])
+        self.assertEqual("Stück", first["unit"])
+        self.assertEqual("", staged["preview"][1]["quantity"])
+        commit = self.client.post("/inventory/import/commit",
+                                  json={"token": staged["token"]})
+        body = commit.get_json()
+        self.assertEqual(2, body["counts"]["created"])
+        screws = ObjectStore(self.root).objects("Schrauben")
+        self.assertEqual(1, len(screws))
+        self.assertEqual("50", screws[0]["quantity"])
+        self.assertEqual("Stück", screws[0]["unit"])
+
+    def test_preview_rejects_bad_quantity_and_long_unit(self):
+        staged = self.preview(
+            "name;menge;einheit\nText;viel;Stück\nNegativ;-3;Stück\n"
+            "Riesig;2;xaaaaaaaaaaaaaaaaaaaaaaaa\nOk;1,5;kg\n").get_json()
+        self.assertEqual(1, staged["valid"])
+        kinds = sorted(row["problem"] for row in staged["problems"])
+        self.assertEqual(3, len(kinds))
+        self.assertEqual(2, sum("Menge" in kind for kind in kinds))
+        self.assertTrue(any("Einheit" in kind for kind in kinds))
+        self.assertEqual("1.5", staged["preview"][0]["quantity"])
+
     def test_import_requires_login_and_form_is_visible(self):
         anonymous = app.test_client()
         denied = anonymous.post(

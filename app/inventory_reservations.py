@@ -68,6 +68,15 @@ class ReservationStore:
             rows = [row for row in rows if str(row.get("object_id", "")) == wanted]
         return sorted(rows, key=lambda row: (str(row.get("start_date", "")), str(row.get("end_date", ""))))
 
+    def conflicts(self, object_id: str, start: str, end: str) -> list[dict[str, Any]]:
+        """Active reservations overlapping [start, end]; pure check, changes nothing."""
+        first, last = str(start or "").strip(), str(end or "").strip()
+        if not first or not last:
+            return []
+        return [row for row in self.reservations(object_id)
+                if _overlaps(first, last, str(row.get("start_date", "")),
+                              str(row.get("end_date", "")))]
+
     def reserve(self, object_id: str, reserver: str, start_date: str, end_date: str,
               actor: str, *, note: str = "") -> dict[str, Any]:
         clean_object = str(object_id or "").strip()
