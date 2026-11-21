@@ -188,9 +188,12 @@ def index():
     scripts = store.scripts_for(_actor(), selected["id"]) if selected else []
     sieve_state = server_state(store, _actor(), selected["id"]) if selected else {"scripts": [], "active": "", "updated_at": ""}
     remote_names = {row["name"] for row in sieve_state.get("scripts", [])}
+    server_names = {row["name"]: row.get("server_name", "") or row["name"]
+                    for row in sieve_state.get("scripts", [])}
     for row in scripts:
         row["on_server"] = row["name"] in remote_names
         row["active"] = row["name"] == sieve_state.get("active", "")
+        row["server_name"] = server_names.get(row["name"], row["name"])
     script_name = request.args.get("script", "")
     script_content = ""
     if selected and script_name:
@@ -467,6 +470,13 @@ def sync_sieve(account_id: str):
         changed = sum(1 for row in result["scripts"] if row.get("changed"))
         active = result.get("active") or "kein aktives Skript"
         flash(f"Sieve-Serverbestand gesichert: {len(result['scripts'])} Skript(e), {changed} lokal aktualisiert; aktiv: {active}.")
+        for entry in result.get("renamed", []):
+            flash(f"Sieve-Skript „{entry['server']}“ wurde lokal als „{entry['local']}“ abgelegt (Sonderzeichen im Servernamen).")
+        for entry in result.get("skipped", []):
+            flash(f"Sieve-Eintrag übersprungen (nicht lesbar): {entry}.")
+        if result.get("skipped"):
+            current_app.logger.warning(
+                "Sieve sync skipped %d entries for %s", len(result["skipped"]), _actor())
     except Exception as exc:
         current_app.logger.warning("Sieve sync failed for %s: %s", _actor(), type(exc).__name__)
         flash(f"Sieve-Download fehlgeschlagen ({type(exc).__name__}) auf dem konfigurierten ManageSieve-Server. Prüfe Host/Port 4190, STARTTLS und ob der Mailanbieter ManageSieve freigibt.")

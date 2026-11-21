@@ -250,6 +250,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | `LibraryStore.unassign` mit Ereignis; neues Modul `scan_dispatch_routes.py` mit `POST /library/scan` (Modus+Code+Ziel, JSON/Flash, Login, Audit): Einlagern ordnet zu, Entnehmen löst Zuordnung und Spiegelung (mit Wiederherstellung bei Spiegelfehler); Scan-Karte auf der Bibliotheksseite. |
 | Tests und Soll-Ist-Vergleich | Soll: beide Modi wirken, Spiegel konsistent, Validierung, Rechte. Ist gemessen: 4/4 Blackbox-HTTP-Tests (Einlagern per Code, Entnehmen löst+leert Spiegel, 3 Validierungsfälle, anonym+Marker); Nachbar-Suites 24/24; Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen als Follow-up: Modi Umlagern/Inventur, Zielort-Gedächtnis, föderierte Rechte, Fotoerkennung, Offline-Sync. |
+## 21. November 2026 · Sieve: Skripte mit Sonderzeichen werden gefunden + Diagnose
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Nutzerbefund: eigene Sieve-Skripte werden trotz Login nicht gefunden. Root Cause: `list_scripts` verwarf stillschweigend alle Servernamen außerhalb `[A-Za-z0-9_.-]` (Leerzeichen, Umlaute); `_quote`/`_safe_sieve_name` hätten sie danach ebenfalls abgelehnt. Zusätzlich keine Diagnose (stilles `continue`). |
+| Implementierung | `list_scripts_detailed` (alle parsetauglichen Namen + `skipped`-Liste, `list_scripts` bleibt kompatibel); `_quote` für RFC-5804-Quoted-Strings (Leerzeichen/Unicode ok, nur `"\\/Steuerzeichen` abgelehnt); `sanitize_local_name` (sichere Namen identisch, Rest deterministisch gefaltet + Hash, kollisionsfrei); Sync speichert unter lokalem Schlüssel, meldet `renamed`/`skipped` (Flash + Audit-History); Aktivieren nutzt Server-Namen; UI zeigt Server-Namen + Mapping. |
+| Tests und Soll-Ist-Vergleich | Soll: Namen mit Leerzeichen/Umlauten laden, aktivieren, Diagnose sichtbar. Ist gemessen: 9/9 Sieve-Tests (4 neu: Parsen+skipped, Sanitize-Stabilität/Kollision, Sync-Mapping, Aktivieren mit Server-Namen); Nachbarn 40/40; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen: Praxistest gegen echten Dovecot/Anbieter mit Sonderzeichen-Skripten durch Eigentümer. |
+
 ## 20. November 2026 · Kids-Vorlesestimme: überall Piper statt Browser-Stimmen
 
 | Phase | Arbeit und Nachweis |
