@@ -759,6 +759,7 @@ class PrinterShareStore:
         ttl_ceiling_seconds: int = 0,
         policy_revision: str = "",
         federation: bool = False,
+        dry_run: bool = False,
     ) -> dict[str, Any]:
         settings = self.settings()
         printer = self.printer(target_id, federation=federation)
@@ -787,6 +788,28 @@ class PrinterShareStore:
                     digest, policy_revision[:128], now,
                 ),
             )
+        if dry_run:
+            completed_at = int(time.time())
+            with sqlite_connect(self.jobs_path) as db:
+                db.execute(
+                    "UPDATE print_job SET status='test',spool_reference='dry-run',completed_at=?,error='' WHERE job_id=?",
+                    (completed_at, job_id),
+                )
+            return {
+                "job_id": job_id,
+                "printer_id": target_id,
+                "printer": printer["label"],
+                "status": "test",
+                "retention": retention,
+                "expires_at": expires_at,
+                "payload_sha256": digest,
+                "payload_size": len(payload),
+                "policy_revision": policy_revision,
+                "completed_at": completed_at,
+                "application_archive": retention != "no_store",
+                "os_spooler_may_cache": False,
+                "spool_reference": "dry-run",
+            }
         try:
             spool_reference = spool_payload(printer, payload, content_type, filename)
         except Exception as exc:

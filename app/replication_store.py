@@ -329,6 +329,7 @@ def init_app(app) -> None:
         project_repo_admin,
         v3_capabilities_admin,
         federation_admin,
+        federation_audio_http,
         federation_blocks_http,
         federation_blocks_v2_http,
         federation_catalog_http,
@@ -376,6 +377,7 @@ def init_app(app) -> None:
     app.register_blueprint(gamification_federation_http.bp)
     app.register_blueprint(gamification_leaderboard_routes.bp)
     app.register_blueprint(federation_catalog_http.bp)
+    app.register_blueprint(federation_audio_http.bp)
     app.register_blueprint(federation_blocks_http.bp)
     app.register_blueprint(federation_blocks_v2_http.bp)
     app.register_blueprint(federation_contacts_http.bp)

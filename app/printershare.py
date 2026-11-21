@@ -147,6 +147,7 @@ def _verify_receipt(
     expected_payload_size: int,
     expected_request_nonce: str,
     ttl_ceiling_seconds: int,
+    expected_status: str = "spooled",
 ) -> None:
     if not isinstance(receipt, dict):
         raise ValueError("Gegenstelle lieferte keine Druckbestätigung")
@@ -159,7 +160,7 @@ def _verify_receipt(
     if not signature or not hmac.compare_digest(signature, expected_hmac):
         raise ValueError("Druckbestätigung der Gegenstelle ist nicht authentisiert")
 
-    if receipt.get("status") != "spooled":
+    if receipt.get("status") != expected_status:
         raise ValueError("Gegenstelle bestätigt keine erfolgreiche Spooler-Übergabe")
     if not hmac.compare_digest(str(receipt.get("printer_id") or ""), expected_printer_id):
         raise ValueError("Druckbestätigung gehört zu einem anderen Drucker")
@@ -210,6 +211,7 @@ def submit_remote_print(
     filename: str,
     retention_ceiling: str,
     ttl_ceiling_seconds: int = 0,
+    dry_run: bool = False,
 ) -> dict[str, Any]:
     federation = FederationStore(root)
     peer = federation.get_peer(peer_id)
@@ -295,8 +297,11 @@ def submit_remote_print(
         "X-SimpleOffice-Payload-Size": str(payload_size),
         "X-SimpleOffice-Print-Signature": proof_signature,
     }
+    target = f"{peer['base_url']}/federation/v1/print/jobs/{printer_id}"
+    if dry_run:
+        target += "?dry_run=1"
     with _request(
-        f"{peer['base_url']}/federation/v1/print/jobs/{printer_id}",
+        target,
         method="POST",
         token=token,
         body=payload,
@@ -319,6 +324,7 @@ def submit_remote_print(
         expected_payload_size=payload_size,
         expected_request_nonce=request_nonce,
         ttl_ceiling_seconds=effective_ttl_ceiling,
+        expected_status="test" if dry_run else "spooled",
     )
     return result
 
