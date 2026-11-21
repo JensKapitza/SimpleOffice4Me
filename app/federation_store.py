@@ -339,6 +339,35 @@ class FederationStore:
                     (str(error)[:1000], _now(), peer_id),
                 )
 
+    def claim_hello_attempt(
+        self, rate_key: str, *, limit: int = 10, window_seconds: int = 60,
+        now: int | None = None,
+    ) -> bool:
+        """Rate-limit hello announcements by sender fingerprint (peer unknown)."""
+        key = str(rate_key or "")[:256]
+        timestamp = _now() if now is None else int(now)
+        limit = max(1, min(int(limit), 60))
+        window_seconds = max(1, min(int(window_seconds), 3600))
+        if not key:
+            return False
+        with self._db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute(
+                "DELETE FROM federation_hello_attempt WHERE attempted_at<?",
+                (timestamp - window_seconds,),
+            )
+            count = db.execute(
+                "SELECT COUNT(*) FROM federation_hello_attempt WHERE rate_key=? AND attempted_at>=?",
+                (key, timestamp - window_seconds),
+            ).fetchone()[0]
+            if int(count) >= limit:
+                return False
+            db.execute(
+                "INSERT INTO federation_hello_attempt(rate_key,attempted_at) VALUES(?,?)",
+                (key, timestamp),
+            )
+        return True
+
     def claim_diagnostic_attempt(
         self, peer_id: str, *, limit: int = 10, window_seconds: int = 60,
         now: int | None = None,

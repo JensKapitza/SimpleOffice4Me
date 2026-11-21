@@ -8,6 +8,7 @@ from .federation_directory import directory_profiles
 from .federation_directory_store import FederationDirectoryStore
 from .federation_http import _authorized
 from . import federation_local_identity as _identity
+from .federation_hello import receive_hello
 from .federation_local_profile import local_peer_id, local_profile
 from .federation_pairing import FederationPairingTokens
 from .federation_pairing_protocol import authenticate_pairing_request
@@ -81,6 +82,25 @@ def _pairing_tokens():
 
 def _pairing_response(pairing):
     response = jsonify({"pairing": pairing})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@bp.post("/federation/v1/discovery/hello")
+def receive_peer_hello():
+    """Accept a mutual announcement from a scanned peer (no Bearer needed).
+
+    The announcer is unknown by design; authentication happens through its
+    signed identity. It is stored visible-but-untrusted (disabled, no
+    trust); impersonation of known peers is rejected and recorded.
+    """
+    body = request.get_json(silent=True)
+    try:
+        answer = receive_hello(_root(), body)
+    except (TypeError, ValueError) as exc:
+        _log_rejected("peer hello", exc)
+        return jsonify({"ok": False, "error": str(exc)[:160]}), 400
+    response = jsonify(answer)
     response.headers["Cache-Control"] = "no-store"
     return response
 

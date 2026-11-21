@@ -259,6 +259,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: weder Verbindung noch Identität per Discovery umbiegbar, Zeremonie funktioniert. Ist gemessen: 44/44 (Discovery-, Admin-UI-, Peer-Trust-Suites inkl. 4 neue Konflikt-/Zeremonie-Tests); Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen: nichts. |
 
+## 21. November 2026 · Federation: Hello macht Scans beidseitig sichtbar
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Nutzerbefund: QR-Scan meldet „Peer erkannt“, aber nur einseitig. Root Cause: `import_qr` speicherte ausschließlich lokal; ein Rückmelde-Mechanismus existierte nicht. Krypto (Ed25519-Signaturen, Fingerprint-Bindung) strukturell geprüft und als Basis wiederverwendet; Nebenbefund: `peer_profile` war nicht idempotent (leeres Deskriptor-Dict warf). |
+| Implementierung | Neues Modul `app/federation_hello.py` (signiertes Hello, Empfänger-Prüfung: Signatur, Fingerprint-Bindung, Zeitfenster, Identitätsdiebstahl-Ablehnung, Fingerprint-Rate-Limit); Endpunkt `POST /federation/v1/discovery/hello` (sichtbar-aber-unvertraut: deaktiviert, Trust NONE); QR-Import meldet Hallo best-effort mit Treffer-/Fehler-Flash; `normalize_protocol_descriptor({})` gefixt. |
+| Tests und Soll-Ist-Vergleich | Soll: nach Scan beide Seiten sichtbar, Fälschung/Identitätsdiebstahl abgelehnt, kein Vertrauen durch Hello. Ist gemessen: 5/5 Zwei-Instanzen-Blackbox-Tests; Nachbarn (Admin-UI, Discovery, Kompatibilität) grün; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen: Praxistest mit zwei echten Instanzen durch Eigentümer; Diagnose-Buttons (Datei, Ton, QR, Druck-Test) als Folge-PR. |
+
 ## 21. November 2026 · Sieve: Skripte mit Sonderzeichen werden gefunden + Diagnose
 
 | Phase | Arbeit und Nachweis |
@@ -295,6 +304,14 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: Fremddateien weg, legitime Slices da, Suite grün. Ist gemessen: 6/6 Fremddateien entfernt, 4/4 Slice-Module + share-Flag vorhanden; Mail-/Inventur-/Bibliotheks-Nachbarsuites + Gates vor Push grün (siehe PR-CI). |
 | Review und Abschluss | Lehre: Merge-Agents dürfen nur `git merge origin/main` ausführen, nie fremde Branches integrieren; Merges künftig per Diff gegen PR-Branch verifizieren. Offen: #1134-Doku neu, #1135/#1137 normal mergen, #1136-Slices bleiben zur Nutzer-Review offen. |
 
+## 20. November 2026 · Issue #1136 (Slice 1): Mail-UI-Shell mit Tastatur, Palette, mobilen Panes
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | #1136-Ist verifiziert: Mehrkonten-IMAP/SMTP, BODY.PEEK-Lesen, `require_writable`-Schreibschutz, Ordner/Liste/Lesebereich als 3-Spalten-Template, Archiv/Vorgänge vorhanden. Lücken: keine Tastaturbedienung, keine Befehlspalette, kein mobiles Pane-Verhalten, kein LRU-Cache, kein Lese-Timing, keine Tag-/Aufgaben-Integration. Plan mit 7 Slices in `docs/ISSUE_1136_PLAN.md`. |
+| Implementierung | Slice 1 ohne Backend-Änderung: `static/js/mail_client.js` (j/k/Enter-Navigation, Kürzel e/u/r/c//, Strg+K-Palette aus gerenderten `data-mail-action`-Aktionen, mobile Pane-Umschaltung), `static/css/mail_client.css`, Template-Marker (`data-mail-pane/uid/action`, Palette, Hinweise). Nur bestehende Routen; ohne JS bleibt alles Link/Formular; Readonly liefert konstruktionsbedingt keine Schreibaktionen. |
+| Tests und Soll-Ist-Vergleich | Soll: 3 Panes + Palette rendern, Zeilen/Key-Hooks, Preview-Aktionen, Readonly ohne Schreibaktionen, ohne Konto stabil. Ist gemessen: 5/5 Blackbox-HTTP-Tests mit Fake-IMAP (`test_mail_client_shell_http.py`); Nachbarn 40/40; `node --check`, Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Kein Auto-Merge (Issue-Vorgabe). Offen: Slices 2–7 (Cache, Timing, Tags, Überführen, Signaturen, Archiv-Härtung). |
 ## 21. November 2026 · Mail: Read-only-Schalter verlässt Reader nicht mehr
 
 | Phase | Arbeit und Nachweis |
