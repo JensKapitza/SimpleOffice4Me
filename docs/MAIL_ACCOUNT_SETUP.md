@@ -36,3 +36,14 @@ governs the implicit remote inbox load in the web reader and is enforced on the
 server; it does not delete archived messages or credentials. A remote request
 already in progress when the setting changes may finish; subsequent implicit
 loads are skipped.
+
+## Tags/Keywords (Issue #1136, slice 4)
+
+The reader shows IMAP user keywords (non-`\`-flags such as `$Forwarded`)
+as badges in the message list and in the preview header. Keyword sync
+(`POST /documents/mail/reader/message/keywords`) requires an explicitly
+writable account (`require_writable`) and a server that advertises `\*` in
+`PERMANENTFLAGS` from SELECT; otherwise the sync is rejected and nothing is
+sent. Read-only accounts only display keywords and never issue STORE.
+Keywords are validated as IMAP atoms (letters, digits, `$`, `-`, `_`, `.`;
+max 50 chars); system flags keep their dedicated actions.
