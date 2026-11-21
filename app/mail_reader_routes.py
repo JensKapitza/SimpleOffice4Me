@@ -22,6 +22,7 @@ from .mail_case_attachments import MailCaseAttachmentStore
 from .mail_attachment_download import latest_scan_for_sha256, scan_attachment_for_download
 from .mail_client import MAX_MESSAGE_BYTES, MailStore, SmtpDeliveryStateUnknown, SmtpSubmission, _mail_ui_features
 from .mail_reader import MailReader
+from .mail_signatures import get_signature_or_default
 from .mail_webclient import ImapWebClient, MailAccountPolicy, MailReadOnlyError, contact_recipients
 
 
@@ -226,6 +227,8 @@ def index():
     page = max(1, request.args.get("page", 1, type=int) or 1)
     folders: list[dict] = []
     messages: list[dict] = []
+    unread_counts: dict[str, int] = {}
+    signature = ""
     mailbox = {"page": page, "total": 0, "has_prev": False, "has_next": False}
     preview = None
     archive_preview = None
@@ -305,6 +308,7 @@ def index():
 
     if selected and mode != "case":
         read_only = MailAccountPolicy(store).read_only(_actor(), selected["id"])
+        signature = get_signature_or_default(store, _actor(), selected["id"])
         case_links = cases.message_case_links(_actor(), selected["id"])
         if mode == "archive":
             archive_rows = reader.local_archive(_actor(), selected["id"], query=query, limit=200)
@@ -336,6 +340,11 @@ def index():
             try:
                 account = _account(store, selected["id"])
                 folders = web.folders(account)
+                try:
+                    names = [item["name"] for item in folders if item.get("selectable")]
+                    unread_counts = web.unread_counts(account, names)
+                except Exception as exc:
+                    current_app.logger.warning("IMAP unread counts failed for %s: %s", _actor(), type(exc).__name__)
                 folder = folder or selected.get("folder", "INBOX") or "INBOX"
                 mailbox = web.messages(account, folder, page=page, per_page=50, query=query)
                 messages = mailbox["messages"]
@@ -377,6 +386,8 @@ def index():
         connection_error=connection_error,
         read_only=read_only,
         compose=_compose_prefill(),
+        signature=signature,
+        unread_counts=unread_counts,
         case_rows=case_rows,
         case_followups=suggest_case_followups(case_rows),
         case_view=case_view,
@@ -855,6 +866,7 @@ def send_message():
     try:
         MailAccountPolicy(store).require_writable(_actor(), account_id)
         account = _smtp_account(store, account_id)
+        signature = get_signature_or_default(store, _actor(), account_id)
         result = SmtpSubmission(store).send(
             _actor(),
             account,
@@ -863,6 +875,7 @@ def send_message():
             request.form.get("body", ""),
             request.form.get("calendar_data", ""),
             account_id=account_id,
+            signature=signature,
         )
         flash(f"Nachricht an {result['recipients']} Empfänger versandt und als EML archiviert.")
     except MailReadOnlyError as exc:
