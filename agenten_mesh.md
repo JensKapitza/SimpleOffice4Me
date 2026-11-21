@@ -547,3 +547,12 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Soll-Ist-Vergleich | Soll: lesende Salden + verfügbare Salden per Mock-Bank — Ist: nachgewiesen. Soll: Fähigkeiten/TAN-Verfahren ermitteln, Fehlendes deaktiviert — Ist: `GET_BALANCE=False` blockiert Abruf per `FinTSFeatureUnavailable` ohne Abrufversuch, TAN 942 gelistet. Soll: Timeout/Fehler/Berechtigungen/Geheimnisfreiheit — Ist: 3 begrenzte Versuche, generische Fehler, Fremdnutzer-404 ohne Fetch, kein PIN/TAN in Seite/Logs/Flashes/DB (adversarialer Fehlertext geprüft). Soll: SEPA deaktiviert — Ist: keine Finance-SEPA-/Transfer-Routen, keine Adapter-APIs. |
 | Review | Unabhängige Prüfung steht aus: Koordinator reviewt Banking separat. Hinweis ohne Änderung: `finally: pin = ""` löst nur die lokale Referenz (kein Speicher-Wipe); Geheimnisfreiheit beruht auf Nicht-Persistenz + `no-store` + typisierten Logs — per Tests nachgewiesen. |
 | Abschluss | Commit `557bf8ab`, PR #1152 (`feature/fints-balances` → `main`), NICHT gemergt. Offen: Koordinator-Review, manueller Praxistest am Endgerät durch Eigentümer nach Merge, echte Bank-Anbindung nur mit bewusster Freigabe. |
+
+## 21. November 2026 · Issue #1111 (P2-Slice): CSV-Import mit Mengen-/Einheit-Spalten
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | CSV-Import kannte Menge/Einheit nicht; Stapelartikel mussten einzeln nachgepflegt werden. Bestand wiederverwendet: `ImportStageStore`-Staging, `ObjectStore`-Validierung (`_quantity`/`_unit`, Einheit max. 24 Zeichen), keine neue DB. |
+| Implementierung | `COLUMNS`-Mapping um `quantity` (menge/anzahl/bestand/qty/count/stueckzahl/stückzahl) und `unit` (einheit/masseinheit) erweitert; `validate_row` normalisiert und meldet ungültige Mengen/zu lange Einheiten auf Deutsch; JSON- und HTML-Vorschau zeigen Menge/Einheit, Commit legt sie per `ObjectStore.create` an. |
+| Tests und Soll-Ist-Vergleich | Soll: Alias-Abbildung, Vorschau, Validierung, Anlage mit Menge/Einheit, Rechte. Ist gemessen: 2 neue Blackbox-HTTP-Tests (Alias-Mapping + Commit mit Mengenanlage; ungültige Menge/zu lange Einheit), 7/7 CSV-Suite, 366/366 `test_inventory*.py`; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up (weitere #1111-Slices): Leih-/Reservierungs-Überschneidungscheck (eigener Slice), Scanmodi pro Aktion, Fotoerkennung, Offline-Sync, föderierte Rechte. |
