@@ -115,7 +115,7 @@
     <h3 class="h6 mt-3">{{ 'Recognized text' if g.language == 'en' else 'Erkannter Text' }}</h3>
     {% include "documents/_text_preview.html" %}
     {% endif %}
-    {% if preview.kind not in ['video', 'audio'] %}<div class="mt-3"><a class="btn btn-sm btn-outline-primary" href="{{ preview.url }}" target="_blank" rel="noopener noreferrer">{{ 'Open original' if g.language == 'en' else 'Original öffnen' }}</a> <a class="btn btn-sm btn-outline-secondary" href="{{ preview.download_url }}" download>{{ 'Download original' if g.language == 'en' else 'Original herunterladen' }}</a> <button type="button" class="btn btn-sm btn-outline-secondary" data-desktop-reveal data-local-path-url="{{ url_for('documents.document_local_path', document_id=document.document_id) }}" hidden>{{ 'Show in file manager' if g.language == 'en' else 'Im Dateimanager anzeigen' }}</button> <span class="small text-secondary" data-desktop-reveal-feedback role="status" aria-live="polite"></span></div>{% endif %}
+    {% if preview.kind not in ['video', 'audio'] %}<div class="mt-3"><a class="btn btn-sm btn-outline-primary" href="{{ preview.url }}" target="_blank" rel="noopener noreferrer">{{ 'Open original' if g.language == 'en' else 'Original öffnen' }}</a> <a class="btn btn-sm btn-outline-secondary" href="{{ preview.download_url }}" download>{{ 'Download original' if g.language == 'en' else 'Original herunterladen' }}</a> <button type="button" class="btn btn-sm btn-outline-secondary" data-desktop-reveal data-document-id="{{ document.document_id }}" hidden>{{ 'Show in file manager' if g.language == 'en' else 'Im Dateimanager anzeigen' }}</button> <span class="small text-secondary" data-desktop-reveal-feedback role="status" aria-live="polite"></span></div>{% endif %}
   </div>
 </section>
 {% if preview.kind == 'image' and contextflow_enabled|default(false) %}
@@ -195,7 +195,7 @@
 </form>
 </details>
 </div>{% if relationships %}<ul class="list-group list-group-flush">{% for link in relationships %}<li class="list-group-item">
-<span class="badge text-bg-light border">{{ link.type }}</span> {% if link.target %}<a href="{{ url_for('documents.detail', document_id=link.target.document_id) }}">{{ link.target.last_path }}</a>{% else %}<span class="text-break">{{ link.target_text or link.target_document_id }}</span>{% endif %}{% if link.label %} <small class="text-secondary">{{ link.label }}</small>{% endif %}</li>{% endfor %}</ul>{% endif %}</div>
+<span class="badge text-bg-light border">{{ link.type }}</span> {% if link.target %}<a href="{{ url_for('documents.detail', document_id=link.target.document_id) }}">{{ link.target.last_path }}</a>{% elif link.unavailable %}<span class="text-secondary">{{ 'Linked document unavailable' if g.language == 'en' else 'Verknüpftes Dokument nicht verfügbar' }}</span>{% else %}<span class="text-break">{{ link.target_text or link.target_document_id }}</span>{% endif %}{% if link.target and link.label %} <small class="text-secondary">{{ link.label }}</small>{% endif %}</li>{% endfor %}</ul>{% endif %}</div>
 </section>
 {% if document_tasks %}
 <section class="card mb-4">
@@ -272,15 +272,15 @@
 <div class="card mb-4">
 <div class="card-header d-flex justify-content-between">
 <span>{{ 'Deadlines' if g.language == 'en' else 'Fristen' }}</span>
-<span class="badge {% if retention.status == 'locked' %}text-bg-danger{% elif retention.status == 'cleanup_ready' %}text-bg-warning{% elif retention.status == 'active' %}text-bg-success{% else %}text-bg-secondary{% endif %}">{{ retention.status }}</span>
+<span class="badge {% if retention.restricted_component %}text-bg-secondary{% elif retention.status == 'locked' %}text-bg-danger{% elif retention.status == 'cleanup_ready' %}text-bg-warning{% elif retention.status == 'active' %}text-bg-success{% else %}text-bg-secondary{% endif %}">{{ ('Restricted linked record' if g.language == 'en' else 'Eingeschränkter verknüpfter Datensatz') if retention.restricted_component else retention.status }}</span>
 </div>
 <div class="card-body">
 <dl class="row small">
 <dt class="col-5">{{ 'Review by' if g.language == 'en' else 'Bearbeiten bis' }}</dt>
-<dd class="col-7">{{ retention.work_until or ('no embargo' if g.language == 'en' else 'keine Sperrfrist') }}</dd>
+<dd class="col-7">{{ ('Details eines verknüpften Datensatzes eingeschränkt' if g.language != 'en' else 'Restricted linked-record details') if retention.restricted_component else (retention.work_until or ('no embargo' if g.language == 'en' else 'keine Sperrfrist')) }}</dd>
 <dt class="col-5">{{ 'Retain until' if g.language == 'en' else 'Aufbewahren bis' }}</dt>
-<dd class="col-7">{{ retention.retention_until or ('deadline missing' if g.language == 'en' else 'Frist fehlt') }}</dd>
-</dl>{% if retention.work_locked %}<div class="alert alert-danger">{{ 'Editing locked. Deadlines and manual disposal remain available.' if g.language == 'en' else 'Bearbeitung gesperrt. Fristen und manuelle Aussonderung bleiben möglich.' }}</div>{% endif %}{% for finding in retention.findings %}<div class="border-top py-2 small">
+<dd class="col-7">{{ ('Details eines verknüpften Datensatzes eingeschränkt' if g.language != 'en' else 'Restricted linked-record details') if retention.restricted_component else (retention.retention_until or ('deadline missing' if g.language == 'en' else 'Frist fehlt')) }}</dd>
+</dl>{% if retention.restricted_component %}<div class="alert alert-secondary">{{ 'A linked document affects these deadlines, but its details are not available to this account.' if g.language == 'en' else 'Ein verknüpftes Dokument beeinflusst diese Fristen. Seine Details sind für dieses Konto nicht verfügbar.' }}</div>{% elif retention.work_locked %}<div class="alert alert-danger">{{ 'Editing locked. Deadlines and manual disposal remain available.' if g.language == 'en' else 'Bearbeitung gesperrt. Fristen und manuelle Aussonderung bleiben möglich.' }}</div>{% endif %}{% for finding in retention.findings %}<div class="border-top py-2 small">
 <strong>{{ finding.label }}</strong>
 <br>{{ finding.expires_at }} · {{ finding.source_type }} {{ finding.source }}{% if finding.tag %} · Tag {{ finding.tag }}{% endif %}</div>{% endfor %}{% for finding in retention.retention_findings %}{% if finding.document_id != document.document_id %}<div class="border-top py-2 small">
 <strong>{{ 'Transitive: ' if g.language == 'en' else 'Transitiv: ' }}{{ finding.label }}</strong>

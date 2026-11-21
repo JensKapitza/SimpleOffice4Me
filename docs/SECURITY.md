@@ -49,3 +49,28 @@ Der konkrete Supportzeitraum wird pro Release festgelegt. Sicherheitsupdates mü
 - Öffentliche CSS-/JavaScript-Caches werden nur für statische
   Anwendungsdateien aktiviert. Hochgeladene Dateien behalten ihre private
   Cache-Richtlinie auch dann, wenn ihr MIME-Typ CSS oder JavaScript ist.
+- Federation-Verzeichnisregistrierungen sind nur Rendezvous-Hinweise. Sie
+  dürfen bestehende Peer-Adressen, Schlüssel, Zugangsdaten, Richtlinien und
+  Aktivierungszustände nicht ändern; neue Vorschläge bleiben deaktiviert.
+- Verknüpfte Dokumente und transitive Aufbewahrungsnachweise werden bei jeder
+  Anzeige erneut gegen die aktuelle Dokumentensichtbarkeit geprüft. Gesperrte
+  Ziele erscheinen als nicht verfügbar und geben keine Zielpfade, IDs, Labels
+  oder zielbezogenen Fristdetails aus.
+- Resource Commander ist im Browser bis zur durchgängigen actor-aware
+  Dokumentautorisierung Administratoren vorbehalten. Der separate Remote-Token
+  ist ein hostweiter, administrativer Zugriffsschlüssel und darf ausschließlich
+  an vertrauenswürdige Commander-Peers ausgegeben werden; bei Verdacht ist er
+  zu rotieren.
+- FRITZ!Box-Konfiguration und Verbindungstests sind Administratoraktionen und
+  benötigen das Kontakte-Merkmal. Router-Verbindungen folgen keinen
+  Weiterleitungen, validieren alle aufgelösten Adressen und verbinden sich mit
+  der geprüften IP; TLS-Zertifikatsprüfung bleibt für HTTPS aktiv.
+- Dokumentindexierung hat Grenzen für Quelldateien, Office-ZIP-Einträge und
+  Entpackgröße, Textmenge, PDF-Seiten sowie externe PDF-Prozesse. Die OCR-
+  Gesamtlaufzeitgrenze ist kooperativ: In-Process-OCR kann nicht gewaltsam
+  beendet werden, wenn eine Bibliothek in einem einzelnen Aufruf hängt.
+- Absolute Serverpfade für die Desktop-Dateiablage werden nur mit einem
+  zufälligen, pro Desktop-Start erzeugten Geheimnis ausgeliefert. Electron hält
+  dieses Geheimnis und den aufgelösten Pfad im Hauptprozess; der Renderer
+  übermittelt nur die Dokument-ID. Der normale Sitzungs- und Dokumentzugriff
+  bleibt zusätzlich erforderlich.

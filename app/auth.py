@@ -375,6 +375,7 @@ def load_logged_in_user():
 
 FEATURE_BLUEPRINTS = {
     "documents": "documents", "calendar": "documents", "contacts": "documents",
+    "fritzbox_contacts": "contacts",
     "mail_routes": "mail", "mail_client": "mail", "contact_audit": "contacts", "webdav": "webdav",
     "tasks": "projects", "datalogger": "datalogger",
     "library": "documents", "inventory": "documents", "shopping": "documents",

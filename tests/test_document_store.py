@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from io import BytesIO
 from email import policy
 from email.message import EmailMessage
 from pathlib import Path
@@ -103,6 +104,53 @@ class DocumentStoreTest(unittest.TestCase):
             self.assertEqual(1, len(store.search_page("text:Prüfung")["results"]))
             self.assertEqual(1, len(store.search_page("text:Lesbarer")["results"]))
             self.assertEqual([], store.search_page("text:nicht")["results"])
+
+    def test_plain_text_index_has_independent_byte_and_character_budgets(self):
+        import app.document_store_part_5 as part5
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "notes.txt"
+            path.write_text("abcdefghij", encoding="utf-8")
+            with patch.object(part5, "MAX_INDEXED_DOCUMENT_BYTES", 20), patch.object(
+                part5, "MAX_INDEXED_TEXT_CHARACTERS", 5,
+            ):
+                text, kind = DocumentStore._file_text(path)
+            self.assertEqual(("abcde", "plain_text"), (text, kind))
+            with patch.object(part5, "MAX_INDEXED_DOCUMENT_BYTES", 5):
+                with self.assertRaisesRegex(RuntimeError, "size limit"):
+                    DocumentStore._file_text(path)
+
+    def test_office_xml_expansion_is_bounded_before_member_read(self):
+        import zipfile
+        import app.document_store_part_5 as part5
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "document.docx"
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr("word/document.xml", "<document>expanded</document>")
+            with patch.object(part5, "MAX_OFFICE_MEMBER_BYTES", 4):
+                with self.assertRaisesRegex(RuntimeError, "expanded XML size limit"):
+                    DocumentStore._file_text(path)
+
+    def test_pdftotext_output_is_stopped_at_the_character_budget(self):
+        import app.document_store_part_5 as part5
+
+        class FakeProcess:
+            def __init__(self):
+                self.stdout = BytesIO(b"0123456789")
+                self.returncode = -9
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        with patch.object(part5, "MAX_INDEXED_TEXT_CHARACTERS", 2), patch.object(
+            part5.subprocess, "Popen", return_value=FakeProcess(),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "output limit"):
+                DocumentStore._run_bounded_pdftotext("pdftotext", Path("source.pdf"))
 
     def test_eml_backfill_tolerates_unknown_charset_and_malformed_mime(self):
         with tempfile.TemporaryDirectory() as temp:
