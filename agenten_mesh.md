@@ -286,6 +286,14 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: Fremddateien weg, legitime Slices da, Suite grün. Ist gemessen: 6/6 Fremddateien entfernt, 4/4 Slice-Module + share-Flag vorhanden; Mail-/Inventur-/Bibliotheks-Nachbarsuites + Gates vor Push grün (siehe PR-CI). |
 | Review und Abschluss | Lehre: Merge-Agents dürfen nur `git merge origin/main` ausführen, nie fremde Branches integrieren; Merges künftig per Diff gegen PR-Branch verifizieren. Offen: #1134-Doku neu, #1135/#1137 normal mergen, #1136-Slices bleiben zur Nutzer-Review offen. |
 
+## 20. November 2026 · Issue #1136 (Slice 2): Flüchtiger LRU-Nachrichtencache
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | #1136 fordert flüchtigen Cache (256 MiB, 200–300 konfigurierbar, LRU, Neustart-Leerung, Benutzerisolation, Flags separat, keine Server-Mutationen). Ist: jeder Aufruf lädt BODY.PEEK[] neu. Entwurf: prozess-lokales Singleton (Neustart-leer per Konstruktion), Schlüssel (Benutzer, Konto, Ordner, UID), Flags per leichtem `(FLAGS)`-Fetch frisch, Actor wird an den zwei `message`/`attachment`-Aufrufern durchgereicht. |
+| Implementierung | Neues Modul `app/mail_message_cache.py` (Thread-Lock, Byte-Bilanz, LRU-Verdrängung, Clamp 200–300 MiB, `MAIL_CACHE_MAX_BYTES`-Konfiguration); `ImapWebClient` mit Cache-Injektion, `_raw_message(..., actor=)` (Treffer → nur FLAGS-Fetch), `message`/`attachment` mit `actor`-Parameter, Routen reichen `_actor()` durch. |
+| Tests und Soll-Ist-Vergleich | Soll: Zweitöffnung ohne Body-Re-Download, Flags frisch, Isolation, Clamp, keine Mutation. Ist gemessen: 5/5 Unit-Tests (Clamp, Roundtrip+Stats, Isolation, LRU, Oversize/Invalidate) + 4/4 Blackbox-HTTP mit Fake-IMAP (1 Body-Fetch bei 2 Öffnungen, FLAGS-Refresh, 2 Fetches bei 2 Benutzern, Config-Clamp, 0 Mutationen); Nachbar-Suites OK; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Kein Auto-Merge (Issue-Vorgabe). Offen: Slices 3–7 (Timing, Tags, Überführen, Signaturen, Archiv-Härtung). |
 ## 21. November 2026 · Mail: Read-only-Schalter verlässt Reader nicht mehr
 
 | Phase | Arbeit und Nachweis |
