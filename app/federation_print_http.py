@@ -124,6 +124,7 @@ def submit_job(printer_id: str):
     if not claim_nonce(current_app.config["DOCUMENT_ROOT"], source_peer, proof.nonce):
         return jsonify({"error": "replayed_print_request"}), 409
 
+    dry_run = request.args.get("dry_run", "") == "1"
     try:
         result = store.submit(
             printer_id,
@@ -136,6 +137,7 @@ def submit_job(printer_id: str):
             ttl_ceiling_seconds=ttl_ceiling,
             policy_revision=revision,
             federation=True,
+            dry_run=dry_run,
         )
         receipt = {
             "schema": 1,
@@ -153,7 +155,7 @@ def submit_job(printer_id: str):
             "os_spooler_may_cache": True,
         }
         _federation().record_event(
-            "print_job_spooled",
+            "print_job_test" if dry_run else "print_job_spooled",
             peer_id=source_peer,
             detail={
                 "job_id": result["job_id"],
@@ -163,6 +165,7 @@ def submit_job(printer_id: str):
                 "payload_sha256": result["payload_sha256"],
                 "payload_size": result["payload_size"],
                 "policy_revision": revision,
+                "dry_run": dry_run,
             },
         )
         response = jsonify({"receipt": receipt, "receipt_hmac_sha256": _receipt_hmac(receipt)})

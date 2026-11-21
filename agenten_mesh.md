@@ -259,6 +259,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: weder Verbindung noch Identität per Discovery umbiegbar, Zeremonie funktioniert. Ist gemessen: 44/44 (Discovery-, Admin-UI-, Peer-Trust-Suites inkl. 4 neue Konflikt-/Zeremonie-Tests); Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen: nichts. |
 
+## 21. November 2026 · Federation: Peer-Diagnose-Buttons (Datei, Ton, QR, Druck-Test)
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Nutzerforderung: neben „Verbindung testen“ auch Dateisenden, Ton, QR-Generierung und Druckaufruf (ohne zu drucken) prüfen. Bestand: Diagnose-Infra (`probe_peer`), Block-API (nur Pull), Audio-Engine (Rendern+Playback), Druck-Client mit Proof-Protokoll, Druckverlauf. Lücken: kein Echo-, Ton-, QR-Roundtrip- und kein Dry-Run-Test. |
+| Implementierung | `POST /federation/v1/blocks/test` (1–4 KiB Echo als SHA-256, keine Speicherung); `POST /federation/v1/audio/test-tone` (Gong rendern + Wiedergabeversuch, beide Stufen ehrlich gemeldet, Event); `submit(dry_run)` + `?dry_run=1` (volle Auth/Proof-Validierung, Verlaufseintrag Status `test`/„Testdruck“, kein Spool); Sender `federation_peer_tests.py`; 4 Admin-Routen + Buttons neben „Verbindung testen“; Flash-Texte de/en. |
+| Tests und Soll-Ist-Vergleich | Soll: jeder Test prüft echten Aufruf, Dry-Run spult nie, Fehler ehrlich. Ist gemessen: 12/12 Blackbox-Tests (Echo+Limit, Ton beide Stufen, Sender-Hash/Mismatch/Stufen/QR-Roundtrip/Deaktiviert, Dry-Run ohne Spool + Verlauf, Real-Submit spult, Admin-Routen); Nachbarn 45/45; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen: Praxistest gegen echten Peer durch Eigentümer (Ton hörbar, Testdruck im Verlauf). |
+
 ## 21. November 2026 · Federation: Hello macht Scans beidseitig sichtbar
 
 | Phase | Arbeit und Nachweis |
