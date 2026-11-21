@@ -277,6 +277,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: Fremddateien weg, legitime Slices da, Suite grün. Ist gemessen: 6/6 Fremddateien entfernt, 4/4 Slice-Module + share-Flag vorhanden; Mail-/Inventur-/Bibliotheks-Nachbarsuites + Gates vor Push grün (siehe PR-CI). |
 | Review und Abschluss | Lehre: Merge-Agents dürfen nur `git merge origin/main` ausführen, nie fremde Branches integrieren; Merges künftig per Diff gegen PR-Branch verifizieren. Offen: #1134-Doku neu, #1135/#1137 normal mergen, #1136-Slices bleiben zur Nutzer-Review offen. |
 
+## 21. November 2026 · Mail: Read-only-Schalter verlässt Reader nicht mehr
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Nutzerbefund: Umschalten Read-only↔Schreibzugriff verließ die Anzeige. Ursache: `set_readonly` leitete immer auf die Einstellungen um, obwohl der einzige Schalter im Reader steht. |
+| Implementierung | Route wertet `return_to=reader` aus und kehrt mit Kontext (Ordner, UID, Suche, Modus) in den Reader zurück (fester Zielname, kein offener Redirect; leere Werte entfallen); Reader-Formular sendet den Kontext mit; Fallback ohne `return_to` bleibt Einstellungen. |
+| Tests und Soll-Ist-Vergleich | Soll: Ansicht + Kontext bleiben, Umschaltung wirkt, Fallback stabil. Ist gemessen: 3/3 Blackbox-HTTP-Tests (`test_mail_readonly_stay_http.py`); Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen: nichts. |
+
 ## 21. November 2026 · Issue #759: restliche Checklistenpunkte belegt + Tests erweitert
 
 | Phase | Arbeit und Nachweis |
