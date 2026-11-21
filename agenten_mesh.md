@@ -40,6 +40,14 @@ Jede Übergabe enthält Paket-ID, Status, Ist, Soll, Dateien, Schritte, Zwischen
 
 ## Arbeitsnachweise
 
+### P0 · Security-Triage #874 · 21. November 2026
+
+| Phase | Arbeitsstand und Nachweis |
+|---|---|
+| Analyse | 317 offene Code-Scanning-Alerts auf `refs/heads/main` (Basis `3a374f94`): 143× `py/path-injection` (high), 64× `py/stack-trace-exposure`, 9× weak-hashing, je 1× XSS/ReDoS/clear-text-logging, Rest Supply-Chain/Lint. Dependabot deaktiviert (HTTP 403), Secret-Scanning per API nicht abfragbar — beide nicht als sauber gewertet. |
+| Verifikation | Stichproben am Code gelesen: TURN-HMAC-SHA1 ist protokollbedingt (`simpleoffice_connection_relay.py:291`); XSS-Alert #449 zeigt auf driftete Zeile (neu zuordnen); Redirect-Senken teilvalidiert; Storage-Sink generisch (V2-Abgleich offen). |
+| Ergebnis | Triage-Protokoll `docs/SECURITY_TRIAGE_2026-11-21.md`; Folge-Issues #1154 (path-injection/ReDoS/Storage), #1155 (XSS/Redirect/Logging), #1156 (Supply-Chain). Kein Dismiss, kein Merge (Koordinator mergt). |
+
 ### P2 · QR-Inhalt auf dem Handy manuell kopieren · 19. November 2026
 
 | Phase | Zuständigkeit und Ergebnis |
@@ -242,6 +250,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | `LibraryStore.unassign` mit Ereignis; neues Modul `scan_dispatch_routes.py` mit `POST /library/scan` (Modus+Code+Ziel, JSON/Flash, Login, Audit): Einlagern ordnet zu, Entnehmen löst Zuordnung und Spiegelung (mit Wiederherstellung bei Spiegelfehler); Scan-Karte auf der Bibliotheksseite. |
 | Tests und Soll-Ist-Vergleich | Soll: beide Modi wirken, Spiegel konsistent, Validierung, Rechte. Ist gemessen: 4/4 Blackbox-HTTP-Tests (Einlagern per Code, Entnehmen löst+leert Spiegel, 3 Validierungsfälle, anonym+Marker); Nachbar-Suites 24/24; Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen als Follow-up: Modi Umlagern/Inventur, Zielort-Gedächtnis, föderierte Rechte, Fotoerkennung, Offline-Sync. |
+## 21. November 2026 · Sieve: Skripte mit Sonderzeichen werden gefunden + Diagnose
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Nutzerbefund: eigene Sieve-Skripte werden trotz Login nicht gefunden. Root Cause: `list_scripts` verwarf stillschweigend alle Servernamen außerhalb `[A-Za-z0-9_.-]` (Leerzeichen, Umlaute); `_quote`/`_safe_sieve_name` hätten sie danach ebenfalls abgelehnt. Zusätzlich keine Diagnose (stilles `continue`). |
+| Implementierung | `list_scripts_detailed` (alle parsetauglichen Namen + `skipped`-Liste, `list_scripts` bleibt kompatibel); `_quote` für RFC-5804-Quoted-Strings (Leerzeichen/Unicode ok, nur `"\\/Steuerzeichen` abgelehnt); `sanitize_local_name` (sichere Namen identisch, Rest deterministisch gefaltet + Hash, kollisionsfrei); Sync speichert unter lokalem Schlüssel, meldet `renamed`/`skipped` (Flash + Audit-History); Aktivieren nutzt Server-Namen; UI zeigt Server-Namen + Mapping. |
+| Tests und Soll-Ist-Vergleich | Soll: Namen mit Leerzeichen/Umlauten laden, aktivieren, Diagnose sichtbar. Ist gemessen: 9/9 Sieve-Tests (4 neu: Parsen+skipped, Sanitize-Stabilität/Kollision, Sync-Mapping, Aktivieren mit Server-Namen); Nachbarn 40/40; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen: Praxistest gegen echten Dovecot/Anbieter mit Sonderzeichen-Skripten durch Eigentümer. |
+
 ## 20. November 2026 · Kids-Vorlesestimme: überall Piper statt Browser-Stimmen
 
 | Phase | Arbeit und Nachweis |
@@ -268,6 +285,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | Revert per `git revert -m 1 56394d17` (Vorwärts-Fix, kein History-Rewrite): 21 Dateien, Fremdcode vollständig entfernt, legitime #1117–#1133-Inhalte verifiziert intakt. Danach: #1134-Doku neu aufsetzen, Slice-Branches frisch vom neuen Main abzweigen (neue Hashes, saubere PR-Diffs). |
 | Tests und Soll-Ist-Vergleich | Soll: Fremddateien weg, legitime Slices da, Suite grün. Ist gemessen: 6/6 Fremddateien entfernt, 4/4 Slice-Module + share-Flag vorhanden; Mail-/Inventur-/Bibliotheks-Nachbarsuites + Gates vor Push grün (siehe PR-CI). |
 | Review und Abschluss | Lehre: Merge-Agents dürfen nur `git merge origin/main` ausführen, nie fremde Branches integrieren; Merges künftig per Diff gegen PR-Branch verifizieren. Offen: #1134-Doku neu, #1135/#1137 normal mergen, #1136-Slices bleiben zur Nutzer-Review offen. |
+
+## 21. November 2026 · Mail: Read-only-Schalter verlässt Reader nicht mehr
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Nutzerbefund: Umschalten Read-only↔Schreibzugriff verließ die Anzeige. Ursache: `set_readonly` leitete immer auf die Einstellungen um, obwohl der einzige Schalter im Reader steht. |
+| Implementierung | Route wertet `return_to=reader` aus und kehrt mit Kontext (Ordner, UID, Suche, Modus) in den Reader zurück (fester Zielname, kein offener Redirect; leere Werte entfallen); Reader-Formular sendet den Kontext mit; Fallback ohne `return_to` bleibt Einstellungen. |
+| Tests und Soll-Ist-Vergleich | Soll: Ansicht + Kontext bleiben, Umschaltung wirkt, Fallback stabil. Ist gemessen: 3/3 Blackbox-HTTP-Tests (`test_mail_readonly_stay_http.py`); Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen: nichts. |
 
 ## 21. November 2026 · Issue #759: restliche Checklistenpunkte belegt + Tests erweitert
 
@@ -536,3 +562,44 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | `MailReader.archive_uid` speichert zusätzlich `sha256` in Herkunftsmetadaten/Audit und nimmt optional `extract_attachments` (Fail-soft: EML-Erfolg bleibt bestehen); neu `app/mail_archive_folders.py` (pro Nachricht `attachments/`-Ordner über generische Pipeline, idempotent, stabile Part-Zuordnung); Archivieren-Route/Template mit Opt-in-Checkbox. Keine Mail-Sonderregeln für Retention/Audit. |
 | Tests und Soll-Ist-Vergleich | Soll: Byteidentität, Ordner inkl. Edge Cases, generische Regeln, Readonly-Zähler 0. Ist gemessen: 12/12 Blackbox-Tests (`tests/test_mail_archive_hardening.py`): EML byteidentisch + SHA-256 in Metadaten, Manipulation erkannt, Export verifiziert; 9 Teile (Doppelnamen kollisionsfrei + idempotent, Unicode-Name erhalten, 4 Traversal-Namen eingesperrt, kaputtes Base64 + Nested-Multipart übernommen, keine Datei außerhalb Root); generische Ordner-Retention greift für EML, Audit-Ereignisse vorhanden, Fremdnutzer abgewiesen; Fake-IMAP zählt 0 STORE/MOVE/COPY/DELETE/EXPUNGE, nur readonly-SELECT + BODY.PEEK über Öffnen/Suche/Anhang/Archivieren. Nachbarn 171/171; Ruff-, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Kein Auto-Merge (Issue-Vorgabe). Offen: Review der PRs #1161 (Slice 6) und dieser Slice-7-PR durch den Repository-Eigentümer; Slices 4/5 (Tags, Überführen) laufen bei anderen Agenten. |
+## 21. November 2026 · Issue #679: Federation-Testnetz-Slice (fed-testnet)
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Bestand gegen #679 geprüft, kein zweites Peer-/Trust-System gebaut: Peer-Discovery (LAN/direkt/Land/E-Mail, QR-Scan + manuelles Einfügen, manuelle IP-/URL-Eingabe via `/discover/direct`), Trust/Autorisierung (gerichteter Trust-Store, deny-by-default Capabilities), Discovery-Routen (well-known, V3-Capabilities, Pairing claim/status, Verzeichnis) und `compose.federation-test.yaml` (peer-a/peer-b/relay, internes Netz, getrennte Volumes/Identitäten, Seed-/Smoke-Werkzeuge, Docker-CI-Job) existieren bereits. Lücken: keine Compose-Validierung als Test, kein Discovery-Routen-Blackbox über zwei isolierte Instanzen, keine dokumentierten Discovery-Szenarien für das isolierte Netz. UI-Darstellung (Fähigkeiten, Erreichbarkeit, Trust-Status) und manuelle URL-/IP-Eingabe sind vorhanden, keine Änderung nötig. |
+| Planung | Slice: (1) Compose-Validierungstest ohne Docker/Netz, (2) Discovery-Blackbox über zwei getrennte Datenstände (Hinweis ≠ Trust, keine Umetikettierung konfigurierter Peers, Instanztrennung), (3) README-Abschnitt mit Discovery-Szenarien (direkter Weg statt Broadcast-Scan, Private-Ziele-Opt-in, QR/Pairing-Grenzen). Verbote eingehalten: kein TLS-Aufbrechen, kein heimliches Relay (expliziter Opt-in bleibt), kein Pairing ohne beidseitige Bestätigung (nur Doku + Tests, kein Protokollumbau). |
+| Implementierung | Neu: `tests/test_federation_testnet_compose.py` (7 Tests: exakt 3 Dienste, `internal: true`, keine Ports/Host-Modi, getrennte Volumes/Identitäten, unterschiedliche Relay-Token, gepinnte Test-only-Werte ohne Secret-Passthrough, Image-Healthcheck, Doku-Marker) und `tests/test_federation_testnet_discovery.py` (4 Tests: well-known je Instanzadresse mit `no-store`, Discovery ohne Trust/Aktivierung/Datenrecht, Wiederentdeckung erhält Betreiber-Entscheidung, Instanztrennung). Geändert: `deploy/docker/README.md` (neuer Abschnitt „Discovery scenarios in the isolated test network“). Kein Produktionscode geändert. |
+| Tests | Neu 11/11 bestanden; Nachbarn `test_federation_peer_discovery`, `test_federation_discovery_http`, `test_deployment_assets`, `test_federation_testnet_seed`, `test_v3_federation_two_peer_http`: kombiniert 63/63 OK. Gates: `ruff check`, `compileall`, `tools/check_project_policy.py`, `check_file_size.py` (Limit 1000), `check_function_size.py` (Limit 300) grün. Docker-Live-Lauf nicht lokal möglich (kein Docker-Host); Abdeckung über den bestehenden Ubuntu-Docker-CI-Job. |
+| Soll-Ist-Vergleich | Soll: reproduzierbarer Mehrknotenaufbau + Discovery-Szenarien + kleine Lücken schließen, ohne Doppelbau. Ist: Compose-Netz war vorhanden und ist nun per Test fixiert; Discovery-Hinweis-Charakter und Instanztrennung sind per Blackbox belegt; Discovery-Szenarien sind dokumentiert. Offen: realer LAN-/Extern-Peer-Nachweis, Langzeit-/Lastbetrieb und Praxislauf auf Geräten (bleibt in #679, kein Merge in diesem Auftrag). |
+| Review | Unabhängige Gegenprüfung: keine neuen Trust-/Pairing-Pfade, keine Secrets in Tests oder Compose (nur `test-only`-/`relay-`-Marker), SSRF-/DNS-Rebinding-Schutz unverändert (gepinnter Fetcher, strenger Hostnamenpfad, Opt-in für private Ziele), keine bestehenden Tests abgeschwächt. |
+| Abschluss | Branch `feature/federation-testnet`, PR zur Koordinaten-Review geöffnet, **nicht gemergt**. Folgeauftrag: realer Mehrknoten-/LAN-Nachweis und optionaler autorisierter Relay als getrennte Abnahme. |
+
+## 21. November 2026 · FinTS Slice 1 (read-only) · fints-ro · Issue #738
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Ausgangsbasis `origin/main`: Slice-1-Bestand verifiziert — `app/finance_fints.py` (Discovery + Bankfähigkeiten/TAN-Verfahren), `app/finance_fints_balances.py` (lesender Saldo + verfügbarer Saldo), `app/finance_web.py` (Konten-Discovery mit Fähigkeitsanzeige, Saldo-Report, TAN-Challenge-Flow), Templates (`bank_discovery`, `balance_report`, `balance_challenge`), verschlüsselte owner-gebundene Single-Use-Challenge-Ablage. Keine SEPA-/Transfer-Routen oder -APIs im Finance-Bereich. Lücke: kein Mock-Bank-Nachweis für Timeout, Berechtigungen und Geheimnisfreiheit in Logs. |
+| Planung | Ausschließlich im Worktree `/tmp/wt-fints` (Branch `feature/fints-balances`) arbeiten, keine neue Banking-Architektur, keine Produktionscode-Änderung: eine Regressionssuite mit Mock-Bank (ohne `fints`-Lib) für Salden, Fähigkeiten, Timeout, Fehler, Berechtigungen, Geheimnisfreiheit. PIN/TAN nirgends in DB/Logs/Antworten/Sessions; Transaktionen/SEPA bleiben unberührt bzw. deaktiviert. |
+| Implementierung | Nur `tests/test_finance_fints_slice1.py` neu (320 Zeilen, 10 Tests). Zwischenstand: 9/10 grün; Re-Login im Berechtigungstest scheiterte zunächst am CSRF-Schutz (403 → als Owner 200 statt 404). Root Cause: Test-Helper ohne CSRF-Header; Fix im Helper, kein Produktionscode. |
+| Tests | Neu 10/10 grün. Nachbarn 56 Tests OK (1 Skip: optionales Banking-Extra fehlt): `test_finance_fints{,_balances,_balance_sca,_balance_http,_capability_status,_retry,_sync_http,_challenges,_transactions_sca}`. Gates grün: ruff, compileall, policy, file-size, function-size. |
+| Soll-Ist-Vergleich | Soll: lesende Salden + verfügbare Salden per Mock-Bank — Ist: nachgewiesen. Soll: Fähigkeiten/TAN-Verfahren ermitteln, Fehlendes deaktiviert — Ist: `GET_BALANCE=False` blockiert Abruf per `FinTSFeatureUnavailable` ohne Abrufversuch, TAN 942 gelistet. Soll: Timeout/Fehler/Berechtigungen/Geheimnisfreiheit — Ist: 3 begrenzte Versuche, generische Fehler, Fremdnutzer-404 ohne Fetch, kein PIN/TAN in Seite/Logs/Flashes/DB (adversarialer Fehlertext geprüft). Soll: SEPA deaktiviert — Ist: keine Finance-SEPA-/Transfer-Routen, keine Adapter-APIs. |
+| Review | Unabhängige Prüfung steht aus: Koordinator reviewt Banking separat. Hinweis ohne Änderung: `finally: pin = ""` löst nur die lokale Referenz (kein Speicher-Wipe); Geheimnisfreiheit beruht auf Nicht-Persistenz + `no-store` + typisierten Logs — per Tests nachgewiesen. |
+| Abschluss | Commit `557bf8ab`, PR #1152 (`feature/fints-balances` → `main`), NICHT gemergt. Offen: Koordinator-Review, manueller Praxistest am Endgerät durch Eigentümer nach Merge, echte Bank-Anbindung nur mit bewusster Freigabe. |
+
+## 21. November 2026 · Issue #1111 (P2-Slice): CSV-Import mit Mengen-/Einheit-Spalten
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | CSV-Import kannte Menge/Einheit nicht; Stapelartikel mussten einzeln nachgepflegt werden. Bestand wiederverwendet: `ImportStageStore`-Staging, `ObjectStore`-Validierung (`_quantity`/`_unit`, Einheit max. 24 Zeichen), keine neue DB. |
+| Implementierung | `COLUMNS`-Mapping um `quantity` (menge/anzahl/bestand/qty/count/stueckzahl/stückzahl) und `unit` (einheit/masseinheit) erweitert; `validate_row` normalisiert und meldet ungültige Mengen/zu lange Einheiten auf Deutsch; JSON- und HTML-Vorschau zeigen Menge/Einheit, Commit legt sie per `ObjectStore.create` an. |
+| Tests und Soll-Ist-Vergleich | Soll: Alias-Abbildung, Vorschau, Validierung, Anlage mit Menge/Einheit, Rechte. Ist gemessen: 2 neue Blackbox-HTTP-Tests (Alias-Mapping + Commit mit Mengenanlage; ungültige Menge/zu lange Einheit), 7/7 CSV-Suite, 366/366 `test_inventory*.py`; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up (weitere #1111-Slices): Leih-/Reservierungs-Überschneidungscheck (eigener Slice), Scanmodi pro Aktion, Fotoerkennung, Offline-Sync, föderierte Rechte. |
+
+## 21. November 2026 · Issue #1111 (Slice): Leih-/Reservierungs-Überschneidungscheck
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Checkout und Reservierung prüften nur ihre eigene Store-Hälfte (Leihe blockt Leihe, Reservierung blockt Reservierung); eine Leihe konnte in eine aktive Reservierung hineinlaufen und umgekehrt. Bestand wiederverwendet: `LendingStore`/`ReservationStore` mit eigenen Locks/Dateien, keine neue DB, keine Auto-Stornierung. |
+| Implementierung | `LendingStore.blocking_loan` und `ReservationStore.conflicts` als reine Prüfungen; Checkout lehnt bei überlappender aktiver Reservierung ab, Reservierung bei überlappender offener Leihe — je mit klarer deutscher Meldung (Zeitraum + Person). Ungültige Daten liefern weiterhin die bestehenden Validierungsfehler. |
+| Tests und Soll-Ist-Vergleich | Soll: beide Blockrichtungen, Freigabe außerhalb des Fensters, stornierte Reservierung/Rückgabe geben frei, Rechte. Ist gemessen: 5/5 Blackbox-HTTP-Tests (beide Richtungen, Fenster-daneben erlaubt, Storno/Rückgabe entsperrt); Nachbar-Suites 13/13 (lending/reservations/neu), 369/369 `test_inventory*.py`; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen als Follow-up (weitere #1111-Slices): Scanmodi pro Aktion, Fotoerkennung, Offline-Sync, föderierte Rechte. |
