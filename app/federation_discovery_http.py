@@ -143,10 +143,8 @@ def register():
             "directory-register", profile.get("public_key", ""),
         )
         store = FederationStore(_root())
-        existing = store.get_peer(profile["peer_id"])
-        store.save_peer(
-            profile["peer_id"], profile["label"], profile["base_url"], "",
-            (existing or {}).get("policy") or {}, bool((existing or {}).get("configured_enabled", (existing or {}).get("enabled", False))),
+        store.save_discovered_peer(
+            profile["peer_id"], profile["label"], profile["base_url"],
         )
         ttl = body.get("ttl_seconds", 86400)
         FederationDirectoryStore(_root()).publish(profile["peer_id"], ttl)

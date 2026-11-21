@@ -214,6 +214,29 @@ class FederationStore:
             row = db.execute("SELECT * FROM federation_peer WHERE peer_id=?", (peer_id,)).fetchone()
         return self._apply_ban(row, self.banned_peer_ids()) if row else None
 
+    def save_discovered_peer(self, peer_id: str, label: str, base_url: str) -> dict[str, Any]:
+        """Create an inert discovery record without changing an existing peer."""
+        peer_id = sanitize_peer_id(peer_id)
+        label = str(label or peer_id).strip()[:160] or peer_id
+        base_url = str(base_url or "").strip().rstrip("/")[:1000]
+        if not base_url:
+            raise ValueError("Peer-URL fehlt")
+        timestamp = _now()
+        with self._db() as db:
+            created = db.execute(
+                """INSERT INTO federation_peer(
+                       peer_id,label,base_url,token_enc,enabled,policy_json,created_at,updated_at
+                   ) VALUES(?,?,?,?,?,?,?,?)
+                   ON CONFLICT(peer_id) DO NOTHING""",
+                (peer_id, label, base_url, "", 0, _json({}), timestamp, timestamp),
+            ).rowcount == 1
+        if created:
+            self.record_event(
+                "peer_saved", peer_id=peer_id,
+                detail={"base_url": base_url, "enabled": False},
+            )
+        return self.get_peer(peer_id) or {}
+
     def save_peer(
         self,
         peer_id: str,
