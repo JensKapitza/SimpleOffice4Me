@@ -539,3 +539,10 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Soll-Ist-Vergleich | Soll: lesende Salden + verfügbare Salden per Mock-Bank — Ist: nachgewiesen. Soll: Fähigkeiten/TAN-Verfahren ermitteln, Fehlendes deaktiviert — Ist: `GET_BALANCE=False` blockiert Abruf per `FinTSFeatureUnavailable` ohne Abrufversuch, TAN 942 gelistet. Soll: Timeout/Fehler/Berechtigungen/Geheimnisfreiheit — Ist: 3 begrenzte Versuche, generische Fehler, Fremdnutzer-404 ohne Fetch, kein PIN/TAN in Seite/Logs/Flashes/DB (adversarialer Fehlertext geprüft). Soll: SEPA deaktiviert — Ist: keine Finance-SEPA-/Transfer-Routen, keine Adapter-APIs. |
 | Review | Unabhängige Prüfung steht aus: Koordinator reviewt Banking separat. Hinweis ohne Änderung: `finally: pin = ""` löst nur die lokale Referenz (kein Speicher-Wipe); Geheimnisfreiheit beruht auf Nicht-Persistenz + `no-store` + typisierten Logs — per Tests nachgewiesen. |
 | Abschluss | Commit `557bf8ab`, PR #1152 (`feature/fints-balances` → `main`), NICHT gemergt. Offen: Koordinator-Review, manueller Praxistest am Endgerät durch Eigentümer nach Merge, echte Bank-Anbindung nur mit bewusster Freigabe. |
+
+### Mail · Lesbare Nachrichtenliste
+
+- **Ist und Soll.** Im Titelblock eingebettete Stile und Skripte wurden als Titeltext interpretiert. Alle Felder drängten sich in eine schmale Tabelle. Betreff und Absender sollen eine lesbare Zeile erhalten.
+- **Umsetzung.** Stylesheet im Dokumentkopf, Skript nach dem Markup. Absender und Datum stehen über dem Betreff, zusätzliche Metadaten darunter. Die Ansicht merkt sich die Feldauswahl je Konto. Auf kleinen Displays lässt sich die Ordnerliste ausklappen.
+- **Prüfung.** Authentifizierter Mailreader mit synthetischem IMAP-Konto in Chromium bei 390, 1024 und 1900 Pixeln: Betreff sichtbar und anklickbar, Empfänger einblendbar, Standardansicht wiederherstellbar. Die Standardzeile maß rund 70 Pixel Höhe. 24 Mailreader- und Vorlagentests bestanden.
+- **Sicherheitsreview.** Anzeigeänderung an vorhandenen Jinja-Feldern und Links. Das Datum wird über textContent formatiert. IMAP-Aufrufe, Rechte und Mailinhalte wurden für diese Änderung nicht erweitert.

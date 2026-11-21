@@ -1,0 +1,38 @@
+.mail-column-settings summary { list-style: none; cursor: pointer; }
+.mail-column-settings summary::-webkit-details-marker { display: none; }
+.mail-column-menu { position: absolute; right: 0; top: 100%; z-index: 25; min-width: 13rem; }
+#mail-folder-list { max-height: 65vh; overflow: auto; }
+#mail-folder-list .list-group-item { padding-block: .55rem; }
+@media (min-width: 992px) {
+  #mail-folder-list { display: flex; }
+}
+@media (max-width: 991px) {
+  #mail-folder-list.collapse:not(.show) { display: none; }
+}
+.mail-message-table, .mail-message-table tbody { display: block; width: 100%; }
+.mail-message-table tbody tr {
+  display: grid;
+  grid-template-columns: .65rem minmax(0, 1fr) minmax(0, auto);
+  column-gap: .55rem;
+  align-items: baseline;
+  padding: .65rem .85rem;
+  border-bottom: 1px solid var(--bs-border-color);
+}
+.mail-message-table tbody tr:hover { background: var(--bs-tertiary-bg); }
+.mail-message-table tbody tr.table-active { background: var(--bs-primary-bg-subtle); }
+.mail-message-table tbody td {
+  min-width: 0; padding: 0; border: 0; background: transparent; box-shadow: none;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.mail-message-table [data-mail-col="status"] { grid-column: 1; grid-row: 2; }
+.mail-message-table [data-mail-col="subject"] { grid-column: 2 / -1; grid-row: 2; }
+.mail-message-table .mail-subject-link { overflow: hidden; text-overflow: ellipsis; padding-block: .15rem; }
+.mail-message-table .mail-subject-link:focus-visible { outline: 2px solid var(--bs-primary); outline-offset: -2px; }
+.mail-message-table [data-mail-col="from"] { grid-column: 2; grid-row: 1; }
+.mail-message-table [data-mail-col="date"] { grid-column: 3; grid-row: 1; max-width: 9rem; }
+.mail-message-table :is([data-mail-col="from"], [data-mail-col="date"], [data-mail-col="to"], [data-mail-col="size"], [data-mail-col="case"]) {
+  font-size: .82rem; font-weight: normal; color: var(--bs-secondary-color);
+}
+.mail-message-table :is([data-mail-col="to"], [data-mail-col="size"], [data-mail-col="case"]) { grid-column: 2 / -1; }
+.mail-message-table td[colspan] { grid-column: 1 / -1; }
+.table-responsive > .mail-message-table { min-width: 0; }
