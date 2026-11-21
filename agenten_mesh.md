@@ -40,6 +40,14 @@ Jede Übergabe enthält Paket-ID, Status, Ist, Soll, Dateien, Schritte, Zwischen
 
 ## Arbeitsnachweise
 
+### P0 · Security-Triage #874 · 21. November 2026
+
+| Phase | Arbeitsstand und Nachweis |
+|---|---|
+| Analyse | 317 offene Code-Scanning-Alerts auf `refs/heads/main` (Basis `3a374f94`): 143× `py/path-injection` (high), 64× `py/stack-trace-exposure`, 9× weak-hashing, je 1× XSS/ReDoS/clear-text-logging, Rest Supply-Chain/Lint. Dependabot deaktiviert (HTTP 403), Secret-Scanning per API nicht abfragbar — beide nicht als sauber gewertet. |
+| Verifikation | Stichproben am Code gelesen: TURN-HMAC-SHA1 ist protokollbedingt (`simpleoffice_connection_relay.py:291`); XSS-Alert #449 zeigt auf driftete Zeile (neu zuordnen); Redirect-Senken teilvalidiert; Storage-Sink generisch (V2-Abgleich offen). |
+| Ergebnis | Triage-Protokoll `docs/SECURITY_TRIAGE_2026-11-21.md`; Folge-Issues #1154 (path-injection/ReDoS/Storage), #1155 (XSS/Redirect/Logging), #1156 (Supply-Chain). Kein Dismiss, kein Merge (Koordinator mergt). |
+
 ### P2 · QR-Inhalt auf dem Handy manuell kopieren · 19. November 2026
 
 | Phase | Zuständigkeit und Ergebnis |
