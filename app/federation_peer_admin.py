@@ -11,6 +11,7 @@ from .federation_compatibility import requirements
 from .federation_discovery_lan import discover_lan, local_lan_addresses, scan_ports
 from .federation_discovery_publish import publish
 from .federation_discovery_service import discover_country, discover_direct, discover_email
+from .federation_hello import report_hello_import
 from .federation_lan_receive_state import LanReceiveState
 from . import federation_local_identity
 from . import federation_network
@@ -622,6 +623,7 @@ def import_qr():
                 profile["peer_id"], profile["label"], profile["base_url"], "",
                 {}, False,
             )
+        report_hello_import(_root(), profile, flash, translate, g.language, current_app.logger)
         personally_verified = request.form.get("verify_in_person") == "1"
         if personally_verified:
             trust.set_trust(

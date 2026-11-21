@@ -44,6 +44,10 @@ CREATE TABLE IF NOT EXISTS federation_pairing_token(
 CREATE TABLE IF NOT EXISTS federation_discovery_state(
  name TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS federation_hello_attempt(
+ rate_key TEXT NOT NULL, attempted_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_federation_hello_attempt ON federation_hello_attempt(rate_key, attempted_at);
 """
 
 
