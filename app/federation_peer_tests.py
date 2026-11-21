@@ -2,15 +2,19 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import secrets
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any
 
-from .federation_discovery_endpoint import normalize_endpoint
+from .federation_discovery_endpoint import (
+    _connection_for,
+    _host_header,
+    _validated_target,
+    normalize_endpoint,
+)
 from .federation_store import FederationStore
 
 TEST_TIMEOUT_SECONDS = 15
@@ -28,19 +32,35 @@ def _peer(root: str | Path, peer_id: str) -> dict[str, Any]:
 def _post(peer: dict[str, Any], token: str, path: str, body: bytes = b"",
           content_type: str = "application/json") -> tuple[int, dict[str, Any]]:
     base_url = normalize_endpoint(peer.get("base_url", ""))
-    request = urllib.request.Request(
-        base_url.rstrip("/") + path, data=body or None, method="POST",
-        headers={"Content-Type": content_type,
-                 "Authorization": f"Bearer {token}"},
-    )
+    _canonical, parsed, port, addresses = _validated_target(base_url)
+    if not addresses:
+        raise ValueError("peer address did not resolve")
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": content_type,
+        "Authorization": f"Bearer {token}",
+        "Host": _host_header(parsed.hostname or "", port, parsed.scheme),
+        "User-Agent": "SimpleOffice4Me-Federation-PeerTests/1",
+    }
+    target = str(parsed.path or "").rstrip("/") + path
+    connection = _connection_for(parsed.scheme, addresses[0].compressed, port,
+                                 parsed.hostname or "", TEST_TIMEOUT_SECONDS)
     try:
-        with urllib.request.urlopen(request, timeout=TEST_TIMEOUT_SECONDS) as response:
-            raw = response.read(65536)
-            status = int(getattr(response, "status", 200) or 200)
-    except urllib.error.HTTPError as exc:
-        raise ValueError(f"peer answered {exc.code}") from exc
-    except (OSError, TimeoutError) as exc:
+        connection.request("POST", target, body=body or None, headers=headers)
+        response = connection.getresponse()
+        raw = response.read(65536 + 1)
+        status = int(response.status or 200)
+    except (OSError, http.client.HTTPException, TimeoutError) as exc:
         raise ValueError(f"peer unreachable: {type(exc).__name__}") from exc
+    finally:
+        try:
+            connection.close()
+        except OSError:
+            pass
+    if status >= 400:
+        raise ValueError(f"peer answered {status}")
+    if len(raw) > 65536:
+        raise ValueError("peer answer is too large")
     try:
         value = json.loads((raw or b"{}").decode("utf-8"))
     except ValueError as exc:
