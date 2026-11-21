@@ -269,6 +269,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: Fremddateien weg, legitime Slices da, Suite grün. Ist gemessen: 6/6 Fremddateien entfernt, 4/4 Slice-Module + share-Flag vorhanden; Mail-/Inventur-/Bibliotheks-Nachbarsuites + Gates vor Push grün (siehe PR-CI). |
 | Review und Abschluss | Lehre: Merge-Agents dürfen nur `git merge origin/main` ausführen, nie fremde Branches integrieren; Merges künftig per Diff gegen PR-Branch verifizieren. Offen: #1134-Doku neu, #1135/#1137 normal mergen, #1136-Slices bleiben zur Nutzer-Review offen. |
 
+## 21. November 2026 · Issue #759: restliche Checklistenpunkte belegt + Tests erweitert
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Issue-Checklisten war unvollständig abgehakt. Nachgeholt: CSRF (globaler `protect_browser_mutation`-Hook, per Test mit aktiviertem Schutz belegt), Pfad-Traversal (UUID-Validierung + Symlink-/Containment-Prüfung in `_report_directory`), Besitzrechte (Fremdzugriff 404 ohne Leak), Formate (nur PDF angeboten, kein CSV/Download-Zweig vorhanden), Leerauswahl (kontrollierter Leerbericht), Dateiname + Pfad-Leakfreiheit, 50-Befunde-Bericht. |
+| Implementierung | Nur Tests erweitert (`tests/test_site_visit_report_http.py` 5→11): Fremdbenutzer-404, CSRF-403 ohne Token, Traversal-IDs, Leerauswahl, Dateiname/Leakfreiheit, Großbericht. Kein Produktcode geändert. |
+| Tests und Soll-Ist-Vergleich | Soll: alle Issue-Punkte belegt. Ist gemessen: 11/11 Blackbox-Tests grün; Ruff, Policy-, Größen-, Compile-Gates grün. Nicht durchgeführt: dedizierter Browser-Test (nur CI-Smoke), Last-/Timeouttest unter echter Konkurrenz. |
+| Review und Abschluss | Issue-Checkboxen nach Merge auf verifizierten Stand setzen + Nachweis kommentieren. |
+
 ## 20. November 2026 · Issue #759: Berichts-Erstellung/Download verifiziert + Regressionstests
 
 | Phase | Arbeit und Nachweis |
