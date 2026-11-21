@@ -36,3 +36,15 @@ governs the implicit remote inbox load in the web reader and is enforced on the
 server; it does not delete archived messages or credentials. A remote request
 already in progress when the setting changes may finish; subsequent implicit
 loads are skipped.
+
+## Überführen: Mail/Anhang als Aufgabe oder Termin (Issue #1136, slice 5)
+
+The reader offers handover boxes in the live and archived preview
+(`POST /documents/mail/reader/handover/task|followup`). A handover creates
+a `TodoStore` task (optionally with due date, surfaced as CalDAV VTODO) or
+a `CalendarStore` follow-up event from mail metadata only. References are
+stable text (Message-ID, SHA-512, account/folder/UID or archive id, plus
+attachment name/type/size, never payload bytes), so no copy flood occurs.
+Rights are enforced server-side: live mail requires account ownership,
+archived mail requires archive permission, tasks require list create
+rights. Handover never mutates IMAP state and works in read-only mode.
