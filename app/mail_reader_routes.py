@@ -974,8 +974,12 @@ def archive_message():
     query = request.form.get("q", "").strip()
     try:
         account = _account(store, account_id)
-        result = MailReader(store).archive_uid(_actor(), account, folder, uid)
-        flash("Nachricht war bereits im Archiv." if result["duplicate"] else "Nachricht unverändert als EML archiviert.")
+        extract = request.form.get("extract_attachments") == "1"
+        result = MailReader(store).archive_uid(_actor(), account, folder, uid, extract_attachments=extract)
+        if result.get("attachments_error"):
+            flash("EML archiviert; der Anhangsordner konnte nicht erstellt werden.")
+        else:
+            flash("Nachricht war bereits im Archiv." if result["duplicate"] else "Nachricht unverändert als EML archiviert.")
     except Exception as exc:
         current_app.logger.warning("Manual IMAP archive failed for %s: %s", _actor(), type(exc).__name__)
         flash(f"Archivieren fehlgeschlagen ({type(exc).__name__}).")

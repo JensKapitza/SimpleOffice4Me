@@ -22,6 +22,7 @@ from typing import Any
 from .document_store import DocumentStore
 from .mail_client import ImapArchive, MailStore, MAX_MESSAGE_BYTES, _owner_key
 from .v2.storage_runtime import create_document
+from .mail_archive_folders import archive_message_attachments
 from .mail_archive_storage import archive_document, archive_locations, read_archive_eml
 
 
@@ -201,7 +202,16 @@ class MailReader:
             except Exception:
                 pass
 
-    def archive_uid(self, actor: str, account: dict[str, Any], folder: str, uid: str) -> dict[str, Any]:
+    def archive_uid(
+        self,
+        actor: str,
+        account: dict[str, Any],
+        folder: str,
+        uid: str,
+        *,
+        extract_attachments: bool = False,
+        scanner: Any = None,
+    ) -> dict[str, Any]:
         if not uid.isdigit():
             raise ValueError("invalid IMAP UID")
         connection = self.imap._connect(account)
@@ -241,13 +251,27 @@ class MailReader:
             message = BytesParser(policy=policy.default).parsebytes(raw, headersonly=True)
             origin = {
                 "account_id": account["id"], "folder": folder, "uidvalidity": uidvalidity, "uid": uid,
-                "sha512": digest, "message_id": _header(message.get("Message-ID")),
+                "sha512": digest, "sha256": hashlib.sha256(raw).hexdigest(),
+                "message_id": _header(message.get("Message-ID")),
                 "subject": _header(message.get("Subject")), "from": _header(message.get("From")),
                 "date": _header(message.get("Date")),
             }
             documents.set_attribute(document["document_id"], "email_origin", origin, actor)
             self.store.history.record("imap_message_archived_manual", actor, "mail-archive", document["document_id"], {**origin, "duplicate": duplicate})
-            return {"document_id": document["document_id"], "path": path, "duplicate": duplicate}
+            attachments_result: dict[str, Any] | None = None
+            attachments_error = ""
+            if extract_attachments:
+                try:
+                    attachments_result = archive_message_attachments(
+                        self.store, actor, account["id"], digest, scanner=scanner,
+                    )
+                except Exception as exc:
+                    # The byte-identical EML is already stored and verified;
+                    # a failed attachment follow-up must not undo the archive.
+                    attachments_error = type(exc).__name__
+            return {"document_id": document["document_id"], "path": path, "duplicate": duplicate,
+                    "sha256": origin["sha256"], "attachments": attachments_result,
+                    "attachments_error": attachments_error}
         finally:
             try:
                 connection.logout()
