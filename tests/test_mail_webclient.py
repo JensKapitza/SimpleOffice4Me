@@ -98,7 +98,7 @@ class MailWebClientPolicyTests(unittest.TestCase):
             b"References: <older@example.test> <root@example.test>\r\n"
             b"\r\nBody"
         )
-        web._raw_message = MagicMock(return_value=(raw, set()))
+        web._raw_message = MagicMock(return_value=(raw, set(), None))
         message = web.message(self.store.account(self.actor, "work"), "INBOX", "42")
         self.assertEqual("<reply@example.test>", message["message_id"])
         self.assertEqual("<root@example.test>", message["in_reply_to"])

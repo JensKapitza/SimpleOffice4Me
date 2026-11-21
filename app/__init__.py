@@ -416,6 +416,9 @@ app.register_blueprint(mail_reader_routes.bp)
 from . import mail_handover_routes
 app.register_blueprint(mail_handover_routes.bp)
 
+from . import mail_keyword_routes
+app.register_blueprint(mail_keyword_routes.bp)
+
 from . import mail_smtp_admin
 app.register_blueprint(mail_smtp_admin.bp)
 
