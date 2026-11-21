@@ -34,6 +34,7 @@ CRAWL_SKIP_EXACT = {
     "/inventory/amazon",
     "/inventory/lookup",
     "/inventory/marketplace/search",
+    "/kids/lernen/sprache",
     "/mcp",
     "/network-boot/ipxe",
     "/resource-commander/api/range",

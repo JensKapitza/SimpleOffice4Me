@@ -17,15 +17,19 @@ Security properties:
 """
 from __future__ import annotations
 
+import http.client
 import json
 import time
-import urllib.parse
-import urllib.request
 from pathlib import Path
 from typing import Any
 
 from .federation_core import sanitize_peer_id
-from .federation_discovery_endpoint import normalize_endpoint
+from .federation_discovery_endpoint import (
+    _connection_for,
+    _host_header,
+    _validated_target,
+    normalize_endpoint,
+)
 from .federation_discovery_service import remember_discovered_peer
 from .federation_identity import FederationIdentity, public_key_fingerprint, verify
 from .federation_local_profile import local_peer_id, local_profile
@@ -67,18 +71,67 @@ def build_hello(root: str | Path, base_url: str = "") -> dict[str, Any]:
     return payload
 
 
-def _post_json(url: str, payload: dict[str, Any], timeout: int) -> dict[str, Any]:
+def _post_json(base_url: str, path: str, payload: dict[str, Any], timeout: int) -> dict[str, Any]:
+    """POST over a pinned, policy-checked endpoint (no urllib opener)."""
+    _canonical, parsed, port, addresses = _validated_target(base_url)
+    if not addresses:
+        raise ValueError("hello: peer address did not resolve")
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    request = urllib.request.Request(
-        url, data=body, method="POST",
-        headers={"Content-Type": "application/json", "Content-Length": str(len(body))},
-    )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        raw = response.read(65536)
-    value = json.loads(raw.decode("utf-8"))
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Host": _host_header(parsed.hostname or "", port, parsed.scheme),
+        "User-Agent": "SimpleOffice4Me-Federation-Hello/1",
+    }
+    target = str(parsed.path or "").rstrip("/") + path
+    connection = _connection_for(parsed.scheme, addresses[0].compressed, port, parsed.hostname or "", timeout)
+    try:
+        connection.request("POST", target, body=body, headers=headers)
+        response = connection.getresponse()
+        raw = response.read(65536 + 1)
+    except (OSError, http.client.HTTPException, TimeoutError) as exc:
+        raise ValueError(f"hello transport failed: {type(exc).__name__}") from exc
+    finally:
+        try:
+            connection.close()
+        except OSError:
+            pass
+    if len(raw) > 65536:
+        raise ValueError("hello response is too large")
+    try:
+        value = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise ValueError("hello response is not JSON") from exc
     if not isinstance(value, dict):
         raise ValueError("hello response is not a JSON object")
     return value
+
+
+def announce_to_profile(root: str | Path, profile: dict[str, Any]) -> tuple[bool, str]:
+    """Best-effort hello after a scan; returns (answered, detail).
+
+    Never raises: failures return ``(False, reason)`` so the import flash
+    can distinguish mutual visibility from local-only storage.
+    """
+    try:
+        answer = send_hello(root, profile)
+    except Exception as exc:
+        return False, str(exc)[:200]
+    responder = answer.get("responder", {}) if isinstance(answer, dict) else {}
+    peer_id = str(responder.get("peer_id", "") or "")[:128]
+    return True, peer_id or str(profile.get("peer_id", ""))
+
+
+def report_hello_import(root: str | Path, profile: dict[str, Any], flash_fn, translate_fn, language, logger) -> None:
+    """Run the post-scan hello and flash the outcome (keeps callers small)."""
+    answered, detail = announce_to_profile(root, profile)
+    if answered:
+        flash_fn(translate_fn(language, "fedpeer.qr.hello.ok").format(
+            peer=profile["peer_id"], responder=detail))
+    else:
+        logger.warning("Federation hello to %s failed: %s", profile["peer_id"], detail)
+        flash_fn(translate_fn(language, "fedpeer.qr.hello.failed").format(
+            peer=profile["peer_id"], exc=detail))
 
 
 def send_hello(root: str | Path, peer: dict[str, Any]) -> dict[str, Any]:
@@ -98,7 +151,7 @@ def send_hello(root: str | Path, peer: dict[str, Any]) -> dict[str, Any]:
     except ValueError as exc:
         raise ValueError(f"hello: local identity incomplete: {exc}") from exc
     try:
-        answer = _post_json(base_url.rstrip("/") + HELLO_PATH, payload, HELLO_TIMEOUT_SECONDS)
+        answer = _post_json(base_url, HELLO_PATH, payload, HELLO_TIMEOUT_SECONDS)
     except (OSError, ValueError, TimeoutError) as exc:
         raise ValueError(f"hello: no answer from peer: {type(exc).__name__}") from exc
     if not answer.get("ok"):

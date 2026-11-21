@@ -81,11 +81,11 @@ class FederationHelloTwoPeerTests(unittest.TestCase):
         self.assertTrue(granted is None or granted.get("trust_level", "NONE") == "NONE")
 
     def test_hello_round_trip_verifies_responder(self):
-        def deliver(url, body, timeout):
-            self.assertTrue(url.endswith("/federation/v1/discovery/hello"))
+        def deliver(base_url, path, payload, timeout):
+            self.assertEqual("/federation/v1/discovery/hello", path)
             with self.app_b.test_request_context():
                 from app.federation_hello import receive_hello as receive
-                return receive(self.root_b, body)
+                return receive(self.root_b, payload)
 
         with patch("app.federation_hello._post_json", side_effect=deliver):
             result = send_hello(self.root_a, {"peer_id": "peer-b",
@@ -109,7 +109,7 @@ class FederationHelloTwoPeerTests(unittest.TestCase):
             "federation": {"name": "SimpleOffice Federation", "min_version": 1, "max_version": 1},
         })
         answer = {"ok": True, "responder": {"peer_id": "office-b"}}
-        with patch("app.federation_peer_admin.send_hello", return_value=answer) as hello:
+        with patch("app.federation_hello.send_hello", return_value=answer) as hello:
             response = self.real_client.post(
                 "/admin/federation/peer-discovery/qr/import", data={"payload": payload})
         self.assertEqual(302, response.status_code)
