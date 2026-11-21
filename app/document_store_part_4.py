@@ -406,15 +406,17 @@ class _DocumentStorePart4:
         return versions or [document]
 
     def relationship_targets(self, document: dict[str, Any]) -> dict[str, dict[str, Any]]:
-        """Load only sidecars explicitly referenced by one document."""
+        """Load referenced documents that are visible to the current request."""
         targets: dict[str, dict[str, Any]] = {}
         for relationship in document.get("relationships", []):
             document_id = str(relationship.get("target_document_id", ""))
             if not document_id or document_id in targets:
                 continue
-            metadata = self._read_json(self.documents / f"{document_id}.json", {})
-            if metadata.get("document_id"):
-                targets[document_id] = metadata
+            try:
+                targets[document_id] = self.get_document(document_id)
+            except ValueError:
+                # Missing and unauthorized targets are intentionally indistinguishable.
+                continue
         return targets
 
     def offload_old_versions(self, reference: str | Path, archive_root: str | Path, actor: str) -> dict[str, Any]:

@@ -195,7 +195,7 @@
 </form>
 </details>
 </div>{% if relationships %}<ul class="list-group list-group-flush">{% for link in relationships %}<li class="list-group-item">
-<span class="badge text-bg-light border">{{ link.type }}</span> {% if link.target %}<a href="{{ url_for('documents.detail', document_id=link.target.document_id) }}">{{ link.target.last_path }}</a>{% else %}<span class="text-break">{{ link.target_text or link.target_document_id }}</span>{% endif %}{% if link.label %} <small class="text-secondary">{{ link.label }}</small>{% endif %}</li>{% endfor %}</ul>{% endif %}</div>
+{% if link.unavailable %}<span class="badge text-bg-light border">{{ 'relation' if g.language == 'en' else 'Beziehung' }}</span> <span class="text-secondary">{{ 'Related document unavailable or not accessible.' if g.language == 'en' else 'Verknüpftes Dokument nicht verfügbar oder nicht zugänglich.' }}</span>{% else %}<span class="badge text-bg-light border">{{ link.type }}</span> {% if link.target %}<a href="{{ url_for('documents.detail', document_id=link.target.document_id) }}">{{ link.target.last_path }}</a>{% else %}<span class="text-break">{{ link.target_text }}</span>{% endif %}{% if link.label %} <small class="text-secondary">{{ link.label }}</small>{% endif %}{% endif %}</li>{% endfor %}</ul>{% endif %}</div>
 </section>
 {% if document_tasks %}
 <section class="card mb-4">
