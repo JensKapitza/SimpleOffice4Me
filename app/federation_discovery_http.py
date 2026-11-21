@@ -138,7 +138,7 @@ def register():
         if sender and sender != profile["peer_id"]:
             return jsonify({"error": "peer_identity_mismatch"}), 403
         trust = FederationTrustStore(_root())
-        trust.remember(
+        trust.remember_discovered_identity(
             profile["peer_id"], profile["country"], profile["fingerprint"],
             "directory-register", profile.get("public_key", ""),
         )

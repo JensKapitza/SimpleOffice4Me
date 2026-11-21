@@ -35,7 +35,7 @@ def remember_discovered_peer(root, profile, source):
     """Persist discovery metadata without granting trust or data permissions."""
     profile = peer_profile(profile)
     trust = FederationTrustStore(root)
-    trust.remember(
+    trust.remember_discovered_identity(
         profile["peer_id"], profile["country"], profile["fingerprint"], source,
         profile.get("public_key", ""),
     )
