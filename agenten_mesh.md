@@ -250,6 +250,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | `LibraryStore.unassign` mit Ereignis; neues Modul `scan_dispatch_routes.py` mit `POST /library/scan` (Modus+Code+Ziel, JSON/Flash, Login, Audit): Einlagern ordnet zu, Entnehmen löst Zuordnung und Spiegelung (mit Wiederherstellung bei Spiegelfehler); Scan-Karte auf der Bibliotheksseite. |
 | Tests und Soll-Ist-Vergleich | Soll: beide Modi wirken, Spiegel konsistent, Validierung, Rechte. Ist gemessen: 4/4 Blackbox-HTTP-Tests (Einlagern per Code, Entnehmen löst+leert Spiegel, 3 Validierungsfälle, anonym+Marker); Nachbar-Suites 24/24; Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen als Follow-up: Modi Umlagern/Inventur, Zielort-Gedächtnis, föderierte Rechte, Fotoerkennung, Offline-Sync. |
+## 21. November 2026 · Federation: Hello macht Scans beidseitig sichtbar
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Nutzerbefund: QR-Scan meldet „Peer erkannt“, aber nur einseitig. Root Cause: `import_qr` speicherte ausschließlich lokal; ein Rückmelde-Mechanismus existierte nicht. Krypto (Ed25519-Signaturen, Fingerprint-Bindung) strukturell geprüft und als Basis wiederverwendet; Nebenbefund: `peer_profile` war nicht idempotent (leeres Deskriptor-Dict warf). |
+| Implementierung | Neues Modul `app/federation_hello.py` (signiertes Hello, Empfänger-Prüfung: Signatur, Fingerprint-Bindung, Zeitfenster, Identitätsdiebstahl-Ablehnung, Fingerprint-Rate-Limit); Endpunkt `POST /federation/v1/discovery/hello` (sichtbar-aber-unvertraut: deaktiviert, Trust NONE); QR-Import meldet Hallo best-effort mit Treffer-/Fehler-Flash; `normalize_protocol_descriptor({})` gefixt. |
+| Tests und Soll-Ist-Vergleich | Soll: nach Scan beide Seiten sichtbar, Fälschung/Identitätsdiebstahl abgelehnt, kein Vertrauen durch Hello. Ist gemessen: 5/5 Zwei-Instanzen-Blackbox-Tests; Nachbarn (Admin-UI, Discovery, Kompatibilität) grün; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen: Praxistest mit zwei echten Instanzen durch Eigentümer; Diagnose-Buttons (Datei, Ton, QR, Druck-Test) als Folge-PR. |
+
 ## 21. November 2026 · Sieve: Skripte mit Sonderzeichen werden gefunden + Diagnose
 
 | Phase | Arbeit und Nachweis |

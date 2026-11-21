@@ -51,7 +51,7 @@ def _int_version(value):
 
 
 def normalize_protocol_descriptor(value) -> dict:
-    if not isinstance(value, dict):
+    if not isinstance(value, dict) or not value:
         return {}
     name = str(value.get("name") or "").strip()[:80]
     minimum = _int_version(value.get("min_version"))
