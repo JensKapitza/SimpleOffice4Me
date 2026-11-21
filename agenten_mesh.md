@@ -554,6 +554,14 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: Reveal nur für lesbare lokale Dateien, kein Traversal/Injection, Linux/Windows/macOS. Ist gemessen: 5/5 Python-Tests (Pfad absolut+Datei, 404, Login, fehlende Datei→`not_local`, Marker), 6/6 Node-Plattformtests (posix/win32/darwin, relativ/fehlend/Verzeichnis/Fehlformen ohne fs-Zugriff), Browser-Tests (Chromium, CI): ohne Bridge versteckt, mit simulierter Bridge Pfadaufruf. `node --check`, Ruff, Gates grün. |
 | Review und Abschluss | Offen als Follow-up: Reveal-Aktion in Schnellsuche/Dateilisten nach deren Merge, Praxisprüfung in Desktop-Builds je OS, Tauri bleibt ohne Shell-Zugriff (Design). |
 
+## 21. November 2026 · Issue #1136 Slice 4: IMAP Tags/Keywords (PERMANENTFLAGS-Sync, Reader-Badges)
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Bestand: `ImapWebClient` kannte nur Seen/Flagged/Answered, keine Keywords; SELECT-Antwort wurde auf Count reduziert, PERMANENTFLAGS nie ausgewertet; Reader zeigte keine Kennzeichnungen. Vorgabe: Sync nur nach IMAP-Capability, `require_writable` beachten, Readonly zeigt nur. |
+| Implementierung | `app/mail_webclient.py`: `normalize_keyword` (IMAP-Atom, max 50, System-Flags abgelehnt), `keywords_of` (Nicht-`\`-Flags), `_select_detailed` + `_permanent_flags` (SELECT parsen inkl. `connection.response("PERMANENTFLAGS")`), `_raw_message` liefert zusätzlich PERMANENTFLAGS, `message()`/`messages()` mit `keywords` + `keyword_support`, `set_keywords` (require_writable, `\*`-Pflicht, STORE +FLAGS/-FLAGS.SILENT, Audit `imap_message_keywords_changed`). Neues Modul `app/mail_keyword_routes.py` (eigener Blueprint, gleiche URL-Basis; `mail_reader_routes.py` stand bei 982/1000 Zeilen). Template: Badges in Liste und Vorschau, Schreib-Formular nur bei `not read_only` + Capability, sonst Hinweistext. Doku: Abschnitt in `docs/MAIL_ACCOUNT_SETUP.md`. Bestehender Mock in `tests/test_mail_webclient.py` auf neues 3-Tupel angepasst (bewusste Vertragserweiterung). |
+| Tests und Soll-Ist-Vergleich | Soll: Capability-gesteuerter Sync, Readonly ohne STORE, Badges sichtbar, Gates grün. Ist gemessen: 5/5 Blackbox-HTTP-Tests mit Fake-IMAP (`tests/test_mail_keywords_http.py`: Sync+Badges+Formular schreibend, Readonly ohne STORE/Formular, unbekannte/fehlende Capability und ungültiges Keyword ohne STORE), 89/89 Mail-Nachbarsuites, Ruff/Compileall/Policy/Datei-/Funktionsgrößen grün. |
+| Review und Abschluss | Offen: keine. Kein Merge (Issue-Verbot #1136); PR zur Nutzer-Review. |
 ## 21. November 2026 · Issue #679: Federation-Testnetz-Slice (fed-testnet)
 
 | Phase | Arbeit und Nachweis |
