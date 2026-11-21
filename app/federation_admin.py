@@ -21,6 +21,7 @@ from .federation_download_worker import (
     sync_peer_inventory_catalog,
 )
 from .federation_orchestrator import orchestrate_third_party
+from .federation_peer_tests import test_file_send, test_print, test_qr, test_tone
 from .federation_store import FederationStore
 from .federation_worker import _materialize_blob, peer_capabilities, push_blob_to_peer, remote_availability
 from .federation_diagnostics import probe_peer as run_network_diagnostic
@@ -435,6 +436,59 @@ def probe_peer(peer_id: str):
     except Exception as exc:
         flash(translate(g.language, "fed.probe.failed").format(exc=exc))
     return _redirect_dashboard()
+
+
+@bp.post("/peers/<peer_id>/test-file")
+@admin_required
+def peer_test_file(peer_id: str):
+    try:
+        result = test_file_send(current_app.config["DOCUMENT_ROOT"], peer_id)
+        flash(translate(g.language, "fed.test.file.ok").format(
+            sha=str(result.get("sha256", ""))[:12], ms=result.get("latency_ms", 0)))
+    except Exception as exc:
+        flash(translate(g.language, "fed.test.failed").format(exc=str(exc)[:200]))
+    return _redirect_dashboard(view="peers")
+
+
+@bp.post("/peers/<peer_id>/test-tone")
+@admin_required
+def peer_test_tone(peer_id: str):
+    try:
+        result = test_tone(current_app.config["DOCUMENT_ROOT"], peer_id)
+        if result.get("played"):
+            flash(translate(g.language, "fed.test.tone.ok"))
+        else:
+            flash(translate(g.language, "fed.test.tone.rendered").format(
+                exc=result.get("player_error", "")))
+    except Exception as exc:
+        flash(translate(g.language, "fed.test.failed").format(exc=str(exc)[:200]))
+    return _redirect_dashboard(view="peers")
+
+
+@bp.post("/peers/<peer_id>/test-print")
+@admin_required
+def peer_test_print(peer_id: str):
+    try:
+        result = test_print(current_app.config["DOCUMENT_ROOT"], peer_id)
+        flash(translate(g.language, "fed.test.print.ok").format(
+            printer=result.get("printer_id", ""), job=result.get("job_id", "")[:8]))
+    except Exception as exc:
+        flash(translate(g.language, "fed.test.failed").format(exc=str(exc)[:200]))
+    return _redirect_dashboard(view="peers")
+
+
+@bp.post("/peers/<peer_id>/test-qr")
+@admin_required
+def peer_test_qr(peer_id: str):
+    del peer_id
+    try:
+        result = test_qr(current_app.config["DOCUMENT_ROOT"])
+        flash(translate(g.language, "fed.test.qr.ok").format(
+            peer=result.get("peer_id", ""),
+            fingerprint=str(result.get("fingerprint", ""))))
+    except Exception as exc:
+        flash(translate(g.language, "fed.test.failed").format(exc=str(exc)[:200]))
+    return _redirect_dashboard(view="peers")
 
 
 @bp.post("/peers/<peer_id>/diagnostics/probe")

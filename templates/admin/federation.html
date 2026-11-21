@@ -526,6 +526,26 @@
                           <input type="hidden" name="_return_view" value="peers">
                           <button class="btn btn-sm btn-outline-primary" type="submit">{{ 'Test connection' if g.language == 'en' else 'Verbindung testen' }}</button>
                         </form>
+                        <form method="post" action="{{ url_for('federation_admin.peer_test_file', peer_id=peer.peer_id) }}">
+                          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                          <input type="hidden" name="_return_view" value="peers">
+                          <button class="btn btn-sm btn-outline-primary" type="submit" {% if not peer.enabled %}disabled{% endif %}>{{ 'Test file send' if g.language == 'en' else 'Dateisenden testen' }}</button>
+                        </form>
+                        <form method="post" action="{{ url_for('federation_admin.peer_test_tone', peer_id=peer.peer_id) }}">
+                          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                          <input type="hidden" name="_return_view" value="peers">
+                          <button class="btn btn-sm btn-outline-primary" type="submit" {% if not peer.enabled %}disabled{% endif %}>{{ 'Test tone' if g.language == 'en' else 'Ton testen' }}</button>
+                        </form>
+                        <form method="post" action="{{ url_for('federation_admin.peer_test_qr', peer_id=peer.peer_id) }}">
+                          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                          <input type="hidden" name="_return_view" value="peers">
+                          <button class="btn btn-sm btn-outline-primary" type="submit">{{ 'Test QR code' if g.language == 'en' else 'QR-Code testen' }}</button>
+                        </form>
+                        <form method="post" action="{{ url_for('federation_admin.peer_test_print', peer_id=peer.peer_id) }}">
+                          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                          <input type="hidden" name="_return_view" value="peers">
+                          <button class="btn btn-sm btn-outline-primary" type="submit" {% if not peer.enabled %}disabled{% endif %}>{{ 'Test print call' if g.language == 'en' else 'Druckaufruf testen' }}</button>
+                        </form>
                       </div>
                     </td>
                   </tr>

@@ -1,6 +1,7 @@
 """HTTP access to content-defined SHA-512 blocks used by SOFP deduplication."""
 from __future__ import annotations
 
+import hashlib
 import hmac
 
 from flask import Blueprint, Response, current_app, jsonify, request
@@ -112,6 +113,18 @@ def block_availability():
     store = FederationBlockStore(_root())
     available = store.available(values)
     return jsonify({"hash_algorithm": HASH_ALGORITHM, "available": sorted(available)})
+
+
+@bp.post("/test")
+def block_roundtrip_test():
+    """Echo a small payload back as SHA-256 (connectivity test, no storage)."""
+    payload = request.get_data(cache=False, as_text=False) or b""
+    if len(payload) > 4096:
+        return jsonify({"error": "test_payload_too_large", "max_bytes": 4096}), 413
+    response = jsonify({"ok": True, "sha256": hashlib.sha256(payload).hexdigest(),
+                        "size": len(payload)})
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @bp.get("/<digest>")
