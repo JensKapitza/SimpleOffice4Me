@@ -46,6 +46,14 @@ class FederationTrustStore:
             row = db.execute("SELECT * FROM federation_peer_identity WHERE peer_id=?", (peer_id,)).fetchone()
         return dict(row) if row else None
 
+    def bind_verified_identity(self, peer_id, country="", fingerprint="", public_key=""):
+        """Bind a fingerprint confirmed by the explicit in-person ceremony.
+
+        This is the only legitimate remote key rotation: the administrator
+        confirmed this exact fingerprint face to face.
+        """
+        return self.remember(peer_id, country, fingerprint, "qr-verified", public_key)
+
     def remember_discovered_identity(self, peer_id, country="", fingerprint="", source="", public_key=""):
         """Store a remotely announced identity with first-seen binding.
 

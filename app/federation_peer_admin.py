@@ -618,12 +618,9 @@ def import_qr():
         report_hello_import(_root(), profile, flash, translate, g.language, current_app.logger)
         personally_verified = request.form.get("verify_in_person") == "1"
         if personally_verified:
-            # Explicit in-person ceremony: the administrator confirmed this
-            # exact fingerprint, so binding it is legitimate key rotation.
-            trust.remember(
-                profile["peer_id"], profile["country"], profile["fingerprint"], "qr-verified",
-                profile.get("public_key", ""),
-            )
+            trust.bind_verified_identity(
+                profile["peer_id"], profile["country"], profile["fingerprint"],
+                profile.get("public_key", ""))
             trust.set_trust(
                 profile["peer_id"], "NONE", "VERIFIED_IN_PERSON", "DIRECT_ONLY", 0,
                 metadata={"actor": str(g.user["username"]), "method": "qr_in_person"},
