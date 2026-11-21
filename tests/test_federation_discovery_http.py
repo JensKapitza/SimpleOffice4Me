@@ -60,17 +60,58 @@ class FederationDiscoveryHttpTest(unittest.TestCase):
         self.assertEqual(response.json["master"]["is_master"], False)
         self.assertEqual(response.json["master"]["address"], "")
 
-    def test_register_publishes_without_disabling_existing_peer(self):
-        FederationStore(self.root).save_peer("peer-a", "Old", "https://old.example", "", {}, True)
+    def test_directory_bearer_cannot_claim_or_retarget_existing_peer(self):
+        store = FederationStore(self.root)
+        store.save_peer("peer-a", "Old", "https://old.example", "peer-secret", {"documents": True}, True)
+        trust = FederationTrustStore(self.root)
+        trust.remember("peer-a", "DE", "pinned-fingerprint", "administrator", "pinned-key")
         response = self.client.post(
             "/federation/v1/discovery/register",
             headers=self.auth,
             json={"profile": PROFILE, "ttl_seconds": 300},
         )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json["error"], "peer_identity_required")
+        peer = store.get_peer("peer-a")
+        self.assertEqual(peer["base_url"], "https://old.example")
+        self.assertEqual(peer["policy"], {"documents": True})
+        self.assertTrue(peer["enabled"])
+        self.assertEqual(store.peer_token("peer-a"), "peer-secret")
+        self.assertEqual(trust.identity("peer-a")["fingerprint"], "pinned-fingerprint")
+        self.assertEqual(self.client.get("/federation/v1/discovery/peers?country=DE", headers=self.auth).json["peers"], [])
+
+    def test_authenticated_peer_registration_keeps_admin_managed_connection(self):
+        store = FederationStore(self.root)
+        store.save_peer("peer-a", "Old", "https://old.example", "peer-secret", {"documents": True}, True)
+        body = json.dumps({"profile": {**PROFILE, "base_url": "https://old.example"}, "ttl_seconds": 300}, separators=(",", ":")).encode()
+        headers = peer_headers("peer-a", "peer-secret", "POST", "/federation/v1/discovery/register", body)
+        headers["Authorization"] = "Bearer discovery-test-token"
+        headers["Content-Type"] = "application/json"
+        response = self.client.post("/federation/v1/discovery/register", headers=headers, data=body)
         self.assertEqual(response.status_code, 201)
-        self.assertTrue(FederationStore(self.root).get_peer("peer-a")["enabled"])
+        self.assertEqual(store.get_peer("peer-a")["base_url"], "https://old.example")
+        self.assertEqual(store.peer_token("peer-a"), "peer-secret")
+        changed_body = json.dumps({"profile": PROFILE, "ttl_seconds": 300}, separators=(",", ":")).encode()
+        changed_headers = peer_headers("peer-a", "peer-secret", "POST", "/federation/v1/discovery/register", changed_body)
+        changed_headers["Authorization"] = "Bearer discovery-test-token"
+        changed_headers["Content-Type"] = "application/json"
+        changed = self.client.post("/federation/v1/discovery/register", headers=changed_headers, data=changed_body)
+        self.assertEqual(changed.status_code, 403)
+        self.assertEqual(store.get_peer("peer-a")["base_url"], "https://old.example")
         listed = self.client.get("/federation/v1/discovery/peers?country=DE", headers=self.auth)
         self.assertEqual([row["peer_id"] for row in listed.json["peers"]], ["peer-a"])
+
+    def test_directory_registration_creates_unknown_peer_disabled_without_token(self):
+        response = self.client.post(
+            "/federation/v1/discovery/register", headers=self.auth,
+            json={"profile": {**PROFILE, "peer_id": "new-peer"}},
+        )
+        self.assertEqual(response.status_code, 201)
+        peer = FederationStore(self.root).get_peer("new-peer")
+        self.assertFalse(peer["enabled"])
+        self.assertFalse(peer["has_token"])
+        self.assertEqual(peer["policy"], {})
+        self.assertIsNone(FederationTrustStore(self.root).identity("new-peer"))
 
     def test_well_known_profile_advertises_build_master_role_and_address(self):
         with patch("app.federation_local_profile.LICENSE_MASTER_MODE", True), patch(

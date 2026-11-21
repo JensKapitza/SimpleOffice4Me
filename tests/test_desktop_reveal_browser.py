@@ -30,13 +30,14 @@ class DesktopRevealBrowserTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.saved = {key: app.config.get(key) for key in (
-            "DATABASE", "DOCUMENT_ROOT", "TESTING", "TEST_CSRF_PROTECTION",
+            "DATABASE", "DOCUMENT_ROOT", "TESTING", "DESKTOP_REVEAL_TOKEN", "TEST_CSRF_PROTECTION",
             "ALLOW_PUBLIC_REGISTRATION",
         )}
         base = Path(self.temp.name)
         app.config.update(
             DATABASE=str(base / "documents.sqlite"),
             DOCUMENT_ROOT=str(base / "documents"), TESTING=True,
+            DESKTOP_REVEAL_TOKEN="browser-test-desktop-capability",
             TEST_CSRF_PROTECTION=False, ALLOW_PUBLIC_REGISTRATION="1",
         )
         with app.app_context():
@@ -93,7 +94,7 @@ class DesktopRevealBrowserTests(unittest.TestCase):
                 context.close()
                 browser.close()
 
-    def test_reveal_button_calls_bridge_with_server_path(self):
+    def test_reveal_button_calls_bridge_with_opaque_document_id(self):
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(
                 executable_path=shutil.which("chromium"), headless=True, args=["--no-sandbox"],
@@ -102,7 +103,7 @@ class DesktopRevealBrowserTests(unittest.TestCase):
                 context = self._context(browser, viewport={"width": 1280, "height": 900})
                 context.add_init_script(
                     "window.simpleOfficeDesktop = {desktop: true, platform: 'linux',"
-                    " revealed: [], revealFile(path) { this.revealed.push(path); return Promise.resolve({ok: true}); }};"
+                    " revealed: [], revealDocument(id) { this.revealed.push(id); return Promise.resolve({ok: true}); }};"
                 )
                 page = context.new_page()
                 page.goto(self.origin + f"/documents/{self.document_id}", wait_until="domcontentloaded")
@@ -114,7 +115,7 @@ class DesktopRevealBrowserTests(unittest.TestCase):
                     timeout=5000,
                 )
                 revealed = page.evaluate("() => window.simpleOfficeDesktop.revealed[0]")
-                self.assertTrue(revealed.endswith("reveal.txt"))
+                self.assertEqual(self.document_id, revealed)
             finally:
                 context.close()
                 browser.close()

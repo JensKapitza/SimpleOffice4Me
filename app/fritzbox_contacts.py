@@ -3,11 +3,14 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import http.client
 import ipaddress
 import json
 import os
 import re
+import socket
 import ssl
+from functools import partial
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -20,9 +23,10 @@ from xml.sax.saxutils import escape
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from defusedxml.common import DefusedXmlException
 from defusedxml.ElementTree import fromstring as safe_xml_fromstring
-from flask import Blueprint, current_app, flash, g, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, url_for
 
 from .auth import login_required
+from .access_control import is_admin
 from .contact_store import ContactStore
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
@@ -39,6 +43,7 @@ TR064_DESCRIPTION_PATHS = (
 )
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 MAX_SYNC_CONTACTS = 1000
+ALLOWED_ROUTER_PORTS = frozenset({443, 49000, 49443})
 PHONE_FIELDS = (
     ("mobile", "mobile"),
     ("phone_private", "home"),
@@ -95,7 +100,7 @@ def _is_local_host(hostname: str) -> bool:
 def _safe_base_url(value: str) -> str:
     raw = value.strip().rstrip("/")
     parsed = urllib.parse.urlsplit(raw)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or "%" in parsed.hostname or parsed.username or parsed.password:
         raise ValueError("FRITZ!Box-Adresse muss HTTP/HTTPS ohne Zugangsdaten verwenden")
     if parsed.scheme == "http" and not _is_local_host(parsed.hostname):
         raise ValueError("Unverschlüsseltes TR-064 ist nur für fritz.box oder lokale/private IP-Adressen erlaubt")
@@ -105,7 +110,63 @@ def _safe_base_url(value: str) -> str:
         raise ValueError("FRITZ!Box-Adresse bitte nur als Basis-URL angeben")
     if parsed.port is not None and not 1 <= parsed.port <= 65535:
         raise ValueError("ungültiger FRITZ!Box-Port")
+    effective_port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    if effective_port not in ALLOWED_ROUTER_PORTS:
+        raise ValueError("FRITZ!Box-Port ist nicht freigegeben")
     return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Never forward router credentials to a redirect destination."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+class _PinnedHTTPConnection(http.client.HTTPConnection):
+    def __init__(self, host, *, connect_host, **kwargs):
+        self._connect_host = connect_host
+        super().__init__(host, **kwargs)
+
+    def connect(self):
+        self.sock = socket.create_connection((self._connect_host, self.port), self.timeout)
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(self, host, *, connect_host, **kwargs):
+        self._connect_host = connect_host
+        super().__init__(host, **kwargs)
+
+    def connect(self):
+        raw_socket = socket.create_connection((self._connect_host, self.port), self.timeout)
+        self.sock = self._context.wrap_socket(raw_socket, server_hostname=self.host)
+
+
+class _PinnedHTTPHandler(urllib.request.HTTPHandler):
+    def __init__(self, hostname, port, connect_host):
+        super().__init__()
+        self.hostname, self.port, self.connect_host = hostname, port, connect_host
+
+    def http_open(self, req):
+        parsed = urllib.parse.urlsplit(req.full_url)
+        if parsed.hostname != self.hostname or (parsed.port or 80) != self.port:
+            raise urllib.error.URLError("router endpoint changed")
+        return self.do_open(partial(_PinnedHTTPConnection, connect_host=self.connect_host), req)
+
+
+class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, hostname, port, connect_host, context):
+        super().__init__(context=context)
+        self.hostname, self.port, self.connect_host = hostname, port, connect_host
+
+    def https_open(self, req):
+        parsed = urllib.parse.urlsplit(req.full_url)
+        if parsed.hostname != self.hostname or (parsed.port or 443) != self.port:
+            raise urllib.error.URLError("router endpoint changed")
+        return self.do_open(
+            partial(_PinnedHTTPSConnection, connect_host=self.connect_host), req,
+            context=self._context,
+        )
 
 
 def _as_bool(value: Any) -> bool | None:
@@ -185,13 +246,8 @@ class FritzBoxClient:
         context = ssl.create_default_context()
         manager = urllib.request.HTTPPasswordMgrWithDefaultRealm()
         manager.add_password(None, self.base_url + "/", self.username, self.password)
-        handlers: list[Any] = [
-            urllib.request.HTTPDigestAuthHandler(manager),
-            urllib.request.HTTPBasicAuthHandler(manager),
-        ]
-        if urllib.parse.urlsplit(self.base_url).scheme == "https":
-            handlers.append(urllib.request.HTTPSHandler(context=context))
-        self.opener = urllib.request.build_opener(*handlers)
+        self._password_manager = manager
+        self._tls_context = context
         self.service_type = DEFAULT_SERVICE
         self.control_url = DEFAULT_CONTROL_URL
         self.services: dict[str, str] = {}
@@ -220,8 +276,49 @@ class FritzBoxClient:
         return list(dict.fromkeys(candidates))
 
     def _read(self, request_or_url: urllib.request.Request | str) -> bytes:
+        url = request_or_url.full_url if isinstance(request_or_url, urllib.request.Request) else str(request_or_url)
+        parsed = urllib.parse.urlsplit(url)
+        base = urllib.parse.urlsplit(self.base_url)
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        base_port = base.port or (443 if base.scheme == "https" else 80)
+        if parsed.scheme != base.scheme or parsed.hostname != base.hostname or port != base_port:
+            raise FritzBoxError("FRITZ!Box-Zieladresse muss der freigegebenen Basisadresse entsprechen")
         try:
-            with self.opener.open(request_or_url, timeout=self.timeout) as response:
+            rows = socket.getaddrinfo(parsed.hostname, port, type=socket.SOCK_STREAM)
+        except OSError as exc:
+            raise FritzBoxError("FRITZ!Box-Adresse konnte nicht sicher aufgelöst werden") from exc
+        addresses = []
+        for row in rows:
+            try:
+                address = ipaddress.ip_address(row[4][0].split("%", 1)[0])
+            except (ValueError, IndexError, TypeError):
+                continue
+            if address not in addresses:
+                addresses.append(address)
+        if not addresses:
+            raise FritzBoxError("FRITZ!Box-Adresse hat keine gültige Netzwerkadresse")
+        for address in addresses:
+            mapped_address = getattr(address, "ipv4_mapped", None)
+            if mapped_address is not None:
+                address = mapped_address
+            if address.is_loopback or address.is_link_local or address.is_multicast or address.is_unspecified or address.is_reserved:
+                raise FritzBoxError("FRITZ!Box-Adresse löst auf ein gesperrtes Netzwerkziel auf")
+            if parsed.scheme == "http" and not address.is_private:
+                raise FritzBoxError("Unverschlüsseltes TR-064 ist nur für private Router-Adressen erlaubt")
+        connect_host = addresses[0].compressed
+        handlers: list[Any] = [
+            urllib.request.ProxyHandler({}),
+            urllib.request.HTTPDigestAuthHandler(self._password_manager),
+            urllib.request.HTTPBasicAuthHandler(self._password_manager),
+            _NoRedirectHandler(),
+        ]
+        if parsed.scheme == "https":
+            handlers.append(_PinnedHTTPSHandler(parsed.hostname, port, connect_host, self._tls_context))
+        else:
+            handlers.append(_PinnedHTTPHandler(parsed.hostname, port, connect_host))
+        opener = urllib.request.build_opener(*handlers)
+        try:
+            with opener.open(request_or_url, timeout=self.timeout) as response:
                 data = response.read(MAX_RESPONSE_BYTES + 1)
         except urllib.error.HTTPError as exc:
             if exc.code in {401, 403}:
@@ -558,6 +655,8 @@ def index():
 @bp.post("/discover")
 @login_required
 def discover():
+    if not is_admin(g.user):
+        abort(403)
     actor = str(g.user["username"])
     password = request.form.get("password", "")
     remember = request.form.get("remember") == "1"
@@ -591,6 +690,8 @@ def discover():
 @bp.post("/sync")
 @login_required
 def sync():
+    if not is_admin(g.user):
+        abort(403)
     actor = str(g.user["username"])
     password = request.form.get("password", "")
     selected = list(dict.fromkeys(request.form.getlist("contact_id")))[:MAX_SYNC_CONTACTS]

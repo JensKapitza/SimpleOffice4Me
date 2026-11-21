@@ -11,6 +11,7 @@ import hmac
 from flask import current_app, g, request
 
 from . import resource_commander_credentials as _credentials
+from .access_control import is_admin
 
 
 def _bearer() -> str:
@@ -34,4 +35,10 @@ def remote_access_authorized() -> bool:
 
 
 def api_access_authorized() -> bool:
-    return getattr(g, "user", None) is not None or remote_access_authorized()
+    user = getattr(g, "user", None)
+    if user is not None and is_admin(user):
+        # The local provider currently operates over a storage root rather
+        # than per-document ACLs. Keep browser sessions at the admin boundary
+        # until every provider operation is actor-aware.
+        return True
+    return remote_access_authorized()

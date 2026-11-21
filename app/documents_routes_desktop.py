@@ -1,7 +1,10 @@
 """Desktop integration routes (reveal local files in the OS file manager)."""
 from __future__ import annotations
 
-from flask import current_app, g, jsonify
+import hmac
+import os
+
+from flask import abort, current_app, g, jsonify, request
 
 from .auth import login_required
 from .documents_core import _document_or_404, bp
@@ -15,11 +18,14 @@ from .v2.storage_runtime import storage_for
 def document_local_path(document_id: str):
     """Resolve a document to a local filesystem path for the desktop bridge.
 
-    This only proves the server side (catalog entry, read permission, local
-    regular file). Same-machine proof comes from the desktop bridge itself:
-    the reveal button only exists inside the first-party desktop shell, which
-    runs the backend locally. The server never launches processes.
+    The Electron main process supplies an ephemeral capability that is never
+    exposed to the renderer. The filesystem path stays in the desktop process.
     """
+    expected = str(current_app.config.get("DESKTOP_REVEAL_TOKEN") or os.environ.get("SIMPLEOFFICE_DESKTOP_REVEAL_TOKEN") or "")
+    supplied = request.headers.get("X-SimpleOffice-Desktop-Reveal", "")
+    if not expected or not supplied or not hmac.compare_digest(supplied, expected):
+        abort(404)
+
     document = _document_or_404(document_id)
     try:
         storage = storage_for(current_app.config["DOCUMENT_ROOT"], str(g.user["username"]))

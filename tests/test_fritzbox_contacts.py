@@ -5,6 +5,9 @@ import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from unittest.mock import MagicMock, patch
+from flask import Flask, g
+from werkzeug.exceptions import Forbidden
 
 from app.fritzbox_contacts import (
     FritzBoxSecretBox,
@@ -12,7 +15,10 @@ from app.fritzbox_contacts import (
     _as_bool,
     _contact_numbers,
     _is_local_host,
+    _NoRedirectHandler,
+    FritzBoxClient,
     _safe_base_url,
+    discover,
     contact_entry_xml,
 )
 
@@ -28,6 +34,49 @@ class FritzBoxContactTests(unittest.TestCase):
             _safe_base_url("https://user:secret@fritz.box:49443")
         with self.assertRaises(ValueError):
             _safe_base_url("https://fritz.box:49443/path")
+        with self.assertRaises(ValueError):
+            _safe_base_url("https://fritz.box:8443")
+
+    def test_router_requests_never_follow_redirects(self):
+        handler = _NoRedirectHandler()
+        self.assertIsNone(handler.redirect_request(None, None, 302, "Found", {}, "https://attacker.invalid"))
+
+    def test_request_pins_the_resolved_private_router_address(self):
+        client = object.__new__(FritzBoxClient)
+        client.base_url = "http://router.example:49000"
+        client.timeout = 2
+        client._password_manager = None
+        client._tls_context = None
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = b"router-response"
+        opener = MagicMock()
+        opener.open.return_value = response
+        with patch("app.fritzbox_contacts.socket.getaddrinfo", return_value=[
+            (2, 1, 6, "", ("192.168.1.20", 49000)),
+        ]), patch("app.fritzbox_contacts.urllib.request.build_opener", return_value=opener) as build_opener:
+            self.assertEqual(client._read("http://router.example:49000/tr64desc.xml"), b"router-response")
+        handlers = build_opener.call_args.args
+        pinned = next(handler for handler in handlers if hasattr(handler, "connect_host"))
+        self.assertEqual(pinned.connect_host, "192.168.1.20")
+
+    def test_request_rejects_loopback_dns_rebinding_target(self):
+        client = object.__new__(FritzBoxClient)
+        client.base_url = "https://router.example:49443"
+        client.timeout = 2
+        with patch("app.fritzbox_contacts.socket.getaddrinfo", return_value=[
+            (2, 1, 6, "", ("127.0.0.1", 49443)),
+        ]), patch("app.fritzbox_contacts.urllib.request.build_opener") as build_opener:
+            with self.assertRaisesRegex(Exception, "gesperrtes Netzwerkziel"):
+                client._read("https://router.example:49443/tr64desc.xml")
+        build_opener.assert_not_called()
+
+    def test_non_admin_cannot_configure_or_probe_router(self):
+        flask_app = Flask(__name__)
+        with flask_app.test_request_context("/contacts/fritzbox/discover", method="POST"):
+            g.user = {"is_admin": False, "is_disabled": False}
+            with self.assertRaises(Forbidden):
+                discover.__wrapped__()
 
     def test_local_host_detection(self):
         self.assertTrue(_is_local_host("fritz.box"))

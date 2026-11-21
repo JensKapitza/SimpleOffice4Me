@@ -101,6 +101,8 @@ def _json_boolean(payload: dict, key: str, default: bool = False) -> bool:
 @bp.get("")
 @login_required
 def page():
+    if not api_access_authorized():
+        abort(403)
     return render_template("resource_commander.html")
 
 

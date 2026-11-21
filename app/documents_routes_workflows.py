@@ -19,7 +19,33 @@ def detail(document_id: str):
     document = store.record_access(document_id, str(g.user["username"]), "seen")
     query = request.args.get("link_query", "").strip()
     linked_documents = store.relationship_targets(document)
-    relationships = [{**relationship, "target": linked_documents.get(relationship.get("target_document_id"))} for relationship in document.get("relationships", [])]
+    relationships = []
+    for relationship in document.get("relationships", []):
+        target_id = str(relationship.get("target_document_id") or "")
+        target = linked_documents.get(target_id)
+        if target_id and target is None:
+            relationships.append({"type": relationship.get("type", "related"), "target": None, "unavailable": True})
+        else:
+            relationships.append({**relationship, "target": target, "unavailable": False})
+    retention = store.retention_status(document_id)
+    visible_retention_findings = []
+    restricted_retention_component = False
+    for finding in retention.get("retention_findings", []):
+        related_id = str(finding.get("document_id") or "")
+        if related_id == document_id:
+            visible_retention_findings.append(finding)
+            continue
+        try:
+            related_document = store.get_document(related_id)
+        except ValueError:
+            restricted_retention_component = True
+            continue
+        visible_retention_findings.append({
+            **finding,
+            "document_path": related_document.get("last_path", ""),
+        })
+    retention["retention_findings"] = visible_retention_findings
+    retention["restricted_component"] = restricted_retention_component
     security = _attachment_security()
     try:
         security.scanner.executable()
@@ -48,7 +74,7 @@ def detail(document_id: str):
         relationships=relationships,
         shares=store.document_shares(document_id),
         public_sharing_allowed=not private_mail_document(document),
-        retention=store.retention_status(document_id),
+        retention=retention,
         link_query=query,
         link_matches=[item for item in store.search(query, limit=10) if item["document_id"] != document_id] if query else [],
         **_document_detail_preview_context(document),

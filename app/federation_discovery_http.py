@@ -155,19 +155,39 @@ def register():
         if profile["peer_id"] in FederationStore(_root()).banned_peer_ids():
             return jsonify({"error": "peer_banned"}), 403
         sender = authenticated_peer(_root(), request)
+        if not sender and request.headers.get("X-SimpleOffice-Peer-ID"):
+            try:
+                sender = authenticate_peer(_root(), request)
+            except (TypeError, ValueError):
+                return jsonify({"error": "peer_identity_invalid"}), 401
         if sender and sender != profile["peer_id"]:
             return jsonify({"error": "peer_identity_mismatch"}), 403
-        trust = FederationTrustStore(_root())
-        trust.remember(
-            profile["peer_id"], profile["country"], profile["fingerprint"],
-            "directory-register", profile.get("public_key", ""),
-        )
         store = FederationStore(_root())
         existing = store.get_peer(profile["peer_id"])
-        store.save_peer(
-            profile["peer_id"], profile["label"], profile["base_url"], "",
-            (existing or {}).get("policy") or {}, bool((existing or {}).get("configured_enabled", (existing or {}).get("enabled", False))),
-        )
+        if existing is not None and not sender:
+            return jsonify({"error": "peer_identity_required"}), 403
+        if existing is not None and profile["base_url"] != existing["base_url"]:
+            return jsonify({"error": "peer_endpoint_confirmation_required"}), 403
+        if existing is not None:
+            trust = FederationTrustStore(_root())
+            if trust.identity(profile["peer_id"]) is None:
+                trust.remember(
+                    profile["peer_id"], profile["country"], profile["fingerprint"],
+                    "peer-authenticated-register", profile.get("public_key", ""),
+                )
+        if existing is None:
+            # Directory registration is a rendezvous hint, not proof of peer
+            # identity. Keep new suggestions inert until an administrator
+            # configures their endpoint and credentials.
+            store.save_peer(profile["peer_id"], profile["label"], profile["base_url"], "", {}, False)
+        elif existing is not None:
+            # Use the administrator-managed endpoint and label for rendezvous
+            # publication even when an authenticated peer supplied metadata.
+            profile["base_url"] = existing["base_url"]
+            profile["label"] = existing["label"]
+        # Existing connection and trust records are administrator-managed.
+        # A directory bearer cannot rotate their endpoint, credential, policy,
+        # enabled state, or pinned peer identity.
         ttl = body.get("ttl_seconds", 86400)
         FederationDirectoryStore(_root()).publish(profile["peer_id"], ttl)
         lookup = str(body.get("lookup") or "").strip().casefold()

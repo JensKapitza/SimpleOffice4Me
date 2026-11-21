@@ -206,6 +206,17 @@ class DocumentStore(_DocumentStorePart1, _DocumentStorePart2, _DocumentStorePart
         self.initialize()
         return self._visible_metadata(super().get_document(reference))
 
+    def relationship_targets(self, document: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        """Resolve related documents through visibility and safe metadata checks."""
+        targets = super().relationship_targets(document)
+        visible: dict[str, dict[str, Any]] = {}
+        for document_id in targets:
+            try:
+                visible[document_id] = self.get_document(document_id)
+            except (OSError, ValueError):
+                continue
+        return visible
+
     def scan_and_get_document(self, path: str | Path) -> dict[str, Any]:
         """Scan an app-produced file, with the same visibility check."""
         self.initialize()

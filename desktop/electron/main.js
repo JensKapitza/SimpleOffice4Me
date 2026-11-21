@@ -2,6 +2,7 @@
 
 const { app, BrowserWindow, desktopCapturer, dialog, ipcMain, shell, session } = require('electron');
 const { spawn } = require('node:child_process');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const net = require('node:net');
 const path = require('node:path');
@@ -10,6 +11,7 @@ let mainWindow = null;
 let backend = null;
 let backendUrl = null;
 let quitting = false;
+let desktopRevealToken = null;
 
 function executableOnPath(name) {
   const extensions = process.platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : [''];
@@ -84,10 +86,31 @@ ipcMain.handle('screen:action', (event, action) => {
   return { ok: true, message: runDesktopScreenAction(normalized) };
 });
 
-ipcMain.handle('file:reveal', (event, target) => {
+ipcMain.handle('file:reveal', async (event, documentId) => {
   if (!trustedIpcSender(event)) throw new Error('Nicht vertrauenswürdiger IPC-Absender.');
+  const id = String(documentId || '');
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    throw new Error('Ungültige Dokument-ID.');
+  }
+  if (!backendUrl || !desktopRevealToken) throw new Error('Desktop-Dateizugriff ist nicht verfügbar.');
+  const cookies = await session.defaultSession.cookies.get({ url: backendUrl });
+  const cookieHeader = cookies.map(({ name, value }) => `${name}=${value}`).join('; ');
+  const response = await fetch(`${backendUrl}/documents/${encodeURIComponent(id)}/local-path`, {
+    headers: {
+      Accept: 'application/json',
+      Cookie: cookieHeader,
+      'X-SimpleOffice-Desktop-Reveal': desktopRevealToken
+    },
+    redirect: 'manual',
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!response.ok) throw new Error(`Dokumentpfad konnte nicht aufgelöst werden (${response.status}).`);
+  const payload = await response.json();
+  if (!payload || payload.available !== true || typeof payload.path !== 'string') {
+    throw new Error('Datei ist hier nicht lokal verfügbar.');
+  }
   const {resolveRevealTarget} = require('./reveal');
-  const resolved = resolveRevealTarget(target);
+  const resolved = resolveRevealTarget(payload.path);
   if (!resolved.ok) throw new Error(`Ungültiger Dateipfad (${resolved.reason}).`);
   shell.showItemInFolder(resolved.path);
   return { ok: true };
@@ -156,6 +179,7 @@ async function startBackend() {
   fs.mkdirSync(dataDir, { recursive: true });
   fs.mkdirSync(documentRoot, { recursive: true });
   backendUrl = `http://127.0.0.1:${port}`;
+  desktopRevealToken = crypto.randomBytes(32).toString('hex');
   const launch = backendCommand();
   const errorReportUrl = (process.env.SIMPLEOFFICE_ERROR_REPORT_URL || packagedErrorReportUrl()).trim();
   if (errorReportUrl && !errorReportUrl.startsWith('https://')) {
@@ -165,6 +189,7 @@ async function startBackend() {
     ...process.env,
     PYTHONUTF8: '1',
     SIMPLEOFFICE_DESKTOP: '1',
+    SIMPLEOFFICE_DESKTOP_REVEAL_TOKEN: desktopRevealToken,
     SIMPLEOFFICE_DATA_DIR: dataDir,
     SIMPLEOFFICE_INSTANCE_DIR: path.join(dataDir, 'instance'),
     SIMPLEOFFICE_DOCUMENT_ROOT: documentRoot,
