@@ -14,7 +14,7 @@ from app import app, app_config_store
 from app import db as database
 from app.federation_audio_http import bp as audio_bp
 from app.federation_blocks_http import bp as blocks_bp
-from app.federation_peer_tests import test_file_send, test_print, test_qr, test_tone
+from app.federation_peer_checks import check_file_send, check_print, check_qr, check_tone
 from app.federation_print_auth import PrintRequestProof, new_nonce, sign_request
 from app.federation_print_http import bp as print_bp
 from app.federation_store import FederationStore
@@ -100,29 +100,29 @@ class PeerSenderTests(unittest.TestCase):
 
     def test_file_send_compares_hash(self):
         expected = hashlib.sha256(b"z" * 1024).hexdigest()
-        with patch("app.federation_peer_tests._post",
+        with patch("app.federation_peer_checks._post",
                    return_value=(200, {"ok": True, "sha256": expected})) as post:
-            with patch("app.federation_peer_tests.secrets.token_bytes", return_value=b"z" * 1024):
-                result = test_file_send(self.root, "remote-peer")
+            with patch("app.federation_peer_checks.secrets.token_bytes", return_value=b"z" * 1024):
+                result = check_file_send(self.root, "remote-peer")
         self.assertTrue(result["ok"])
         self.assertTrue(post.call_args[0][2].endswith("/federation/v1/blocks/test"))
 
     def test_file_send_detects_mismatch(self):
-        with patch("app.federation_peer_tests._post",
+        with patch("app.federation_peer_checks._post",
                    return_value=(200, {"ok": True, "sha256": "0" * 64})):
             with self.assertRaises(ValueError):
-                test_file_send(self.root, "remote-peer")
+                check_file_send(self.root, "remote-peer")
 
     def test_tone_reports_stages(self):
-        with patch("app.federation_peer_tests._post",
+        with patch("app.federation_peer_checks._post",
                    return_value=(200, {"ok": True, "rendered": True, "played": False,
                                        "player_error": "no player"})):
-            result = test_tone(self.root, "remote-peer")
+            result = check_tone(self.root, "remote-peer")
         self.assertTrue(result["ok"])
         self.assertFalse(result["played"])
 
     def test_qr_roundtrip_verifies_identity(self):
-        result = test_qr(self.root)
+        result = check_qr(self.root)
         self.assertTrue(result["ok"])
         self.assertEqual("local-peer", result["peer_id"])
 
@@ -131,7 +131,7 @@ class PeerSenderTests(unittest.TestCase):
             "remote-peer", "Remote", "https://remote.invalid", "",
             {"printing": {"send": True}}, False)
         with self.assertRaises(ValueError):
-            test_file_send(self.root, "remote-peer")
+            check_file_send(self.root, "remote-peer")
 
 
 class PrintDryRunTests(unittest.TestCase):
@@ -240,16 +240,16 @@ class PeerAdminRouteTests(unittest.TestCase):
 
     def test_admin_test_buttons_post_and_flash(self):
         cases = [
-            ("test_file_send", "test-file", {"ok": True, "sha256": "ab12", "latency_ms": 3}),
-            ("test_tone", "test-tone", {"ok": True, "rendered": True, "played": True}),
-            ("test_print", "test-print", {"ok": True, "printer_id": "p1", "job_id": "j12345678"}),
+            ("check_file_send", "test-file", {"ok": True, "sha256": "ab12", "latency_ms": 3}),
+            ("check_tone", "test-tone", {"ok": True, "rendered": True, "played": True}),
+            ("check_print", "test-print", {"ok": True, "printer_id": "p1", "job_id": "j12345678"}),
         ]
         for sender, action, answer in cases:
             with patch(f"app.federation_admin.{sender}", return_value=answer) as call:
                 response = self.client.post(f"/admin/federation/peers/peer-x/{action}")
             self.assertEqual(302, response.status_code, action)
             call.assert_called_once()
-        with patch("app.federation_admin.test_qr",
+        with patch("app.federation_admin.check_qr",
                    return_value={"ok": True, "peer_id": "local", "fingerprint": "abc123"}) as call:
             response = self.client.post("/admin/federation/peers/peer-x/test-qr")
         self.assertEqual(302, response.status_code)

@@ -1,4 +1,4 @@
-"""Admin-triggered per-peer capability tests (file, tone, QR, print dry-run)."""
+"""Admin-triggered per-peer capability checks (file, tone, QR, print dry-run)."""
 from __future__ import annotations
 
 import hashlib
@@ -70,7 +70,7 @@ def _post(peer: dict[str, Any], token: str, path: str, body: bytes = b"",
     return status, value
 
 
-def test_file_send(root: str | Path, peer_id: str) -> dict[str, Any]:
+def check_file_send(root: str | Path, peer_id: str) -> dict[str, Any]:
     """Send 1 KiB to the peer echo endpoint and compare the hash."""
     store = FederationStore(root)
     peer = _peer(root, peer_id)
@@ -89,7 +89,7 @@ def test_file_send(root: str | Path, peer_id: str) -> dict[str, Any]:
     return result
 
 
-def test_tone(root: str | Path, peer_id: str) -> dict[str, Any]:
+def check_tone(root: str | Path, peer_id: str) -> dict[str, Any]:
     """Trigger a short test tone on the peer and report both stages."""
     store = FederationStore(root)
     peer = _peer(root, peer_id)
@@ -107,7 +107,7 @@ def test_tone(root: str | Path, peer_id: str) -> dict[str, Any]:
     return result
 
 
-def test_print(root: str | Path, peer_id: str) -> dict[str, Any]:
+def check_print(root: str | Path, peer_id: str) -> dict[str, Any]:
     """Run a federated print dry-run (call verified, nothing spooled)."""
     from .printershare import remote_print_capabilities, submit_remote_print
 
@@ -133,7 +133,7 @@ def test_print(root: str | Path, peer_id: str) -> dict[str, Any]:
     return outcome
 
 
-def test_qr(root: str | Path) -> dict[str, Any]:
+def check_qr(root: str | Path) -> dict[str, Any]:
     """Round-trip the local profile through QR encode/decode locally."""
     from .federation_local_profile import local_peer_id, local_profile
     from .federation_qr import decode_peer, encode_peer

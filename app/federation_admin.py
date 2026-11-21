@@ -21,7 +21,7 @@ from .federation_download_worker import (
     sync_peer_inventory_catalog,
 )
 from .federation_orchestrator import orchestrate_third_party
-from .federation_peer_tests import test_file_send, test_print, test_qr, test_tone
+from .federation_peer_checks import check_file_send, check_print, check_qr, check_tone
 from .federation_store import FederationStore
 from .federation_worker import _materialize_blob, peer_capabilities, push_blob_to_peer, remote_availability
 from .federation_diagnostics import probe_peer as run_network_diagnostic
@@ -442,7 +442,7 @@ def probe_peer(peer_id: str):
 @admin_required
 def peer_test_file(peer_id: str):
     try:
-        result = test_file_send(current_app.config["DOCUMENT_ROOT"], peer_id)
+        result = check_file_send(current_app.config["DOCUMENT_ROOT"], peer_id)
         flash(translate(g.language, "fed.test.file.ok").format(
             sha=str(result.get("sha256", ""))[:12], ms=result.get("latency_ms", 0)))
     except Exception as exc:
@@ -454,7 +454,7 @@ def peer_test_file(peer_id: str):
 @admin_required
 def peer_test_tone(peer_id: str):
     try:
-        result = test_tone(current_app.config["DOCUMENT_ROOT"], peer_id)
+        result = check_tone(current_app.config["DOCUMENT_ROOT"], peer_id)
         if result.get("played"):
             flash(translate(g.language, "fed.test.tone.ok"))
         else:
@@ -469,7 +469,7 @@ def peer_test_tone(peer_id: str):
 @admin_required
 def peer_test_print(peer_id: str):
     try:
-        result = test_print(current_app.config["DOCUMENT_ROOT"], peer_id)
+        result = check_print(current_app.config["DOCUMENT_ROOT"], peer_id)
         flash(translate(g.language, "fed.test.print.ok").format(
             printer=result.get("printer_id", ""), job=result.get("job_id", "")[:8]))
     except Exception as exc:
@@ -482,7 +482,7 @@ def peer_test_print(peer_id: str):
 def peer_test_qr(peer_id: str):
     del peer_id
     try:
-        result = test_qr(current_app.config["DOCUMENT_ROOT"])
+        result = check_qr(current_app.config["DOCUMENT_ROOT"])
         flash(translate(g.language, "fed.test.qr.ok").format(
             peer=result.get("peer_id", ""),
             fingerprint=str(result.get("fingerprint", ""))))
