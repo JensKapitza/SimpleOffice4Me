@@ -777,7 +777,7 @@ class _DocumentStorePart4:
                     "pages_with_text": 0, "failed_pages": 0,
                     "error": "PDF OCR could not be completed",
                 }
-            image_text = str(ocr.get("text") or "")
+            image_text = str(ocr.get("text") or "")[:MAX_INDEXED_TEXT_CHARACTERS]
             analysis["ocr"] = {
                 "status": str(ocr.get("status", "unavailable")),
                 "engines": list(ocr.get("engines", [])),
@@ -798,7 +798,7 @@ class _DocumentStorePart4:
                 analysis["status"] = "partial"
                 analysis["error"] = str(exc)[:240]
 
-        native_text = str(native_text or "")
+        native_text = str(native_text or "")[:MAX_INDEXED_TEXT_CHARACTERS]
         image_text = str(image_text or "")
         if is_pdf:
             native_lines = [line.rstrip() for line in native_text.splitlines() if line.strip()]
@@ -810,6 +810,7 @@ class _DocumentStorePart4:
             combined = "\n".join(part for part in ("\n".join(native_lines), "\n".join(ocr_lines)) if part).strip()
         else:
             combined = "\n".join(part for part in (native_text, image_text) if part).strip()
+        combined = combined[:MAX_INDEXED_TEXT_CHARACTERS]
         metadata["extracted_text"] = combined
         metadata["text_extraction"] = {
             **analysis,

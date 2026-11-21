@@ -45,6 +45,28 @@ class ResourceCommanderAuthorizationTests(unittest.TestCase):
             self.assertTrue(remote_access_authorized())
             self.assertTrue(api_access_authorized())
 
+    def test_local_browser_commander_requires_admin_role(self):
+        from flask import g
+
+        with self.app.test_request_context("/resource-commander/api/list"):
+            g.user = {"is_admin": False, "is_disabled": False}
+            self.assertFalse(api_access_authorized())
+            g.user = {"is_admin": True, "is_disabled": False}
+            self.assertTrue(api_access_authorized())
+
+    def test_internal_metadata_windows_alias_is_denied(self):
+        from app.resource_local import LocalResourceProvider, ProviderError
+
+        with tempfile.TemporaryDirectory() as temp:
+            provider = LocalResourceProvider(temp)
+            for path in (
+                ".SIMPLEOFFICE-META/secret.json",
+                "folder/.simpleoffice-meta. /secret.json",
+                r"folder\\.simpleoffice-history \\secret.json",
+            ):
+                with self.subTest(path=path), self.assertRaises(ProviderError):
+                    provider.read_range(path, 0, 20)
+
 
 class FederationCapabilityTests(unittest.TestCase):
     def test_remote_capabilities_cannot_raise_local_policy_ceiling(self):

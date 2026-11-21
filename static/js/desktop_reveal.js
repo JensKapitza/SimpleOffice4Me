@@ -1,11 +1,9 @@
-/* Desktop file reveal: show local files in the OS file manager.
-   The button only appears inside the first-party desktop shell, which proves
-   same-machine execution. The server only resolves document IDs to validated
-   local paths and never launches processes. */
+/* Desktop file reveal: the main process resolves the path and keeps it out of
+   renderer JavaScript. The button is presentation only, not an authorization. */
 (() => {
   'use strict';
   const bridge = window.simpleOfficeDesktop;
-  if (!bridge || bridge.desktop !== true || typeof bridge.revealFile !== 'function') return;
+  if (!bridge || bridge.desktop !== true || typeof bridge.revealDocument !== 'function') return;
   document.querySelectorAll('[data-desktop-reveal]').forEach(button => {
     button.hidden = false;
     button.addEventListener('click', async () => {
@@ -14,13 +12,7 @@
         : null;
       button.disabled = true;
       try {
-        const response = await fetch(button.dataset.localPathUrl, {headers: {Accept: 'application/json'}});
-        if (!response.ok) throw new Error(`local-path ${response.status}`);
-        const data = await response.json();
-        if (!data || data.available !== true || typeof data.path !== 'string') {
-          throw new Error((data && data.reason) || 'unavailable');
-        }
-        await bridge.revealFile(data.path);
+        await bridge.revealDocument(button.dataset.documentId);
         if (feedback) feedback.textContent = '';
       } catch {
         if (feedback) {

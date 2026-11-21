@@ -7,5 +7,5 @@ contextBridge.exposeInMainWorld('simpleOfficeDesktop', Object.freeze({
   platform: process.platform,
   screenStatus: () => ipcRenderer.invoke('screen:status'),
   screenAction: (action) => ipcRenderer.invoke('screen:action', String(action || '')),
-  revealFile: (target) => ipcRenderer.invoke('file:reveal', String(target || ''))
+  revealDocument: (documentId) => ipcRenderer.invoke('file:reveal', String(documentId || ''))
 }));

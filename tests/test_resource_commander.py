@@ -64,6 +64,12 @@ class LocalResourceProviderTests(unittest.TestCase):
         self.assertEqual((self.root / "public.txt").read_text(encoding="utf-8"), "public")
         self.assertNotIn(".simpleoffice-meta", [e.name for e in self.provider.list()])
 
+    def test_all_internal_storage_namespaces_are_denied(self):
+        internal = self.provider.INTERNAL_PATH_SEGMENTS
+        for name in internal:
+            with self.subTest(name=name), self.assertRaises(ProviderError):
+                self.provider.stat(f"nested/{name}/secret.json")
+
     def test_symlink_is_not_listed(self):
         target = self.root / "target.txt"
         target.write_text("x", encoding="utf-8")

@@ -25,6 +25,10 @@ class LocalResourceProvider:
         search=True, metadata=True, streaming=True, smart_view=True,
         server_side_copy=True,
     )
+    INTERNAL_PATH_SEGMENTS = frozenset({
+        ".simpleoffice-meta", ".simpleoffice-history", ".simpleoffice-v2",
+        ".simpleoffice-control", ".webcache",
+    })
 
     def __init__(self, root: str | Path):
         self.root = normalize_path(root)
@@ -32,10 +36,15 @@ class LocalResourceProvider:
         self.root = normalize_path(self.root, strict=True)
 
     def _deny_internal(self, value: str | Path) -> None:
-        # Metadata is internal even when the caller knows the exact path.
-        # Check every segment; hiding it from directory listings is insufficient.
-        parts = str(value or "").replace("\\\\", "/").split("/")
-        if ".simpleoffice-meta" in parts:
+        # Internal storage remains private even when a caller knows an exact
+        # path or reaches it through a nested folder. Normalize Windows
+        # case-insensitive and trailing-dot/space aliases before resolution.
+        parts = (
+            part.casefold().rstrip(" .")
+            for part in str(value or "").replace("\\", "/").split("/")
+        )
+        normalized_internal = {part.casefold() for part in self.INTERNAL_PATH_SEGMENTS}
+        if normalized_internal.intersection(parts):
             raise ProviderError("Interne Metadaten sind nicht freigegeben")
 
     def _resolve(self, value: str, *, require_exists: bool = False) -> Path:
@@ -72,7 +81,7 @@ class LocalResourceProvider:
         except (OSError, ValueError) as exc:
             raise ProviderError("Kein sicheres Verzeichnis") from exc
         for item in sorted(folder.iterdir(), key=lambda p: (not p.is_dir(), p.name.casefold())):
-            if item.name == ".simpleoffice-meta" or item.is_symlink():
+            if item.name.casefold().rstrip(" .") in {part.casefold() for part in self.INTERNAL_PATH_SEGMENTS} or item.is_symlink():
                 continue
             try:
                 normalized = resolve_under(self.root, item.relative_to(self.root), strict=True)
@@ -177,7 +186,10 @@ class LocalResourceProvider:
             raise ProviderError("Ungueltiger Suchpfad") from exc
         result = []
         for item in base.rglob("*"):
-            if item.is_symlink() or ".simpleoffice-meta" in item.parts:
+            if item.is_symlink() or any(
+                part.casefold().rstrip(" .") in {name.casefold() for name in self.INTERNAL_PATH_SEGMENTS}
+                for part in item.parts
+            ):
                 continue
             try:
                 normalized = resolve_under(self.root, item.relative_to(self.root), strict=True)

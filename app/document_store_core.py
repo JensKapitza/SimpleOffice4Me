@@ -43,6 +43,12 @@ from .search_query import compile_query
 CONTROL_DIR = ".simpleoffice-meta"
 PREVIEW_CACHE_DIR = ".webcache"
 POLICY_FILE = ".simpleoffice-folder.json"
+MAX_INDEXED_DOCUMENT_BYTES = 25 * 1024 * 1024
+MAX_INDEXED_TEXT_CHARACTERS = 2 * 1024 * 1024
+MAX_OFFICE_ARCHIVE_ENTRIES = 500
+MAX_OFFICE_MEMBER_BYTES = 4 * 1024 * 1024
+MAX_OFFICE_EXPANDED_BYTES = 32 * 1024 * 1024
+MAX_INDEXED_PDF_PAGES = 200
 EVENT_FILE = "events.ndjson"
 HISTORY_DIR = ".simpleoffice-history"
 ARCHIVES_FILE = "archives.json"
