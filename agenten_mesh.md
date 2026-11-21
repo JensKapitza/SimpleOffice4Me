@@ -286,6 +286,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: Fremddateien weg, legitime Slices da, Suite grün. Ist gemessen: 6/6 Fremddateien entfernt, 4/4 Slice-Module + share-Flag vorhanden; Mail-/Inventur-/Bibliotheks-Nachbarsuites + Gates vor Push grün (siehe PR-CI). |
 | Review und Abschluss | Lehre: Merge-Agents dürfen nur `git merge origin/main` ausführen, nie fremde Branches integrieren; Merges künftig per Diff gegen PR-Branch verifizieren. Offen: #1134-Doku neu, #1135/#1137 normal mergen, #1136-Slices bleiben zur Nutzer-Review offen. |
 
+## 21. November 2026 · Mail: Read-only-Schalter verlässt Reader nicht mehr
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Nutzerbefund: Umschalten Read-only↔Schreibzugriff verließ die Anzeige. Ursache: `set_readonly` leitete immer auf die Einstellungen um, obwohl der einzige Schalter im Reader steht. |
+| Implementierung | Route wertet `return_to=reader` aus und kehrt mit Kontext (Ordner, UID, Suche, Modus) in den Reader zurück (fester Zielname, kein offener Redirect; leere Werte entfallen); Reader-Formular sendet den Kontext mit; Fallback ohne `return_to` bleibt Einstellungen. |
+| Tests und Soll-Ist-Vergleich | Soll: Ansicht + Kontext bleiben, Umschaltung wirkt, Fallback stabil. Ist gemessen: 3/3 Blackbox-HTTP-Tests (`test_mail_readonly_stay_http.py`); Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen: nichts. |
+
 ## 21. November 2026 · Issue #759: restliche Checklistenpunkte belegt + Tests erweitert
 
 | Phase | Arbeit und Nachweis |
@@ -544,6 +553,18 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | Server-Endpunkt `GET /documents/<id>/local-path` (Login, Katalogauflösung, Leserecht via Storage-`stat`, Containment, reguläre Datei) liefert absoluten Pfad oder `{available:false}`; startet nie Prozesse. Electron: `file:reveal`-Handler mit Absender- plus Pfadprüfung (`reveal.js`: absolut, existent, Datei, plattformgerecht), `shell.showItemInFolder` (Explorer/Finder/Dateimanager inkl. Dateiauswahl, ohne Subprozess). Button nur mit Bridge sichtbar (Detailseite); sonst Hinweis statt Aktion. |
 | Tests und Soll-Ist-Vergleich | Soll: Reveal nur für lesbare lokale Dateien, kein Traversal/Injection, Linux/Windows/macOS. Ist gemessen: 5/5 Python-Tests (Pfad absolut+Datei, 404, Login, fehlende Datei→`not_local`, Marker), 6/6 Node-Plattformtests (posix/win32/darwin, relativ/fehlend/Verzeichnis/Fehlformen ohne fs-Zugriff), Browser-Tests (Chromium, CI): ohne Bridge versteckt, mit simulierter Bridge Pfadaufruf. `node --check`, Ruff, Gates grün. |
 | Review und Abschluss | Offen als Follow-up: Reveal-Aktion in Schnellsuche/Dateilisten nach deren Merge, Praxisprüfung in Desktop-Builds je OS, Tauri bleibt ohne Shell-Zugriff (Design). |
+
+## 21. November 2026 · Issue #679: Federation-Testnetz-Slice (fed-testnet)
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Bestand gegen #679 geprüft, kein zweites Peer-/Trust-System gebaut: Peer-Discovery (LAN/direkt/Land/E-Mail, QR-Scan + manuelles Einfügen, manuelle IP-/URL-Eingabe via `/discover/direct`), Trust/Autorisierung (gerichteter Trust-Store, deny-by-default Capabilities), Discovery-Routen (well-known, V3-Capabilities, Pairing claim/status, Verzeichnis) und `compose.federation-test.yaml` (peer-a/peer-b/relay, internes Netz, getrennte Volumes/Identitäten, Seed-/Smoke-Werkzeuge, Docker-CI-Job) existieren bereits. Lücken: keine Compose-Validierung als Test, kein Discovery-Routen-Blackbox über zwei isolierte Instanzen, keine dokumentierten Discovery-Szenarien für das isolierte Netz. UI-Darstellung (Fähigkeiten, Erreichbarkeit, Trust-Status) und manuelle URL-/IP-Eingabe sind vorhanden, keine Änderung nötig. |
+| Planung | Slice: (1) Compose-Validierungstest ohne Docker/Netz, (2) Discovery-Blackbox über zwei getrennte Datenstände (Hinweis ≠ Trust, keine Umetikettierung konfigurierter Peers, Instanztrennung), (3) README-Abschnitt mit Discovery-Szenarien (direkter Weg statt Broadcast-Scan, Private-Ziele-Opt-in, QR/Pairing-Grenzen). Verbote eingehalten: kein TLS-Aufbrechen, kein heimliches Relay (expliziter Opt-in bleibt), kein Pairing ohne beidseitige Bestätigung (nur Doku + Tests, kein Protokollumbau). |
+| Implementierung | Neu: `tests/test_federation_testnet_compose.py` (7 Tests: exakt 3 Dienste, `internal: true`, keine Ports/Host-Modi, getrennte Volumes/Identitäten, unterschiedliche Relay-Token, gepinnte Test-only-Werte ohne Secret-Passthrough, Image-Healthcheck, Doku-Marker) und `tests/test_federation_testnet_discovery.py` (4 Tests: well-known je Instanzadresse mit `no-store`, Discovery ohne Trust/Aktivierung/Datenrecht, Wiederentdeckung erhält Betreiber-Entscheidung, Instanztrennung). Geändert: `deploy/docker/README.md` (neuer Abschnitt „Discovery scenarios in the isolated test network“). Kein Produktionscode geändert. |
+| Tests | Neu 11/11 bestanden; Nachbarn `test_federation_peer_discovery`, `test_federation_discovery_http`, `test_deployment_assets`, `test_federation_testnet_seed`, `test_v3_federation_two_peer_http`: kombiniert 63/63 OK. Gates: `ruff check`, `compileall`, `tools/check_project_policy.py`, `check_file_size.py` (Limit 1000), `check_function_size.py` (Limit 300) grün. Docker-Live-Lauf nicht lokal möglich (kein Docker-Host); Abdeckung über den bestehenden Ubuntu-Docker-CI-Job. |
+| Soll-Ist-Vergleich | Soll: reproduzierbarer Mehrknotenaufbau + Discovery-Szenarien + kleine Lücken schließen, ohne Doppelbau. Ist: Compose-Netz war vorhanden und ist nun per Test fixiert; Discovery-Hinweis-Charakter und Instanztrennung sind per Blackbox belegt; Discovery-Szenarien sind dokumentiert. Offen: realer LAN-/Extern-Peer-Nachweis, Langzeit-/Lastbetrieb und Praxislauf auf Geräten (bleibt in #679, kein Merge in diesem Auftrag). |
+| Review | Unabhängige Gegenprüfung: keine neuen Trust-/Pairing-Pfade, keine Secrets in Tests oder Compose (nur `test-only`-/`relay-`-Marker), SSRF-/DNS-Rebinding-Schutz unverändert (gepinnter Fetcher, strenger Hostnamenpfad, Opt-in für private Ziele), keine bestehenden Tests abgeschwächt. |
+| Abschluss | Branch `feature/federation-testnet`, PR zur Koordinaten-Review geöffnet, **nicht gemergt**. Folgeauftrag: realer Mehrknoten-/LAN-Nachweis und optionaler autorisierter Relay als getrennte Abnahme. |
 
 ## 21. November 2026 · FinTS Slice 1 (read-only) · fints-ro · Issue #738
 

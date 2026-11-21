@@ -312,6 +312,15 @@ def set_readonly(account_id: str):
     except Exception as exc:
         current_app.logger.warning("Mail account readonly update failed for %s: %s", _actor(), type(exc).__name__)
         flash("Schreibschutz konnte nicht geändert werden.")
+    if request.form.get("return_to", "").strip() == "reader":
+        return redirect(url_for(
+            "mail_reader.index",
+            account=account_id,
+            folder=request.form.get("folder", "").strip() or None,
+            uid=request.form.get("uid", "").strip() or None,
+            q=request.form.get("q", "").strip() or None,
+            mode=request.form.get("mode", "").strip() or None,
+        ))
     return redirect(url_for("mail_client.index", account=account_id))
 
 
