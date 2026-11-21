@@ -3,7 +3,7 @@
 {% block title %}{{ 'Syllable clapping' if g.language == 'en' else 'Silben klatschen' }} · SimpleOffice{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/kids_syllables.css', v=app_build.version) }}">{% endblock %}
 {% block body %}
-<main id="main-content" class="kids-syll-page container py-3 py-lg-4" data-kids-syllables data-language="{{ g.language }}" data-audio-base="{{ url_for('static', filename='audio/kids/games/syllables') }}" data-audio-version="{{ app_build.version }}">
+<main id="main-content" class="kids-syll-page container py-3 py-lg-4" data-kids-syllables data-language="{{ g.language }}" data-audio-base="{{ url_for('static', filename='audio/kids/games/syllables') }}" data-audio-version="{{ app_build.version }}" data-tts-url="{{ url_for('kids_learning.sprache') }}">
   <header class="kids-syll-header d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4">
     <div><h1 class="h2 mb-1">{{ 'Syllable clapping' if g.language == 'en' else 'Silben klatschen' }} 👏</h1><p class="text-secondary mb-0">{{ 'Listen, clap the syllables and find rhymes. No timer and no reading needed.' if g.language == 'en' else 'Höre zu, klatsche die Silben und finde Reime. Ohne Zeitdruck und ohne Lesen.' }}</p></div>
   </header>
@@ -43,6 +43,7 @@
     </div>
   </section>
 </main>
+<script src="{{ url_for('static', filename='js/kids_piper_voice.js', v=app_build.version) }}" defer></script>
 <script src="{{ url_for('static', filename='js/kids_shared.js', v=app_build.version) }}" defer></script>
 <script src="{{ url_for('static', filename='js/kids_syllables.js', v=app_build.version) }}" defer></script>
 {% endblock %}

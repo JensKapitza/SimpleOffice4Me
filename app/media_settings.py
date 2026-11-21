@@ -63,6 +63,7 @@ MIN_PREVIEW_MAX_PIXELS = 1_000_000
 MAX_PREVIEW_MAX_PIXELS = 250_000_000
 
 DEFAULT_PIPER_MODEL = ""
+DEFAULT_PIPER_MODEL_EN = ""
 MAX_PIPER_MODEL_CHARS = 1000
 
 
@@ -108,6 +109,7 @@ DEFAULT_MEDIA_SETTINGS: dict[str, Any] = {
     "preview_max_bytes": DEFAULT_PREVIEW_MAX_BYTES,
     "preview_max_pixels": DEFAULT_PREVIEW_MAX_PIXELS,
     "piper_model": DEFAULT_PIPER_MODEL,
+    "piper_model_en": DEFAULT_PIPER_MODEL_EN,
 }
 
 
@@ -121,6 +123,7 @@ def normalize_media_settings(media: dict[str, Any]) -> dict[str, Any]:
         _LOGGER.warning("Invalid stored archive OCR setting; using default")
         normalized["archive_ocr_enabled"] = DEFAULT_ARCHIVE_OCR_ENABLED
     normalized["piper_model"] = normalize_piper_model(normalized.get("piper_model", DEFAULT_PIPER_MODEL))
+    normalized["piper_model_en"] = normalize_piper_model(normalized.get("piper_model_en", DEFAULT_PIPER_MODEL_EN))
     (
         normalized["archive_deep_index_enabled"],
         normalized["archive_max_load_per_cpu"],
@@ -271,4 +274,5 @@ def validate_media_settings(media: dict[str, Any]) -> dict[str, Any]:
         "preview_max_bytes": preview_max_bytes,
         "preview_max_pixels": preview_max_pixels,
         "piper_model": validate_piper_model(media.get("piper_model", DEFAULT_PIPER_MODEL)),
+        "piper_model_en": validate_piper_model(media.get("piper_model_en", DEFAULT_PIPER_MODEL_EN)),
     }

@@ -1,5 +1,7 @@
 /* Shared Kids helpers: random tasks and spoken audio feedback.
-   Offline-first: speech uses on-device voices first, no network calls. */
+   Offline-first: speech renders on this server (local Piper TTS endpoint),
+   never in the browser and never over an external network service. There is
+   intentionally no SpeechSynthesis fallback (consistent voice, kids privacy). */
 (() => {
   function shuffle(items) {
     const values = [...items];
@@ -10,45 +12,19 @@
     return values;
   }
 
-  function voiceRank(voice, language) {
-    // On-device voices first: same-language local voices must beat
-    // same-language cloud voices so prompts stay offline and private.
-    return (voice.lang.toLowerCase() === language.toLowerCase() ? 100 : 50)
-      + (voice.localService ? 24 : 0)
-      + (/natural|neural|premium|enhanced/i.test(voice.name) ? 6 : 0);
-  }
-
   function speak(value, language, statusElement) {
-    if (!('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) {
-      if (statusElement) statusElement.textContent = '';
-      return;
+    if (statusElement) statusElement.textContent = '';
+    if (window.KidsPiperVoice) return window.KidsPiperVoice.speak(value, language, statusElement);
+    if (statusElement) {
+      statusElement.textContent = String(language || '').toLowerCase().startsWith('en')
+        ? 'Read-aloud voice is not available.'
+        : 'Vorlesestimme ist nicht verfügbar.';
     }
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(value);
-    utterance.lang = language;
-    utterance.rate = .86;
-    utterance.pitch = 1.04;
-    const prefix = language.slice(0, 2).toLowerCase();
-    const voices = window.speechSynthesis.getVoices().filter(voice => voice.lang.toLowerCase().startsWith(prefix));
-    let requested = '';
-    try { requested = window.localStorage.getItem(`kids-learning.voice.${prefix}`) || ''; } catch (error) { requested = ''; }
-    const voiceId = voice => voice.voiceURI || `${voice.name}|${voice.lang}`;
-    const chosen = voices.find(voice => voiceId(voice) === requested)
-      || [...voices].sort((a, b) => voiceRank(b, language) - voiceRank(a, language))[0];
-    if (chosen) utterance.voice = chosen;
-    utterance.onstart = () => { if (statusElement) statusElement.textContent = ''; };
-    utterance.onerror = event => {
-      if (statusElement && !['canceled', 'interrupted'].includes(event.error)) {
-        statusElement.textContent = prefix === 'de'
-          ? 'Die Stimme konnte nicht abgespielt werden.'
-          : 'The voice could not be played.';
-      }
-    };
-    window.speechSynthesis.speak(utterance);
+    return Promise.resolve(false);
   }
 
   function stopSpeaking() {
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    if (window.KidsPiperVoice) window.KidsPiperVoice.stop();
   }
 
   function uiLanguage(english) { return english ? 'en-US' : 'de-DE'; }
