@@ -35,18 +35,14 @@ def remember_discovered_peer(root, profile, source):
     """Persist discovery metadata without granting trust or data permissions."""
     profile = peer_profile(profile)
     trust = FederationTrustStore(root)
-    trust.remember(
+    trust.remember_discovered_identity(
         profile["peer_id"], profile["country"], profile["fingerprint"], source,
         profile.get("public_key", ""),
     )
     store = FederationStore(root)
-    existing = store.get_peer(profile["peer_id"])
-    if existing is None:
-        # Discovery only makes a peer known. Explicit activation/policy remains
-        # a separate administrator decision.
-        store.save_peer(profile["peer_id"], profile["label"], profile["base_url"], "", {}, False)
-    # An existing peer's connection fields are administrator-managed. A
-    # discovery response is only a suggestion and must not retarget it.
+    # Discovery only creates an inert peer. The store enforces atomically that
+    # an existing administrator-managed connection is never retargeted.
+    store.save_discovered_peer(profile["peer_id"], profile["label"], profile["base_url"])
     result = compatibility(profile)
     store.set_peer_compatibility(profile["peer_id"], result)
     return {**profile, "compatibility": result}

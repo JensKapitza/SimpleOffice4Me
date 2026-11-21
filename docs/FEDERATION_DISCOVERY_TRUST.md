@@ -129,6 +129,13 @@ TURN ist nicht Voraussetzung. TURN ist erst sinnvoll, wenn eine spätere WebRTC-
 - `POST /federation/v1/pairing/claim`
 - `POST /federation/v1/pairing/status`
 
+Eine Directory-Registrierung ist nur ein Discovery-Hinweis und keine
+administrative Änderung einer Peer-Verbindung. Eine bisher unbekannte Peer-ID
+wird deaktiviert, ohne Token und ohne Daten-Policy angelegt. Bei einer bereits
+bekannten Peer-ID bleiben Zieladresse, Anzeigename, Token, Aktivierung und
+Policy unverändert; eine Änderung dieser Werte erfordert weiterhin eine
+bewusste administrative Konfiguration beziehungsweise den Pairing-Ablauf.
+
 ## Admin
 
 `/admin/federation/peer-discovery`

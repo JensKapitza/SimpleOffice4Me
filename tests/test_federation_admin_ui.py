@@ -627,6 +627,62 @@ class FederationAdminUiTests(unittest.TestCase):
         editor = self.client.get(response.headers["Location"])
         self.assertIn("QR-Adresse (Vorschlag): https://attacker.example.test", editor.get_data(as_text=True))
 
+    def test_qr_import_keeps_identity_on_fingerprint_conflict(self):
+        from app.federation_identity import FederationIdentity
+
+        extra = tempfile.TemporaryDirectory()
+        self.addCleanup(extra.cleanup)
+        with app.app_context():
+            forged = FederationIdentity(Path(extra.name)).public_identity()
+            store = FederationStore(self.root)
+            store.save_peer(
+                "office-b", "Trusted Office B", "https://configured.example.test", "tok",
+                {"documents": {"send": True}}, True,
+            )
+            FederationTrustStore(self.root).remember(
+                "office-b", "DE", "0" * 64, "qr", "cHViLWtleS1vcmlnaW5hbA==")
+        payload = encode_peer({
+            "peer_id": "office-b", "label": "Office B", "country": "DE",
+            "base_url": "https://office-b.example.test",
+            "fingerprint": forged["fingerprint"], "public_key": forged["public_key"],
+            "federation": {"name": "SimpleOffice Federation", "min_version": 1, "max_version": 1},
+        })
+        response = self.client.post(
+            "/admin/federation/peer-discovery/qr/import",
+            data={"payload": payload}, follow_redirects=True)
+        self.assertEqual(200, response.status_code)
+        body = response.get_data(as_text=True)
+        self.assertIn("anderer Fingerabdruck", body)
+        with app.app_context():
+            identity = FederationTrustStore(self.root).identity("office-b")
+            self.assertEqual("0" * 64, identity["fingerprint"])
+            conflicts = [row for row in FederationStore(self.root).events()
+                         if row.get("action") == "peer_identity_conflict"]
+            self.assertEqual(1, len(conflicts))
+
+    def test_qr_import_verified_ceremony_rebinds_identity(self):
+        from app.federation_identity import FederationIdentity
+
+        extra = tempfile.TemporaryDirectory()
+        self.addCleanup(extra.cleanup)
+        with app.app_context():
+            forged = FederationIdentity(Path(extra.name)).public_identity()
+            FederationTrustStore(self.root).remember(
+                "office-b", "DE", "0" * 64, "qr", "cHViLWtleS1vcmlnaW5hbA==")
+        payload = encode_peer({
+            "peer_id": "office-b", "label": "Office B", "country": "DE",
+            "base_url": "https://office-b.example.test",
+            "fingerprint": forged["fingerprint"], "public_key": forged["public_key"],
+            "federation": {"name": "SimpleOffice Federation", "min_version": 1, "max_version": 1},
+        })
+        response = self.client.post(
+            "/admin/federation/peer-discovery/qr/import",
+            data={"payload": payload, "verify_in_person": "1"}, follow_redirects=True)
+        self.assertEqual(200, response.status_code)
+        with app.app_context():
+            identity = FederationTrustStore(self.root).identity("office-b")
+            self.assertEqual(forged["fingerprint"], identity["fingerprint"])
+
     def test_direct_discovery_shows_untrusted_address_as_suggestion(self):
         store = FederationStore(self.root)
         store.save_peer(

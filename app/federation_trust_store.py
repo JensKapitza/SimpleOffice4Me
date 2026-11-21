@@ -46,6 +46,37 @@ class FederationTrustStore:
             row = db.execute("SELECT * FROM federation_peer_identity WHERE peer_id=?", (peer_id,)).fetchone()
         return dict(row) if row else None
 
+    def bind_verified_identity(self, peer_id, country="", fingerprint="", public_key=""):
+        """Bind a fingerprint confirmed by the explicit in-person ceremony.
+
+        This is the only legitimate remote key rotation: the administrator
+        confirmed this exact fingerprint face to face.
+        """
+        return self.remember(peer_id, country, fingerprint, "qr-verified", public_key)
+
+    def remember_discovered_identity(self, peer_id, country="", fingerprint="", source="", public_key=""):
+        """Store a remotely announced identity with first-seen binding.
+
+        Inbound discovery must never silently replace a known fingerprint:
+        a differing fingerprint keeps the stored identity, records a
+        ``peer_identity_conflict`` event and reports ``conflict=True``.
+        Key changes require the explicit in-person ceremony instead.
+        Returns ``(row, conflict)``.
+        """
+        peer_id = sanitize_peer_id(peer_id)
+        fingerprint = str(fingerprint or "")
+        current = self.identity(peer_id)
+        if current is not None:
+            stored = str(current.get("fingerprint", "") or "")
+            if stored and fingerprint and stored != fingerprint:
+                self.store.record_event(
+                    "peer_identity_conflict", peer_id=peer_id,
+                    detail={"stored": stored[:64], "announced": fingerprint[:64],
+                            "source": str(source or "")[:160]},
+                )
+                return current, True
+        return self.remember(peer_id, country, fingerprint, source, public_key), False
+
     def list_identities(self, country=""):
         with self.store._db() as db:
             if country:
