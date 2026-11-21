@@ -132,6 +132,42 @@ docker compose -f deploy/docker/compose.federation-test.yaml exec -T peer-a \
   python -c "import json,urllib.request; a=json.load(urllib.request.urlopen('http://peer-a:8080/.well-known/simpleoffice-federation')); b=json.load(urllib.request.urlopen('http://peer-b:8080/.well-known/simpleoffice-federation')); assert (a['peer_id'],a['base_url'])==('federation-test-peer-a','http://peer-a:8080'); assert (b['peer_id'],b['base_url'])==('federation-test-peer-b','http://peer-b:8080'); print(a['peer_id'], b['peer_id'])"
 ```
 
+## Discovery scenarios in the isolated test network
+
+The broadcast LAN scan (`POST /admin/federation/peers/discover/lan`) targets
+the host LAN subnets and does not apply inside this internal-only Compose
+network. Exercise the same discovery contract with the direct (manual
+URL/IP) path instead; LAN, direct, country and email discovery all persist
+through the same function, which stores a found peer disabled, without a
+token and without data policy, and never retargets an already configured
+peer. Trust stays `NONE` until each administrator confirms it locally, and
+the V3 capability exchange still requires the per-peer HMAC.
+
+From the peer admin UI (`/admin/federation/peers`), check the other instance
+with the **IP / URL** form:
+
+- Enter the peer's private IPv4 literal with port (for example the `peer-b`
+  container address with `:8080`). Explicit RFC1918/RFC6598 literals are
+  accepted without further opt-in; the connection is pinned to the validated
+  address, so DNS rebinding cannot retarget the check.
+- To check a DNS name that resolves to a private address (for example
+  `http://peer-b:8080`), first enable **Private Ziele erlauben** in the
+  network settings on the checking instance. Hostnames stay on the strict
+  validation path by design.
+- A found peer appears with its compatibility (protocol, confirmed
+  capabilities, last check), verification state, trust level and pairing
+  status. New peers remain inactive until configured; for a known peer a
+  differing discovered address is shown only as a suggestion and must be
+  entered manually in the connection editor after review.
+
+The QR payload carries the same identity the well-known profile advertises;
+pasting it into the **QR-Payload** form stores only the identity as well.
+Pairing codes, where issued, are short-lived, single-use and bound to one
+expected peer. Issuing, claiming, checking or revoking a code never enables
+a peer, installs a token, grants trust or adds data capabilities. Relay
+traffic additionally requires the explicit per-instance relay opt-in proven
+by the smoke sequence above.
+
 Stop the peers without removing their test data with:
 
 ```sh

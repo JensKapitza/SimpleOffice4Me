@@ -14,8 +14,8 @@
     <ul class="mb-0">{% for row in problems %}<li>Zeile {{ row.line }} ({{ row.name or 'ohne Namen' }}): {{ row.problem }}</li>{% endfor %}</ul>
   </div></div>
   {% endif %}
-  <div class="card shadow-sm mb-3"><div class="card-header"><strong>Importierbare Zeilen</strong></div><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th scope="col">Name</th><th scope="col">Typ</th><th scope="col">Kennung</th><th scope="col">Standort</th><th scope="col">Tags</th></tr></thead><tbody>
-    {% for row in valid[:50] %}<tr><td>{{ row.name }}</td><td>{{ row.type }}</td><td>{{ row.identifier or '—' }}</td><td>{{ row.location or '—' }}</td><td>{{ row.tags }}</td></tr>{% else %}<tr><td colspan="5" class="text-secondary">Keine importierbaren Zeilen.</td></tr>{% endfor %}
+  <div class="card shadow-sm mb-3"><div class="card-header"><strong>Importierbare Zeilen</strong></div><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th scope="col">Name</th><th scope="col">Typ</th><th scope="col">Kennung</th><th scope="col">Standort</th><th scope="col">Menge</th><th scope="col">Einheit</th><th scope="col">Tags</th></tr></thead><tbody>
+    {% for row in valid[:50] %}<tr><td>{{ row.name }}</td><td>{{ row.type }}</td><td>{{ row.identifier or '—' }}</td><td>{{ row.location or '—' }}</td><td>{{ row.quantity or '—' }}</td><td>{{ row.unit or '—' }}</td><td>{{ row.tags }}</td></tr>{% else %}<tr><td colspan="7" class="text-secondary">Keine importierbaren Zeilen.</td></tr>{% endfor %}
   </tbody></table></div></div>
   <form method="post" action="{{ url_for('inventory.commit_csv_import') }}" class="d-flex gap-2"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="token" value="{{ token }}"><button class="btn btn-success" type="submit" {% if not valid %}disabled{% endif %}>Importieren ({{ valid|length }})</button><a class="btn btn-outline-secondary" href="{{ url_for('inventory.index') }}">Abbrechen</a></form>
 </main>

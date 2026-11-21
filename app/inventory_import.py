@@ -11,6 +11,7 @@ from typing import Any
 
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
+from .object_store import ObjectStore
 
 MAX_FILE_BYTES = 1_000_000
 MAX_ROWS = 500
@@ -28,6 +29,8 @@ COLUMNS: dict[str, tuple[str, ...]] = {
     "nfc_id": ("nfc_id", "nfc"),
     "tags": ("tags", "stichworte", "schlagworte"),
     "description": ("description", "beschreibung"),
+    "quantity": ("quantity", "menge", "anzahl", "bestand", "qty", "count", "stueckzahl", "stückzahl"),
+    "unit": ("unit", "einheit", "masseinheit"),
 }
 _ALIAS_TO_COLUMN = {alias: column for column, aliases in COLUMNS.items() for alias in aliases}
 
@@ -87,10 +90,19 @@ def validate_row(row: dict[str, str], seen_identifiers: set[str]) -> tuple[dict[
     identifier = _clean(row.get("identifier", ""), 120)
     if identifier and identifier.casefold() in seen_identifiers:
         return None, "doppelt in Datei"
+    try:
+        quantity = ObjectStore._quantity(row.get("quantity", ""))
+    except ValueError:
+        return None, "Menge ist ungültig (Zahl ≥ 0 erwartet)"
+    try:
+        unit = ObjectStore._unit(row.get("unit", ""))
+    except ValueError:
+        return None, "Einheit ist zu lang (max. 24 Zeichen)"
     values = {
         "name": name, "type": object_type, "status": "active",
         "description": _clean(row.get("description", ""), 8000),
         "identifier": identifier,
+        "quantity": quantity, "unit": unit,
         "location": _clean(row.get("location", ""), 300),
         "tags": ",".join([tag for tag in (
             ["Inventar", "CSV-Import"] + _clean(row.get("tags", ""), 500).split(",")) if tag.strip()]),
