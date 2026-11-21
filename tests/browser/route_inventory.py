@@ -42,6 +42,7 @@ NON_PAGE_ENDPOINTS = {
     "inventory.amazon_search",
     "inventory.book_lookup",
     "inventory_marketplace.search",
+    "kids_learning.sprache",
     "mcp.endpoint_capabilities",
     "network_boot_http.ipxe_script",
     "resource_commander.range_entry",
