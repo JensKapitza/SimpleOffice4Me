@@ -278,4 +278,9 @@ def media_settings_from_form(
             if form.get("piper_model") is None
             else validate_piper_model(form.get("piper_model", ""))
         ),
+        "piper_model_en": (
+            current.get("piper_model_en", "")
+            if form.get("piper_model_en") is None
+            else validate_piper_model(form.get("piper_model_en", ""))
+        ),
     }

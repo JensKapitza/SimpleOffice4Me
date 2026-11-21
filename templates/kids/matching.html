@@ -6,7 +6,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/kids_matching.css', v=app_build.version) }}">
 {% endblock %}
 {% block body %}
-<main id="main-content" class="kids-matching-page container py-3 py-lg-4" data-kids-matching data-language="{{ g.language }}" data-audio-base="{{ url_for('static', filename='audio/kids/games/matching') }}" data-audio-version="{{ app_build.version }}">
+<main id="main-content" class="kids-matching-page container py-3 py-lg-4" data-kids-matching data-language="{{ g.language }}" data-audio-base="{{ url_for('static', filename='audio/kids/games/matching') }}" data-audio-version="{{ app_build.version }}" data-tts-url="{{ url_for('kids_learning.sprache') }}">
   <script type="application/json" id="kids-matching-config">{{ matching_config|tojson }}</script>
   <header class="kids-matching-header d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4">
     <div>
@@ -64,6 +64,7 @@
     </div>
   </section>
 </main>
+<script src="{{ url_for('static', filename='js/kids_piper_voice.js', v=app_build.version) }}" defer></script>
 <script src="{{ url_for('static', filename='js/kids_shared.js', v=app_build.version) }}" defer></script>
 <script src="{{ url_for('static', filename='js/kids_matching.js', v=app_build.version) }}" defer></script>
 {% endblock %}

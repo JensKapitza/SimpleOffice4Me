@@ -242,6 +242,24 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | `LibraryStore.unassign` mit Ereignis; neues Modul `scan_dispatch_routes.py` mit `POST /library/scan` (Modus+Code+Ziel, JSON/Flash, Login, Audit): Einlagern ordnet zu, Entnehmen löst Zuordnung und Spiegelung (mit Wiederherstellung bei Spiegelfehler); Scan-Karte auf der Bibliotheksseite. |
 | Tests und Soll-Ist-Vergleich | Soll: beide Modi wirken, Spiegel konsistent, Validierung, Rechte. Ist gemessen: 4/4 Blackbox-HTTP-Tests (Einlagern per Code, Entnehmen löst+leert Spiegel, 3 Validierungsfälle, anonym+Marker); Nachbar-Suites 24/24; Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen als Follow-up: Modi Umlagern/Inventur, Zielort-Gedächtnis, föderierte Rechte, Fotoerkennung, Offline-Sync. |
+## 20. November 2026 · Kids-Vorlesestimme: überall Piper statt Browser-Stimmen
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Browser-SpeechSynthesis war geräteabhängig unverständlich (u. a. Maze falsche Stimme). Vollinventar: 4 Kids-JS (`kids_learning/matching/mini_games/language/shared`) + Stimmwahl-Template. Bestand: `audio_output_engine.render_tts` (lokale Piper-CLI, Disk-Cache), Medien-Settings mit `piper_model`. |
+| Implementierung | Neuer Endpunkt `GET /kids/lernen/sprache` (Login, 1–500 Zeichen, de-DE/en-US, deutsches Standardmodell + optionales EN-Modell, 503-Code bei fehlender Stimme, immutable Browser-Cache); neuer Client `static/js/kids_piper_voice.js` (Queue, Abbruch, Statusmeldung, kein Synthesis-Fallback); alle 4 Kids-JS + 5 Templates umgestellt; Stimmwahl durch Hinweis ersetzt; `piper_model_en`-Setting + Doku. |
+| Tests und Soll-Ist-Vergleich | Soll: alles über Piper, Maze mit Serverstimme, kein Synthesis-Rest, Fehler kontrolliert. Ist gemessen: 12/12 neue Blackbox-Tests (`test_kids_tts.py`: Audio, Caching, EN-Fallback, Validierung, 503, Login, Engine-Wiederverwendung, kein Synthesis, Maze-Stimme, Template-Verdrahtung) + 46/46 angepasste Kids-Suites + 2/2 Node-Audiotests; `node --check`, Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Supervisor/Dev-Struktur verwendet; Koordinator hat nach Agenten-Stillstand Review + Fertigstellung übernommen. Offen: Piper-Modell muss in Medien-Einstellungen hinterlegt sein (sonst 503-Hinweis); physischer Hörtest auf Endgerät. |
+
+## 19. November 2026 · Issue #1111 (P1-Slice): Inventur-Abgleichmodus am Objekt
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Inventur-Slice aus #1111 (Schritt 10/12): gezählte Menge vs. Sollmenge hatte keinen Klärpfad. Auf `origin/main` plus `origin/feature/inventory-stock-adjust` (#1133, offene Delta-Buchungen `POST /inventory/<id>/stock`) aufgebaut, um eine Routenkollision zu vermeiden: eigene `adjust_stock`-Route entfernt, gezählter Abgleich als Modus der #1133-Route. Bestand wiederverwendet: `quantity`-Normalisierung, `_write`-Audit, `item_detail`-Route, Flash-i18n. |
+| Implementierung | `ObjectStore.adjust_quantity` (Grund-Whitelist `zaehlfehler/schwund/zugang/korrektur`, Mengenvalidierung, `stock_adjustments`-Historie mit Vorwert/Zählwert/Grund/Notiz/Akteur/Zeit, Normalisierung in `_normalized_item`, Audit-Aktion `object_quantity_adjusted`) behalten; `inventory_stock_adjust_routes.adjust_object_stock` um gezählten Modus erweitert (Feld `counted` nicht-leer in Formular/JSON → `adjust_quantity` mit Grund-Whitelist, Notiz, Flash `inv.stock.adjusted` de/en; sonst Delta-Modus exakt unverändert); „Fehlmenge klären"-Karte postet `counted/reason/note` an `inventory.adjust_object_stock`, Historientabelle bleibt. Keine neue Datenbank. |
+| Tests und Soll-Ist-Vergleich | Soll: Zählwert übernehmen (Formular+JSON), Vorwert+Grund auditiert, ungültige Gründe/Mengen abgelehnt, anonym blockiert, Historie nach Reload, leerer `counted`-Wert fällt auf Delta-Modus zurück. Ist gemessen: 6/6 Blackbox-HTTP-Tests (`test_object_stock_adjust_http.py`: 10→7 mit Audit+Historie, anonym 302 ohne Änderung, Grund/Menge/negativ abgelehnt ohne Änderung, JSON-Abgleich 10→6, Delta-Fallback 10→8 ohne Abgleichhistorie, 2 Einträge nach Reload); Nachbar-Suite `test_inventory_stock_adjust_http` 4/4 unverändert. |
+| Review und Abschluss | Finaler Rebase nach #1133-Merge hiermit erledigt; Branch frisch ab Main (Redo nach #1141-Revert).dlösung). Offen als Follow-up (weitere #1111-Slices): Scanmodi pro Aktion, System-/manuelle Metadatenwerte, CSV-Import, Objekt-Verleih, föderierte Rechte. |
+
 ## 20. November 2026 · Revert des #1134-Merges (fremde Branches eingeschleppt)
 
 | Phase | Arbeit und Nachweis |
@@ -259,6 +277,23 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | Slice 1 ohne Backend-Änderung: `static/js/mail_client.js` (j/k/Enter-Navigation, Kürzel e/u/r/c//, Strg+K-Palette aus gerenderten `data-mail-action`-Aktionen, mobile Pane-Umschaltung), `static/css/mail_client.css`, Template-Marker (`data-mail-pane/uid/action`, Palette, Hinweise). Nur bestehende Routen; ohne JS bleibt alles Link/Formular; Readonly liefert konstruktionsbedingt keine Schreibaktionen. |
 | Tests und Soll-Ist-Vergleich | Soll: 3 Panes + Palette rendern, Zeilen/Key-Hooks, Preview-Aktionen, Readonly ohne Schreibaktionen, ohne Konto stabil. Ist gemessen: 5/5 Blackbox-HTTP-Tests mit Fake-IMAP (`test_mail_client_shell_http.py`); Nachbarn 40/40; `node --check`, Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Kein Auto-Merge (Issue-Vorgabe). Offen: Slices 2–7 (Cache, Timing, Tags, Überführen, Signaturen, Archiv-Härtung). |
+## 21. November 2026 · Issue #759: restliche Checklistenpunkte belegt + Tests erweitert
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Issue-Checklisten war unvollständig abgehakt. Nachgeholt: CSRF (globaler `protect_browser_mutation`-Hook, per Test mit aktiviertem Schutz belegt), Pfad-Traversal (UUID-Validierung + Symlink-/Containment-Prüfung in `_report_directory`), Besitzrechte (Fremdzugriff 404 ohne Leak), Formate (nur PDF angeboten, kein CSV/Download-Zweig vorhanden), Leerauswahl (kontrollierter Leerbericht), Dateiname + Pfad-Leakfreiheit, 50-Befunde-Bericht. |
+| Implementierung | Nur Tests erweitert (`tests/test_site_visit_report_http.py` 5→11): Fremdbenutzer-404, CSRF-403 ohne Token, Traversal-IDs, Leerauswahl, Dateiname/Leakfreiheit, Großbericht. Kein Produktcode geändert. |
+| Tests und Soll-Ist-Vergleich | Soll: alle Issue-Punkte belegt. Ist gemessen: 11/11 Blackbox-Tests grün; Ruff, Policy-, Größen-, Compile-Gates grün. Nicht durchgeführt: dedizierter Browser-Test (nur CI-Smoke), Last-/Timeouttest unter echter Konkurrenz. |
+| Review und Abschluss | Issue-Checkboxen nach Merge auf verifizierten Stand setzen + Nachweis kommentieren. |
+
+## 20. November 2026 · Issue #759: Berichts-Erstellung/Download verifiziert + Regressionstests
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Issue #759 (20.10.2026): Berichte weder erstell- noch downloadbar. Inventarisiert: Ortstermin-Berichtspfade `GET /site-visits/<id>/report` (Vorschau), `POST /site-visits/<id>/report.pdf` (Erstellung+Download), `GET /site-visits/<id>/reports/<rid>.pdf` (gespeicherter Download) mit `build_visit_report` (reportlab), Versionierung, SHA-256, Audit. Reproduktion auf aktuellem Main: Fehler tritt NICHT mehr auf (Vorschau 200, Erstellung 200 mit %PDF-, Download 200 byteidentisch). Nebenbefund: veraltete installierte `app`-Kopie in site-packages des Test-Venvs (Templates fehlten dort) — kein Repo-Fehler. |
+| Implementierung | Keine Produktänderung nötig; Absicherung durch neue Blackbox-Regressionssuite `tests/test_site_visit_report_http.py` (Vorschau, Erstellung+Versionierung, Byteidentität, kontrollierte Fehler ohne Teilspeicherung, Login-Pflicht). |
+| Tests und Soll-Ist-Vergleich | Soll: Erstellen/Downloaden funktioniert, Fehler kontrolliert, Rechte geprüft. Ist gemessen: 5/5 Blackbox-HTTP-Tests grün; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Issue #759 nach Merge mit Nachweis schließen. Offen: site-packages-Kopie im Test-Venv bei Bedarf aktualisieren (Umgebung, kein Repo). |
 
 ## 19. November 2026 · Issue #1111: Reservierungen mit Zeiträumen
 

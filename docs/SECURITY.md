@@ -1,5 +1,7 @@
 # Sicherheits- und Schwachstellenprozess
 
+Für Entwicklung und Scans gelten das [projektweite Bedrohungsmodell](../SECURITY.md) und der [Leitfaden zur Zeilenprüfung](SICHERHEITSPRUEFUNG.md).
+
 ## Vertrauliche Meldung
 
 Schwachstellen bitte über [GitHub Private Vulnerability Reporting](https://github.com/JensKapitza/SimpleOffice4Me/security/advisories/new) melden. Reproduzierbare Angriffsdaten, Zugangsdaten und personenbezogene Daten gehören nicht in öffentliche Issues. Der Betreiber dokumentiert Eingang, betroffene Versionen, Risiko, Abhilfe und Veröffentlichung in einem vertraulichen Vorgang. Vor einem Release ist zusätzlich eine dauerhaft überwachte Hersteller-Kontaktadresse festzulegen.

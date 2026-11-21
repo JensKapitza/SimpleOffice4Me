@@ -67,6 +67,8 @@ Zusätzlich:
 
 ## 5. Sicherheitsregeln
 
+Für jeden Auftrag die [projektweite Sicherheitspolicy](SECURITY.md) und den [Prüfablauf](docs/SICHERHEITSPRUEFUNG.md) zusätzlich anwenden. Bei Änderungen den finalen Diff zeilenweise prüfen und die betroffenen Vertrauensgrenzen, Negativtests und offenen Punkte im PR oder Arbeitsprotokoll festhalten. Bei einem Vollscan das revisionsgebundene Zeilenregister führen.
+
 Alle Eingaben sind grundsätzlich nicht vertrauenswürdig.
 
 - Pfade, Dateinamen, Uploads, externe URLs, XML, HTML, Header und Konfigurationswerte validieren und sicher verarbeiten.

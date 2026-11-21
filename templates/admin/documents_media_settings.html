@@ -167,6 +167,13 @@
                  placeholder="{{ '/var/lib/piper/de_DE-voice-medium.onnx' if g.language == 'en' else '/var/lib/piper/de_DE-voice-medium.onnx' }}">
           <div class="form-text">{{ 'Empty means speech synthesis is disabled. Path to the .onnx model file for the local Piper CLI.' if g.language == 'en' else 'Leer bedeutet: Sprachausgabe ist deaktiviert. Pfad zur .onnx-Modelldatei für die lokale Piper-CLI.' }}</div>
         </div>
+        <div class="col-12">
+          <label class="form-label" for="piper-model-en">{{ 'English Piper voice model (path, optional)' if g.language == 'en' else 'Englisches Piper-Stimmenmodell (Pfad, optional)' }}</label>
+          <input class="form-control" id="piper-model-en" type="text" name="piper_model_en"
+                 value="{{ media.piper_model_en }}" maxlength="1000"
+                 placeholder="{{ '/var/lib/piper/en_US-voice-medium.onnx' if g.language == 'en' else '/var/lib/piper/en_US-voice-medium.onnx' }}">
+          <div class="form-text">{{ 'Empty means English prompts use the model above (German default voice). Recommended: LibriTTS-R medium, speaker 0.' if g.language == 'en' else 'Leer bedeutet: Englische Ansagen nutzen das obige Modell (deutsche Standardstimme). Empfohlen: LibriTTS-R medium, Sprecher 0.' }}</div>
+        </div>
         <div class="col-12 d-flex flex-wrap gap-2">
           <button class="btn btn-primary" type="submit">{{ 'Save settings' if g.language == 'en' else 'Einstellungen speichern' }}</button>
           <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>

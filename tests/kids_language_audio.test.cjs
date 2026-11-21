@@ -9,7 +9,7 @@ const source = fs.readFileSync(path.join(__dirname, '../static/js/kids_language_
 function fixture() {
   const events = [];
   const players = [];
-  const spoken = [];
+  const piperSpoken = [];
   class FakeAudio {
     constructor(url) {
       this.url = url; this.listeners = {}; players.push(this);
@@ -24,18 +24,21 @@ function fixture() {
     end() { events.push(`end:${this.url}`); (this.listeners.ended || []).forEach(fn => fn()); }
     fail() { events.push(`error:${this.url}`); (this.listeners.error || []).forEach(fn => fn()); }
   }
-  const speechSynthesis = {
-    cancel() { events.push('tts-cancel'); },
-    getVoices() { return []; },
-    speak(u) { spoken.push(u.text); events.push(`tts:${u.text}`); setImmediate(() => u.onend && u.onend()); },
+  // Server Piper voice stub: records prompts instead of browser speech.
+  const KidsPiperVoice = {
+    stop() { events.push('piper-stop'); },
+    speak(text, language) {
+      piperSpoken.push([String(text), language]);
+      events.push(`piper:${text}`);
+      return Promise.resolve(true);
+    },
   };
-  function SpeechSynthesisUtterance(t) { this.text = t; this.lang = ''; }
-  const window = {Audio: FakeAudio, speechSynthesis, SpeechSynthesisUtterance};
-  vm.runInNewContext(source, {window, Audio: FakeAudio, SpeechSynthesisUtterance});
+  const window = {Audio: FakeAudio, KidsPiperVoice};
+  vm.runInNewContext(source, {window, Audio: FakeAudio});
   const audio = window.KidsLanguageAudio({
-    text: (de) => de, speechStatus: {textContent: ''}, selectedVoices: {},
+    text: (de) => de, speechStatus: {textContent: ''},
   });
-  return {audio, events, players, spoken};
+  return {audio, events, players, piperSpoken};
 }
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
@@ -44,7 +47,7 @@ test('solution plays its clips in order, exactly once', async () => {
   const f = fixture();
   const done = f.audio.playSolution({pronunciationAudioUrl: 'a.mp3', solutionAudioUrl: 'b.mp3', speak: 'A', a: 'B'});
   await tick();
-  assert.deepEqual(f.events, ['tts-cancel', 'tts-cancel', 'create:a.mp3', 'play:a.mp3']);
+  assert.deepEqual(f.events, ['piper-stop', 'piper-stop', 'create:a.mp3', 'play:a.mp3']);
   f.players[0].end();
   await tick(); await tick();
   assert.ok(f.events.includes('play:b.mp3'));
@@ -86,13 +89,13 @@ test('solution interrupts a running question without overlap', async () => {
   assert.equal(await done, true);
 });
 
-test('clip error falls back to speech exactly once', async () => {
+test('clip error falls back to piper speech exactly once', async () => {
   const f = fixture();
   const done = f.audio.playSolution({pronunciationAudioUrl: 'x.mp3', solutionAudioUrl: 'x.mp3', speak: 'Wort', a: 'Wort'});
   await tick();
   f.players[0].fail();
   await tick(); await tick(); await tick();
-  assert.deepEqual(f.spoken, ['Wort']);
+  assert.deepEqual(f.piperSpoken, [['Wort', 'en-US']]);
   assert.equal(await done, true);
 });
 
@@ -103,4 +106,11 @@ test('identical solution urls play only once', async () => {
   f.players[0].end();
   assert.equal(await done, true);
   assert.equal(f.players.length, 1);
+});
+
+test('spoken question without clip uses piper directly', async () => {
+  const f = fixture();
+  const done = await f.audio.speak('Gehe nach oben.', 'de-DE');
+  assert.equal(done, true);
+  assert.deepEqual(f.piperSpoken, [['Gehe nach oben.', 'de-DE']]);
 });
