@@ -19,7 +19,17 @@ def detail(document_id: str):
     document = store.record_access(document_id, str(g.user["username"]), "seen")
     query = request.args.get("link_query", "").strip()
     linked_documents = store.relationship_targets(document)
-    relationships = [{**relationship, "target": linked_documents.get(relationship.get("target_document_id"))} for relationship in document.get("relationships", [])]
+    relationships = []
+    for relationship in document.get("relationships", []):
+        target_id = str(relationship.get("target_document_id", ""))
+        target = linked_documents.get(target_id)
+        if "target_document_id" in relationship and target is None:
+            relationships.append({
+                "target": None,
+                "unavailable": True,
+            })
+            continue
+        relationships.append({**relationship, "target": target})
     security = _attachment_security()
     try:
         security.scanner.executable()

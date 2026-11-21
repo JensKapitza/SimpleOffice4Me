@@ -162,9 +162,11 @@ class _DocumentStorePart2:
         for (document_id,) in rows:
             if document_id in documents:
                 continue
-            metadata = self._read_json(self.documents / f"{document_id}.json", {})
-            if metadata.get("document_id"):
-                documents[document_id] = metadata
+            try:
+                documents[document_id] = self.get_document(document_id)
+            except ValueError:
+                # Do not propagate retention metadata across a visibility boundary.
+                continue
         return self._retention_statuses(documents, now=now)[focus["document_id"]]
 
     def retention_statuses(
