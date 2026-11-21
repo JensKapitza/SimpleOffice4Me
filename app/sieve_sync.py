@@ -14,26 +14,64 @@ from .mail_client import MAX_SCRIPT_BYTES, MailStore, ManageSieveClient
 _SCRIPT_NAME = re.compile(r"[A-Za-z0-9_.-]{1,128}")
 
 
+def sanitize_local_name(server_name: str, taken: set[str]) -> str:
+    """Derive a deterministic filesystem-safe key for a server script name.
+
+    Safe names stay identical (backward compatible). Anything else is
+    folded to ``[A-Za-z0-9_.-]`` plus a short hash suffix so distinct
+    server names can never collide on one local key.
+    """
+    raw = str(server_name or "")
+    if _SCRIPT_NAME.fullmatch(raw) and raw not in {".", ".."}:
+        return raw
+    folded = re.sub(r"[^A-Za-z0-9_.-]+", "_", raw).strip("._")[:64].strip("._")
+    if not folded:
+        folded = "script"
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:8]
+    candidate = f"{folded}-{digest}"
+    counter = 2
+    while candidate in taken:
+        candidate = f"{folded}-{digest}-{counter}"
+        counter += 1
+    return candidate
+
+
 class ManageSieveSyncClient(ManageSieveClient):
     """ManageSieve operations needed to inventory, download and activate scripts."""
 
     @staticmethod
     def _quote(name: str) -> str:
-        if not _SCRIPT_NAME.fullmatch(name) or name in {".", ".."}:
-            raise ValueError("invalid Sieve script name")
-        return '"' + name.replace("\\", "\\\\").replace('"', '\\"') + '"'
+        """Quote a server script name for the wire (RFC 5804 quoted-string).
 
-    def list_scripts(self) -> list[dict[str, Any]]:
+        Unlike local filenames, server names may contain spaces and Unicode.
+        Only the characters forbidden inside a quoted-string are rejected.
+        """
+        text = str(name or "")
+        if not text or len(text) > 255 or text in {".", ".."}:
+            raise ValueError("invalid Sieve script name")
+        if any(char in text for char in ('"', "\\")) or any(ord(char) < 32 or ord(char) == 127 for char in text):
+            raise ValueError("invalid Sieve script name")
+        return '"' + text + '"'
+
+    def list_scripts_detailed(self) -> dict[str, Any]:
+        """List server scripts, keeping every parseable name plus diagnostics."""
         lines = self._command("LISTSCRIPTS")
         scripts: list[dict[str, Any]] = []
+        skipped: list[str] = []
         for line in lines[:-1]:
             match = re.match(r'^"((?:\\.|[^"\\])*)"(?:\s+(ACTIVE))?$', line, re.IGNORECASE)
             if not match:
+                skipped.append(line[:120])
                 continue
             name = re.sub(r'\\([\\"])', r'\1', match.group(1))
-            if _SCRIPT_NAME.fullmatch(name):
-                scripts.append({"name": name, "active": bool(match.group(2))})
-        return scripts
+            if not name or len(name) > 255:
+                skipped.append(line[:120])
+                continue
+            scripts.append({"name": name, "active": bool(match.group(2))})
+        return {"scripts": scripts, "skipped": skipped}
+
+    def list_scripts(self) -> list[dict[str, Any]]:
+        return self.list_scripts_detailed()["scripts"]
 
     def get_script(self, name: str) -> str:
         if self.file is None:
@@ -114,17 +152,34 @@ def _preserve_local_revision(store: MailStore, actor: str, account_id: str, name
 
 
 def sync_from_server(store: MailStore, actor: str, account: dict[str, Any]) -> dict[str, Any]:
-    """Download every server script before editing without silently losing local data."""
+    """Download every server script before editing without silently losing local data.
+
+    Server names may contain spaces or Unicode; they are stored under a
+    deterministic safe local key (identity for safe names) and the mapping
+    is reported so the UI can show what was renamed or skipped.
+    """
     client = ManageSieveSyncClient(account["sieve_host"], account["sieve_port"])
     downloaded: list[dict[str, Any]] = []
+    renamed: list[dict[str, str]] = []
     active = ""
     try:
         client.connect(account["username"], account["plain_password"])
-        remote = client.list_scripts()
+        inventory = client.list_scripts_detailed()
+        remote = inventory["scripts"]
+        skipped = list(inventory["skipped"])
         local = {row["name"]: row for row in store.scripts_for(actor, account["id"])}
+        taken = set(local)
         for row in remote:
-            name = row["name"]
-            content = client.get_script(name)
+            server_name = row["name"]
+            try:
+                content = client.get_script(server_name)
+            except ValueError as exc:
+                skipped.append(f"{server_name}: {exc}")
+                continue
+            name = sanitize_local_name(server_name, taken)
+            taken.add(name)
+            if name != server_name:
+                renamed.append({"server": server_name, "local": name})
             digest = hashlib.sha512(content.encode("utf-8")).hexdigest()
             local_row = local.get(name)
             changed = local_row is None or local_row.get("sha512") != digest
@@ -135,16 +190,19 @@ def sync_from_server(store: MailStore, actor: str, account: dict[str, Any]) -> d
                 saved = store.save_script(actor, account["id"], name, content)
                 store.history.record(
                     "sieve_script_downloaded", actor, "sieve", saved["sha512"],
-                    {**saved, "source": "server", "active": row["active"]},
+                    {**saved, "server_name": server_name, "source": "server", "active": row["active"]},
                 )
-            downloaded.append({"name": name, "active": row["active"], "sha512": digest, "changed": changed})
+            downloaded.append({"name": name, "server_name": server_name, "active": row["active"],
+                               "sha512": digest, "changed": changed})
             if row["active"]:
                 active = name
-        state = {"scripts": downloaded, "active": active, "updated_at": utc_now()}
+        state = {"scripts": downloaded, "active": active, "updated_at": utc_now(),
+                 "renamed": renamed, "skipped": skipped}
         _save_state(store, actor, account["id"], state)
         store.history.record(
             "sieve_server_inventory_downloaded", actor, "sieve", account["id"],
-            {"account_id": account["id"], "scripts": len(downloaded), "active": active},
+            {"account_id": account["id"], "scripts": len(downloaded), "active": active,
+             "renamed": renamed, "skipped": skipped},
         )
         return state
     finally:
@@ -154,18 +212,22 @@ def sync_from_server(store: MailStore, actor: str, account: dict[str, Any]) -> d
 def activate_server_script(store: MailStore, actor: str, account: dict[str, Any], name: str) -> dict[str, Any]:
     """Back up the full server inventory, then activate an existing server script."""
     state = sync_from_server(store, actor, account)
-    if name not in {row["name"] for row in state["scripts"]}:
+    row = next((entry for entry in state["scripts"]
+                if name in {entry["name"], entry.get("server_name", "")}), None)
+    if row is None:
         raise ValueError("Sieve-Skript existiert auf dem Server nicht")
     client = ManageSieveSyncClient(account["sieve_host"], account["sieve_port"])
     try:
         client.connect(account["username"], account["plain_password"])
-        client.set_active(name)
+        client.set_active(row.get("server_name", "") or row["name"])
     finally:
         client.close()
-    for row in state["scripts"]:
-        row["active"] = row["name"] == name
-    state["active"] = name
+    for entry in state["scripts"]:
+        entry["active"] = entry["name"] == row["name"]
+    state["active"] = row["name"]
     state["updated_at"] = utc_now()
     _save_state(store, actor, account["id"], state)
-    store.history.record("sieve_script_activated", actor, "sieve", account["id"], {"account_id": account["id"], "name": name})
+    store.history.record("sieve_script_activated", actor, "sieve", account["id"],
+                         {"account_id": account["id"], "name": row["name"],
+                          "server_name": row.get("server_name", "") or row["name"]})
     return state

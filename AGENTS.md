@@ -259,6 +259,12 @@ Aktualisierte Nutzervorgabe vom 11.11.2026: Die Anwendung muss lokale Modelle un
 - Aktionen mit Datenverlust oder kritischer Wirkung klar kennzeichnen bzw. bestätigen lassen.
 - Keine versteckten Nebenwirkungen bei normalen UI-Aktionen.
 
+### Vorher/Nachher im Pull Request
+
+Jeder PR mit einer sichtbaren UI-Änderung enthält direkt in der PR-Beschreibung einen Abschnitt **Vorher / Nachher**. Nenne die betroffene Seite und den Bereich. Zeige denselben Ausschnitt in beiden Zuständen und beschreibe kurz, was Nutzer dort künftig sehen oder anders bedienen. Bei einer neuen Ansicht zeigt „Vorher“ den bisherigen Einstieg.
+
+Verwende Screenshots mit Beispieldaten, wenn sie vorliegen. Andernfalls genügt eine beschriftete Schwarzweiß-Skizze, etwa ein Wireframe im Markdown-Codeblock. Kennzeichne Skizzen als solche. Wenn sich die Änderung auf dem Handy anders darstellt als auf dem Desktop, zeige auch diesen Unterschied. Aktualisiere die Vorschau, wenn das Layout im Review geändert wird.
+
 ## 16. Review-Policy
 
 Bei Reviews primär Findings mit echtem Impact melden:

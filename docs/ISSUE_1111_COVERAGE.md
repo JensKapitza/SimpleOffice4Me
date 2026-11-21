@@ -31,7 +31,7 @@ Status legend: **Done** (merged), **In review** (implementation submitted),
 | Spec item | Status | Implementation |
 |---|---|---|
 | CSV mass import with preview, duplicates, error report | Done | [#1119](https://github.com/JensKapitza/SimpleOffice4Me/pull/1119) |
-| CSV quantity/unit columns | Open | Extend the existing CSV preview and import mapping with quantity and unit fields. |
+| CSV quantity/unit columns | Done | [#1153](https://github.com/JensKapitza/SimpleOffice4Me/pull/1153) |
 | Inventory with difference report | Done | [#1117](https://github.com/JensKapitza/SimpleOffice4Me/pull/1117) |
 | Object relations (accessories, kits) | Done | [#1120](https://github.com/JensKapitza/SimpleOffice4Me/pull/1120) |
 | Virtual collections without relocation | Done | [#1122](https://github.com/JensKapitza/SimpleOffice4Me/pull/1122) |
@@ -49,7 +49,7 @@ Status legend: **Done** (merged), **In review** (implementation submitted),
 |---|---|---|
 | Object lending with due dates and history | Done | [#1123](https://github.com/JensKapitza/SimpleOffice4Me/pull/1123) |
 | Reservations with date ranges | Done | [#1129](https://github.com/JensKapitza/SimpleOffice4Me/pull/1129) |
-| Lending-vs-reservation check | Open | Add an overlap check between active loans and reservations. |
+| Lending-vs-reservation check | Done | [#1159](https://github.com/JensKapitza/SimpleOffice4Me/pull/1159) |
 | Minimum stock with warnings | Done | [#1127](https://github.com/JensKapitza/SimpleOffice4Me/pull/1127) |
 | Per-object federation sharing flag | Done | [#1131](https://github.com/JensKapitza/SimpleOffice4Me/pull/1131) |
 | Rights per identity/group/peer | Open | Needs trust-model design (multi-PR architecture) |
