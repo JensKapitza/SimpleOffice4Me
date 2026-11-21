@@ -250,6 +250,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | `LibraryStore.unassign` mit Ereignis; neues Modul `scan_dispatch_routes.py` mit `POST /library/scan` (Modus+Code+Ziel, JSON/Flash, Login, Audit): Einlagern ordnet zu, Entnehmen löst Zuordnung und Spiegelung (mit Wiederherstellung bei Spiegelfehler); Scan-Karte auf der Bibliotheksseite. |
 | Tests und Soll-Ist-Vergleich | Soll: beide Modi wirken, Spiegel konsistent, Validierung, Rechte. Ist gemessen: 4/4 Blackbox-HTTP-Tests (Einlagern per Code, Entnehmen löst+leert Spiegel, 3 Validierungsfälle, anonym+Marker); Nachbar-Suites 24/24; Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen als Follow-up: Modi Umlagern/Inventur, Zielort-Gedächtnis, föderierte Rechte, Fotoerkennung, Offline-Sync. |
+## 21. November 2026 · PR #1171 ausgearbeitet: Identitäts-First-Seen + QR-TOCTOU + Laufzeitnachweise
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Codex-PR #1171 (nur statisch geprüft) im Review bestätigt und erweitert: gleiche Lochklasse in `trust.remember` (Fingerprint still überschrieben) und TOCTOU in `import_qr` (get+save) gefunden; kein legitimer Remote-Rotationsflow vorhanden (nur lokaler Token-Rotations-Button). |
+| Implementierung | `remember_discovered_identity` (First-Seen-Bindung, Konflikt-Event `peer_identity_conflict`, keine Überschreibung) für Register/Rendezvous/Discovery; QR-Import nutzt `save_discovered_peer` + Konflikt-Warnung, nur explizite Vor-Ort-Zeremonie bindet neuen Fingerabdruck; TTS-Endpunkt aus Browser-Inventar (keine Seite). |
+| Tests und Soll-Ist-Vergleich | Soll: weder Verbindung noch Identität per Discovery umbiegbar, Zeremonie funktioniert. Ist gemessen: 44/44 (Discovery-, Admin-UI-, Peer-Trust-Suites inkl. 4 neue Konflikt-/Zeremonie-Tests); Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen: nichts. |
+
 ## 21. November 2026 · Federation: Hello macht Scans beidseitig sichtbar
 
 | Phase | Arbeit und Nachweis |

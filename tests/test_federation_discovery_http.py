@@ -60,17 +60,79 @@ class FederationDiscoveryHttpTest(unittest.TestCase):
         self.assertEqual(response.json["master"]["is_master"], False)
         self.assertEqual(response.json["master"]["address"], "")
 
-    def test_register_publishes_without_disabling_existing_peer(self):
-        FederationStore(self.root).save_peer("peer-a", "Old", "https://old.example", "", {}, True)
+    def test_register_publishes_without_retargeting_existing_peer(self):
+        store = FederationStore(self.root)
+        policy = {"documents": {"send": True}}
+        store.save_peer(
+            "peer-a", "Operator label", "https://old.example", "operator-token",
+            policy, True,
+        )
         response = self.client.post(
             "/federation/v1/discovery/register",
             headers=self.auth,
             json={"profile": PROFILE, "ttl_seconds": 300},
         )
         self.assertEqual(response.status_code, 201)
-        self.assertTrue(FederationStore(self.root).get_peer("peer-a")["enabled"])
+        stored = store.get_peer("peer-a")
+        self.assertEqual(stored["label"], "Operator label")
+        self.assertEqual(stored["base_url"], "https://old.example")
+        self.assertEqual(store.peer_token("peer-a"), "operator-token")
+        self.assertEqual(stored["policy"], policy)
+        self.assertTrue(stored["enabled"])
         listed = self.client.get("/federation/v1/discovery/peers?country=DE", headers=self.auth)
         self.assertEqual([row["peer_id"] for row in listed.json["peers"]], ["peer-a"])
+        self.assertEqual(listed.json["peers"][0]["base_url"], "https://old.example")
+
+    def test_register_creates_unknown_peer_without_authority(self):
+        profile = {**PROFILE, "peer_id": "peer-new", "label": "New peer"}
+        response = self.client.post(
+            "/federation/v1/discovery/register",
+            headers=self.auth,
+            json={"profile": profile, "ttl_seconds": 300},
+        )
+        self.assertEqual(response.status_code, 201)
+        store = FederationStore(self.root)
+        stored = store.get_peer("peer-new")
+        self.assertEqual(stored["base_url"], PROFILE["base_url"])
+        self.assertFalse(stored["enabled"])
+        self.assertEqual(store.peer_token("peer-new"), "")
+        self.assertEqual(stored["policy"], {})
+
+    def test_register_keeps_first_seen_identity_on_conflict(self):
+        from app.federation_identity import FederationIdentity
+
+        extra = tempfile.TemporaryDirectory()
+        self.addCleanup(extra.cleanup)
+        forged_keys = FederationIdentity(Path(extra.name)).public_identity()
+        store = FederationStore(self.root)
+        store.save_peer("peer-a", "Operator label", "https://old.example", "operator-token", {}, True)
+        FederationTrustStore(self.root).remember(
+            "peer-a", "DE", "0" * 64, "qr", "cHViLWtleS1vcmlnaW5hbA==")
+        forged = {**PROFILE, "fingerprint": forged_keys["fingerprint"],
+                  "public_key": forged_keys["public_key"]}
+        response = self.client.post(
+            "/federation/v1/discovery/register",
+            headers=self.auth,
+            json={"profile": forged, "ttl_seconds": 300},
+        )
+        self.assertEqual(response.status_code, 201)
+        identity = FederationTrustStore(self.root).identity("peer-a")
+        self.assertEqual(identity["fingerprint"], "0" * 64)
+        self.assertEqual(identity["public_key"], "cHViLWtleS1vcmlnaW5hbA==")
+        conflicts = [row for row in store.events() if row.get("action") == "peer_identity_conflict"]
+        self.assertEqual(1, len(conflicts))
+        self.assertEqual(forged_keys["fingerprint"], conflicts[0]["detail"]["announced"])
+
+    def test_discovered_identity_is_idempotent_for_same_fingerprint(self):
+        trust = FederationTrustStore(self.root)
+        row, conflict = trust.remember_discovered_identity(
+            "peer-a", "DE", "fp-a", "rendezvous", "cHViLWtleS1h")
+        self.assertFalse(conflict)
+        self.assertEqual("fp-a", row["fingerprint"])
+        row, conflict = trust.remember_discovered_identity(
+            "peer-a", "DE", "fp-a", "directory-register", "cHViLWtleS1h")
+        self.assertFalse(conflict)
+        self.assertEqual("fp-a", row["fingerprint"])
 
     def test_well_known_profile_advertises_build_master_role_and_address(self):
         with patch("app.federation_local_profile.LICENSE_MASTER_MODE", True), patch(

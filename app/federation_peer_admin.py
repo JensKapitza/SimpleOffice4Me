@@ -612,20 +612,15 @@ def import_qr():
         profile = decode_peer(request.form.get("payload", ""))
         imported_peer_id = profile["peer_id"]
         trust = FederationTrustStore(_root())
-        trust.remember(
-            profile["peer_id"], profile["country"], profile["fingerprint"], "qr",
-            profile.get("public_key", ""),
-        )
         store = FederationStore(_root())
         existing = store.get_peer(profile["peer_id"])
-        if existing is None:
-            store.save_peer(
-                profile["peer_id"], profile["label"], profile["base_url"], "",
-                {}, False,
-            )
+        store.save_discovered_peer(profile["peer_id"], profile["label"], profile["base_url"])
         report_hello_import(_root(), profile, flash, translate, g.language, current_app.logger)
         personally_verified = request.form.get("verify_in_person") == "1"
         if personally_verified:
+            trust.bind_verified_identity(
+                profile["peer_id"], profile["country"], profile["fingerprint"],
+                profile.get("public_key", ""))
             trust.set_trust(
                 profile["peer_id"], "NONE", "VERIFIED_IN_PERSON", "DIRECT_ONLY", 0,
                 metadata={"actor": str(g.user["username"]), "method": "qr_in_person"},
@@ -635,11 +630,14 @@ def import_qr():
             )
             flash(translate(g.language, "fedpeer.qr.verified").format(peer=profile['peer_id']))
         else:
-            if existing:
-                flash(translate(g.language, "fedpeer.qr.identity").format(
-                    peer=profile['peer_id'], url=profile['base_url'][:240]))
-            else:
-                flash(translate(g.language, "fedpeer.qr.stored").format(peer=profile['peer_id']))
+            _row, conflict = trust.remember_discovered_identity(
+                profile["peer_id"], profile["country"], profile["fingerprint"], "qr",
+                profile.get("public_key", ""),
+            )
+            key = ("fedpeer.qr.identity.conflict" if conflict else
+                   "fedpeer.qr.identity" if existing else "fedpeer.qr.stored")
+            flash(translate(g.language, key).format(
+                peer=profile['peer_id'], url=profile['base_url'][:240]))
     except Exception as exc:
         flash(translate(g.language, "fedpeer.qr.failed").format(exc=exc))
     if imported_peer_id:
