@@ -70,6 +70,11 @@
       {% if selected and mode != 'case' %}
       <form method="post" action="{{ url_for('mail_client.set_readonly', account_id=selected.id) }}" class="d-inline">
         <input type="hidden" name="writable" value="{{ '1' if read_only else '0' }}">
+        <input type="hidden" name="return_to" value="reader">
+        <input type="hidden" name="folder" value="{{ folder }}">
+        <input type="hidden" name="uid" value="{{ preview.uid if preview else '' }}">
+        <input type="hidden" name="q" value="{{ query }}">
+        <input type="hidden" name="mode" value="{{ mode }}">
         <button type="submit" class="btn btn-sm {{ 'btn-warning' if read_only else 'btn-success' }}" title="{{ 'Schreibzugriff ausdrücklich freigeben' if read_only else 'Konto wieder schreibschützen' }}">
           <i class="fas {{ 'fa-lock' if read_only else 'fa-pen' }} me-1"></i>{{ 'Read-only' if read_only else 'Schreibzugriff' }}
         </button>

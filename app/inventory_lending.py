@@ -65,6 +65,20 @@ class LendingStore:
                 return row
         return None
 
+    def blocking_loan(self, object_id: str, start: str, end: str) -> dict[str, Any] | None:
+        """Open loan overlapping [start, end]; pure check, cancels nothing."""
+        first, last = str(start or "").strip(), str(end or "").strip()
+        if not first or not last:
+            return None
+        loan = self.open_loan(object_id)
+        if loan is None:
+            return None
+        checkout_day = str(loan.get("checked_out_at", "") or "")[:10]
+        due_day = str(loan.get("due_date", "") or "").strip()
+        if checkout_day <= last and first <= due_day:
+            return loan
+        return None
+
     def overdue(self, today: str = "") -> list[dict[str, Any]]:
         current = str(today or "").strip() or date.today().isoformat()
         return [row for row in self.loans()
