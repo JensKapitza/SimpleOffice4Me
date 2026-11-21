@@ -58,6 +58,16 @@ def _form_bool(value: object) -> bool:
     return str(value or "").strip().casefold() in {"1", "true", "on", "yes"}
 
 
+def _preserved_signature(value: object) -> str:
+    """Keep a previously stored signature; reset corrupt values to empty."""
+    from .mail_signatures import normalize_signature
+
+    try:
+        return normalize_signature(value)
+    except ValueError:
+        return ""
+
+
 
 class ImapAuthenticationError(RuntimeError):
     """Safe, actionable IMAP authentication failure without credentials."""
@@ -356,6 +366,9 @@ class MailStore:
                 if any(f"ui_{name}" in data for name in MAIL_UI_FEATURES)
                 else _mail_ui_features((previous or {}).get("ui_features"))
             ),
+            # Signatures are managed through mail_signatures.set_signature; a
+            # plain account save must never drop a previously stored value.
+            "signature": _preserved_signature((previous or {}).get("signature", "")),
             "updated_at": utc_now(),
         }
         payload["accounts"] = [x for x in payload["accounts"] if not (x.get("id") == account_id and x.get("owner") == actor)] + [row]
@@ -617,7 +630,11 @@ class SmtpSubmission:
         account: dict[str, Any], recipients: str, subject: str, body: str,
         calendar_data: str = "", *, cc: str = "", bcc: str = "",
         attachments: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
+        signature: str = "",
     ) -> tuple[bytes, list[str], str]:
+        from .mail_signatures import append_signature
+
+        body = append_signature(body or "", signature or "")
         to_targets = _mailboxes(recipients)
         cc_targets = _optional_mailboxes(cc)
         bcc_targets = _optional_mailboxes(bcc)
@@ -695,6 +712,7 @@ class SmtpSubmission:
         self, actor: str, account: dict[str, Any], recipients: str, subject: str,
         body: str, calendar_data: str = "", *, cc: str = "", bcc: str = "",
         account_id: str, attachments: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
+        signature: str = "",
     ) -> dict[str, Any]:
         account_id = _safe_id(str(account_id))
         if str(account.get("id") or "") != account_id:
@@ -704,7 +722,7 @@ class SmtpSubmission:
         self.store._owned_row(actor, account_id)
         raw, targets, message_id = self.compose(
             account, recipients, subject, body, calendar_data,
-            cc=cc, bcc=bcc, attachments=attachments,
+            cc=cc, bcc=bcc, attachments=attachments, signature=signature,
         )
         detail = {
             "message_id": message_id,

@@ -25,6 +25,7 @@ from .document_store import atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
 from .mail_client import ImapArchive, MailStore, MAX_MESSAGE_BYTES
 from .mail_message_cache import cache_limit_bytes, message_cache
+from .mail_signatures import parse_status_unseen
 
 MAX_LIST_MESSAGES = 100
 MAX_SEARCH_MESSAGES = 500
@@ -265,6 +266,35 @@ class ImapWebClient:
                 })
             order = {"inbox": 0, "drafts": 1, "sent": 2, "archive": 3, "junk": 4, "trash": 5, "folder": 6}
             return sorted(result, key=lambda row: (order.get(row["role"], 9), row["name"].casefold()))
+        finally:
+            try:
+                connection.logout()
+            except Exception:
+                pass
+
+    def unread_counts(self, account: dict[str, Any], folders: list[str]) -> dict[str, int]:
+        """Return UNSEEN counters per folder without touching any message flags.
+
+        Uses the read-only IMAP STATUS command; folders that the server
+        rejects are skipped so one broken folder never breaks the badge.
+        """
+        names = [name for name in (str(item) for item in folders or []) if name and len(name) <= 500]
+        if not names:
+            return {}
+        connection = self._connect(account)
+        try:
+            counts: dict[str, int] = {}
+            for name in names:
+                try:
+                    status, data = connection.status(_encode_modified_utf7(name), "(UNSEEN)")
+                except Exception:
+                    continue
+                if status != "OK":
+                    continue
+                unseen = parse_status_unseen(data)
+                if unseen is not None:
+                    counts[name] = unseen
+            return counts
         finally:
             try:
                 connection.logout()
