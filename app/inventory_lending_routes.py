@@ -1,11 +1,14 @@
 """HTTP workflow for physical object checkout and return."""
 from __future__ import annotations
 
+from datetime import date
+
 from flask import current_app, flash, g, jsonify, redirect, request, url_for
 
 from .auth import login_required
 from .inventory import _objects, bp
 from .inventory_lending import LendingStore
+from .inventory_reservations import ReservationStore
 
 
 def _wants_json() -> bool:
@@ -48,6 +51,21 @@ def checkout_object(object_id: str):
             return jsonify({"ok": False, "error": "Objekt wurde nicht gefunden."}), 404
         flash("Objekt wurde nicht gefunden.")
         return redirect(url_for("inventory.index"))
+    try:
+        due_day = date.fromisoformat(str(fields.get("due_date", "")).strip()).isoformat()
+    except ValueError:
+        due_day = ""
+    if due_day and due_day >= date.today().isoformat():
+        clash = ReservationStore(current_app.config["DOCUMENT_ROOT"]).conflicts(
+            resolved, date.today().isoformat(), due_day)
+        if clash:
+            first = clash[0]
+            error = (f"Objekt ist vom {first['start_date']} bis {first['end_date']}"
+                     f" für {first['reserver']} reserviert.")
+            if _wants_json():
+                return jsonify({"ok": False, "error": error}), 400
+            flash(error)
+            return redirect(url_for("inventory.item_detail", object_id=resolved))
     try:
         row = _store().checkout(resolved, str(fields.get("borrower", "")),
                                 str(fields.get("due_date", "")), _actor(),
