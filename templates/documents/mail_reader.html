@@ -1,54 +1,6 @@
 {% extends "layout.html" %}
-{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/mail_client.css') }}">{% endblock %}
-{% block title %}Mail<style>
-.mail-column-settings summary{list-style:none;cursor:pointer}
-.mail-column-settings summary::-webkit-details-marker{display:none}
-.mail-column-menu{position:absolute;right:0;top:calc(100% + 4px);z-index:25;min-width:220px;font-size:.875rem}
-.mail-message-table{font-size:.82rem}
-.mail-message-table th,.mail-message-table td{padding:.55rem .45rem;max-width:17rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mail-message-table td[data-mail-col="subject"]{min-width:10rem}
-.mail-subject-link:focus-visible{outline:2px solid var(--bs-primary);outline-offset:2px}
-</style>
-{% if selected and mode not in ('archive', 'case') %}
-<script>
-(()=>{
-  const table=document.querySelector('.mail-message-table');
-  if(!table)return;
-  const toggles=[...document.querySelectorAll('[data-mail-column-toggle]')];
-  const defaults={status:true,subject:true,from:true,to:false,date:true,size:false,case:false};
-  const storageKey='simpleoffice.mail.columns.v1.'+{{ selected.id|tojson }};
-  let config={...defaults};
-  try{
-    const saved=JSON.parse(localStorage.getItem(storageKey));
-    if(saved && typeof saved==='object' && !Array.isArray(saved)){
-      for(const key of Object.keys(defaults))if(typeof saved[key]==='boolean')config[key]=saved[key];
-    }
-  }catch(_){}
-  const apply=()=>{
-    if(!Object.values(config).some(Boolean))config.subject=true;
-    for(const toggle of toggles)toggle.checked=config[toggle.dataset.mailColumnToggle];
-    for(const cell of table.querySelectorAll('[data-mail-col]')){
-      const visible=config[cell.dataset.mailCol];
-      cell.hidden=!visible;
-      cell.style.display=visible?'':'none';
-    }
-  };
-  for(const toggle of toggles)toggle.addEventListener('change',()=>{
-    const key=toggle.dataset.mailColumnToggle;
-    if(!Object.prototype.hasOwnProperty.call(defaults,key))return;
-    config[key]=toggle.checked;
-    apply();
-    try{localStorage.setItem(storageKey,JSON.stringify(config))}catch(_){}
-  });
-  document.getElementById('mail-columns-reset')?.addEventListener('click',()=>{
-    config={...defaults};apply();
-    try{localStorage.removeItem(storageKey)}catch(_){}
-  });
-  apply();
-})();
-</script>
-{% endif %}
-{% endblock %}
+{% block styles %}{{ super() }}<link rel="stylesheet" href="{{ url_for('static', filename='css/mail_client.css') }}"><link rel="stylesheet" href="{{ url_for('static', filename='css/mail_list.css') }}">{% endblock %}
+{% block title %}Mail{% endblock %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
 <main id="main-content" class="container-fluid py-3">
@@ -295,7 +247,7 @@
         </div>
       </div>
       <div class="table-responsive" style="max-height:70vh;overflow:auto">
-        <table class="table table-sm table-hover align-middle mb-0 mail-message-table" aria-label="Nachrichten in {{ folder or 'Postfach' }}">
+        <table class="table table-sm table-hover align-middle mb-0 mail-message-table" data-account="{{ selected.id }}" aria-label="Nachrichten in {{ folder or 'Postfach' }}">
           <thead class="table-light sticky-top"><tr>
             <th scope="col" data-mail-col="status" title="Gelesen/Ungelesen">●</th>
             <th scope="col" data-mail-col="subject">Betreff</th>
@@ -311,7 +263,7 @@
               <td data-mail-col="subject"><a class="d-block text-reset text-decoration-none mail-subject-link" href="{{ url_for('mail_reader.index', account=selected.id, folder=folder, uid=mail.uid, q=query, page=mailbox.page) }}" title="{{ mail.subject }}">{{ mail.subject or '(Ohne Betreff)' }}</a></td>
               <td data-mail-col="from" title="{{ mail.from }}">{{ mail.from }}</td>
               <td data-mail-col="to" title="{{ mail.to }}">{{ mail.to }}</td>
-              <td data-mail-col="date" class="text-nowrap">{{ mail.date }}</td>
+              <td data-mail-col="date" class="text-nowrap" title="{{ mail.date }}">{{ mail.date }}</td>
               <td data-mail-col="size" class="text-nowrap">{{ ((mail.size or 0) / 1024)|round(1) }} KiB</td>
               <td data-mail-col="case">{% if mail.case %}<span class="badge text-bg-info">{{ mail.case.title }}</span>{% endif %}</td>
             </tr>
@@ -333,4 +285,4 @@
 </div>
 {% if selected and not read_only %}<script>(()=>{const input=document.getElementById('compose-to'),list=document.getElementById('contact-suggestions');if(!input||!list)return;let timer=null;input.addEventListener('input',()=>{clearTimeout(timer);const q=input.value.split(',').pop().trim();if(q.length<2)return;timer=setTimeout(async()=>{try{const response=await fetch({{ url_for('mail_reader.contacts')|tojson }}+'?q='+encodeURIComponent(q),{headers:{Accept:'application/json'}});if(!response.ok)return;const payload=await response.json();list.replaceChildren(...payload.contacts.map(row=>{const option=document.createElement('option');option.value=row.email;option.label=row.label;return option;}));}catch(_){ }},180);});})();</script>{% endif %}
 {% endblock %}
-{% block script %}<script src="{{ url_for('static', filename='js/mail_client.js') }}" defer></script>{% endblock %}
+{% block script %}<script src="{{ url_for('static', filename='js/mail_list.js') }}" defer></script><script src="{{ url_for('static', filename='js/mail_client.js') }}" defer></script>{% endblock %}
