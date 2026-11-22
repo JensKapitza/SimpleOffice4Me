@@ -87,6 +87,8 @@ def invoice_seller_snapshot(
         "email": str(settings.get("seller_email", "")),
         "vat_id": str(settings.get("seller_vat_id", "")),
         "tax_number": str(settings.get("seller_tax_number", "")),
+        "electronic_address": {"scheme": str(settings.get("seller_ea_scheme", "")),
+                               "id": str(settings.get("seller_ea_id", ""))[:100]},
         "bank_account_id": str(account.get("account_id", "")) if account else "",
         "bank_account_label": str(account.get("label", "")) if account else "",
         "bank_holder": str(account.get("holder", "")) if account else "",

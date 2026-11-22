@@ -60,6 +60,7 @@ from .contact_extensions import ContactCRMStore
 from .customer_credit import CustomerCreditLedger
 from .contact_store import ContactStore
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_now
+from .einvoice_snapshot import VAT_CATEGORIES
 from .file_lock import exclusive_file_lock
 from .object_store import ObjectStore
 from .project_store import ProjectStore
@@ -242,7 +243,7 @@ def active_template(root: Path, template_id: str = "") -> dict[str, Any]:
 
 
 def business_settings(root: Path) -> dict[str, Any]:
-    defaults = {"seller_name": "", "seller_street": "", "seller_postal": "", "seller_city": "", "seller_state": "", "seller_country": "DE", "seller_email": "", "seller_vat_id": "", "seller_tax_number": "", "seller_iban": "", "seller_blz": "", "seller_bic": "", "seller_bank": "", "seller_bank_accounts": [], "payment_terms": "Zahlbar ohne Abzug", "default_payment_days": "14", "currency": "EUR", "zugferd_profile": ZUGFERD_PROFILE, "zugferd_version": ZUGFERD_VERSION, "require_zugferd_validation": True}
+    defaults = {"seller_name": "", "seller_street": "", "seller_postal": "", "seller_city": "", "seller_state": "", "seller_country": "DE", "seller_email": "", "seller_vat_id": "", "seller_tax_number": "", "seller_ea_scheme": "", "seller_ea_id": "", "seller_iban": "", "seller_blz": "", "seller_bic": "", "seller_bank": "", "seller_bank_accounts": [], "payment_terms": "Zahlbar ohne Abzug", "default_payment_days": "14", "currency": "EUR", "zugferd_profile": ZUGFERD_PROFILE, "zugferd_version": ZUGFERD_VERSION, "require_zugferd_validation": True}
     stored = _read_json(root / CONTROL_DIR / SETTINGS_FILE, {})
     if isinstance(stored, dict): defaults.update(stored)
     defaults["seller_bank_accounts"] = company_bank_accounts(defaults)
@@ -252,7 +253,7 @@ def business_settings(root: Path) -> dict[str, Any]:
 
 def save_business_settings(root: Path, values: dict[str, Any], actor: str) -> dict[str, Any]:
     settings = business_settings(root)
-    for key in ("seller_name", "seller_street", "seller_postal", "seller_city", "seller_state", "seller_country", "seller_email", "seller_vat_id", "seller_tax_number", "payment_terms", "currency", "zugferd_profile"):
+    for key in ("seller_name", "seller_street", "seller_postal", "seller_city", "seller_state", "seller_country", "seller_email", "seller_vat_id", "seller_tax_number", "seller_ea_scheme", "seller_ea_id", "payment_terms", "currency", "zugferd_profile"):
         settings[key] = str(values.get(key, settings.get(key, ""))).strip()
     legacy_bank_keys = ("seller_iban", "seller_blz", "seller_bic", "seller_bank")
     legacy_bank_update = (
@@ -451,6 +452,17 @@ def _invoice_number(root: Path) -> str:
     with exclusive_file_lock(lock):
         state = _read_json(path, {"years": {}}); years = state.setdefault("years", {}); year = str(now.year); number = int(years.get(year, 0)) + 1; years[year] = number; atomic_json_write(path, state)
     return f"{year}-{number:04d}"
+
+
+def _write_einvoice_snapshot(root: Path, row: dict[str, Any], actor: str) -> dict[str, str]:
+    """Freeze the finalized commercial data with SHA-256 (AP2/XRechnung basis)."""
+    from .einvoice_snapshot import build_snapshot, write_snapshot
+
+    snapshot = build_snapshot(row)
+    meta = write_snapshot(root, str(row.get("invoice_id", "")), snapshot)
+    meta["created_at"] = utc_now()
+    meta["created_by"] = str(actor)
+    return meta
 
 
 def _draft_invoice_number(root: Path, issue_date: date) -> str:
@@ -701,10 +713,10 @@ def apply_available_customer_credit(root: Path, invoice_id: str, actor: str) -> 
 
 
 def _build_invoice_lines(root: Path, form) -> list[dict[str, Any]]:
-    store = ObjectStore(root); object_ids = form.getlist("line_object_id"); descriptions = form.getlist("line_description"); quantities = form.getlist("line_quantity"); nets = form.getlist("line_net_price"); vats = form.getlist("line_vat_rate"); categories=form.getlist("line_category"); units=form.getlist("line_unit"); project_ids=form.getlist("line_project_id"); source_types=form.getlist("line_source_type"); source_ids=form.getlist("line_source_id")
-    count = max(len(object_ids), len(descriptions), len(quantities), len(nets), len(vats),len(categories),len(units),len(project_ids),len(source_types),len(source_ids)); lines: list[dict[str, Any]] = []
+    store = ObjectStore(root); object_ids = form.getlist("line_object_id"); descriptions = form.getlist("line_description"); quantities = form.getlist("line_quantity"); nets = form.getlist("line_net_price"); vats = form.getlist("line_vat_rate"); categories=form.getlist("line_category"); units=form.getlist("line_unit"); project_ids=form.getlist("line_project_id"); source_types=form.getlist("line_source_type"); source_ids=form.getlist("line_source_id"); discounts = form.getlist("line_discount_percent"); vat_categories = form.getlist("line_vat_category"); exemptions = form.getlist("line_exemption_reason")
+    count = max(len(object_ids), len(descriptions), len(quantities), len(nets), len(vats),len(categories),len(units),len(project_ids),len(source_types),len(source_ids),len(discounts),len(vat_categories),len(exemptions)); lines: list[dict[str, Any]] = []
     for index in range(count):
-        object_id = object_ids[index].strip() if index < len(object_ids) else ""; description = descriptions[index].strip() if index < len(descriptions) else ""; qty_text = quantities[index] if index < len(quantities) else "1"; net_text = nets[index] if index < len(nets) else "0"; vat_text = vats[index] if index < len(vats) else "0"; category=categories[index].strip() if index<len(categories) else ""; unit=units[index].strip().upper() if index<len(units) else "C62"; project_id=project_ids[index].strip() if index<len(project_ids) else ""; source_type=source_types[index].strip() if index<len(source_types) else ""; source_id=source_ids[index].strip() if index<len(source_ids) else ""
+        object_id = object_ids[index].strip() if index < len(object_ids) else ""; description = descriptions[index].strip() if index < len(descriptions) else ""; qty_text = quantities[index] if index < len(quantities) else "1"; net_text = nets[index] if index < len(nets) else "0"; vat_text = vats[index] if index < len(vats) else "0"; category=categories[index].strip() if index<len(categories) else ""; unit=units[index].strip().upper() if index<len(units) else "C62"; project_id=project_ids[index].strip() if index<len(project_ids) else ""; source_type=source_types[index].strip() if index<len(source_types) else ""; source_id=source_ids[index].strip() if index<len(source_ids) else ""; discount_text = discounts[index] if index < len(discounts) else ""; vat_category = vat_categories[index].strip().upper() if index < len(vat_categories) else ""; exemption = exemptions[index].strip() if index < len(exemptions) else ""
         if not object_id and not description: continue
         if unit not in INVOICE_UNITS: raise ValueError(f"invoice line {index + 1}: invalid unit")
         snapshot: dict[str, Any] = {"category":category}
@@ -725,8 +737,14 @@ def _build_invoice_lines(root: Path, form) -> list[dict[str, Any]]:
         try: vat_rate = Decimal(str(vat_text or "0").replace(",", ".")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         except InvalidOperation as exc: raise ValueError("invalid VAT rate") from exc
         if vat_rate < 0: raise ValueError("VAT rate must not be negative")
-        net_total = (net_price * quantity).quantize(MONEY, rounding=ROUND_HALF_UP); tax_total = (net_total * vat_rate / Decimal("100")).quantize(MONEY, rounding=ROUND_HALF_UP); gross_total = net_total + tax_total
-        lines.append({"line_id": len(lines) + 1, **snapshot, "description": description or "Position", "quantity": format(quantity, "f"), "unit": unit, "net_unit_price": f"{net_price:.2f}", "vat_rate": format(vat_rate, "f"), "net_total": f"{net_total:.2f}", "tax_total": f"{tax_total:.2f}", "gross_total": f"{gross_total:.2f}"})
+        try: discount = Decimal(str(discount_text or "0").replace(",", "."))
+        except InvalidOperation as exc: raise ValueError(f"invoice line {len(lines) + 1}: invalid discount percent") from exc
+        if discount < 0 or discount > 100: raise ValueError(f"invoice line {len(lines) + 1}: discount must be between 0 and 100 percent")
+        if vat_category and vat_category not in VAT_CATEGORIES:
+            raise ValueError(f"invoice line {len(lines) + 1}: invalid VAT category")
+        if len(exemption) > 500: raise ValueError(f"invoice line {len(lines) + 1}: exemption reason is too long")
+        net_total = (net_price * quantity * (Decimal("1") - discount / Decimal("100"))).quantize(MONEY, rounding=ROUND_HALF_UP); tax_total = (net_total * vat_rate / Decimal("100")).quantize(MONEY, rounding=ROUND_HALF_UP); gross_total = net_total + tax_total
+        lines.append({"line_id": len(lines) + 1, **snapshot, "description": description or "Position", "quantity": format(quantity, "f"), "unit": unit, "net_unit_price": f"{net_price:.2f}", "discount_percent": format(discount.normalize(), "f"), "vat_rate": format(vat_rate, "f"), "vat_category": vat_category, "exemption_reason": exemption, "net_total": f"{net_total:.2f}", "tax_total": f"{tax_total:.2f}", "gross_total": f"{gross_total:.2f}"})
     if not lines: raise ValueError("at least one invoice line is required")
     return lines
 

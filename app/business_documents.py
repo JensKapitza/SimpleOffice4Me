@@ -358,7 +358,7 @@ def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existi
     address_lines=[line.strip() for line in label.splitlines() if line.strip() and line.strip().casefold() not in known_names]
     recipient_lines=[person] if recipient_type == "private" else [company,*([person] if person else [])]
     buyer_label="\n".join(recipient_lines+address_lines); buyer_name=person if recipient_type == "private" else company
-    now=utc_now(); row={"invoice_id":invoice_id,"invoice_number":existing.get("invoice_number") if existing else _draft_invoice_number(root,issue),"contact_id":contact_id,"issue_date":issue.isoformat(),"service_date":service.isoformat(),"due_date":due.isoformat(),"currency":str(form.get("currency") or crm.get("currency") or settings.get("currency") or "EUR").upper()[:3],"payment_terms":str(form.get("payment_terms") or crm.get("payment_terms") or settings.get("payment_terms") or "").strip(),"seller":seller,"buyer":{"name":buyer_name,"label":buyer_label,"address_mode":address_mode,"free_text":label if address_mode == "free_text" else "","recipient_type":recipient_type,"company":company if recipient_type == "company" else "","contact_name":person,"address_id":candidate["id"],"street":candidate.get("street",label),"postal":candidate.get("postal","") ,"city":candidate.get("city","") ,"country":candidate.get("country") or "DE","vat_id":crm.get("vat_id","")},"lines":lines,"totals":totals,"status":"draft","payments":[],"history":list(existing.get("history",[])) if existing else [],"template_id":template_id,"zugferd":{"version":ZUGFERD_VERSION,"profile":ZUGFERD_PROFILE,"status":"not_created"},"created_at":existing.get("created_at",now) if existing else now,"created_by":existing.get("created_by",actor) if existing else actor,"updated_at":now,"updated_by":actor}
+    now=utc_now(); row={"invoice_id":invoice_id,"invoice_number":existing.get("invoice_number") if existing else _draft_invoice_number(root,issue),"contact_id":contact_id,"issue_date":issue.isoformat(),"service_date":service.isoformat(),"service_period":{"from":str(form.get("service_date_from", "") or "").strip(),"to":str(form.get("service_date_to", "") or "").strip()},"due_date":due.isoformat(),"currency":str(form.get("currency") or crm.get("currency") or settings.get("currency") or "EUR").upper()[:3],"payment_terms":str(form.get("payment_terms") or crm.get("payment_terms") or settings.get("payment_terms") or "").strip(),"buyer_reference":str(form.get("buyer_reference", "") or "").strip()[:100],"order_reference":str(form.get("order_reference", "") or "").strip()[:100],"contract_reference":str(form.get("contract_reference", "") or "").strip()[:100],"ledger_account":str(form.get("ledger_account", "") or "").strip()[:20],"seller":seller,"buyer":{"name":buyer_name,"label":buyer_label,"address_mode":address_mode,"free_text":label if address_mode == "free_text" else "","recipient_type":recipient_type,"company":company if recipient_type == "company" else "","contact_name":person,"address_id":candidate["id"],"street":candidate.get("street",label),"postal":candidate.get("postal","") ,"city":candidate.get("city","") ,"country":candidate.get("country") or "DE","vat_id":crm.get("vat_id",""),"tax_number":crm.get("tax_number",""),"electronic_address":{"scheme":str(form.get("buyer_ea_scheme", "") or "").strip(),"id":str(form.get("buyer_ea_id", "") or "").strip()[:100]}},"lines":lines,"totals":totals,"status":"draft","payments":[],"history":list(existing.get("history",[])) if existing else [],"template_id":template_id,"zugferd":{"version":ZUGFERD_VERSION,"profile":ZUGFERD_PROFILE,"status":"not_created"},"created_at":existing.get("created_at",now) if existing else now,"created_by":existing.get("created_by",actor) if existing else actor,"updated_at":now,"updated_by":actor}
     reference_invoice_id, reference_invoice_number = validated_invoice_reference(
         root, contact_id, form.get("reference_invoice_id", ""),
     )
@@ -369,6 +369,10 @@ def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existi
     planned_credit = min(Decimal(totals["gross"]), available_credit).quantize(MONEY)
     row["settlement"] = {"customer_credit": f"{planned_credit:.2f}", "bank_due": f"{(Decimal(totals['gross']) - planned_credit).quantize(MONEY):.2f}"}
     tpl=_business_template(root,row["template_id"],"invoice"); row["template_id"]=tpl["template_id"]
+    from .einvoice_snapshot import validate_einvoice_fields
+    field_problems = validate_einvoice_fields(row)
+    if field_problems:
+        raise ValueError("; ".join(problem["message"] for problem in field_problems[:3]))
     row["history"].append({"type":"draft_updated" if existing else "draft_created","at":now,"actor":actor})
     return row
 
@@ -460,6 +464,9 @@ def finalize_invoice(root: Path, invoice_id: str, actor: str) -> tuple[dict[str,
         timed("business_settings_load", lambda: business_settings(root))
         number = row.get("invoice_number", ""); number = timed("invoice_number_assign", lambda: _invoice_number(root)) if not number or number.startswith("DRAFT-") else number
         row["invoice_number"] = number; row["history"].append({"type": "number_assigned", "at": utc_now(), "actor": actor, "invoice_number": number})
+        snapshot_meta = timed("einvoice_snapshot_write", lambda: _write_einvoice_snapshot(root, row, actor))
+        row["einvoice_snapshot"] = snapshot_meta
+        row["history"].append({"type": "snapshot_finalized", "at": snapshot_meta["created_at"], "actor": actor, "sha256": snapshot_meta["sha256"]})
         try:
             tpl = timed("template_load", lambda: _business_template(root, row["template_id"], "invoice"))
             visual = timed("template_pdf_render", lambda: _render_invoice_with_template(root, tpl, row))

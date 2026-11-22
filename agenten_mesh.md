@@ -277,6 +277,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: nach Scan beide Seiten sichtbar, Fälschung/Identitätsdiebstahl abgelehnt, kein Vertrauen durch Hello. Ist gemessen: 5/5 Zwei-Instanzen-Blackbox-Tests; Nachbarn (Admin-UI, Discovery, Kompatibilität) grün; Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen: Praxistest mit zwei echten Instanzen durch Eigentümer; Diagnose-Buttons (Datei, Ton, QR, Druck-Test) als Folge-PR. |
 
+## 21. November 2026 · E-Rechnung Phase 2a: Snapshot-Artefakt + AP2-Felder
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Auftrag AP1→2a: eingefrorener Snapshot + XRechnungs-Felder (BT-10, E-Adressen, Refs, Zeitraum, Kategorien, Kontenzuordnung, Rabatt). Bestand wiederverwendet: Finalisierungs-Locks, Nummernkreis, Decimal-Summen, Settings/Editor-Muster. |
+| Implementierung | Neues Modul `app/einvoice_snapshot.py` (kanonischer Snapshot, SHA-256, Tolerant-Reader, Formatvalidierung ohne erfundene Defaults); Finalisierung schreibt Snapshot + Hash + Historie; Positionen mit Rabatt %/Steuerkategorie/Befreiungsgrund (Summen rabattbereinigt, Decimal); Belegfelder + Käufer-Steuernummer + E-Adressen; Verkäufer-E-Adresse in Settings; Editor- + Settings-Formulare + JS-Vorschau. Keine Migration nötig (tolerante Leser, alte Belege unverändert lesbar). |
+| Tests und Soll-Ist-Vergleich | Soll: Snapshot-Beweis, Hash-Manipulation erkannt, Felder rundum, Bestand grün. Ist gemessen: 10/10 neu (`test_einvoice_snapshot.py`); 103/103 Rechnungs-Nachbarsuites; `node --check`, Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen: Phase 2b (UBL-Generator), Phase 3 (Freigabe-Gate + Archivpaket + Editor-Protokoll). PR #1174 bleibt Draft, kein Auto-Merge. |
+
 ## 21. November 2026 · Sieve: Skripte mit Sonderzeichen werden gefunden + Diagnose
 
 | Phase | Arbeit und Nachweis |
