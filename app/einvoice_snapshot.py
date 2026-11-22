@@ -74,6 +74,17 @@ def write_snapshot(root: Path, invoice_id: str, snapshot: dict[str, Any]) -> dic
     return {"sha256": snapshot_digest(snapshot), "schema_version": str(EINVOICE_SCHEMA_VERSION)}
 
 
+def freeze_snapshot(root: Path, row: dict[str, Any], actor: str) -> dict[str, str]:
+    """Freeze the finalized commercial data with SHA-256 (AP2/XRechnung basis)."""
+    from .document_store import utc_now
+
+    snapshot = build_snapshot(row)
+    meta = write_snapshot(root, str(row.get("invoice_id", "")), snapshot)
+    meta["created_at"] = utc_now()
+    meta["created_by"] = str(actor)
+    return meta
+
+
 def read_snapshot(root: Path, invoice_id: str) -> dict[str, Any]:
     path = _snapshot_path(root, invoice_id)
     try:

@@ -29,6 +29,7 @@ from .business_template_dispatch import (
     render_invoice_with_template as _render_invoice_with_template,
     render_letter_with_template as _render_letter_with_template,
 )
+from .einvoice_snapshot import freeze_snapshot
 from .invoice_addresses import parse_free_text_invoice_address as _parse_free_text_invoice_address
 from .invoice_access import _managed_invoice  # noqa: F401 (re-exported facade for invoice_relation_routes)
 from .invoice_display import _display_zugferd
@@ -464,7 +465,7 @@ def finalize_invoice(root: Path, invoice_id: str, actor: str) -> tuple[dict[str,
         timed("business_settings_load", lambda: business_settings(root))
         number = row.get("invoice_number", ""); number = timed("invoice_number_assign", lambda: _invoice_number(root)) if not number or number.startswith("DRAFT-") else number
         row["invoice_number"] = number; row["history"].append({"type": "number_assigned", "at": utc_now(), "actor": actor, "invoice_number": number})
-        snapshot_meta = timed("einvoice_snapshot_write", lambda: _write_einvoice_snapshot(root, row, actor))
+        snapshot_meta = timed("einvoice_snapshot_write", lambda: freeze_snapshot(root, row, actor))
         row["einvoice_snapshot"] = snapshot_meta
         row["history"].append({"type": "snapshot_finalized", "at": snapshot_meta["created_at"], "actor": actor, "sha256": snapshot_meta["sha256"]})
         try:

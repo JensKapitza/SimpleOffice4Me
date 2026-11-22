@@ -454,17 +454,6 @@ def _invoice_number(root: Path) -> str:
     return f"{year}-{number:04d}"
 
 
-def _write_einvoice_snapshot(root: Path, row: dict[str, Any], actor: str) -> dict[str, str]:
-    """Freeze the finalized commercial data with SHA-256 (AP2/XRechnung basis)."""
-    from .einvoice_snapshot import build_snapshot, write_snapshot
-
-    snapshot = build_snapshot(row)
-    meta = write_snapshot(root, str(row.get("invoice_id", "")), snapshot)
-    meta["created_at"] = utc_now()
-    meta["created_by"] = str(actor)
-    return meta
-
-
 def _draft_invoice_number(root: Path, issue_date: date) -> str:
     """Return a non-binding preview of the next annual number without consuming it."""
     path = root / CONTROL_DIR / INVOICE_SEQUENCE
