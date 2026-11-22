@@ -277,6 +277,15 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: nach Scan beide Seiten sichtbar, Fälschung/Identitätsdiebstahl abgelehnt, kein Vertrauen durch Hello. Ist gemessen: 5/5 Zwei-Instanzen-Blackbox-Tests; Nachbarn (Admin-UI, Discovery, Kompatibilität) grün; Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen: Praxistest mit zwei echten Instanzen durch Eigentümer; Diagnose-Buttons (Datei, Ton, QR, Druck-Test) als Folge-PR. |
 
+## 21. November 2026 · E-Rechnung Phase 2b: UBL-2.1-Generator (KoSIT-bestätigt)
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Auftrag AP3: eigenständiger XRechnung-Export (UBL 2.1, XRechnung 3.0.2) aus dem eingefrorenen Snapshot. KoSIT-Validator lokal installiert (1.6.3, Config 2026-08-31) und als Entwicklungs-Orakel verwendet. |
+| Implementierung | Neues Modul `app/einvoice_ubl.py`: CustomizationID aus Installer-Konstante, Parteien mit E-Adressen/Steuernummern/Kontakt (BG-6), Zahlungsmittel IBAN/BIC, Steueraufschlüsselung je Gruppe mit Kategorien/Befreiungsgründen, Rabatte als positionsbezogene AllowanceCharge (UNCL-95-Code, keine stillen Korrekturen), Summen-Revalidierung mit Decimal (Fehler statt Fix). Zusätzlich AP2-Lücke geschlossen: Verkäufer-Ansprechpartner in Settings + Snapshot (KoSIT BR-DE-2 Pflicht). |
+| Tests und Soll-Ist-Vergleich | Soll: standardkonforme XML, Summenfehler laut, KoSIT-Erfolg. Ist gemessen: 5/5 (`test_einvoice_ubl.py`: Struktur, Summen-Manipulation abgelehnt, Pflichtfelder, XML-Escaping, **echte KoSIT-Prüfung ACCEPTABLE**, Skip ohne Validator); 62/62 Bestand + 9/9 Validator-Suite; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen: Phase 3 (Freigabe-Gate + Archivpaket + Editor-Protokoll). PR #1174 bleibt Draft, kein Auto-Merge. |
+
 ## 21. November 2026 · E-Rechnung Phase 2a: Snapshot-Artefakt + AP2-Felder
 
 | Phase | Arbeit und Nachweis |

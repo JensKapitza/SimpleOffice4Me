@@ -243,7 +243,7 @@ def active_template(root: Path, template_id: str = "") -> dict[str, Any]:
 
 
 def business_settings(root: Path) -> dict[str, Any]:
-    defaults = {"seller_name": "", "seller_street": "", "seller_postal": "", "seller_city": "", "seller_state": "", "seller_country": "DE", "seller_email": "", "seller_vat_id": "", "seller_tax_number": "", "seller_ea_scheme": "", "seller_ea_id": "", "seller_iban": "", "seller_blz": "", "seller_bic": "", "seller_bank": "", "seller_bank_accounts": [], "payment_terms": "Zahlbar ohne Abzug", "default_payment_days": "14", "currency": "EUR", "zugferd_profile": ZUGFERD_PROFILE, "zugferd_version": ZUGFERD_VERSION, "require_zugferd_validation": True}
+    defaults = {"seller_name": "", "seller_street": "", "seller_postal": "", "seller_city": "", "seller_state": "", "seller_country": "DE", "seller_email": "", "seller_vat_id": "", "seller_tax_number": "", "seller_ea_scheme": "", "seller_ea_id": "", "seller_contact_name": "", "seller_contact_phone": "", "seller_contact_email": "", "seller_iban": "", "seller_blz": "", "seller_bic": "", "seller_bank": "", "seller_bank_accounts": [], "payment_terms": "Zahlbar ohne Abzug", "default_payment_days": "14", "currency": "EUR", "zugferd_profile": ZUGFERD_PROFILE, "zugferd_version": ZUGFERD_VERSION, "require_zugferd_validation": True}
     stored = _read_json(root / CONTROL_DIR / SETTINGS_FILE, {})
     if isinstance(stored, dict): defaults.update(stored)
     defaults["seller_bank_accounts"] = company_bank_accounts(defaults)
@@ -253,7 +253,7 @@ def business_settings(root: Path) -> dict[str, Any]:
 
 def save_business_settings(root: Path, values: dict[str, Any], actor: str) -> dict[str, Any]:
     settings = business_settings(root)
-    for key in ("seller_name", "seller_street", "seller_postal", "seller_city", "seller_state", "seller_country", "seller_email", "seller_vat_id", "seller_tax_number", "seller_ea_scheme", "seller_ea_id", "payment_terms", "currency", "zugferd_profile"):
+    for key in ("seller_name", "seller_street", "seller_postal", "seller_city", "seller_state", "seller_country", "seller_email", "seller_vat_id", "seller_tax_number", "seller_ea_scheme", "seller_ea_id", "seller_contact_name", "seller_contact_phone", "seller_contact_email", "payment_terms", "currency", "zugferd_profile"):
         settings[key] = str(values.get(key, settings.get(key, ""))).strip()
     legacy_bank_keys = ("seller_iban", "seller_blz", "seller_bic", "seller_bank")
     legacy_bank_update = (
