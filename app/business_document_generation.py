@@ -908,13 +908,12 @@ def _pdfa3_convert_detailed(pdf: bytes) -> tuple[bytes, dict[str, Any]]:
         try:
             result=subprocess.run(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=90,check=False,text=True)
         except subprocess.TimeoutExpired as exc:
-            stderr=str(exc.stderr or "")
-            logger.error("Ghostscript PDF/A conversion timed out: %s", stderr)
-            return pdf, {"status": "ghostscript_pdfa_timeout", "exit_code": None, "stdout": str(exc.stdout or ""), "stderr": stderr}
-        details={"status": "pdfa3_created", "exit_code": result.returncode, "stdout": result.stdout, "stderr": result.stderr}
+            logger.error("Ghostscript PDF/A conversion timed out (error_type=%s)", type(exc).__name__)
+            return pdf, {"status": "ghostscript_pdfa_timeout", "exit_code": None, "stdout": "", "stderr": ""}
+        details={"status": "pdfa3_created", "exit_code": result.returncode, "stdout": "", "stderr": ""}
         if result.returncode != 0 or not target.is_file():
             details["status"]="ghostscript_pdfa_failed"
-            logger.error("Ghostscript PDF/A conversion failed exit_code=%s stdout=%s stderr=%s", result.returncode, result.stdout, result.stderr)
+            logger.error("Ghostscript PDF/A conversion failed exit_code=%s", result.returncode)
             return pdf, details
         return target.read_bytes(), details
 
@@ -947,10 +946,10 @@ def _validate_hybrid(pdf: bytes, xml: bytes) -> dict[str, Any]:
             path=Path(temp)/"invoice.pdf"; path.write_bytes(pdf)
             try: check=subprocess.run([verapdf,"--format","text",str(path)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=90,check=False,text=True)
             except subprocess.TimeoutExpired as exc:
-                result["details"].append("pdfa_validation_timeout"); result["pdfa_output"]=str(exc.stdout or "")+str(exc.stderr or ""); logger.error("veraPDF validation timed out: %s", result["pdfa_output"])
+                result["details"].append("pdfa_validation_timeout"); logger.error("veraPDF validation timed out (error_type=%s)", type(exc).__name__)
             else:
-                output=check.stdout+check.stderr; text=output.casefold(); result["pdfa_exit_code"]=check.returncode; result["pdfa_output"]=output; result["pdfa"]=check.returncode==0 and ("compliant" in text or "passed" in text) and "not compliant" not in text
-                if not result["pdfa"]: result["details"].append("pdfa_validation_failed"); logger.error("veraPDF validation failed exit_code=%s output=%s", check.returncode, output)
+                text=(check.stdout+check.stderr).casefold(); result["pdfa_exit_code"]=check.returncode; result["pdfa"]=check.returncode==0 and ("compliant" in text or "passed" in text) and "not compliant" not in text
+                if not result["pdfa"]: result["details"].append("pdfa_validation_failed"); logger.error("veraPDF validation failed exit_code=%s", check.returncode)
     else: result["details"].append("verapdf_unavailable")
     configured=os.environ.get("SIMPLEOFFICE_ZUGFERD_VALIDATOR","").strip()
     mustang_jar=Path(os.environ.get("SIMPLEOFFICE_MUSTANG_JAR", "") or Path(__file__).resolve().parents[1]/".runtime-tools"/"Mustang-CLI-2.25.0.jar")
@@ -967,13 +966,13 @@ def _validate_hybrid(pdf: bytes, xml: bytes) -> dict[str, Any]:
             cmd=[part.replace("{xml}",str(xml_path)).replace("{pdf}",str(pdf_path)) for part in validator_parts]
             try: check=subprocess.run(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=90,check=False,text=True)
             except subprocess.TimeoutExpired as exc:
-                result["xml"]=False; result["details"].append("zugferd_schema_validation_timeout"); result["xml_output"]=str(exc.stdout or "")+str(exc.stderr or ""); logger.error("ZUGFeRD validation timed out: %s", result["xml_output"])
+                result["xml"]=False; result["details"].append("zugferd_schema_validation_timeout"); logger.error("ZUGFeRD validation timed out (error_type=%s)", type(exc).__name__)
             else:
-                result["xml_exit_code"]=check.returncode; result["xml_output"]=check.stdout+check.stderr; result["xml"]=result["xml"] and check.returncode==0
+                result["xml_exit_code"]=check.returncode; result["xml"]=result["xml"] and check.returncode==0
                 if hybrid_validator and check.returncode==0:
-                    result["pdfa"]=True; result["pdfa_exit_code"]=0; result["pdfa_output"]=result["xml_output"]
+                    result["pdfa"]=True; result["pdfa_exit_code"]=0
                     result["details"]=[detail for detail in result["details"] if detail != "verapdf_unavailable"]
-                if check.returncode!=0: result["details"].append("zugferd_schema_validation_failed"); logger.error("ZUGFeRD validation failed exit_code=%s output=%s", check.returncode, result["xml_output"])
+                if check.returncode!=0: result["details"].append("zugferd_schema_validation_failed"); logger.error("ZUGFeRD validation failed exit_code=%s", check.returncode)
     else: result["details"].append("en16931_default_validator_unavailable")
     result["validated"]=bool(result["pdfa"] and result["xml"] and validator_parts)
     return result

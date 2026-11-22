@@ -55,6 +55,14 @@ bp = Blueprint("business_documents", __name__, url_prefix="/documents/business")
 register_invoice_relation_routes(bp)
 register_template_editor_routes(bp, root_provider=_root, actor_provider=_actor, business_settings_provider=business_settings, business_settings_saver=save_business_settings)
 
+
+class InvoiceFinalizationError(RuntimeError):
+    """Safe caller-facing failure; the original exception text may contain secrets."""
+
+    def __init__(self, error_type: str) -> None:
+        self.error_type = error_type
+        super().__init__("Rechnungsfinalisierung fehlgeschlagen. Bitte Serverprotokoll prüfen.")
+
 def _mirror_invoice_relation_event(root: Path, actor: str, invoice_id: str, action: str, details: dict[str, Any]) -> bool:
     try:
         DocumentStore(root).history.record(action, actor, "invoice", invoice_id, details)
@@ -432,7 +440,9 @@ def finalize_invoice(root: Path, invoice_id: str, actor: str) -> tuple[dict[str,
         finally:
             elapsed_ms = round((time.perf_counter() - started) * 1000, 1); timings[step] = elapsed_ms
             log = logger.warning if elapsed_ms > 500 else logger.debug
-            log("invoice_finalization invoice_id=%s step=%s duration_ms=%.1f", invoice_id, step, elapsed_ms)
+            # Invoice identifiers can be linked to customer and financial data.
+            # Keep operational timing useful without copying them into logs.
+            log("invoice_finalization step=%s duration_ms=%.1f", step, elapsed_ms)
     with exclusive_file_lock(path.with_suffix(".lock"), blocking=False) as acquired, exclusive_file_lock(root / CONTROL_DIR / ".project-billing.lock"):
         if not acquired: raise ValueError("invoice finalization is already in progress")
         row = timed("invoice_load", lambda: invoice(root, invoice_id))
@@ -480,15 +490,22 @@ def finalize_invoice(root: Path, invoice_id: str, actor: str) -> tuple[dict[str,
                     else:
                         row["zugferd"]["status"] = technical_status
                 except (ValueError, RuntimeError, OSError, ImportError) as exc:
-                    logger.warning("ZUGFeRD generation failed for invoice %s: %s", invoice_id, type(exc).__name__)
-                    row["zugferd"].update({"status": "pdf_only", "error": str(exc)[:500]})
+                    logger.warning("ZUGFeRD generation failed (error_type=%s)", type(exc).__name__)
+                    row["zugferd"].update({
+                        "status": "pdf_only",
+                        "error": "Technische Validierung fehlgeschlagen; Einzelheiten stehen im Serverprotokoll.",
+                    })
             document = timed("final_file_save_and_contact_link", lambda: _store_generated_pdf(root, row["contact_id"], f"Rechnung-{number}", output_pdf, actor, "invoice", tpl["template_id"], metadata={"invoice_id": invoice_id, "invoice_number": number, "invoice_total": row["totals"]["gross"], "invoice_currency": row["currency"], "zugferd_status": row["zugferd"]["status"], "zugferd_version": row.get("zugferd", {}).get("version", ZUGFERD_VERSION)}))
         except Exception as exc:
-            row["status"] = "draft"; row["finalization_error"] = str(exc); row["finalization_timings_ms"] = timings; row["history"].append({"type": "finalization_failed", "at": utc_now(), "actor": actor, "error": str(exc)[:500]}); atomic_json_write(path, row); raise
+            error_type = type(exc).__name__
+            logger.error("Invoice finalization failed (step=%s error_type=%s)",
+                         next(reversed(timings), "unknown"), error_type)
+            safe_error = "Rechnungsfinalisierung fehlgeschlagen. Bitte Serverprotokoll prüfen."
+            row["status"] = "draft"; row["finalization_error"] = safe_error; row["finalization_timings_ms"] = timings; row["history"].append({"type": "finalization_failed", "at": utc_now(), "actor": actor, "error": safe_error, "error_type": error_type}); atomic_json_write(path, row); raise InvoiceFinalizationError(error_type) from None
         row.pop("finalization_error", None); row["document_id"] = document["document_id"]; row["status"] = "open"; row["history"].append({"type": "issued", "at": utc_now(), "actor": actor})
         timed("invoice_and_project_links_save", lambda: atomic_json_write(path, row)); timed("audit_history_save", lambda: DocumentStore(root).history.record("invoice_created", actor, "invoice", invoice_id, {"invoice_number": number, "contact_id": row["contact_id"], "document_id": document["document_id"], "totals": row["totals"], "zugferd": row["zugferd"]})); row["finalization_timings_ms"] = timings; atomic_json_write(path, row)
     if Decimal(row.get("settlement", {}).get("customer_credit", "0")) > 0: row = timed("customer_credit_apply", lambda: apply_available_customer_credit(root, invoice_id, actor))
-    total_ms = round((time.perf_counter() - started_total) * 1000, 1); row["finalization_timings_ms"] = {**timings, "total": total_ms}; logger.info("invoice_finalization invoice_id=%s total_ms=%.1f status=%s timings=%s", invoice_id, total_ms, row["zugferd"]["status"], timings); return row, document
+    total_ms = round((time.perf_counter() - started_total) * 1000, 1); row["finalization_timings_ms"] = {**timings, "total": total_ms}; logger.info("invoice_finalization total_ms=%.1f status=%s timings=%s", total_ms, row["zugferd"]["status"], timings); return row, document
 
 def _create_invoice(root: Path, contact_id: str, form, actor: str) -> tuple[dict[str,Any],dict[str,Any]]:
     draft=save_invoice_draft(root,contact_id,form,actor); return finalize_invoice(root,draft["invoice_id"],actor)
@@ -637,6 +654,7 @@ def contact_invoice(contact_id:str):
                 else: message = f"Invoice {row['invoice_number']} was created, but technical validation failed: {row['zugferd']['status']}." if g.language == "en" else f"Rechnung {row['invoice_number']} wurde erzeugt, aber die technische Validierung ist fehlgeschlagen: {row['zugferd']['status']}."
                 flash(message);return redirect(url_for(".invoice_detail",invoice_id=row["invoice_id"]))
             flash("Rechnungsentwurf schnell gespeichert. Es wurde noch keine endgültige Rechnungsnummer vergeben.");return redirect(url_for(".invoice_detail",invoice_id=row["invoice_id"]))
+        except InvoiceFinalizationError as exc:flash(str(exc))
         except PermissionError:abort(403)
         except ValueError as exc:flash(str(exc))
     fields=contact.get("fields",{}); default_names=_recipient_names(contact); default_company=str(fields.get("company","")).strip(); default_person=next((name for name in default_names if name.casefold()!=default_company.casefold()),"")

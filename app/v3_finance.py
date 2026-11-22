@@ -918,7 +918,7 @@ def finalize_invoice_tracked(
         store.fail_finalization(
             attempt.attempt_id,
             actor,
-            error=str(exc),
+            error=str(getattr(exc, "error_type", type(exc).__name__)),
             reserved_number=reserved,
         )
         raise
