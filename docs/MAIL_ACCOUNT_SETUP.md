@@ -48,3 +48,14 @@ attachment name/type/size, never payload bytes), so no copy flood occurs.
 Rights are enforced server-side: live mail requires account ownership,
 archived mail requires archive permission, tasks require list create
 rights. Handover never mutates IMAP state and works in read-only mode.
+
+## Tags/Keywords (Issue #1136, slice 4)
+
+The reader shows IMAP user keywords (non-`\`-flags such as `$Forwarded`)
+as badges in the message list and in the preview header. Keyword sync
+(`POST /documents/mail/reader/message/keywords`) requires an explicitly
+writable account (`require_writable`) and a server that advertises `\*` in
+`PERMANENTFLAGS` from SELECT; otherwise the sync is rejected and nothing is
+sent. Read-only accounts only display keywords and never issue STORE.
+Keywords are validated as IMAP atoms (letters, digits, `$`, `-`, `_`, `.`;
+max 50 chars); system flags keep their dedicated actions.

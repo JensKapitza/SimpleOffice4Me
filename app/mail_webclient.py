@@ -132,6 +132,26 @@ def _flag_names(metadata: bytes | str) -> set[str]:
     }
 
 
+_KEYWORD_RE = re.compile(r"^[A-Za-z0-9$][A-Za-z0-9._$-]{0,49}$")
+_PERMANENT_RE = re.compile(rb"PERMANENTFLAGS\s*\(([^)]*)\)", re.IGNORECASE)
+
+
+def normalize_keyword(value: Any) -> str:
+    """Validate one user keyword as a safe IMAP flag atom.
+
+    System flags (``\\Seen`` & co.) are rejected: they have dedicated actions.
+    """
+    text = str(value or "").strip()
+    if not _KEYWORD_RE.fullmatch(text):
+        raise ValueError(f"invalid IMAP keyword: {text!r}")
+    return text
+
+
+def keywords_of(flags: set[str]) -> list[str]:
+    """Return sorted user keywords, excluding IMAP system flags."""
+    return sorted({flag for flag in flags if not flag.startswith("\\")})
+
+
 def _message_literal(response: Any) -> bytes:
     return ImapArchive._literal(response)
 
@@ -327,14 +347,76 @@ class ImapWebClient:
                 pass
 
     @staticmethod
-    def _select(connection: Any, folder: str, *, readonly: bool) -> int:
+    def _permanent_flags(select_data: Any, connection: Any) -> set[str] | None:
+        """Extract PERMANENTFLAGS from a SELECT response.
+
+        Returns ``None`` when the server sent no PERMANENTFLAGS response, so
+        callers can distinguish "unknown" from "no keywords allowed".
+        """
+        chunks: list[bytes] = []
+        for item in select_data or []:
+            if isinstance(item, bytes):
+                chunks.append(item)
+            elif isinstance(item, tuple) and item and isinstance(item[0], bytes):
+                chunks.append(item[0])
+        try:
+            code, extra = connection.response("PERMANENTFLAGS")
+        except Exception:
+            code, extra = None, []
+        if code == "OK" and isinstance(extra, list):
+            chunks.extend(item for item in extra if isinstance(item, bytes))
+        found: set[str] | None = None
+        for chunk in chunks:
+            match = _PERMANENT_RE.search(chunk)
+            if match is None:
+                continue
+            if found is None:
+                found = set()
+            for token in match.group(1).split():
+                found.add(token.decode("ascii", "replace"))
+        return found
+
+    @staticmethod
+    def _select_detailed(
+        connection: Any, folder: str, *, readonly: bool
+    ) -> tuple[int, set[str] | None]:
         status, data = connection.select(_encode_modified_utf7(folder), readonly=readonly)
         if status != "OK":
             raise RuntimeError("IMAP folder could not be selected")
         try:
-            return int((data or [b"0"])[0] or 0)
+            count = int((data or [b"0"])[0] or 0)
         except (TypeError, ValueError):
-            return 0
+            count = 0
+        return count, ImapWebClient._permanent_flags(data, connection)
+
+    @staticmethod
+    def _select(connection: Any, folder: str, *, readonly: bool) -> int:
+        count, _ = ImapWebClient._select_detailed(connection, folder, readonly=readonly)
+        return count
+
+    @staticmethod
+    def _keyword_capability(permanent: set[str] | None) -> dict[str, Any]:
+        return {
+            "supported": permanent is not None and "\\*" in permanent,
+            "unknown": permanent is None,
+            "permanent_flags": sorted(permanent or []),
+        }
+
+    def keyword_support(self, account: dict[str, Any], folder: str) -> dict[str, Any]:
+        """Probe whether the server stores user keywords in ``folder``.
+
+        Read-only: uses EXAMINE semantics and never mutates server state.
+        Keywords are allowed only when PERMANENTFLAGS contains ``\\*``.
+        """
+        connection = self._connect(account)
+        try:
+            _, permanent = self._select_detailed(connection, folder, readonly=True)
+            return self._keyword_capability(permanent)
+        finally:
+            try:
+                connection.logout()
+            except Exception:
+                pass
 
     @staticmethod
     def _summary(connection: Any, uid: str) -> dict[str, Any] | None:
@@ -368,6 +450,7 @@ class ImapWebClient:
             "seen": "\\Seen" in flags,
             "flagged": "\\Flagged" in flags,
             "answered": "\\Answered" in flags,
+            "keywords": keywords_of(flags),
         }
 
     def messages(
@@ -486,20 +569,19 @@ class ImapWebClient:
 
     def _raw_message(
         self, account: dict[str, Any], folder: str, uid: str, *, actor: str = ""
-    ) -> tuple[bytes, set[str]]:
+    ) -> tuple[bytes, set[str], set[str] | None]:
         account_id = str(account.get("id", ""))
         clean_actor = str(actor or "")
-        cached = self._cache.get(clean_actor, account_id, folder, _uid(uid)) if clean_actor else None
+        uid_value = _uid(uid)
+        cached = self._cache.get(clean_actor, account_id, folder, uid_value) if clean_actor else None
         connection = self._connect(account)
         try:
-            self._select(connection, folder, readonly=True)
+            _, permanent = self._select_detailed(connection, folder, readonly=True)
             if cached is not None:
-                # Flags stay fresh: a lightweight FLAGS fetch never downloads
-                # the body again and never mutates server state.
-                status, response = connection.uid("fetch", _uid(uid), "(FLAGS)")
+                status, response = connection.uid("fetch", uid_value, "(FLAGS)")
                 flags = self._response_flags(response) if status == "OK" else set()
-                return cached, flags
-            status, response = connection.uid("fetch", _uid(uid), "(FLAGS RFC822.SIZE BODY.PEEK[])")
+                return cached, flags, permanent
+            status, response = connection.uid("fetch", uid_value, "(FLAGS RFC822.SIZE BODY.PEEK[])")
             if status != "OK":
                 raise KeyError("message not found")
             raw = _message_literal(response)
@@ -508,8 +590,8 @@ class ImapWebClient:
             if len(raw) > MAX_MESSAGE_BYTES:
                 raise ValueError("message exceeds maximum supported size")
             if clean_actor:
-                self._cache.put(clean_actor, account_id, folder, _uid(uid), raw)
-            return raw, self._response_flags(response)
+                self._cache.put(clean_actor, account_id, folder, uid_value, raw)
+            return raw, self._response_flags(response), permanent
         finally:
             try:
                 connection.logout()
@@ -517,7 +599,7 @@ class ImapWebClient:
                 pass
 
     def message(self, account: dict[str, Any], folder: str, uid: str, *, actor: str = "") -> dict[str, Any]:
-        raw, flags = self._raw_message(account, folder, uid, actor=actor)
+        raw, flags, permanent = self._raw_message(account, folder, uid, actor=actor)
         parsed = BytesParser(policy=policy.default).parsebytes(raw)
         return {
             "uid": _uid(uid),
@@ -532,15 +614,59 @@ class ImapWebClient:
             "sha512": hashlib.sha512(raw).hexdigest(),
             "flags": sorted(flags),
             "seen": "\\Seen" in flags,
+            "keywords": keywords_of(flags),
+            "keyword_support": self._keyword_capability(permanent),
             "body_text": self._body_text(parsed),
             "attachments": self._attachments(parsed),
             "size": len(raw),
         }
 
+    def set_keywords(
+        self,
+        actor: str,
+        account: dict[str, Any],
+        folder: str,
+        uid: str,
+        *,
+        add: tuple[str, ...] = (),
+        remove: tuple[str, ...] = (),
+    ) -> dict[str, Any]:
+        self.account_policy.require_writable(actor, account["id"])
+        additions = list(dict.fromkeys(normalize_keyword(item) for item in add if str(item or "").strip()))
+        removals = list(dict.fromkeys(normalize_keyword(item) for item in remove if str(item or "").strip()))
+        if not additions and not removals:
+            raise ValueError("no IMAP keywords supplied")
+        if set(additions) & set(removals):
+            raise ValueError("keyword cannot be added and removed at once")
+        connection = self._connect(account)
+        try:
+            _, permanent = self._select_detailed(connection, folder, readonly=False)
+            if permanent is None or "\\*" not in permanent:
+                raise RuntimeError("Server unterstützt keine IMAP-Keywords (PERMANENTFLAGS ohne \\*)")
+            uid_value = _uid(uid)
+            if additions:
+                status, _ = connection.uid("store", uid_value, "+FLAGS.SILENT", f"({' '.join(additions)})")
+                if status != "OK":
+                    raise RuntimeError("IMAP keyword STORE failed")
+            if removals:
+                status, _ = connection.uid("store", uid_value, "-FLAGS.SILENT", f"({' '.join(removals)})")
+                if status != "OK":
+                    raise RuntimeError("IMAP keyword STORE failed")
+        finally:
+            try:
+                connection.logout()
+            except Exception:
+                pass
+        self.store.history.record(
+            "imap_message_keywords_changed", actor, "mail-accounts", account["id"],
+            {"folder": folder, "uid": _uid(uid), "added": additions, "removed": removals, "at": utc_now()},
+        )
+        return {"added": additions, "removed": removals}
+
     def attachment(
         self, account: dict[str, Any], folder: str, uid: str, index: int, *, actor: str = ""
     ) -> dict[str, Any]:
-        raw, _ = self._raw_message(account, folder, uid, actor=actor)
+        raw, _, _ = self._raw_message(account, folder, uid, actor=actor)
         parsed = BytesParser(policy=policy.default).parsebytes(raw)
         attachments = []
         for part in parsed.walk():
