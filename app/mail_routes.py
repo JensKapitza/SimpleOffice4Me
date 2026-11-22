@@ -15,6 +15,7 @@ from .mail_case_store import MailCaseStore
 from .mail_case_federation import send_mail_case_event
 from .mail_case_federation import MailCaseFederationIdentityStore
 from .mail_client import ImapArchive, ImapAuthenticationError, MailStore, ManageSieveClient, SmtpDeliveryStateUnknown, SmtpSubmission
+from .mail_signatures import get_signature_or_default, set_signature
 from .mail_webclient import MailAccountPolicy, MailReadOnlyError
 from .sieve_sync import ManageSieveSyncClient, activate_server_script, server_state, sync_from_server
 
@@ -282,6 +283,21 @@ def save_account():
         return redirect(url_for("mail_client.index"))
 
 
+@bp.post("/accounts/<account_id>/signature")
+@login_required
+def set_account_signature(account_id: str):
+    try:
+        set_signature(_store(), _actor(), account_id, request.form.get("signature", ""))
+    except KeyError:
+        abort(404)
+    except (OSError, ValueError) as exc:
+        current_app.logger.warning("Mail signature update failed for %s: %s", _actor(), type(exc).__name__)
+        flash("Signatur konnte nicht gespeichert werden.")
+    else:
+        flash("Kontosignatur gespeichert. Sie wird in der Verfassen-Ansicht angezeigt und beim Versand angehängt.")
+    return redirect(url_for("mail_client.index", account=account_id))
+
+
 @bp.post("/accounts/<account_id>/auto-fetch")
 @login_required
 def set_auto_fetch(account_id: str):
@@ -457,10 +473,11 @@ def send(account_id: str):
         store = _store()
         MailAccountPolicy(store).require_writable(_actor(), account_id)
         account = _smtp_account_with_effective_password(store, account_id)
+        signature = get_signature_or_default(store, _actor(), account_id)
         result = SmtpSubmission(store).send(
             _actor(), account, request.form.get("recipients", ""), request.form.get("subject", ""),
             request.form.get("body", ""), request.form.get("calendar_data", ""),
-            account_id=account_id,
+            account_id=account_id, signature=signature,
         )
         flash(f"Nachricht an {result['recipients']} Empfänger versandt und als unveränderte EML archiviert.")
     except MailReadOnlyError as exc:
