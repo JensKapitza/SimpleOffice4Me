@@ -155,14 +155,27 @@ def register():
         if profile["peer_id"] in FederationStore(_root()).banned_peer_ids():
             return jsonify({"error": "peer_banned"}), 403
         sender = authenticated_peer(_root(), request)
+        if not sender and request.headers.get("X-SimpleOffice-Peer-ID"):
+            try:
+                sender = authenticate_peer(_root(), request)
+            except (TypeError, ValueError):
+                return jsonify({"error": "peer_identity_invalid"}), 401
         if sender and sender != profile["peer_id"]:
             return jsonify({"error": "peer_identity_mismatch"}), 403
-        trust = FederationTrustStore(_root())
-        trust.remember_discovered_identity(
-            profile["peer_id"], profile["country"], profile["fingerprint"],
-            "directory-register", profile.get("public_key", ""),
-        )
         store = FederationStore(_root())
+        existing = store.get_peer(profile["peer_id"])
+        if existing is not None and not sender:
+            return jsonify({"error": "peer_identity_required"}), 403
+        if existing is not None and profile["base_url"] != existing["base_url"]:
+            return jsonify({"error": "peer_endpoint_confirmation_required"}), 403
+        if existing is not None:
+            trust = FederationTrustStore(_root())
+            trust.remember_discovered_identity(
+                profile["peer_id"], profile["country"], profile["fingerprint"],
+                "peer-authenticated-register", profile.get("public_key", ""),
+            )
+        # This atomic insert-only operation preserves existing endpoint,
+        # token, policy, activation and label values in every case.
         store.save_discovered_peer(
             profile["peer_id"], profile["label"], profile["base_url"],
         )

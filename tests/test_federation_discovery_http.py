@@ -60,28 +60,61 @@ class FederationDiscoveryHttpTest(unittest.TestCase):
         self.assertEqual(response.json["master"]["is_master"], False)
         self.assertEqual(response.json["master"]["address"], "")
 
-    def test_register_publishes_without_retargeting_existing_peer(self):
+    def test_directory_bearer_cannot_claim_existing_peer_identity(self):
         store = FederationStore(self.root)
         policy = {"documents": {"send": True}}
         store.save_peer(
             "peer-a", "Operator label", "https://old.example", "operator-token",
             policy, True,
         )
+        trust = FederationTrustStore(self.root)
+        trust.remember("peer-a", "DE", "operator-fingerprint", "administrator", "operator-key")
         response = self.client.post(
             "/federation/v1/discovery/register",
             headers=self.auth,
             json={"profile": PROFILE, "ttl_seconds": 300},
         )
-        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json["error"], "peer_identity_required")
         stored = store.get_peer("peer-a")
         self.assertEqual(stored["label"], "Operator label")
         self.assertEqual(stored["base_url"], "https://old.example")
         self.assertEqual(store.peer_token("peer-a"), "operator-token")
         self.assertEqual(stored["policy"], policy)
         self.assertTrue(stored["enabled"])
+        self.assertEqual(trust.identity("peer-a")["fingerprint"], "operator-fingerprint")
+        self.assertEqual(self.client.get(
+            "/federation/v1/discovery/peers?country=DE", headers=self.auth,
+        ).json["peers"], [])
+
+    def test_authenticated_peer_can_publish_but_cannot_change_endpoint(self):
+        store = FederationStore(self.root)
+        policy = {"documents": {"send": True}}
+        store.save_peer("peer-a", "Operator label", "https://peer.example", "operator-token", policy, True)
+        body = json.dumps({"profile": PROFILE, "ttl_seconds": 300}, separators=(",", ":")).encode()
+        headers = peer_headers("peer-a", "operator-token", "POST", "/federation/v1/discovery/register", body)
+        headers.update(self.auth)
+        headers["Content-Type"] = "application/json"
+        response = self.client.post("/federation/v1/discovery/register", headers=headers, data=body)
+        self.assertEqual(response.status_code, 201)
+        stored = store.get_peer("peer-a")
+        self.assertEqual(stored["label"], "Operator label")
+        self.assertEqual(stored["base_url"], "https://peer.example")
+        self.assertEqual(store.peer_token("peer-a"), "operator-token")
+        self.assertEqual(stored["policy"], policy)
+        self.assertTrue(stored["enabled"])
+
+        changed = {**PROFILE, "base_url": "https://attacker.example"}
+        changed_body = json.dumps({"profile": changed}, separators=(",", ":")).encode()
+        changed_headers = peer_headers("peer-a", "operator-token", "POST", "/federation/v1/discovery/register", changed_body)
+        changed_headers.update(self.auth)
+        changed_headers["Content-Type"] = "application/json"
+        rejected = self.client.post("/federation/v1/discovery/register", headers=changed_headers, data=changed_body)
+        self.assertEqual(rejected.status_code, 403)
+        self.assertEqual(store.get_peer("peer-a")["base_url"], "https://peer.example")
         listed = self.client.get("/federation/v1/discovery/peers?country=DE", headers=self.auth)
         self.assertEqual([row["peer_id"] for row in listed.json["peers"]], ["peer-a"])
-        self.assertEqual(listed.json["peers"][0]["base_url"], "https://old.example")
+        self.assertEqual(listed.json["peers"][0]["base_url"], "https://peer.example")
 
     def test_register_creates_unknown_peer_without_authority(self):
         profile = {**PROFILE, "peer_id": "peer-new", "label": "New peer"}
@@ -97,6 +130,7 @@ class FederationDiscoveryHttpTest(unittest.TestCase):
         self.assertFalse(stored["enabled"])
         self.assertEqual(store.peer_token("peer-new"), "")
         self.assertEqual(stored["policy"], {})
+        self.assertIsNone(FederationTrustStore(self.root).identity("peer-new"))
 
     def test_register_keeps_first_seen_identity_on_conflict(self):
         from app.federation_identity import FederationIdentity
@@ -115,13 +149,12 @@ class FederationDiscoveryHttpTest(unittest.TestCase):
             headers=self.auth,
             json={"profile": forged, "ttl_seconds": 300},
         )
-        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.status_code, 403)
         identity = FederationTrustStore(self.root).identity("peer-a")
         self.assertEqual(identity["fingerprint"], "0" * 64)
         self.assertEqual(identity["public_key"], "cHViLWtleS1vcmlnaW5hbA==")
         conflicts = [row for row in store.events() if row.get("action") == "peer_identity_conflict"]
-        self.assertEqual(1, len(conflicts))
-        self.assertEqual(forged_keys["fingerprint"], conflicts[0]["detail"]["announced"])
+        self.assertEqual([], conflicts)
 
     def test_discovered_identity_is_idempotent_for_same_fingerprint(self):
         trust = FederationTrustStore(self.root)

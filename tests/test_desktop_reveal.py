@@ -16,9 +16,11 @@ class DesktopRevealTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         base = Path(self.temp.name)
-        self.saved = {key: app.config.get(key) for key in ("DATABASE", "DOCUMENT_ROOT", "TESTING")}
+        self.reveal_token = "test-desktop-reveal-capability"
+        self.saved = {key: app.config.get(key) for key in ("DATABASE", "DOCUMENT_ROOT", "TESTING", "DESKTOP_REVEAL_TOKEN")}
         app.config.update(
             TESTING=True, DATABASE=str(base / "users.sqlite"), DOCUMENT_ROOT=str(base / "documents"),
+            DESKTOP_REVEAL_TOKEN=self.reveal_token,
         )
         with app.app_context():
             database.ensure_auth_database()
@@ -33,7 +35,10 @@ class DesktopRevealTests(unittest.TestCase):
         app.config.update(self.saved)
 
     def test_local_file_resolves_to_absolute_path(self):
-        response = self.client.get(f"/documents/{self.document['document_id']}/local-path")
+        response = self.client.get(
+            f"/documents/{self.document['document_id']}/local-path",
+            headers={"X-SimpleOffice-Desktop-Reveal": self.reveal_token},
+        )
         self.assertEqual(200, response.status_code)
         body = response.get_json()
         self.assertTrue(body["available"])
@@ -41,8 +46,28 @@ class DesktopRevealTests(unittest.TestCase):
         self.assertTrue(Path(body["path"]).is_file())
         self.assertEqual("reveal.txt", Path(body["path"]).name)
 
+    def test_remote_browser_without_desktop_capability_does_not_receive_path(self):
+        response = self.client.get(
+            f"/documents/{self.document['document_id']}/local-path",
+            environ_base={"REMOTE_ADDR": "192.0.2.20"},
+        )
+        self.assertEqual(404, response.status_code)
+        self.assertNotIn("path", response.get_json() or {})
+
+    def test_remote_client_with_capability_can_resolve_path_for_desktop_main_process(self):
+        response = self.client.get(
+            f"/documents/{self.document['document_id']}/local-path",
+            headers={"X-SimpleOffice-Desktop-Reveal": self.reveal_token},
+            environ_base={"REMOTE_ADDR": "192.0.2.20"},
+        )
+        self.assertEqual(200, response.status_code)
+        self.assertTrue(response.get_json()["available"])
+
     def test_unknown_document_is_not_found(self):
-        response = self.client.get("/documents/does-not-exist/local-path")
+        response = self.client.get(
+            "/documents/does-not-exist/local-path",
+            headers={"X-SimpleOffice-Desktop-Reveal": self.reveal_token},
+        )
         self.assertEqual(404, response.status_code)
 
     def test_anonymous_cannot_resolve(self):
@@ -56,7 +81,10 @@ class DesktopRevealTests(unittest.TestCase):
         candidates = list(Path(app.config["DOCUMENT_ROOT"]).rglob("reveal.txt"))
         self.assertTrue(candidates)
         candidates[0].unlink()
-        response = self.client.get(f"/documents/{self.document['document_id']}/local-path")
+        response = self.client.get(
+            f"/documents/{self.document['document_id']}/local-path",
+            headers={"X-SimpleOffice-Desktop-Reveal": self.reveal_token},
+        )
         self.assertEqual(200, response.status_code)
         body = response.get_json()
         self.assertFalse(body["available"])

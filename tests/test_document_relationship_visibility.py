@@ -131,6 +131,16 @@ class DocumentRelationshipVisibilityTests(unittest.TestCase):
         ):
             self.assertIn(visible, owner_view)
 
+    def test_out_of_root_linked_path_is_hidden_as_unavailable(self):
+        target = self.store.get_document(self.chat["document_id"])
+        target["last_path"] = "/srv/private/secret-contract.pdf"
+        self.store._save_document(target)
+
+        body = self._detail_text("bob")
+        self.assertNotIn("secret-contract.pdf", body)
+        self.assertNotIn(self.chat["document_id"], body)
+        self.assertIn("Related document unavailable or not accessible.", body)
+
 
 if __name__ == "__main__":
     unittest.main()

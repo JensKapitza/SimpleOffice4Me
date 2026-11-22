@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import os
+import threading
+import time
 
 from .sqlite_utils import connect as sqlite_connect
 
@@ -15,29 +17,110 @@ MAX_MANUAL_ANALYSIS_BYTES = 128 * 1024 * 1024
 
 class _DocumentStorePart5:
     @staticmethod
-    def _pdf_text(path: Path) -> str:
-        executable = shutil.which("pdftotext")
-        if executable:
-            try:
-                result = subprocess.run([executable, "-layout", str(path), "-"], capture_output=True, text=True, timeout=90, check=False)
-            except subprocess.TimeoutExpired as exc:
-                raise RuntimeError("PDF text extraction timed out after 90 seconds") from exc
-            if result.returncode == 0 and result.stdout.strip():
-                return "\n".join(line.rstrip() for line in result.stdout.splitlines()).strip()
+    def _run_bounded_pdftotext(executable: str, path: Path) -> str:
+        process = subprocess.Popen(
+            [executable, "-layout", str(path), "-"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, close_fds=True,
+        )
+        chunks: list[bytes] = []
+        total = 0
+        exceeded = threading.Event()
 
-        # GitHub Actions and portable installations do not necessarily provide
-        # Poppler's pdftotext binary. Keep a pure-Python fallback available.
+        def collect() -> None:
+            nonlocal total
+            assert process.stdout is not None
+            while chunk := process.stdout.read(64 * 1024):
+                if total + len(chunk) > MAX_INDEXED_TEXT_CHARACTERS * 4:
+                    exceeded.set()
+                    process.kill()
+                    return
+                chunks.append(chunk)
+                total += len(chunk)
+
+        reader = threading.Thread(target=collect, name="simpleoffice-pdftotext", daemon=True)
+        reader.start()
+        try:
+            process.wait(timeout=90)
+        except subprocess.TimeoutExpired as exc:
+            process.kill()
+            process.wait()
+            reader.join(timeout=2)
+            if process.stdout is not None:
+                process.stdout.close()
+            raise RuntimeError("PDF text extraction timed out after 90 seconds") from exc
+        reader.join(timeout=2)
+        if reader.is_alive():
+            process.kill()
+            if process.stdout is not None:
+                process.stdout.close()
+            reader.join(timeout=2)
+            raise RuntimeError("PDF text extraction did not close its output stream")
+        if process.stdout is not None:
+            process.stdout.close()
+        if exceeded.is_set():
+            raise RuntimeError("PDF text extraction exceeds the index output limit")
+        if process.returncode != 0:
+            return ""
+        return b"".join(chunks).decode("utf-8", errors="replace")[:MAX_INDEXED_TEXT_CHARACTERS]
+
+    @staticmethod
+    def _pdf_text(path: Path) -> str:
+        if path.stat().st_size > MAX_INDEXED_DOCUMENT_BYTES:
+            raise RuntimeError("PDF exceeds the document-index size limit")
         try:
             from pypdf import PdfReader
 
             reader = PdfReader(str(path))
-            python_text = "\n".join(page.extract_text() or "" for page in reader.pages).strip()
+            if len(reader.pages) > MAX_INDEXED_PDF_PAGES:
+                raise RuntimeError("PDF exceeds the document-index page limit")
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            raise RuntimeError("PDF page count could not be read") from exc
+        executable = shutil.which("pdftotext")
+        if executable:
+            text = _DocumentStorePart5._run_bounded_pdftotext(executable, path)
+            if text.strip():
+                return "\n".join(line.rstrip() for line in text.splitlines()).strip()
+
+        # GitHub Actions and portable installations do not necessarily provide
+        # Poppler's pdftotext binary. Keep a pure-Python fallback available.
+        try:
+            python_text_parts = []
+            characters = 0
+            for page in reader.pages:
+                remaining = MAX_INDEXED_TEXT_CHARACTERS - characters
+                if remaining <= 0:
+                    break
+                page_parts: list[str] = []
+                page_characters = 0
+
+                def collect_text(text, *_args):
+                    nonlocal page_characters
+                    if page_characters >= remaining:
+                        return
+                    fragment = str(text or "")[:remaining - page_characters]
+                    page_parts.append(fragment)
+                    page_characters += len(fragment)
+
+                try:
+                    page.extract_text(visitor_text=collect_text)
+                    chunk = "".join(page_parts)
+                except TypeError:
+                    # Older supported pypdf versions lack visitor_text.
+                    chunk = (page.extract_text() or "")[:remaining]
+                python_text_parts.append(chunk)
+                characters += min(len(chunk), remaining)
+                if characters >= MAX_INDEXED_TEXT_CHARACTERS:
+                    break
+            python_text = "\n".join(python_text_parts).strip()
             if python_text or not executable:
                 return python_text
             return ""
         except Exception as exc:
             if executable:
-                raise RuntimeError(result.stderr.strip() or "PDF text extraction failed") from exc
+                raise RuntimeError("PDF text extraction failed") from exc
             raise RuntimeError("PDF text extraction requires pypdf when pdftotext is unavailable") from exc
 
     def _pdf_image_ocr(self, path: Path) -> dict[str, Any]:
@@ -92,12 +175,21 @@ class _DocumentStorePart5:
             return {"status": "failed", "text": "", "engines": [], "pages_total": 0,
                     "pages_processed": 0, "pages_with_text": 0, "failed_pages": 0,
                     "error": "PDF contains no pages"}
+        if page_count > MAX_INDEXED_PDF_PAGES:
+            return {"status": "limited", "text": "", "engines": [], "pages_total": page_count,
+                    "pages_processed": 0, "pages_with_text": 0, "failed_pages": 0,
+                    "error": "PDF exceeds the document-index page limit"}
+        deadline = time.monotonic() + 180
         with tempfile.TemporaryDirectory(prefix="simpleoffice-pdf-ocr-") as temp:
             page_text: dict[int, str] = {}
+            indexed_characters = 0
             failed_pages: set[int] = set()
             engines: set[str] = set()
             batch_size = 10
             for first_page in range(1, page_count + 1, batch_size):
+                if time.monotonic() >= deadline:
+                    failed_pages.update(range(first_page, page_count + 1))
+                    break
                 last_page = min(page_count, first_page + batch_size - 1)
 
                 def render(start: int, end: int) -> list[Path]:
@@ -106,7 +198,8 @@ class _DocumentStorePart5:
                     try:
                         result = subprocess.run(
                             [renderer, "-f", str(start), "-l", str(end), "-scale-to", str(OCR_RENDER_EDGE), "-gray", "-png", "--", str(path), str(prefix)],
-                            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=90, check=False,
+                            stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                            timeout=max(1, min(30, int(deadline - time.monotonic()))), check=False,
                         )
                     except (OSError, subprocess.TimeoutExpired):
                         for image_path in Path(temp).glob(pattern):
@@ -141,18 +234,37 @@ class _DocumentStorePart5:
                     ]
 
                 for page_number, image_path in page_images:
+                    if time.monotonic() >= deadline:
+                        failed_pages.update(range(page_number, page_count + 1))
+                        break
                     enhanced_path = Path(temp) / f"ocr-{page_number:06d}.png"
                     try:
                         text, page_engines = self._pdf_page_ocr(image_path, enhanced_path, tesseract)
                         engines.update(page_engines)
-                        page_text[page_number] = text
+                        remaining_text = MAX_INDEXED_TEXT_CHARACTERS - indexed_characters
+                        if remaining_text > 0:
+                            page_text[page_number] = text[:remaining_text]
+                            indexed_characters += len(page_text[page_number])
+                        else:
+                            failed_pages.update(range(page_number, page_count + 1))
+                            break
                     except (OSError, RuntimeError, ValueError):
                         failed_pages.add(page_number)
                     finally:
                         image_path.unlink(missing_ok=True)
                         enhanced_path.unlink(missing_ok=True)
 
-        texts = [page_text[number] for number in range(1, page_count + 1) if page_text.get(number)]
+        texts: list[str] = []
+        character_count = 0
+        for number in range(1, page_count + 1):
+            page = page_text.get(number, "")
+            if not page:
+                continue
+            remaining = MAX_INDEXED_TEXT_CHARACTERS - character_count
+            if remaining <= 0:
+                break
+            texts.append(page[:remaining])
+            character_count += min(len(page), remaining)
         processed = len(page_text)
         return {
             "status": "partial" if failed_pages else "completed",
@@ -194,23 +306,51 @@ class _DocumentStorePart5:
                 for name, raw in fields
                 if (value := _header(raw))
             )
-            body_text = _message_text(message)
+            body_text = _message_text(message)[:MAX_INDEXED_TEXT_CHARACTERS]
             return "\n\n".join(part for part in (header_text, body_text) if part), "eml"
         if suffix in {".txt", ".md", ".csv", ".tsv", ".json", ".xml", ".html", ".htm", ".log", ".ics", ".vcf", ".py", ".java", ".js", ".css", ".sql", ".yml", ".yaml"}:
-            return path.read_text(encoding="utf-8", errors="replace"), "plain_text"
+            with path.open("rb") as source:
+                raw = source.read(MAX_INDEXED_DOCUMENT_BYTES + 1)
+            if len(raw) > MAX_INDEXED_DOCUMENT_BYTES:
+                raise RuntimeError("text file exceeds the document-index size limit")
+            text = raw[:MAX_INDEXED_DOCUMENT_BYTES].decode("utf-8", errors="replace")
+            return text[:MAX_INDEXED_TEXT_CHARACTERS], "plain_text"
         if suffix in {".docx", ".odt", ".xlsx", ".ods"}:
             try:
+                if path.stat().st_size > MAX_INDEXED_DOCUMENT_BYTES:
+                    raise RuntimeError("office document exceeds the source size limit")
                 with zipfile.ZipFile(path) as archive:
+                    entries = archive.infolist()
+                    if len(entries) > MAX_OFFICE_ARCHIVE_ENTRIES:
+                        raise RuntimeError("office document exceeds the XML entry limit")
                     text_parts = []
-                    for name in archive.namelist():
+                    expanded_bytes = 0
+                    extracted_characters = 0
+                    for entry in entries:
+                        name = entry.filename
                         if not name.endswith(".xml") or name.startswith("docProps/"):
                             continue
+                        expanded_bytes += entry.file_size
+                        if entry.file_size > MAX_OFFICE_MEMBER_BYTES or expanded_bytes > MAX_OFFICE_EXPANDED_BYTES:
+                            raise RuntimeError("office document exceeds the expanded XML size limit")
                         try:
-                            root = DefusedElementTree.fromstring(archive.read(name))
-                            text_parts.extend(value.strip() for value in root.itertext() if value.strip())
+                            root = DefusedElementTree.fromstring(archive.read(entry))
+                            for value in root.itertext():
+                                value = value.strip()
+                                if not value:
+                                    continue
+                                remaining = MAX_INDEXED_TEXT_CHARACTERS - extracted_characters
+                                if remaining <= 0:
+                                    break
+                                text_parts.append(value[:remaining])
+                                extracted_characters += min(len(value), remaining)
+                            if extracted_characters >= MAX_INDEXED_TEXT_CHARACTERS:
+                                break
                         except (ElementTree.ParseError, DefusedXmlException):
                             continue
                 return "\n".join(text_parts), "office_zip"
+            except RuntimeError:
+                raise
             except (OSError, zipfile.BadZipFile) as exc:
                 raise RuntimeError(f"office document extraction failed: {exc}") from exc
         return "", "unsupported"
