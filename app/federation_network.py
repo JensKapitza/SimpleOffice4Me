@@ -61,11 +61,13 @@ def bootstrap_raw() -> list[str]:
 
 
 def allow_private_targets() -> bool:
-    return _raw("allow_private_targets").casefold() in TRUE_VALUES
+    raw = _store.get(SECTION, "allow_private_targets", None)
+    return True if raw is None else str(raw).strip().casefold() in TRUE_VALUES
 
 
 def allow_loopback() -> bool:
-    return _raw("allow_loopback").casefold() in TRUE_VALUES
+    raw = _store.get(SECTION, "allow_loopback", None)
+    return True if raw is None else str(raw).strip().casefold() in TRUE_VALUES
 
 
 def refuse_bad_client() -> bool:
