@@ -335,17 +335,17 @@ def precheck_draft(row: dict[str, Any]) -> dict[str, Any]:
         xml_bytes = build_ubl_invoice(snapshot)
     except ValueError as exc:
         check("ubl_builds", False, str(exc)[:300])
-        return {"ok": False, "checks": checks}
+        return {"ok": False, "checks": checks, "note": "dry_run_only"}
     check("ubl_builds", True, "XRechnung-XML probeweise erzeugt (nicht gespeichert).")
     if field_failed:
         check("kosit", False, "KoSIT-Vorabprüfung übersprungen – erst Pflichtfelder ergänzen.")
         check("reconciliation", False, "Abgleich erst nach Finalisierung möglich (noch kein Archiv-PDF).")
-        return {"ok": False, "checks": checks}
+        return {"ok": False, "checks": checks, "note": "dry_run_only"}
     status = validator_status()
     if not status.get("available"):
         check("kosit", False, "KoSIT-Validator nicht verfügbar – keine Erfolgsaussage möglich.")
         check("reconciliation", False, "Abgleich erst nach Finalisierung möglich (noch kein Archiv-PDF).")
-        return {"ok": False, "checks": checks}
+        return {"ok": False, "checks": checks, "note": "dry_run_only"}
     kosit = validate_xrechnung(xml_bytes)
     check("kosit", bool(kosit.get("acceptable")),
           "KoSIT-Vorabprüfung bestanden." if kosit.get("acceptable")

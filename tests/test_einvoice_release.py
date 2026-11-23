@@ -257,6 +257,22 @@ class PrecheckTests(unittest.TestCase):
         self.assertEqual(1, len(pending))
         self.assertFalse(pending[0]["ok"])
 
+    def test_draft_without_validator_stays_dry_run(self):
+        from unittest.mock import patch
+
+        unavailable = {"available": False, "reason": "java_unavailable",
+                       "xrechnung_version": "3.0.2",
+                       "validator_version": "1.6.3",
+                       "configuration_release": "2026-08-31"}
+        with patch("app.xrechnung_validation.validator_status",
+                   return_value=unavailable):
+            report = precheck_draft(_row(status="draft"))
+        self.assertFalse(report["ok"])
+        self.assertEqual("dry_run_only", report.get("note"))
+        kosit = [item for item in report["checks"] if item["id"] == "kosit"]
+        self.assertEqual(1, len(kosit))
+        self.assertFalse(kosit[0]["ok"])
+
 
 @unittest.skipUnless(KOSIT_AVAILABLE, "KoSIT validator with Java is required")
 class FullReleaseTests(unittest.TestCase):
