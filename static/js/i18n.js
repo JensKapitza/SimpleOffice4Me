@@ -1,5 +1,11 @@
 /* Translate static UI labels that are still present in legacy templates. */
 (() => {
+  const language = document.documentElement.lang === "de" ? "de" : "en";
+  window.SimpleOfficeI18n = Object.freeze({
+    language,
+    text(german, english) { return language === "de" ? german : english; },
+  });
+
   const translations = window.SimpleOfficeTranslations || {};
   const entries = Object.entries(translations).sort(([a], [b]) => b.length - a.length);
   if (!entries.length) return;

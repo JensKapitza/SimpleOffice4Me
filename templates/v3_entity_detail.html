@@ -11,14 +11,14 @@
     </div>
     <div class="d-flex gap-2">
       {% if entity.status %}<span class="badge text-bg-secondary align-self-center">{{ entity.status }}</span>{% endif %}
-      <a class="btn btn-outline-primary" href="{{ entity.canonical_url }}">Bestehende Detailansicht</a>
+      <a class="btn btn-outline-primary" href="{{ entity.canonical_url }}">{{ tr('entity_detail.existing') }}</a>
     </div>
   </div>
 
   <div class="row g-4">
     <section class="col-lg-5">
       <div class="card h-100">
-        <div class="card-header"><strong>Übersicht</strong></div>
+        <div class="card-header"><strong>{{ tr('entity_detail.overview') }}</strong></div>
         <div class="card-body">
           {% if entity.overview %}
           <dl class="row mb-0">
@@ -27,7 +27,7 @@
             {% endfor %}
           </dl>
           {% else %}
-          <p class="text-secondary mb-0">Keine zusätzlichen Übersichtsdaten.</p>
+          <p class="text-secondary mb-0">{{ tr('entity_detail.no_overview') }}</p>
           {% endif %}
         </div>
       </div>
@@ -50,7 +50,7 @@
         </div>
       </div>
       {% else %}
-      <div class="card"><div class="card-body text-secondary">Optionale Kontextbereiche sind für dieses Objekt derzeit nicht verfügbar.</div></div>
+      <div class="card"><div class="card-body text-secondary">{{ tr('entity_detail.no_context') }}</div></div>
       {% endfor %}
     </section>
   </div>

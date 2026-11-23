@@ -1,6 +1,8 @@
 (() => {
   "use strict";
 
+  const text = (german, english) => window.SimpleOfficeI18n?.text(german, english) ?? english;
+
   function initProjectQuickWins() {
     const taskSection = document.getElementById("aufgaben");
     if (!taskSection) return;
@@ -10,15 +12,15 @@
     const taskCards = Array.from(taskSection.querySelectorAll('article[id^="task-"]'));
 
     const statusLabels = {
-      open: "Offen",
-      in_progress: "In Arbeit",
-      waiting: "Wartet",
-      completed: "Erledigt",
-      cancelled: "Abgebrochen"
+      open: text("Offen", "Open"),
+      in_progress: text("In Arbeit", "In progress"),
+      waiting: text("Wartet", "Waiting"),
+      completed: text("Erledigt", "Completed"),
+      cancelled: text("Abgebrochen", "Cancelled")
     };
 
     const taskData = taskCards.map((card) => {
-      const status = card.querySelector('.card-header .badge')?.textContent.trim() || "open";
+      const status = card.dataset.taskStatus || card.querySelector('.card-header .badge')?.textContent.trim() || "open";
       const title = card.querySelector('.card-header strong')?.textContent.trim() || "";
       const form = card.querySelector('form[action*="/tasks/"]');
       const resources = form?.querySelector('[name="resources"]')?.value || "";
@@ -43,10 +45,10 @@
     const header = document.createElement("div");
     header.className = "card-header d-flex justify-content-between align-items-center gap-2";
     const heading = document.createElement("strong");
-    heading.textContent = "Projektcockpit";
+    heading.textContent = text("Projektcockpit", "Project overview");
     const progressBadge = document.createElement("span");
     progressBadge.className = "badge text-bg-light border";
-    progressBadge.textContent = `${progress} % erledigt`;
+    progressBadge.textContent = text(`${progress} % erledigt`, `${progress}% complete`);
     header.append(heading, progressBadge);
 
     const body = document.createElement("div");
@@ -54,7 +56,7 @@
     const progressOuter = document.createElement("div");
     progressOuter.className = "progress mb-3";
     progressOuter.setAttribute("role", "progressbar");
-    progressOuter.setAttribute("aria-label", "Projektfortschritt");
+    progressOuter.setAttribute("aria-label", text("Projektfortschritt", "Project progress"));
     progressOuter.setAttribute("aria-valuenow", String(progress));
     progressOuter.setAttribute("aria-valuemin", "0");
     progressOuter.setAttribute("aria-valuemax", "100");
@@ -67,7 +69,7 @@
     const metrics = document.createElement("div");
     metrics.className = "row g-2 text-center";
     const totalTime = `${Math.floor(totalMinutes / 60)}:${String(totalMinutes % 60).padStart(2, "0")}`;
-    [[relevantTasks.length, "Aufgaben"], [activeTasks, "In Arbeit"], [waitingTasks, "Wartend"], [totalTime, "Gebuchte Stunden"]].forEach(([value, label]) => {
+    [[relevantTasks.length, text("Aufgaben", "Tasks")], [activeTasks, text("In Arbeit", "In progress")], [waitingTasks, text("Wartend", "Waiting")], [totalTime, text("Gebuchte Stunden", "Hours logged")]].forEach(([value, label]) => {
       const column = document.createElement("div");
       column.className = "col-6 col-md-3";
       const box = document.createElement("div");
@@ -98,13 +100,13 @@
       const alert = document.createElement("div");
       if (days < 0) {
         alert.className = "alert alert-danger mb-4";
-        alert.textContent = `Projekttermin seit ${Math.abs(days)} Tag(en) überschritten (${projectEndInput.value}).`;
+        alert.textContent = text(`Projekttermin seit ${Math.abs(days)} Tag(en) überschritten (${projectEndInput.value}).`, `Project deadline was ${Math.abs(days)} day(s) ago (${projectEndInput.value}).`);
       } else if (days <= 7) {
         alert.className = "alert alert-warning mb-4";
-        alert.textContent = `Projekttermin in ${days} Tag(en) (${projectEndInput.value}).`;
+        alert.textContent = text(`Projekttermin in ${days} Tag(en) (${projectEndInput.value}).`, `Project deadline in ${days} day(s) (${projectEndInput.value}).`);
       } else {
         alert.className = "alert alert-light border mb-4";
-        alert.textContent = `Geplantes Projektende: ${projectEndInput.value} · noch ${days} Tage.`;
+        alert.textContent = text(`Geplantes Projektende: ${projectEndInput.value} · noch ${days} Tage.`, `Planned project end: ${projectEndInput.value} · ${days} days left.`);
       }
       cockpit.after(alert);
     }
@@ -123,7 +125,7 @@
       filterInput.type = "search";
       filterInput.className = "form-control form-control-sm";
       filterInput.id = "project-task-filter";
-      filterInput.placeholder = "Aufgaben, Beschreibung oder Ressource filtern …";
+      filterInput.placeholder = text("Aufgaben, Beschreibung oder Ressource filtern …", "Filter tasks, descriptions, or resources …");
       searchColumn.append(filterInput);
 
       const statusColumn = document.createElement("div");
@@ -133,7 +135,7 @@
       statusSelect.id = "project-task-status";
       const allOption = document.createElement("option");
       allOption.value = "";
-      allOption.textContent = "Alle Status";
+      allOption.textContent = text("Alle Status", "All statuses");
       statusSelect.append(allOption);
       Object.entries(statusLabels).forEach(([value, label]) => {
         const option = document.createElement("option");
@@ -151,12 +153,12 @@
       expandButton.type = "button";
       expandButton.className = "btn btn-outline-secondary";
       expandButton.id = "project-expand-all";
-      expandButton.textContent = "Alle öffnen";
+      expandButton.textContent = text("Alle öffnen", "Expand all");
       const collapseButton = document.createElement("button");
       collapseButton.type = "button";
       collapseButton.className = "btn btn-outline-secondary";
       collapseButton.id = "project-collapse-all";
-      collapseButton.textContent = "Alle zuklappen";
+      collapseButton.textContent = text("Alle zuklappen", "Collapse all");
       buttonGroup.append(expandButton, collapseButton);
       buttonColumn.append(buttonGroup);
 
@@ -181,7 +183,7 @@
           task.card.classList.toggle("d-none", !show);
           if (show) visible += 1;
         });
-        count.textContent = `${visible} von ${taskData.length} Aufgabe(n) sichtbar`;
+        count.textContent = text(`${visible} von ${taskData.length} Aufgabe(n) sichtbar`, `${visible} of ${taskData.length} task(s) visible`);
       };
       filterInput.addEventListener("input", applyFilter);
       statusSelect.addEventListener("change", applyFilter);
@@ -195,23 +197,24 @@
       });
     }
 
-    const title = main.querySelector("h1")?.textContent.trim() || "Projekt";
+    const title = main.querySelector("h1")?.textContent.trim() || text("Projekt", "Project");
     const summaryButton = document.createElement("button");
     summaryButton.type = "button";
     summaryButton.className = "btn btn-sm btn-outline-secondary ms-2";
     const copyIcon = document.createElement("i");
     copyIcon.className = "fas fa-copy me-1";
     copyIcon.setAttribute("aria-hidden", "true");
-    summaryButton.append(copyIcon, document.createTextNode("Zusammenfassung kopieren"));
+    const copyLabel = text("Zusammenfassung kopieren", "Copy summary");
+    summaryButton.append(copyIcon, document.createTextNode(copyLabel));
     cockpit.querySelector(".card-header")?.append(summaryButton);
 
     summaryButton.addEventListener("click", async () => {
       const lines = [
         title,
-        `Fortschritt: ${progress} % (${completedTasks}/${relevantTasks.length} Aufgaben erledigt)`,
-        `In Arbeit: ${activeTasks} · Wartend: ${waitingTasks}`,
-        `Gebuchte Zeit: ${totalTime} h`,
-        projectEndInput?.value ? `Geplantes Ende: ${projectEndInput.value}` : "Geplantes Ende: nicht gesetzt",
+        text(`Fortschritt: ${progress} % (${completedTasks}/${relevantTasks.length} Aufgaben erledigt)`, `Progress: ${progress}% (${completedTasks}/${relevantTasks.length} tasks completed)`),
+        text(`In Arbeit: ${activeTasks} · Wartend: ${waitingTasks}`, `In progress: ${activeTasks} · Waiting: ${waitingTasks}`),
+        text(`Gebuchte Zeit: ${totalTime} h`, `Time logged: ${totalTime} h`),
+        projectEndInput?.value ? text(`Geplantes Ende: ${projectEndInput.value}`, `Planned end: ${projectEndInput.value}`) : text("Geplantes Ende: nicht gesetzt", "Planned end: not set"),
         "",
         ...taskData.map((task) => `- [${statusLabels[task.status] || task.status}] ${task.title}`)
       ];
@@ -229,12 +232,12 @@
           document.execCommand("copy");
           area.remove();
         }
-        summaryButton.textContent = "Kopiert";
+        summaryButton.textContent = text("Kopiert", "Copied");
         setTimeout(() => {
           const iconElement = document.createElement("i");
           iconElement.className = "fas fa-copy me-1";
           iconElement.setAttribute("aria-hidden", "true");
-          summaryButton.replaceChildren(iconElement, document.createTextNode("Zusammenfassung kopieren"));
+          summaryButton.replaceChildren(iconElement, document.createTextNode(copyLabel));
         }, 1500);
       } catch (error) {
         console.warn("Projektzusammenfassung konnte nicht kopiert werden", error);
