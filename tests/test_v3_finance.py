@@ -220,6 +220,8 @@ class V3FinanceLifecycleTests(unittest.TestCase):
         attempt = self.store.latest_attempt("invoice-1")
         self.assertEqual("failed", attempt.state)
         self.assertEqual("2026-0001", attempt.reserved_number)
+        self.assertEqual("ValueError", attempt.error)
+        self.assertNotIn("render failed", attempt.error)
 
     def test_process_interruption_remains_visible_until_recovery(self):
         self._write_invoice()
