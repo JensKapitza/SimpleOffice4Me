@@ -781,3 +781,12 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | Beide Blueprints auf Feature `mail` gemappt (Gate + Metering); sonst keine Verhaltensänderung. |
 | Tests und Soll-Ist-Vergleich | Soll: Nutzer ohne Mail-Feature 403, mit Feature Durchlass. Ist gemessen: 3/3 neu (ohne Fix 4 Fehler, mit Fix grün); 54/54 Nachbarn (Keywords/Handover/Case/Admin/Lizenz) grün; alle Gates grün. |
 | Review und Abschluss | PR gestellt, kein Merge ohne Freigabe. |
+
+## 23. November 2026 · Federation: Peer-Discovery per Ton
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Wunsch: schnelles Erkennen via Ton – eigene IPs ansagen, hörender Client kann einladen. Bestand: AcousticCodec (max. 128 Bytes, Ultraschall/hörbar, FEC), QR-Connect-Ablauf, Direkt-Discovery. Voll-Payload passt nicht in 128 Bytes → Ton trägt nur die Endpunkt-URL, Identität kommt per Netzabruf (gleicher TOFU-Ablauf). |
+| Implementierung | Neu `static/js/federation_sound.js` (Ansage pro Adresse, Lauschen ≤90 s, lokale Strict-Prüfung als Spiegel der Serverregel, kein Auto-Abruf, kein Beacon). Template: Ansage-Buttons in der QR-Schleife, Hör-Block im Direkt-Formular, Codec-Skripte eingebunden. Kein neuer Server-Endpunkt nötig. |
+| Tests und Soll-Ist-Vergleich | Soll: ansagen, hören, übernehmen; nichts Heimliches. Ist gemessen: 6/6 Node-Tests (Validierungsmatrix, Ansage-Ablauf, Lauschen gültig/ungültig, Stopp; Fehlschlag erkannt); 31/31 Protokoll+Admin-UI; `node --check` grün. |
+| Review und Abschluss | PR gestellt, kein Merge ohne Freigabe. Danach: Pairing-Code-Austausch und Chat wie bisher (Raum mit remote_peer_id). |
