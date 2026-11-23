@@ -798,3 +798,11 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | Rotate-Seite rendert zusätzlich eingeklappten QR-SVG (serverseitig, kein neuer Endpunkt, Token nie in URLs). Peer-Formular: Kamera-Scan-Button füllt Peer-Token nach Strict-Prüfung (`^[A-Za-z0-9_-]{32,128}$`); Muster von federation_qr_scan.js (BarcodeDetector/jsQR, Generationen-Guard). |
 | Tests und Soll-Ist-Vergleich | Soll: anzeigen, scannen, übernehmen; Müll abweisen. Ist gemessen: 3/3 Node (Matrix, Übernahme-Ablauf, Ungültig-Fall), 12/12 Token/Identity (inkl. QR-SVG-Assert), 30/30 Admin-UI; `node --check`, ruff, compileall grün. |
 | Review und Abschluss | PR gestellt, kein Merge ohne Freigabe. |
+## 23. November 2026 · Issue #738 (FinTS): Verifikation + Doku, bereit zum Schließen
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Alle 9 Checkboxen gegen Code/Tests geprüft: TAN/SCA, Salden, Fähigkeiten, Sync/Retry, Abgleich-Vorschläge, Mock-Bank-Tests, Read-only/SEPA-frei implementiert und grün (144 Tests). Lücken: Doku fehlte; Depot optional/unsupported. |
+| Implementierung | Neu `docs/FINTS_BANKING.md` (Banken, Limits, Sicherheitsmodell, Testhinweis). Keine Codeänderung nötig. |
+| Tests und Soll-Ist-Vergleich | Soll: #738-Kriterien. Ist: 144/144 FinTS-Tests grün; Geheimnis-Blocklisten und Einmal-Challenges im Code verankert; Doku aus Code zitiert und belegt. |
+| Review und Abschluss | PR mit `Closes #738` gestellt; Checkboxen + Nachweis im Issue dokumentiert. |
