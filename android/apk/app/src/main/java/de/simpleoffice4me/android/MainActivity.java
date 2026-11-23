@@ -87,6 +87,7 @@ public class MainActivity extends Activity {
     private TextView status;
     private Bundle pendingWebState;
     private PermissionRequest pendingCameraPermission;
+    private String[] pendingWebResources;
     private ValueCallback<Uri[]> fileChooserCallback;
     private volatile String pendingLocalFolderId = "";
     private volatile String pendingLocalFolderResult = "";
@@ -202,7 +203,10 @@ public class MainActivity extends Activity {
             @Override
             public void onPermissionRequestCanceled(PermissionRequest request) {
                 mainHandler.post(() -> {
-                    if (pendingCameraPermission == request) pendingCameraPermission = null;
+                    if (pendingCameraPermission == request) {
+                        pendingCameraPermission = null;
+                        pendingWebResources = null;
+                    }
                 });
             }
 
@@ -541,22 +545,37 @@ public class MainActivity extends Activity {
     }
 
     private void handleWebPermissionRequest(PermissionRequest request) {
-        if (!localPageVisible || !isTrustedLocalOrigin(request.getOrigin()) || !requestsOnlyVideo(request)) {
+        if (!localPageVisible || !isTrustedLocalOrigin(request.getOrigin())) {
             request.deny();
             return;
         }
-        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-            request.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
+        String[] resources = request.getResources();
+        if (resources.length == 0) {
+            request.deny();
+            return;
+        }
+        List<String> missing = new ArrayList<>();
+        for (String resource : resources) {
+            String permission;
+            if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)) {
+                permission = Manifest.permission.CAMERA;
+            } else if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)) {
+                permission = Manifest.permission.RECORD_AUDIO;
+            } else {
+                request.deny();
+                return;
+            }
+            if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED
+                    && !missing.contains(permission)) missing.add(permission);
+        }
+        if (missing.isEmpty()) {
+            request.grant(resources);
             return;
         }
         denyPendingCameraPermission();
         pendingCameraPermission = request;
-        requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_REQUEST);
-    }
-
-    private static boolean requestsOnlyVideo(PermissionRequest request) {
-        String[] resources = request.getResources();
-        return resources.length == 1 && PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resources[0]);
+        pendingWebResources = resources;
+        requestPermissions(missing.toArray(new String[0]), CAMERA_PERMISSION_REQUEST);
     }
 
     private static boolean isTrustedLocalOrigin(Uri origin) {
@@ -568,6 +587,7 @@ public class MainActivity extends Activity {
     private void denyPendingCameraPermission() {
         PermissionRequest request = pendingCameraPermission;
         pendingCameraPermission = null;
+        pendingWebResources = null;
         if (request != null) {
             try {
                 request.deny();
@@ -585,13 +605,22 @@ public class MainActivity extends Activity {
         }
         if (requestCode != CAMERA_PERMISSION_REQUEST) return;
         PermissionRequest request = pendingCameraPermission;
+        String[] resources = pendingWebResources;
         pendingCameraPermission = null;
-        if (request == null) return;
-        boolean granted = localPageVisible && grantResults.length > 0
-                && grantResults[0] == PackageManager.PERMISSION_GRANTED
-                && isTrustedLocalOrigin(request.getOrigin()) && requestsOnlyVideo(request);
+        pendingWebResources = null;
+        if (request == null || resources == null) return;
+        boolean granted = localPageVisible && isTrustedLocalOrigin(request.getOrigin())
+                && grantResults.length == permissions.length && grantResults.length > 0;
+        for (int result : grantResults) {
+            if (result != PackageManager.PERMISSION_GRANTED) granted = false;
+        }
+        for (String resource : resources) {
+            String permission = PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)
+                    ? Manifest.permission.CAMERA : Manifest.permission.RECORD_AUDIO;
+            if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) granted = false;
+        }
         try {
-            if (granted) request.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
+            if (granted) request.grant(resources);
             else request.deny();
         } catch (IllegalStateException ignored) {
         }
