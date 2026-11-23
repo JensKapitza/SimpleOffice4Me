@@ -471,8 +471,8 @@ class FrontendNavigationSmokeTests(unittest.TestCase):
         self.assertEqual(200, preview.status_code)
         body = preview.get_data(as_text=True)
         self.assertIn(">1</div><div>new</div>", body)
-        self.assertIn(">1</div><div>Duplikate", body)
-        self.assertIn(">2</div><div>ungültige", body)
+        self.assertIn(">1</div><div>duplicates", body)
+        self.assertIn(">2</div><div>invalid", body)
         self.assertIn("&lt;img src=x onerror=alert(1)&gt;", body)
         self.assertNotIn("<img src=x onerror=alert(1)>", body)
         with app.app_context():
