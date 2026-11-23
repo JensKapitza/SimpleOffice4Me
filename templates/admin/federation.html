@@ -351,7 +351,15 @@
               </div>
               <div class="col-12">
                 <label class="form-label" for="peer-token">Peer-Token</label>
-                <input class="form-control" id="peer-token" type="password" name="token" autocomplete="new-password">
+                <div class="d-flex flex-wrap gap-2">
+                  <input class="form-control flex-grow-1" id="peer-token" type="password" name="token" autocomplete="new-password" style="min-width:12rem">
+                  <button class="btn btn-outline-success" id="token-qr-camera-button" type="button">{{ 'Scan QR' if g.language == 'en' else 'QR scannen' }}</button>
+                </div>
+                <div id="token-qr-camera-panel" class="border rounded p-2 mt-2" hidden>
+                  <video id="token-qr-camera-preview" autoplay muted playsinline class="w-100 rounded" style="max-height:360px;object-fit:contain" aria-label="{{ 'Live camera image for scanning the peer token QR code' if g.language == 'en' else 'Live-Kamerabild zum Scannen des Peer-Token-QR-Codes' }}"></video>
+                  <button id="token-qr-camera-close" class="btn btn-outline-secondary btn-sm mt-2" type="button">{{ 'Close camera' if g.language == 'en' else 'Kamera schließen' }}</button>
+                </div>
+                <div id="token-qr-status" class="small text-secondary mt-1" aria-live="polite"></div>
                 <div class="form-text">{{ ('Leave empty to keep the existing token.' if edit_peer else 'Configure identically on both devices for exactly this peer; stored encrypted.') if g.language == 'en' else ('Leer lassen, um das vorhandene Token zu behalten.' if edit_peer else 'Auf beiden Geräten für genau diesen Peer identisch konfigurieren; wird verschlüsselt gespeichert.') }} {{ 'Do not use the global server token.' if g.language == 'en' else 'Nicht das globale Server-Token verwenden.' }}</div>
               </div>
 
@@ -568,6 +576,9 @@
     </div>
 
   <script defer src="{{ url_for('static', filename='js/federation_browser_diagnostics.js') }}"></script>
+  <script src="{{ url_for('static', filename='vendor/jsqr/jsQR.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/camera_capture.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/federation_token_scan.js') }}" defer></script>
 
   {% elif active_view == 'transfers' %}
     <section class="card shadow-sm mb-4">
