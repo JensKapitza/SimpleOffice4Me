@@ -720,3 +720,12 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | `LendingStore.blocking_loan` und `ReservationStore.conflicts` als reine Prüfungen; Checkout lehnt bei überlappender aktiver Reservierung ab, Reservierung bei überlappender offener Leihe — je mit klarer deutscher Meldung (Zeitraum + Person). Ungültige Daten liefern weiterhin die bestehenden Validierungsfehler. |
 | Tests und Soll-Ist-Vergleich | Soll: beide Blockrichtungen, Freigabe außerhalb des Fensters, stornierte Reservierung/Rückgabe geben frei, Rechte. Ist gemessen: 5/5 Blackbox-HTTP-Tests (beide Richtungen, Fenster-daneben erlaubt, Storno/Rückgabe entsperrt); Nachbar-Suites 13/13 (lending/reservations/neu), 369/369 `test_inventory*.py`; Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen als Follow-up (weitere #1111-Slices): Scanmodi pro Aktion, Fotoerkennung, Offline-Sync, föderierte Rechte. |
+
+## 23. November 2026 · CI-Gate: mail_reader_routes-Split (1008 → 621 Zeilen)
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Main-CI rot: `app/mail_reader_routes.py` (1008 Zeilen) verletzt das 1000-Zeilen-Gate und blockiert jeden PR. 17 Case-Routen (~385 Zeilen) als kohärente Auslagerung identifiziert; Muster `mail_keyword_routes` (eigener Blueprint, gleicher URL-Prefix) wiederverwendet. |
+| Implementierung | Neu `app/mail_reader_case_routes.py` (Blueprint `mail_reader_cases`, Code wortgleich verschoben). Parität: Endpunkt-Checks + `case_context` in `document_store.py`, Feature-Gate in `auth.py`, Metering in `license_metering.py` erweitert; Template-Referenzen (17 Views) umgeschrieben; URLs unverändert. |
+| Tests und Soll-Ist-Vergleich | Soll: Gate grün, kein Verhalten geändert. Ist gemessen: Dateigrößen-Gate grün; 313 Mail-Tests grün nach Fix (2 Datenschutz-Tests brachen durch Mock-Namespace-Kopplung – Patch-Ziele auf neues Modul umgestellt, bewusste Spezifikationsänderung); 34 Nachbartests grün; Policy/Funktionen/compileall/ruff grün. |
+| Review und Abschluss | PR gestellt, kein Merge ohne Freigabe. Hinweis: `mail_keywords`/`mail_handover` stehen nicht im Feature-Gate-Mapping (vorgefunden, bewusst nicht geändert). |
