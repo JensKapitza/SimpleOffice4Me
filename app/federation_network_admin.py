@@ -25,8 +25,6 @@ def save_settings():
             "lan_ports": request.form.get("lan_ports", ""),
             "bootstrap_urls": request.form.get("bootstrap_urls", ""),
             "server_public_url": request.form.get("server_public_url", ""),
-            "allow_private_targets": request.form.get("allow_private_targets", ""),
-            "allow_loopback": request.form.get("allow_loopback", ""),
             "refuse_bad_client": request.form.get("refuse_bad_client", ""),
             "mail_case_worker_enabled": request.form.get("mail_case_worker_enabled", ""),
         }, g.language)
