@@ -46,11 +46,11 @@ class DocumentStore(_DocumentStorePart1, _DocumentStorePart2, _DocumentStorePart
         from .chat_access import document_visible
         from .mail_document_access import mail_document_visible
         from flask import request
-        sending = request.endpoint == "mail_reader.send_case_draft" and request.method == "POST"
+        sending = request.endpoint == "mail_reader_cases.send_case_draft" and request.method == "POST"
         view_args = request.view_args or {}
         read_case = ""
         read_id = ""
-        if request.method == "GET" and request.endpoint == "mail_reader.case_attachment":
+        if request.method == "GET" and request.endpoint == "mail_reader_cases.case_attachment":
             read_case = str(view_args.get("case_id", ""))
             read_id = str(view_args.get("archive_id", ""))
         elif request.method == "GET" and request.endpoint == "mail_reader.index":
@@ -58,7 +58,7 @@ class DocumentStore(_DocumentStorePart1, _DocumentStorePart2, _DocumentStorePart
             read_id = request.args.get("case_mail", "")
         return document_visible(metadata, actor[0], actor[1]) and mail_document_visible(
             metadata, actor[0], self.root,
-            case_context=request.blueprint in {"mail_reader", "mail_client"},
+            case_context=request.blueprint in {"mail_reader", "mail_client", "mail_reader_cases"},
             archive_send_case=str(view_args.get("case_id", "")) if sending else "",
             archive_send_draft=str(view_args.get("draft_id", "")) if sending else "",
             archive_read_case=read_case, archive_read_id=read_id,
