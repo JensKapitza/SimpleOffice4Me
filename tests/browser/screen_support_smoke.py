@@ -155,7 +155,7 @@ def consent_race(browser, origin, replace_session=False):
         notice = receiver_context.request.post(url, headers=headers, data={"role": "receiver", "type": "notice", "text": sentinel})
         assert notice.ok
         expect(owner.locator("#screen-support-popup-text")).to_have_text(sentinel)
-        expect(owner.locator("#screen-support-status")).to_contain_text("lokal gesperrt")
+        expect(owner.locator("#screen-support-status")).to_contain_text("locally blocked")
         expect(owner.locator("#screen-support-active-banner")).to_be_hidden()
         expect(owner.frame_locator("#screen-workspace-frame").locator("#title")).not_to_have_value("MUST-NOT-APPLY")
         history = owner_context.request.get(url + "?role=sender")
@@ -234,7 +234,7 @@ def main():
                 assert owner.evaluate("window.captureStops") == 1
                 owner.reload()
                 expect(owner.locator("#screen-support-history")).to_contain_text("Kein Ton <script>unsafe</script>")
-                expect(owner.locator("#screen-support-history")).to_contain_text("Sitzung beendet")
+                expect(owner.locator("#screen-support-history")).to_contain_text("Session ended")
                 consent_race(browser, origin)
                 consent_race(browser, origin, replace_session=True)
                 browser.close()
