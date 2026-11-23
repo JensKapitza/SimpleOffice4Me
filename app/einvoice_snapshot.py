@@ -29,6 +29,7 @@ VAT_CATEGORIES = frozenset({"S", "Z", "E", "AE", "K", "G", "O", "L", "M"})
 
 _SCHEME_RE = re.compile(r"[A-Za-z0-9:._-]{1,10}")
 _LEDGER_RE = re.compile(r"[0-9][0-9./-]{0,19}")
+_VAT_ID_RE = re.compile(r"[A-Z]{2}[0-9A-Z]{2,12}")
 
 
 def build_snapshot(row: dict[str, Any]) -> dict[str, Any]:
@@ -124,6 +125,12 @@ def validate_einvoice_fields(row: dict[str, Any]) -> list[dict[str, str]]:
     buyer = row.get("buyer", {}) if isinstance(row.get("buyer"), dict) else {}
     seller = row.get("seller", {}) if isinstance(row.get("seller"), dict) else {}
     for holder, label in ((buyer, "buyer"), (seller, "seller")):
+        vat_id = str(holder.get("vat_id", "") or "").replace(" ", "").upper()
+        if vat_id and not _VAT_ID_RE.fullmatch(vat_id):
+            fail(f"{label}.vat_id",
+                 "USt-IdNr. hat kein gültiges Format (2 Buchstaben Ländercode + 2–12 Zeichen, z. B. DE123456789).")
+        if len(str(holder.get("tax_number", "") or "")) > 60:
+            fail(f"{label}.tax_number", "Steuernummer ist zu lang (max. 60 Zeichen).")
         address = holder.get("electronic_address", {})
         if not isinstance(address, dict):
             continue
