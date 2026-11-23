@@ -58,6 +58,10 @@ UI_LITERAL_TRANSLATIONS = {
 TRANSLATIONS["de"].update({"invoice.status.draft": "Entwurf", "invoice.recipient_type": "Empfängerart", "invoice.recipient.private": "Privatperson", "invoice.recipient.company": "Firma", "invoice.recipient.company_name": "Firmenname", "invoice.recipient.contact": "Name / Ansprechpartner", "invoice.recipient.contact_optional": "Ansprechpartner (optional)", "invoice.project.add": "Projekt abrechnen", "invoice.project.open": "Offene Projektposten", "invoice.project.none": "Keine offenen Projektposten vorhanden.", "invoice.category": "Kategorie"})
 TRANSLATIONS["en"].update({"invoice.status.draft": "Draft", "invoice.recipient_type": "Recipient type", "invoice.recipient.private": "Private person", "invoice.recipient.company": "Company", "invoice.recipient.company_name": "Company name", "invoice.recipient.contact": "Name / contact person", "invoice.recipient.contact_optional": "Contact person (optional)", "invoice.project.add": "Bill project", "invoice.project.open": "Open project items", "invoice.project.none": "No open project items available.", "invoice.category": "Category"})
 TRANSLATIONS["de"].update({
+    "library.scan_session.error.transition": "Scan-Sitzung konnte nicht geändert werden. Bitte Zustand und Standort prüfen.",
+    "library.scan_session.error.invalid": "Scan-Sitzung ist nicht aktiv oder gehört zu einem anderen Standort.",
+    "library.scan_session.error.book_missing": "Buch ist noch nicht im Inventar.",
+    "library.scan_session.error.assignment": "Buch konnte dem Standort nicht zugeordnet werden.",
     "slideshow.title": "Diashow",
     "slideshow.close": "Diashow schließen",
     "slideshow.info_controls": "Info und Steuerung",
@@ -73,6 +77,10 @@ TRANSLATIONS["de"].update({
     "slideshow.image": "Bild",
 })
 TRANSLATIONS["en"].update({
+    "library.scan_session.error.transition": "Could not change the scan session. Check its state and location.",
+    "library.scan_session.error.invalid": "The scan session is inactive or belongs to another location.",
+    "library.scan_session.error.book_missing": "This book is not in the inventory yet.",
+    "library.scan_session.error.assignment": "Could not assign the book to this location.",
     "slideshow.title": "Slideshow",
     "slideshow.close": "Close slideshow",
     "slideshow.info_controls": "Info and controls",

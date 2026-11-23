@@ -1,5 +1,5 @@
 (function (root, factory) {
-  const api = factory();
+  const api = factory(root);
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.SimpleOfficeFederationBrowserDiagnostics = api;
   if (root.document && typeof module !== "object") {
@@ -7,12 +7,14 @@
     if (root.document.readyState === "loading") root.document.addEventListener("DOMContentLoaded", initialize, {once: true});
     else initialize();
   }
-})(typeof globalThis === "object" ? globalThis : this, function () {
+})(typeof globalThis === "object" ? globalThis : this, function (root) {
   "use strict";
 
-  const INVALID_URL_MESSAGE = "Client: nicht auswertbar (ungültige Peer-Adresse); kein Verbindungsnachweis";
-  const UNVERIFIED_MESSAGE = "Client: Anfrage ausgelöst, Antwort nicht verifizierbar (CSP, CORS, Mixed Content, TLS oder Browser-Schutz); kein Erreichbarkeitsnachweis";
-  const UNAVAILABLE_MESSAGE = "Client: nicht auswertbar (Netzwerk, Timeout, CSP, CORS, Mixed Content, TLS oder Browser-Schutz); Peer nicht zwingend offline";
+  const tx = (german, english) => root.document?.documentElement?.lang === "en" ? english : german;
+
+  const INVALID_URL_MESSAGE = tx("Client: nicht auswertbar (ungültige Peer-Adresse); kein Verbindungsnachweis", "Client: cannot assess (invalid peer address); no connection evidence");
+  const UNVERIFIED_MESSAGE = tx("Client: Anfrage ausgelöst, Antwort nicht verifizierbar (CSP, CORS, Mixed Content, TLS oder Browser-Schutz); kein Erreichbarkeitsnachweis", "Client: request sent, response cannot be verified (CSP, CORS, mixed content, TLS, or browser protection); no reachability evidence");
+  const UNAVAILABLE_MESSAGE = tx("Client: nicht auswertbar (Netzwerk, Timeout, CSP, CORS, Mixed Content, TLS oder Browser-Schutz); Peer nicht zwingend offline", "Client: cannot assess (network, timeout, CSP, CORS, mixed content, TLS, or browser protection); peer is not necessarily offline");
 
   function safePeerUrl(value, URLConstructor) {
     let url;
@@ -38,7 +40,7 @@
           return;
         }
         window.open(peerUrl.href, '_blank', 'noopener,noreferrer');
-        if (status) status.textContent = 'Client: Peer-Seite geöffnet; bitte selbst prüfen und anschließend bestätigen';
+        if (status) status.textContent = tx('Client: Peer-Seite geöffnet; bitte selbst prüfen und anschließend bestätigen', 'Client: peer page opened; review it yourself and confirm afterward');
       });
     });
 
@@ -51,7 +53,7 @@
           status.textContent = INVALID_URL_MESSAGE;
           return;
         }
-        status.textContent = 'Client: Prüfung läuft…';
+        status.textContent = tx('Client: Prüfung läuft…', 'Client: checking…');
         const probeUrl = new window.URL('auth/login', peerUrl.href.endsWith('/') ? peerUrl.href : peerUrl.href + '/');
         const controller = new window.AbortController();
         const timeout = window.setTimeout(() => controller.abort(), 5000);
@@ -74,10 +76,10 @@
         if (!status) return;
         const reachable = button.dataset.peerManualOutcome === 'reachable';
         const question = reachable
-          ? 'Hast du die Peer-Seite selbst geöffnet und die Login-Seite gesehen?'
-          : 'Hast du selbst geprüft, dass die Peer-Seite nicht erreichbar war?';
+          ? tx('Hast du die Peer-Seite selbst geöffnet und die Login-Seite gesehen?', 'Did you open the peer page yourself and see the login page?')
+          : tx('Hast du selbst geprüft, dass die Peer-Seite nicht erreichbar war?', 'Did you verify yourself that the peer page was unreachable?');
         if (!window.confirm(question)) return;
-        status.textContent = 'Client: manuelle Bestätigung wird gespeichert…';
+        status.textContent = tx('Client: manuelle Bestätigung wird gespeichert…', 'Client: saving manual confirmation…');
         try {
           const response = await window.fetch(button.dataset.peerConfirmUrl, {
             method: 'POST',
@@ -93,11 +95,11 @@
           if (!response.ok || result.status !== 'recorded' || result.technical_verification !== false) {
             throw new Error('confirmation was not accepted');
           }
-          const outcome = result.outcome === 'reachable' ? 'Seite geöffnet' : 'nicht erreichbar';
+          const outcome = result.outcome === 'reachable' ? tx('Seite geöffnet', 'page opened') : tx('nicht erreichbar', 'unreachable');
           const timestamp = new window.Date(Number(result.confirmed_at) * 1000).toLocaleString();
-          status.textContent = 'Client: manuell bestätigt — ' + outcome + ' (' + timestamp + ', ' + result.actor + '), nicht technisch verifiziert';
+          status.textContent = tx('Client: manuell bestätigt — ', 'Client: manually confirmed — ') + outcome + ' (' + timestamp + ', ' + result.actor + '), ' + tx('nicht technisch verifiziert', 'not technically verified');
         } catch (_) {
-          status.textContent = 'Client: Bestätigung konnte nicht gespeichert werden; kein technischer Erreichbarkeitsnachweis';
+          status.textContent = tx('Client: Bestätigung konnte nicht gespeichert werden; kein technischer Erreichbarkeitsnachweis', 'Client: could not save confirmation; no technical reachability evidence');
         }
       });
     });

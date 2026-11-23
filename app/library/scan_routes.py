@@ -1,15 +1,21 @@
 """HTTP workflow for resumable physical-library bulk scan sessions."""
 from __future__ import annotations
 
-from flask import jsonify, request, url_for
+from flask import g, jsonify, request, url_for
 
 from ..auth import login_required
+from ..translations import translate
 from .routes import _actor, _book_item, _root, _store, assign_object_to_location, bp
 from .scan_sessions import ScanSessionStore
 
 
 def _sessions() -> ScanSessionStore:
     return ScanSessionStore(_root())
+
+
+def _tr(key: str) -> str:
+    language = getattr(g, "language", "de")
+    return translate(language, key)
 
 
 @bp.route("/scan-session", methods=["GET", "POST"])
@@ -29,7 +35,7 @@ def scan_session():
         else:
             current = sessions.transition(_actor(), action)
     except ValueError:
-        return jsonify({"ok": False, "error": "Scan-Sitzung konnte nicht geändert werden. Bitte Zustand und Standort prüfen."}), 409
+        return jsonify({"ok": False, "error": _tr("library.scan_session.error.transition")}), 409
     return jsonify({"ok": True, "session": current})
 
 
@@ -60,7 +66,7 @@ def assign_book():
     try:
         current, session_id, scan_id = _requested_session(location_id)
     except ValueError:
-        return jsonify({"ok": False, "error": "Scan-Sitzung ist nicht aktiv oder gehört zu einem anderen Standort."}), 409
+        return jsonify({"ok": False, "error": _tr("library.scan_session.error.invalid")}), 409
     if current and scan_id in current.get("processed_scan_ids", []):
         return jsonify({"ok": True, "replayed": True, "scan_session": current})
 
@@ -69,7 +75,7 @@ def assign_book():
         payload = {
             "ok": False,
             "not_found": True,
-            "error": "Buch ist noch nicht im Inventar.",
+            "error": _tr("library.scan_session.error.book_missing"),
             "capture_url": url_for("inventory.index", barcode=code, book="1",
                                    library_location=location_id, library_return="1"),
         }
@@ -84,7 +90,7 @@ def assign_book():
     try:
         result = assign_object_to_location(item["object_id"], location_id, _actor(), scanned=code)
     except (OSError, ValueError):
-        payload = {"ok": False, "error": "library_request_rejected"}
+        payload = {"ok": False, "error": _tr("library.scan_session.error.assignment")}
         if current is not None:
             payload["scan_session"] = _sessions().record(
                 _actor(), session_id=session_id, scan_id=scan_id,

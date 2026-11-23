@@ -52,9 +52,16 @@
     button.id = "android-history-back";
     button.type = "button";
     button.className = "btn btn-sm btn-outline-light me-2";
-    button.setAttribute("aria-label", "Zurück");
-    button.title = "Zurück";
-    button.innerHTML = '<i class="fa-solid fa-arrow-left" aria-hidden="true"></i><span class="visually-hidden">Zurück</span>';
+    const backLabel = window.SimpleOfficeI18n?.text("Zurück", "Back") ?? "Zurück";
+    button.setAttribute("aria-label", backLabel);
+    button.title = backLabel;
+    const icon = document.createElement("i");
+    icon.className = "fa-solid fa-arrow-left";
+    icon.setAttribute("aria-hidden", "true");
+    const label = document.createElement("span");
+    label.className = "visually-hidden";
+    label.textContent = backLabel;
+    button.append(icon, label);
     button.addEventListener("click", () => {
       if (window.history.length > 1) window.history.back();
       else window.location.assign("/");
@@ -90,7 +97,7 @@
       badge.id = "android-build-info";
       badge.className = "navbar-text px-xxl-2 small text-nowrap";
       badge.textContent = `APK ${version} · ${architecture}`;
-      badge.title = `Android APK · ABI ${String(info?.abi || architecture)} · Python ${python || "unbekannt"} · minSdk ${Number(info?.min_sdk || 24)}`;
+      badge.title = `Android APK · ABI ${String(info?.abi || architecture)} · Python ${python || (window.SimpleOfficeI18n?.text("unbekannt", "unknown") ?? "unbekannt")} · minSdk ${Number(info?.min_sdk || 24)}`;
       webVersion.insertAdjacentElement("afterend", badge);
     } catch (_error) {
     }

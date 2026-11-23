@@ -1,4 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
+  const tx = (german, english) => window.SimpleOfficeI18n?.text(german, english) ?? german;
   const imageInput = document.getElementById('qr-image');
   const cameraButton = document.getElementById('qr-camera-button');
   const captureInput = document.createElement('input');
@@ -36,11 +37,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function acceptPayload(value) {
     if (!value.startsWith('sofp://peer/')) {
-      status.textContent = 'Der QR-Code ist kein SimpleOffice-Federation-Connect-Code.';
+      status.textContent = tx('Der QR-Code ist kein SimpleOffice-Federation-Connect-Code.', 'This QR code is not a SimpleOffice federation connect code.');
       return false;
     }
     output.value = value;
-    status.textContent = 'SimpleOffice Connect QR-Code erkannt. Peer kann jetzt übernommen werden.';
+    status.textContent = tx('SimpleOffice Connect QR-Code erkannt. Peer kann jetzt übernommen werden.', 'SimpleOffice Connect QR code recognized. You can now add the peer.');
     return true;
   }
 
@@ -63,7 +64,7 @@ document.addEventListener('DOMContentLoaded', () => {
   cameraButton.addEventListener('click', async () => {
     if (scanning || stream) return;
     if (!navigator.mediaDevices?.getUserMedia) {
-      status.textContent = 'Foto aufnehmen und QR-Code lokal auswerten.';
+      status.textContent = tx('Foto aufnehmen und QR-Code lokal auswerten.', 'Take a photo to scan the QR code locally.');
       captureInput.click();
       return;
     }
@@ -100,7 +101,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
       scanning = true;
-      status.textContent = 'Kamera aktiv. Connect QR-Code vor die Kamera halten.';
+      status.textContent = tx('Kamera aktiv. Connect QR-Code vor die Kamera halten.', 'Camera is active. Hold the Connect QR code in front of it.');
 
       const scan = async () => {
         if (!scanning || generation !== cameraGeneration) return;
@@ -130,8 +131,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (generation !== cameraGeneration) return;
       stopCamera();
       status.textContent = error?.name === 'NotAllowedError'
-        ? 'Kamerazugriff verweigert. Bitte die Kameraberechtigung im Browser freigeben.'
-        : 'Kamera konnte nicht gestartet werden. Kamera, Browserberechtigungen und QR-Decoder prüfen.';
+        ? tx('Kamerazugriff verweigert. Bitte die Kameraberechtigung im Browser freigeben.', 'Camera access was denied. Allow camera access in your browser.')
+        : tx('Kamera konnte nicht gestartet werden. Kamera, Browserberechtigungen und QR-Decoder prüfen.', 'Could not start the camera. Check the camera, browser permissions, and QR decoder.');
     }
   });
 
@@ -139,7 +140,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const sourceInput = event.currentTarget;
     const file = sourceInput.files?.[0];
     if (!file) return;
-    status.textContent = 'QR-Foto wird lokal ausgewertet …';
+    status.textContent = tx('QR-Foto wird lokal ausgewertet …', 'Scanning the QR photo locally …');
     let bitmap;
     try {
       bitmap = await createImageBitmap(file);
@@ -155,12 +156,12 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       if (!value) value = decodePixels(bitmap).trim();
       if (!value) {
-        status.textContent = 'Kein QR-Code erkannt. Bitte ein schärferes Foto auswählen.';
+        status.textContent = tx('Kein QR-Code erkannt. Bitte ein schärferes Foto auswählen.', 'No QR code found. Choose a sharper photo.');
       } else {
         acceptPayload(value);
       }
     } catch (_error) {
-      status.textContent = 'QR-Foto konnte nicht verarbeitet werden.';
+      status.textContent = tx('QR-Foto konnte nicht verarbeitet werden.', 'Could not process the QR photo.');
     } finally {
       bitmap?.close?.();
       sourceInput.value = '';
