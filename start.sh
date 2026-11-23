@@ -46,6 +46,11 @@ Optionen:
   --trusted-proxy-hops ANZAHL Anzahl vertrauenswürdiger Reverse-Proxies
   --host ADRESSE              Bind-Adresse (Standard: 127.0.0.1)
   --port PORT                 HTTP-Port (Standard: aus Ersteinrichtung)
+  --global                    Auf allen Interfaces lauschen (0.0.0.0, inkl. LAN-Proxy; Firewall beachten!)
+  --proxy-bind ADRESSE        LAN-Proxy-Bind-Adresse (Standard: gespeicherte Einstellung)
+  --proxy-port PORT           LAN-Proxy-Port 1024-65535 (Standard: gespeicherte Einstellung)
+  --proxy-public-host HOST    LAN-Proxy-TLS-Name bei Wildcard-Bind (DNS-Name oder private IP)
+  --proxy-public-port PORT    LAN-Proxy-Anzeigeport 1-65535 (Standard: Proxy-Port)
   --threads ANZAHL            Waitress-Worker-Threads (Standard: 4)
   --channel-timeout SEKUNDEN  Leerlaufzeit einer Verbindung (Standard: 120)
   --reindex-osm               OSM-Index aus vorhandenem Download neu aufbauen
@@ -71,9 +76,24 @@ Native Paketinstallation kann mit SIMPLEOFFICE_NATIVE_PACKAGES=0 deaktiviert
 werden. Eine vorhandene .venv wird nur dann neu erzeugt, wenn native Pakete
 sonst durch ihre Isolation nicht sichtbar wären.
 
-Beispiel:
+Beispiele:
   ./start.sh --google-json /etc/simpleoffice/google-oauth.json \
     --public-url https://office.example.de --trusted-proxy-hops 1
+
+Globaler Start (alle Interfaces, z. B. für das Heimnetz):
+  ./start.sh --global --proxy-port 8443 --proxy-public-host office.meinnetz.de
+
+  --global bindet Server und LAN-Proxy auf 0.0.0.0 (sonst nur
+  Loopback/private Adressen). Bei Wildcard-Bind braucht der Proxy
+  zusätzlich --proxy-public-host für seine TLS-Identität; ohne diese
+  Angabe startet er nicht. Firewall-Zugriff auf vertrauenswürdige
+  Netze beschränken! Ports unter 1024 brauchen Root-Rechte:
+
+  ./sudo-start.sh --global --port 443 --proxy-port 8443 \
+    --proxy-public-host office.meinnetz.de --open-firewall
+
+  sudo-start.sh nutzt sudo (sonst su) nur bei Bedarf und öffnet die
+  Ports auf Wunsch in ufw/firewalld. Details: ./sudo-start.sh --help.
 EOF
 }
 
@@ -134,7 +154,34 @@ while [ "$#" -gt 0 ]; do
       [ "$#" -ge 2 ] || { echo "--port benötigt eine Zahl." >&2; exit 2; }
       case "$2" in *[!0-9]*|'') echo "Port muss eine ganze Zahl sein." >&2; exit 2 ;; esac
       [ "$2" -ge 1 ] && [ "$2" -le 65535 ] || { echo "Port muss zwischen 1 und 65535 liegen." >&2; exit 2; }
+      if [ "$2" -lt 1024 ] && [ "$(id -u)" -ne 0 ]; then
+        echo "Hinweis: Ports unter 1024 brauchen Root-Rechte – siehe ./sudo-start.sh --help." >&2
+      fi
       export SIMPLEOFFICE_PORT="$2"; shift 2 ;;
+    --global)
+      export SIMPLEOFFICE_HOST="0.0.0.0"
+      export SIMPLEOFFICE_LAN_PROXY_GLOBAL="1"
+      export SIMPLEOFFICE_LAN_PROXY_BIND_HOST="0.0.0.0"
+      echo "Hinweis: globaler Start – Server und LAN-Proxy lauschen auf allen Interfaces. Firewall-Zugriff auf vertrauenswürdige Netze beschränken!" >&2
+      shift ;;
+    --proxy-bind)
+      [ "$#" -ge 2 ] || { echo "--proxy-bind benötigt eine Adresse." >&2; exit 2; }
+      [ -n "$2" ] || { echo "--proxy-bind darf nicht leer sein." >&2; exit 2; }
+      export SIMPLEOFFICE_LAN_PROXY_BIND_HOST="$2"; shift 2 ;;
+    --proxy-port)
+      [ "$#" -ge 2 ] || { echo "--proxy-port benötigt eine Zahl." >&2; exit 2; }
+      case "$2" in *[!0-9]*|'') echo "Proxy-Port muss eine ganze Zahl sein." >&2; exit 2 ;; esac
+      [ "$2" -ge 1024 ] && [ "$2" -le 65535 ] || { echo "Proxy-Port muss zwischen 1024 und 65535 liegen." >&2; exit 2; }
+      export SIMPLEOFFICE_LAN_PROXY_PORT="$2"; shift 2 ;;
+    --proxy-public-host)
+      [ "$#" -ge 2 ] || { echo "--proxy-public-host benötigt einen Hostnamen." >&2; exit 2; }
+      [ -n "$2" ] || { echo "--proxy-public-host darf nicht leer sein." >&2; exit 2; }
+      export SIMPLEOFFICE_LAN_PROXY_PUBLIC_HOST="$2"; shift 2 ;;
+    --proxy-public-port)
+      [ "$#" -ge 2 ] || { echo "--proxy-public-port benötigt eine Zahl." >&2; exit 2; }
+      case "$2" in *[!0-9]*|'') echo "Proxy-Anzeigeport muss eine ganze Zahl sein." >&2; exit 2 ;; esac
+      [ "$2" -ge 1 ] && [ "$2" -le 65535 ] || { echo "Proxy-Anzeigeport muss zwischen 1 und 65535 liegen." >&2; exit 2; }
+      export SIMPLEOFFICE_LAN_PROXY_PUBLIC_PORT="$2"; shift 2 ;;
     --threads)
       [ "$#" -ge 2 ] || { echo "--threads benötigt eine Anzahl." >&2; exit 2; }
       case "$2" in *[!0-9]*|'') echo "Thread-Anzahl muss eine ganze Zahl sein." >&2; exit 2 ;; esac

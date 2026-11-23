@@ -729,3 +729,21 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | Neu `app/mail_reader_case_routes.py` (Blueprint `mail_reader_cases`, Code wortgleich verschoben). Parität: Endpunkt-Checks + `case_context` in `document_store.py`, Feature-Gate in `auth.py`, Metering in `license_metering.py` erweitert; Template-Referenzen (17 Views) umgeschrieben; URLs unverändert. |
 | Tests und Soll-Ist-Vergleich | Soll: Gate grün, kein Verhalten geändert. Ist gemessen: Dateigrößen-Gate grün; 313 Mail-Tests grün nach Fix (2 Datenschutz-Tests brachen durch Mock-Namespace-Kopplung – Patch-Ziele auf neues Modul umgestellt, bewusste Spezifikationsänderung); 34 Nachbartests grün; Policy/Funktionen/compileall/ruff grün. |
 | Review und Abschluss | PR gestellt, kein Merge ohne Freigabe. Hinweis: `mail_keywords`/`mail_handover` stehen nicht im Feature-Gate-Mapping (vorgefunden, bewusst nicht geändert). |
+
+## 23. November 2026 · LAN-Proxy: globaler Bind + sudo-start.sh
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Proxy-Start lehnte `0.0.0.0` ab (`_host` + Runtime-Guard, nur Docker-Modus erlaubt). Main-Server akzeptierte Wildcard bereits. Root-Rechte nur für Ports <1024 nötig (Proxy-Minimum bleibt 1024); Firewall-Öffnung fehlte. |
+| Implementierung | Opt-in `SIMPLEOFFICE_LAN_PROXY_GLOBAL=1` (Default aus, Warn-Log bei globalem Bind); `SIMPLEOFFICE_LAN_PROXY_BIND_HOST/PORT`-Overrides nur im Startpfad; Docker-Meldungen neutralisiert; `start.sh --global/--proxy-bind/--proxy-port` + Root-Hinweis; neu `sudo-start.sh` (sudo-vs-su-Erkennung, Least-Privilege, `--open-firewall` für ufw/firewalld, `--print-command`-Dry-Run, `%q`-sicheres Quoting). |
+| Tests und Soll-Ist-Vergleich | Soll: global starten, Root-Ports, Firewall. Ist gemessen: 9/9 Bind-Tests, 21/21 Shell-Tests, lan_proxy-Suite nur mit den 8 Main-Baseline-Fehlern (Sandbox, belegt). Gates: Policy/Funktionen/compileall/ruff/shellcheck-Stil grün; Dateigröße nur via fremden Mail-Split (#1179) rot. |
+| Review und Abschluss | PR gestellt, kein Merge ohne Freigabe. Reihenfolge: erst #1179 (Gate), dann dieser PR. |
+
+## 23. November 2026 · LAN-Proxy: Parameter statt Magic-Vars + Hilfe-Doku
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Nutzer-Vorgabe: keine Magic-Vars – alles per Parameter, `--help` als Anleitung. Lücke: `PUBLIC_HOST/PORT` nur per Env setzbar; Hilfe ohne Global-Anleitung. Nebenbei vorgefundener, fremd begonnener Rebase auf Main+#1179 abgeschlossen (nur Doku-Konflikte, bereits vereinigt). |
+| Implementierung | `start.sh --proxy-public-host/--proxy-public-port` (validiert); Hilfe mit Global-Abschnitt, Beispielen, sudo-Verweis; Fehlermeldungen nennen Parameter zuerst (`--global`, `--proxy-public-host`), Env zweit; sudo-Hilfe mit Weiterleitungs-Hinweis. |
+| Tests und Soll-Ist-Vergleich | Soll: kein Env-Wissen nötig. Ist gemessen: 31/31 (Bind/Shell/Start), lan_proxy nur mit den 8 Sandbox-Baseline-Fehlern; ruff/compileall/shell-Syntax grün. |
+| Review und Abschluss | Auf PR #1181 gepusht (Rebase-Branch), kein Merge ohne Freigabe. |

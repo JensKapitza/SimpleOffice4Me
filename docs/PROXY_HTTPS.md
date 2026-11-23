@@ -40,3 +40,31 @@ Für die automatische Einrichtung in Thunderbird muss der Proxy zusätzlich
 `/.well-known/carddav` unverändert an SimpleOffice weiterleiten. Details zu
 Redirect, Principal- und Adressbuch-Erkennung stehen in
 [CARDDAV_DISCOVERY.md](CARDDAV_DISCOVERY.md).
+
+## LAN-Proxy: globaler Bind (alle Interfaces)
+
+Standardmäßig bindet der LAN-Proxy nur Loopback oder private Adressen;
+`0.0.0.0` wird ohne explizite Freigabe abgelehnt. Für den Betrieb im
+vertrauenswürdigen LAN:
+
+```bash
+./start.sh --global --proxy-port 8443
+```
+
+Das setzt `SIMPLEOFFICE_HOST=0.0.0.0`, erlaubt den Proxy-Wildcard
+(`SIMPLEOFFICE_LAN_PROXY_GLOBAL=1`) und bindet ihn auf `0.0.0.0`.
+Feinsteuerung: `--proxy-bind ADRESSE`, `--proxy-port 1024-65535`.
+Bei Wildcard-Bind braucht die TLS-Identität zusätzlich
+`SIMPLEOFFICE_LAN_PROXY_PUBLIC_HOST` (DNS-Name oder private IP).
+
+Ports unter 1024 brauchen Root-Rechte – dafür gibt es den Wrapper:
+
+```bash
+./sudo-start.sh --global --port 443 --proxy-port 8443 --open-firewall
+```
+
+Er startet ohne Eskalation, solange kein privilegierter Port verlangt
+wird, nutzt sonst sudo (Mitgliedschaft in `sudo`/`wheel`/`admin` oder
+passwortloses sudo) und fällt auf `su` zurück. `--open-firewall` öffnet
+die Ports in ufw/firewalld oder druckt andernfalls iptables-Kommandos.
+`--print-command` zeigt nur die Befehle (Dry-Run).
