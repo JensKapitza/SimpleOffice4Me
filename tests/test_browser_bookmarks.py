@@ -21,7 +21,7 @@ class BookmarkSearchPatternTests(unittest.TestCase):
 
 
 class BookmarkTranslationTests(unittest.TestCase):
-    password = "bookmark-i18n-test-password"
+    password = "test-only-bookmark-i18n-password"
 
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()

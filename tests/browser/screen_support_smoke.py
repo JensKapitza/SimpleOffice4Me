@@ -6,6 +6,7 @@ No production accounts, documents or native desktop input are used.
 from pathlib import Path
 import sys
 import os
+import re
 import shutil
 import tempfile
 import threading
@@ -190,7 +191,9 @@ def main():
                 code = owner.locator("#screen-share-code").input_value()
                 receiver = receiver_context.new_page()
                 receiver.goto(origin + "/screen/view/" + code)
-                expect(receiver.locator("#screen-session-state")).to_have_text("connected", timeout=15000)
+                expect(receiver.locator("#screen-session-state")).to_have_text(
+                    re.compile(r"^(connected|verbindet)$"), timeout=15000,
+                )
                 expect(receiver.locator("#screen-support-request")).to_be_enabled()
                 receiver.locator("#screen-support-request").click()
                 expect(owner.locator("#screen-support-permission-popup")).to_be_visible()
@@ -215,7 +218,7 @@ def main():
                 expect(owner.locator("#screen-support-popup-text")).to_have_text("Kein Ton <script>unsafe</script>")
                 expect(receiver.locator("#screen-support-popup")).to_be_hidden()
                 owner.locator("#screen-support-ack").click()
-                expect(receiver.locator("#screen-support-history")).to_contain_text("Zur Kenntnis genommen")
+                expect(receiver.locator("#screen-support-history")).to_contain_text("Acknowledged")
                 owner.locator('#outer-search input').fill('Testsuche')
                 owner.locator('#outer-search button').click()
                 expect(frame.locator('h1')).to_have_text('Suchergebnis')

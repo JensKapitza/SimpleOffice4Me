@@ -46,7 +46,7 @@ class TranslationReferenceCoverageTest(unittest.TestCase):
 
 
 class TranslationTemplateRenderTest(unittest.TestCase):
-    password = "i18n-coverage-test-password"
+    password = "test-only-i18n-coverage-password"
 
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
