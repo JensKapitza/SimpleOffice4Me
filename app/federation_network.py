@@ -61,13 +61,13 @@ def bootstrap_raw() -> list[str]:
 
 
 def allow_private_targets() -> bool:
-    raw = _store.get(SECTION, "allow_private_targets", None)
-    return True if raw is None else str(raw).strip().casefold() in TRUE_VALUES
+    """LAN/VPN discovery is enabled without a second application firewall."""
+    return True
 
 
 def allow_loopback() -> bool:
-    raw = _store.get(SECTION, "allow_loopback", None)
-    return True if raw is None else str(raw).strip().casefold() in TRUE_VALUES
+    """Allow local federation tests and same-host peers."""
+    return True
 
 
 def refuse_bad_client() -> bool:
