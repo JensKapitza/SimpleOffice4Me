@@ -27,7 +27,7 @@ class RepositoryWorkspaceMarkupTests(unittest.TestCase):
         document = BeautifulSoup(template.read_text(encoding="utf-8"), "html.parser")
         board = document.find(id="rw-board")
         self.assertIsNotNone(board)
-        self.assertEqual("Statusspalten", board.get("aria-label"))
+        self.assertEqual("Status columns", board.get("aria-label"))
         self.assertEqual("region", board.get("role"))
 
 
