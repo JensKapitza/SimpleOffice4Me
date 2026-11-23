@@ -20,9 +20,10 @@ from werkzeug.utils import safe_join
 
 from .lan_proxy_config import (
     container_proxy_mode,
+    global_proxy_mode,
     lan_proxy_tls_directory,
+    runtime_lan_proxy_settings,
     validate_lan_proxy_tls_directory,
-    validate_lan_proxy_settings,
 )
 
 
@@ -246,7 +247,7 @@ class LanProxyRuntime:
     ) -> dict[str, str]:
         with self._operation_lock:
             try:
-                config = validate_lan_proxy_settings(settings)
+                config = runtime_lan_proxy_settings(settings)
                 if not config["enabled"]:
                     self.stop(state="disabled", message="LAN proxy is disabled")
                     return self.status()
@@ -259,8 +260,19 @@ class LanProxyRuntime:
                 backend_address = ipaddress.ip_address(backend_host)
                 if not backend_address.is_loopback or not 1 <= int(backend_port) <= 65535:
                     raise ValueError("LAN proxy backend must be a fixed loopback endpoint.")
-                if ipaddress.ip_address(config["bind_host"]).is_unspecified and not container_proxy_mode():
-                    raise ValueError("Wildcard LAN proxy binding is only allowed inside the Docker network namespace.")
+                if ipaddress.ip_address(config["bind_host"]).is_unspecified and not (
+                    container_proxy_mode() or global_proxy_mode()
+                ):
+                    raise ValueError(
+                        "Wildcard LAN proxy binding needs SIMPLEOFFICE_LAN_PROXY_GLOBAL=1 "
+                        "(or the Docker network namespace)."
+                    )
+                if ipaddress.ip_address(config["bind_host"]).is_unspecified:
+                    LOG.warning(
+                        "LAN proxy listening on all interfaces (%s:%s); "
+                        "restrict firewall access to trusted networks.",
+                        config["bind_host"], config["port"],
+                    )
                 tls_directory = lan_proxy_tls_directory()
                 tls = _tls_context(config["tls_cert"], config["tls_key"], document_root, tls_directory)
                 token = secrets.token_urlsafe(32)
@@ -398,14 +410,14 @@ class LanProxyRuntime:
 
     @staticmethod
     def _certificate_host(config: dict[str, Any]) -> str:
-        """Use the advertised Docker host for SANs when binding a wildcard."""
+        """Use the advertised public host for SANs when binding a wildcard."""
         host = str(config["bind_host"])
         if not ipaddress.ip_address(host).is_unspecified:
             return host
         advertised = LanProxyRuntime._public_host(config)
         hostname = urlsplit(f"https://{advertised}").hostname
         if not hostname:
-            raise ValueError("Docker LAN proxy public host is not a valid TLS identity")
+            raise ValueError("LAN proxy public host is not a valid TLS identity")
         return hostname
 
     @staticmethod
@@ -415,13 +427,13 @@ class LanProxyRuntime:
         if ipaddress.ip_address(host).is_unspecified:
             advertised = os.environ.get("SIMPLEOFFICE_LAN_PROXY_PUBLIC_HOST", "").strip()
             if not advertised:
-                raise ValueError("Docker LAN proxy requires SIMPLEOFFICE_LAN_PROXY_PUBLIC_HOST")
+                raise ValueError("LAN proxy with wildcard binding requires SIMPLEOFFICE_LAN_PROXY_PUBLIC_HOST")
             try:
                 public_port = int(os.environ.get("SIMPLEOFFICE_LAN_PROXY_PUBLIC_PORT", str(public_port)))
             except ValueError as exc:
-                raise ValueError("Docker LAN proxy public port must be numeric") from exc
+                raise ValueError("LAN proxy public port must be numeric") from exc
             if not 1 <= public_port <= 65535:
-                raise ValueError("Docker LAN proxy public port is outside the TCP port range")
+                raise ValueError("LAN proxy public port is outside the TCP port range")
             try:
                 address = ipaddress.ip_address(advertised)
             except ValueError:
@@ -429,11 +441,11 @@ class LanProxyRuntime:
                     r"(?=.{1,253}\Z)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(?:\.(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?))*",
                     advertised,
                 ):
-                    raise ValueError("Docker LAN proxy public host must be an IP address or DNS name")
+                    raise ValueError("LAN proxy public host must be an IP address or DNS name")
                 host = advertised.lower()
             else:
                 if address.is_unspecified or address.is_multicast or not (address.is_private or address.is_loopback):
-                    raise ValueError("Docker LAN proxy public IP must be private")
+                    raise ValueError("LAN proxy public IP must be private")
                 host = str(address)
         if ":" in host and not host.startswith("["):
             host = f"[{host}]"

@@ -164,3 +164,31 @@ class StartScriptTests(unittest.TestCase):
             self.assertIn(f'family == "{family}"', script)
         for tool in ("clamdscan", "freshclam", "magick", "pdftoppm", "ffmpeg", "libreoffice"):
             self.assertIn(tool, script)
+
+    def test_help_lists_global_bind_options(self):
+        root = Path(__file__).resolve().parents[1]
+        result = subprocess.run(["bash", str(root / "start.sh"), "--help"], cwd=root, text=True, capture_output=True, check=False)
+
+        self.assertEqual(0, result.returncode)
+        self.assertIn("--global", result.stdout)
+        self.assertIn("--proxy-bind", result.stdout)
+        self.assertIn("--proxy-port", result.stdout)
+
+    def test_proxy_port_is_validated_before_starting(self):
+        root = Path(__file__).resolve().parents[1]
+        too_small = subprocess.run(["bash", str(root / "start.sh"), "--proxy-port", "80"], cwd=root, text=True, capture_output=True, check=False)
+        not_numeric = subprocess.run(["bash", str(root / "start.sh"), "--proxy-port", "abc"], cwd=root, text=True, capture_output=True, check=False)
+
+        self.assertEqual(2, too_small.returncode)
+        self.assertIn("zwischen 1024 und 65535", too_small.stderr)
+        self.assertEqual(2, not_numeric.returncode)
+        self.assertIn("ganze Zahl", not_numeric.stderr)
+
+    def test_global_flag_exports_bind_settings(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "start.sh").read_text(encoding="utf-8")
+
+        flag = script.index("--global)")
+        self.assertIn('SIMPLEOFFICE_HOST="0.0.0.0"', script[flag:flag + 600])
+        self.assertIn('SIMPLEOFFICE_LAN_PROXY_GLOBAL="1"', script[flag:flag + 600])
+        self.assertIn('SIMPLEOFFICE_LAN_PROXY_BIND_HOST="0.0.0.0"', script[flag:flag + 600])

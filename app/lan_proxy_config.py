@@ -22,13 +22,21 @@ MAX_LAN_PROXY_PORT = 65535
 _TLS_FILE_PATH = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,511}$")
 
 
+def _env_toggle(name: str) -> bool:
+    return os.environ.get(name, "").strip().casefold() in {"1", "true", "yes", "on"}
+
+
 def container_proxy_mode() -> bool:
-    return os.environ.get("SIMPLEOFFICE_LAN_PROXY_CONTAINER_MODE", "").strip().casefold() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    return _env_toggle("SIMPLEOFFICE_LAN_PROXY_CONTAINER_MODE")
+
+
+def global_proxy_mode() -> bool:
+    """Explicit opt-in to listen on all interfaces (0.0.0.0/::).
+
+    Default off: wildcard binding is a deliberate, visible decision because
+    it exposes the proxy beyond loopback/private networks.
+    """
+    return _env_toggle("SIMPLEOFFICE_LAN_PROXY_GLOBAL")
 
 
 def lan_proxy_tls_directory() -> Path:
@@ -65,7 +73,12 @@ def _host(value: Any) -> str:
     if address.is_unspecified:
         if isinstance(address, ipaddress.IPv4Address) and container_proxy_mode():
             return address.compressed
-        raise ValueError("Wildcard LAN proxy binding is reserved for the Docker network namespace.")
+        if global_proxy_mode():
+            return address.compressed
+        raise ValueError(
+            "Wildcard LAN proxy binding needs SIMPLEOFFICE_LAN_PROXY_GLOBAL=1 "
+            "(or the Docker network namespace)."
+        )
     if address.is_multicast or not (address.is_loopback or address.is_private):
         raise ValueError("Die LAN-Proxy-Bind-Adresse muss Loopback oder eine private IP-Adresse sein.")
     return str(address)
@@ -149,3 +162,22 @@ def validate_lan_proxy_settings(values: Any) -> dict[str, Any]:
     if result["tls_cert"] == result["tls_key"] and result["tls_cert"]:
         raise ValueError("TLS-Zertifikat und Privatschlüssel müssen verschiedene Dateien sein.")
     return result
+
+
+def runtime_lan_proxy_settings(values: Any) -> dict[str, Any]:
+    """Strict settings for process start with environment overrides.
+
+    ``SIMPLEOFFICE_LAN_PROXY_BIND_HOST`` and ``SIMPLEOFFICE_LAN_PROXY_PORT``
+    win over persisted settings (start.sh ``--global``/``--proxy-bind``/
+    ``--proxy-port``); invalid values raise instead of falling back.
+    The admin save path keeps using :func:`validate_lan_proxy_settings`
+    without overrides.
+    """
+    section = dict(values) if isinstance(values, dict) else {}
+    bind_host = os.environ.get("SIMPLEOFFICE_LAN_PROXY_BIND_HOST", "").strip()
+    if bind_host:
+        section["bind_host"] = bind_host
+    proxy_port = os.environ.get("SIMPLEOFFICE_LAN_PROXY_PORT", "").strip()
+    if proxy_port:
+        section["port"] = proxy_port
+    return validate_lan_proxy_settings(section)
