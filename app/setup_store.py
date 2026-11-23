@@ -26,14 +26,14 @@ class SetupStore:
         item = users.get(username, {}) if isinstance(users, dict) else {}
         return {
             "completed": item.get("completed") is True,
-            "platform": item.get("platform") if item.get("platform") in {"windows", "linux"} else "windows",
+            "platform": item.get("platform") if item.get("platform") in {"windows", "linux", "macos"} else "windows",
             "completed_at": str(item.get("completed_at", "")),
         }
 
     def complete(self, username: str, platform: str, actor: str) -> dict:
         if username != actor:
             raise ValueError("Der Einrichtungsstatus darf nur für das eigene Konto geändert werden.")
-        if platform not in {"windows", "linux"}:
+        if platform not in {"windows", "linux", "macos"}:
             raise ValueError("Unbekanntes Betriebssystem.")
         now = utc_now()
         with exclusive_file_lock(self.lock):
