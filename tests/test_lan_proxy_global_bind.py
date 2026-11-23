@@ -28,6 +28,8 @@ class GlobalBindTests(unittest.TestCase):
             os.environ.pop("SIMPLEOFFICE_LAN_PROXY_GLOBAL", None)
             os.environ.pop("SIMPLEOFFICE_LAN_PROXY_CONTAINER_MODE", None)
             self.assertFalse(global_proxy_mode())
+            with self.assertRaisesRegex(ValueError, "--global"):
+                validate_lan_proxy_settings(_settings(bind_host="0.0.0.0"))
             with self.assertRaisesRegex(ValueError, "SIMPLEOFFICE_LAN_PROXY_GLOBAL"):
                 validate_lan_proxy_settings(_settings(bind_host="0.0.0.0"))
 

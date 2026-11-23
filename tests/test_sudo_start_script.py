@@ -23,7 +23,7 @@ class SudoStartScriptTests(unittest.TestCase):
         result = run("--help")
         self.assertEqual(0, result.returncode)
         for token in ("--port", "--proxy-port", "--open-firewall",
-                      "--print-command", "sudo", "su"):
+                      "--print-command", "--proxy-public-host", "sudo", "su"):
             self.assertIn(token, result.stdout)
 
     def test_invalid_ports_are_rejected(self):

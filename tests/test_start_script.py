@@ -173,6 +173,9 @@ class StartScriptTests(unittest.TestCase):
         self.assertIn("--global", result.stdout)
         self.assertIn("--proxy-bind", result.stdout)
         self.assertIn("--proxy-port", result.stdout)
+        self.assertIn("--proxy-public-host", result.stdout)
+        self.assertIn("--proxy-public-port", result.stdout)
+        self.assertIn("sudo-start.sh", result.stdout)
 
     def test_proxy_port_is_validated_before_starting(self):
         root = Path(__file__).resolve().parents[1]
@@ -181,6 +184,16 @@ class StartScriptTests(unittest.TestCase):
 
         self.assertEqual(2, too_small.returncode)
         self.assertIn("zwischen 1024 und 65535", too_small.stderr)
+        self.assertEqual(2, not_numeric.returncode)
+        self.assertIn("ganze Zahl", not_numeric.stderr)
+
+    def test_proxy_public_port_is_validated_before_starting(self):
+        root = Path(__file__).resolve().parents[1]
+        too_big = subprocess.run(["bash", str(root / "start.sh"), "--proxy-public-port", "70000"], cwd=root, text=True, capture_output=True, check=False)
+        not_numeric = subprocess.run(["bash", str(root / "start.sh"), "--proxy-public-port", "abc"], cwd=root, text=True, capture_output=True, check=False)
+
+        self.assertEqual(2, too_big.returncode)
+        self.assertIn("zwischen 1 und 65535", too_big.stderr)
         self.assertEqual(2, not_numeric.returncode)
         self.assertIn("ganze Zahl", not_numeric.stderr)
 

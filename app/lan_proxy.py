@@ -264,8 +264,8 @@ class LanProxyRuntime:
                     container_proxy_mode() or global_proxy_mode()
                 ):
                     raise ValueError(
-                        "Wildcard LAN proxy binding needs SIMPLEOFFICE_LAN_PROXY_GLOBAL=1 "
-                        "(or the Docker network namespace)."
+                        "Wildcard LAN proxy binding needs --global "
+                        "(SIMPLEOFFICE_LAN_PROXY_GLOBAL=1) or the Docker network namespace."
                     )
                 if ipaddress.ip_address(config["bind_host"]).is_unspecified:
                     LOG.warning(
@@ -427,7 +427,10 @@ class LanProxyRuntime:
         if ipaddress.ip_address(host).is_unspecified:
             advertised = os.environ.get("SIMPLEOFFICE_LAN_PROXY_PUBLIC_HOST", "").strip()
             if not advertised:
-                raise ValueError("LAN proxy with wildcard binding requires SIMPLEOFFICE_LAN_PROXY_PUBLIC_HOST")
+                raise ValueError(
+                    "LAN proxy with wildcard binding requires --proxy-public-host "
+                    "(SIMPLEOFFICE_LAN_PROXY_PUBLIC_HOST)"
+                )
             try:
                 public_port = int(os.environ.get("SIMPLEOFFICE_LAN_PROXY_PUBLIC_PORT", str(public_port)))
             except ValueError as exc:

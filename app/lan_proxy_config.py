@@ -76,8 +76,8 @@ def _host(value: Any) -> str:
         if global_proxy_mode():
             return address.compressed
         raise ValueError(
-            "Wildcard LAN proxy binding needs SIMPLEOFFICE_LAN_PROXY_GLOBAL=1 "
-            "(or the Docker network namespace)."
+            "Wildcard LAN proxy binding needs --global "
+            "(SIMPLEOFFICE_LAN_PROXY_GLOBAL=1) or the Docker network namespace."
         )
     if address.is_multicast or not (address.is_loopback or address.is_private):
         raise ValueError("Die LAN-Proxy-Bind-Adresse muss Loopback oder eine private IP-Adresse sein.")

@@ -26,8 +26,11 @@ Eigene Optionen:
   --help              Diese Hilfe anzeigen
 
 Beispiele:
-  ./sudo-start.sh --global --port 80 --open-firewall
+  ./sudo-start.sh --global --port 80 --proxy-public-host office.meinnetz.de --open-firewall
   ./sudo-start.sh --port 443 --proxy-port 8443 --print-command
+
+Alle weiteren Optionen (z. B. --global, --proxy-bind, --proxy-public-host)
+werden an start.sh weitergereicht; siehe ./start.sh --help.
 
 Hinweise: Ports unter 1024 brauchen Root (sudo, sonst su). Die Eskalation
 fragt ggf. nach einem Passwort. Umgebungsvariablen werden nicht über die
@@ -78,16 +81,17 @@ needs_root() {
   [ "$OPEN_FIREWALL" -eq 1 ] && [ "$(firewall_backend)" != "manual" ]
 }
 
-# Echoes: none | sudo | su. SUDO_START_FORCE overrides for tests.
+# Echoes: none | sudo | su. SUDO_START_FORCE overrides for tests and
+# wins over uid auto-detection so dry-runs stay deterministic as root.
 select_escalation() {
-  if [ "${SUDO_START_FORCE:-}" = "none" ] || [ "$(id -u)" -eq 0 ]; then
-    echo "none"; return 0
-  fi
   if [ -n "${SUDO_START_FORCE:-}" ]; then
     case "$SUDO_START_FORCE" in
-      sudo|su) echo "$SUDO_START_FORCE"; return 0 ;;
+      none|sudo|su) echo "$SUDO_START_FORCE"; return 0 ;;
       *) fail "SUDO_START_FORCE muss none, sudo oder su sein." ;;
     esac
+  fi
+  if [ "$(id -u)" -eq 0 ]; then
+    echo "none"; return 0
   fi
   needs_root || { echo "none"; return 0; }
   if command -v sudo >/dev/null 2>&1 && {
