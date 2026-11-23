@@ -30,6 +30,15 @@
   {% block styles %}{% endblock %}
   {% if v3_search_enabled %}<link rel="stylesheet" href="{{ url_for('static', filename='css/v3_command_palette.css') }}">{% endif %}
   <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+  <script>
+    (() => {
+      const language = document.documentElement.lang === "de" ? "de" : "en";
+      window.SimpleOfficeI18n = Object.freeze({
+        language,
+        text(german, english) { return language === "de" ? german : english; },
+      });
+    })();
+  </script>
   {% block script %}{% endblock %}
 </head>
 <body>

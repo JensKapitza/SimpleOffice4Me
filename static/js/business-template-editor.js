@@ -1,5 +1,6 @@
 (() => {
   'use strict';
+  const text = (german, english) => window.SimpleOfficeI18n?.text(german, english) ?? english;
 
   const shell = document.querySelector('[data-template-editor]');
   if (!shell) return;
@@ -204,19 +205,19 @@
       if (element.type === 'image') {
         node.classList.add('image-template-element');
         const image = document.createElement('img');
-        image.alt = 'Vorlagenbild';
+        image.alt = text('Vorlagenbild', 'Template image');
         image.draggable = false;
         image.src = assetUrlTemplate.replace('__ASSET__', encodeURIComponent(element.asset || ''));
         node.appendChild(image);
       } else if (element.type === 'invoice_lines') {
         node.classList.add('dynamic-template-element');
-        node.textContent = 'Rechnungspositionen / Tabelle';
+        node.textContent = text('Rechnungspositionen / Tabelle', 'Invoice line items / table');
       } else if (element.type === 'invoice_totals') {
         node.classList.add('dynamic-template-element');
-        node.textContent = 'Summen / Gesamtbetrag';
+        node.textContent = text('Summen / Gesamtbetrag', 'Totals / gross amount');
       } else if (element.type === 'body') {
         node.classList.add('dynamic-template-element');
-        node.textContent = 'Dokumenttext / Fließtext';
+        node.textContent = text('Dokumenttext / Fließtext', 'Document text / body');
       } else if (!['line', 'rect'].includes(element.type)) {
         renderElementText(node, element.text || '');
       }
@@ -567,7 +568,7 @@
           },
         });
         const result = await response.json();
-        if (!response.ok || !result.ok) throw new Error(result.error || 'Bild konnte nicht hochgeladen werden');
+        if (!response.ok || !result.ok) throw new Error(result.error || text('Bild konnte nicht hochgeladen werden', 'Could not upload image'));
         const item = {
           id: makeId('image'),
           type: 'image',
@@ -587,7 +588,7 @@
         selectElement(item.id);
         commitHistory();
       } catch (error) {
-        window.alert(error instanceof Error ? error.message : 'Bild konnte nicht hochgeladen werden');
+        window.alert(error instanceof Error ? error.message : text('Bild konnte nicht hochgeladen werden', 'Could not upload image'));
       } finally {
         imageUpload.value = '';
         imageUpload.disabled = false;

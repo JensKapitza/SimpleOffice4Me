@@ -15,6 +15,7 @@ from werkzeug.exceptions import NotFound
 
 from .auth import login_required
 from .db import get_db
+from .settings_store import translate
 
 
 bp = Blueprint("browser_bookmarks", __name__, url_prefix="/bookmarks")
@@ -51,7 +52,8 @@ def _ensure_schema() -> None:
 def _clean(value, label: str, limit: int) -> str:
     result = str(value or "").strip()
     if len(result.encode("utf-8")) > limit or any(unicodedata.category(c).startswith("C") for c in result):
-        raise ValueError(f"{label}: ungültig oder zu lang.")
+        field = {"Suche": "search", "Titel": "title", "URL": "url", "Ordner": "folder", "Schlagwörter": "tags"}.get(label, "value")
+        raise ValueError(f"{translate(g.language, f'bookmarks.field.{field}')}: {translate(g.language, 'bookmarks.error.invalid_or_too_long')}")
     return result
 
 
@@ -62,9 +64,9 @@ def _valid_url(value) -> str:
         hostname = parsed.hostname
         _ = parsed.port
     except ValueError as exc:
-        raise ValueError("Nur gültige http://- und https://-Links sind erlaubt.") from exc
+        raise ValueError(translate(g.language, "bookmarks.error.valid_http_url")) from exc
     if parsed.scheme.lower() not in {"http", "https"} or not hostname or parsed.username is not None or parsed.password is not None:
-        raise ValueError("Nur gültige http://- und https://-Links ohne Zugangsdaten sind erlaubt.")
+        raise ValueError(translate(g.language, "bookmarks.error.valid_http_url_no_credentials"))
     return url
 
 
@@ -99,7 +101,7 @@ def index():
         query = _clean(request.args.get("q"), "Suche", 200)
     except ValueError:
         query = ""
-        flash("Der Suchtext ist ungültig oder zu lang.")
+        flash(translate(g.language, "bookmarks.error.search_invalid"))
     db = get_db()
     if query:
         pattern = _search_pattern(query)
@@ -126,13 +128,13 @@ def add():
         tags = _clean(request.form.get("tags"), "Schlagwörter", 500)
         get_db().execute("INSERT INTO browser_bookmark(id,user_id,title,url,folder,tags) VALUES(?,?,?,?,?,?)", (secrets.token_urlsafe(18), _user_id(), title, url, folder, tags))
         get_db().commit()
-        flash("Lesezeichen gespeichert.")
+        flash(translate(g.language, "bookmarks.saved"))
     except ValueError as exc:
         flash(str(exc))
     except sqlite3.IntegrityError as exc:
         # The unique key makes repeated imports/adds harmless.
         if "UNIQUE constraint failed" in str(exc):
-            flash("Dieses Lesezeichen ist in diesem Ordner bereits vorhanden.")
+            flash(translate(g.language, "bookmarks.error.duplicate"))
         else:
             raise
     return _index_redirect()
@@ -151,12 +153,12 @@ def update(bookmark_id):
         get_db().commit()
         if not cur.rowcount:
             abort(404)
-        flash("Lesezeichen aktualisiert.")
+        flash(translate(g.language, "bookmarks.updated"))
     except ValueError as exc:
         flash(str(exc))
     except sqlite3.IntegrityError as exc:
         if "UNIQUE constraint failed" in str(exc):
-            flash("Dieses Lesezeichen ist in diesem Ordner bereits vorhanden.")
+            flash(translate(g.language, "bookmarks.error.duplicate"))
         else:
             raise
     return _index_redirect()
@@ -170,7 +172,7 @@ def delete(bookmark_id):
     get_db().commit()
     if not cur.rowcount:
         abort(404)
-    flash("Lesezeichen gelöscht.")
+    flash(translate(g.language, "bookmarks.deleted"))
     return _index_redirect()
 
 
@@ -241,17 +243,17 @@ def import_firefox():
     _ensure_schema()
     upload = request.files.get("file")
     if upload is None:
-        flash("Bitte eine Firefox-Lesezeichen-HTML-Datei auswählen.")
+        flash(translate(g.language, "bookmarks.import.select_file"))
         return redirect(url_for("browser_bookmarks.index"))
     data = upload.stream.read(MAX_IMPORT_BYTES + 1)
     if len(data) > MAX_IMPORT_BYTES:
-        flash("Die Importdatei ist größer als 2 MiB.")
+        flash(translate(g.language, "bookmarks.import.file_too_large"))
         return redirect(url_for("browser_bookmarks.index"))
     try:
         parser = _FirefoxParser()
         parser.feed(data.decode("utf-8-sig", errors="replace"))
         if parser.too_many:
-            raise ValueError("Die Datei enthält mehr als 5.000 Lesezeichen.")
+            raise ValueError(translate(g.language, "bookmarks.import.too_many"))
         db = get_db()
         valid = []
         invalid = 0
@@ -267,7 +269,7 @@ def import_firefox():
             valid.append({"title": title, "url": href, "folder": folder, "tags": tags})
         serialized = json.dumps(valid, ensure_ascii=False, separators=(",", ":"))
         if len(serialized.encode("utf-8")) > MAX_DRAFT_BYTES:
-            raise ValueError("Die aufbereiteten Lesezeichen überschreiten das Größenlimit.")
+            raise ValueError(translate(g.language, "bookmarks.import.data_too_large"))
         import_id = secrets.token_urlsafe(24)
         db.execute("DELETE FROM browser_bookmark_import WHERE user_id=?", (_user_id(),))
         db.execute("INSERT INTO browser_bookmark_import(import_id,user_id,payload,invalid_count,expires_at) VALUES(?,?,?,?,?)", (import_id,_user_id(),serialized,invalid,int(time.time())+IMPORT_DRAFT_TTL))
@@ -276,7 +278,7 @@ def import_firefox():
         return redirect(url_for("browser_bookmarks.import_preview"))
     except (UnicodeError, ValueError) as exc:
         get_db().rollback()
-        flash(f"Import fehlgeschlagen: {exc}")
+        flash(translate(g.language, "bookmarks.import.failed").format(error=exc))
     return redirect(url_for("browser_bookmarks.index"))
 
 
@@ -301,7 +303,7 @@ def import_preview():
     try:
         draft, items = _current_import_draft()
     except NotFound:
-        flash("Es gibt keine aktive Importvorschau. Bitte wähle die Firefox-Datei erneut aus.")
+        flash(translate(g.language, "bookmarks.import.preview_missing"))
         return redirect(url_for("browser_bookmarks.index"))
     existing = {
         (row["url"], row["folder"])
@@ -346,7 +348,7 @@ def import_confirm():
         db.rollback()
         raise
     session.pop("browser_bookmark_import_id", None)
-    flash(f"Import abgeschlossen: {added} neu, {skipped} übersprungen.")
+    flash(translate(g.language, "bookmarks.import.complete").format(added=added, skipped=skipped))
     return redirect(url_for("browser_bookmarks.index"))
 
 
@@ -358,7 +360,7 @@ def import_cancel():
     if isinstance(import_id, str):
         get_db().execute("DELETE FROM browser_bookmark_import WHERE import_id=? AND user_id=?", (import_id,_user_id()))
         get_db().commit()
-    flash("Importvorschau verworfen.")
+    flash(translate(g.language, "bookmarks.import.discarded"))
     return redirect(url_for("browser_bookmarks.index"))
 
 

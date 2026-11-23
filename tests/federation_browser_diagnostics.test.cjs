@@ -131,3 +131,22 @@ test("declining manual confirmation leaves the state unchanged", async () => {
   assert.equal(page.status.textContent, "Client: ungeprüft");
   assert.equal(requests.length, 0);
 });
+
+test("browser diagnostics use English messages for an English page", () => {
+  const originalDocument = global.document;
+  const modulePath = require.resolve("../static/js/federation_browser_diagnostics.js");
+  global.document = {documentElement: {lang: "en"}};
+  delete require.cache[modulePath];
+  const englishApi = require(modulePath);
+  if (originalDocument === undefined) delete global.document;
+  else global.document = originalDocument;
+
+  const status = {dataset: {peerBrowserStatus: "peer-a"}, textContent: ""};
+  const listeners = new Map();
+  const button = {dataset: {peerOpen: "peer-a", peerUrl: "javascript:alert(1)"},
+    addEventListener: (_event, listener) => listeners.set("open", listener)};
+  englishApi.install({querySelectorAll: selector => selector === "[data-peer-browser-status]" ? [status]
+    : selector === "[data-peer-open]" ? [button] : []}, {URL, open() {}});
+  listeners.get("open")();
+  assert.equal(status.textContent, "Client: cannot assess (invalid peer address); no connection evidence");
+});

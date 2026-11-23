@@ -3,6 +3,7 @@
 
   const root = document.getElementById('shopping-app');
   if (!root) return;
+  const tx = (german, english) => window.SimpleOfficeI18n?.text(german, english) ?? (document.documentElement.lang === 'de' ? german : english);
 
   const barcode = document.getElementById('shopping-barcode');
   const name = document.getElementById('shopping-name');
@@ -66,7 +67,7 @@
   const applyKnown = (payload) => {
     if (!payload?.known || !payload.item) {
       if (!photoInput?.files?.length) showPhoto();
-      setStatus('Barcode ist gültig, aber lokal noch unbekannt. Bitte Bezeichnung eintragen.', 'info');
+      setStatus(tx('Barcode ist gültig, aber lokal noch unbekannt. Bitte Bezeichnung eintragen.', 'This barcode is valid but not known locally. Enter a name.'), 'info');
       name?.focus();
       return;
     }
@@ -83,13 +84,13 @@
       if (item.photo_url) showPhoto(item.photo_url, item.photo_id || '');
       else showPhoto();
     }
-    setStatus(`Lokal erkannt: ${item.name || payload.barcode}. Bitte kurz prüfen.`, 'success');
+    setStatus(`${tx('Lokal erkannt:', 'Recognized locally:')} ${item.name || payload.barcode}. ${tx('Bitte kurz prüfen.', 'Please check it.')}`, 'success');
   };
 
   const lookup = async () => {
     const code = String(barcode?.value || '').trim();
     if (!code) {
-      setStatus('Barcode eingeben oder scannen.', 'warning');
+      setStatus(tx('Barcode eingeben oder scannen.', 'Enter or scan a barcode.'), 'warning');
       barcode?.focus();
       return false;
     }
@@ -100,14 +101,14 @@
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        setStatus(payload.error || 'Barcode ist ungültig.', 'warning');
+        setStatus(payload.error || tx('Barcode ist ungültig.', 'Invalid barcode.'), 'warning');
         return false;
       }
       if (barcode) barcode.value = payload.barcode || code;
       applyKnown(payload);
       return true;
     } catch (_error) {
-      setStatus(navigator.onLine === false ? 'Offline: Barcode bleibt im Formular und kann manuell verwendet werden.' : 'Barcode-Prüfung fehlgeschlagen.', 'warning');
+      setStatus(navigator.onLine === false ? tx('Offline: Barcode bleibt im Formular und kann manuell verwendet werden.', 'Offline: the barcode remains in the form and can be used manually.') : tx('Barcode-Prüfung fehlgeschlagen.', 'Barcode lookup failed.'), 'warning');
       return false;
     }
   };
@@ -129,7 +130,7 @@
       const found = (codes || []).find((entry) => String(entry.rawValue || "").trim());
       if (!found) return false;
       barcode.value = String(found.rawValue).trim();
-      setStatus(`Barcode aus dem Foto gelesen: ${barcode.value}. Bitte kurz prüfen.`, "success");
+      setStatus(`${tx('Barcode aus dem Foto gelesen:', 'Read barcode from photo:')} ${barcode.value}. ${tx('Bitte kurz prüfen.', 'Please check it.')}`, "success");
       await lookup();
       return true;
     } catch (_error) {
@@ -153,7 +154,7 @@
           return;
         }
       } catch (_error) {
-        setStatus('Kamera konnte den Barcode nicht lesen. Du kannst ihn weiterhin manuell eingeben.', 'warning');
+        setStatus(tx('Kamera konnte den Barcode nicht lesen. Du kannst ihn weiterhin manuell eingeben.', 'The camera could not read the barcode. You can still enter it manually.'), 'warning');
       }
     }
     if (scanning && generation === cameraGeneration) {
@@ -163,11 +164,11 @@
 
   const startCamera = async () => {
     if (!barcode || !video || !navigator.mediaDevices?.getUserMedia) {
-      setStatus('Kamera-Scan wird von diesem Browser nicht unterstützt (HTTPS kann erforderlich sein). Barcode bitte manuell eingeben.', 'warning');
+      setStatus(tx('Kamera-Scan wird von diesem Browser nicht unterstützt (HTTPS kann erforderlich sein). Barcode bitte manuell eingeben.', 'Camera scanning is not supported by this browser (HTTPS may be required). Enter the barcode manually.'), 'warning');
       return;
     }
     if (!('BarcodeDetector' in window)) {
-      setStatus('Dieser Browser hat keinen lokalen Barcode-Decoder. Barcode bitte manuell eingeben.', 'warning');
+      setStatus(tx('Dieser Browser hat keinen lokalen Barcode-Decoder. Barcode bitte manuell eingeben.', 'This browser has no local barcode decoder. Enter the barcode manually.'), 'warning');
       return;
     }
     stopCamera();
@@ -197,19 +198,19 @@
       stopButton.hidden = false;
       scanning = true;
       lastDetection = 0;
-      setStatus('Kamera aktiv. EAN/UPC-Code in den Bildausschnitt halten.', 'primary');
+      setStatus(tx('Kamera aktiv. EAN/UPC-Code in den Bildausschnitt halten.', 'Camera is active. Hold the EAN/UPC code in view.'), 'primary');
       window.requestAnimationFrame((next) => detectLoop(next, generation));
     } catch (error) {
       if (generation !== cameraGeneration) return;
       stopCamera();
       setStatus(
         error?.name === 'NotAllowedError'
-          ? 'Kamerazugriff verweigert. Bitte die Kameraberechtigung im Browser freigeben.'
+          ? tx('Kamerazugriff verweigert. Bitte die Kameraberechtigung im Browser freigeben.', 'Camera access was denied. Allow camera access in your browser.')
           : error?.name === 'NotFoundError'
-          ? 'Keine Kamera gefunden. Barcode bitte manuell eingeben oder als Foto wählen.'
+          ? tx('Keine Kamera gefunden. Barcode bitte manuell eingeben oder als Foto wählen.', 'No camera found. Enter the barcode manually or choose a photo.')
           : error?.name === 'NotReadableError'
-          ? 'Kamera ist belegt (anderer Tab?). Barcode bitte manuell eingeben oder als Foto wählen.'
-          : 'Kamera oder Barcode-Erkennung ist nicht verfügbar (HTTPS oder Browserberechtigung prüfen). Manuelle Eingabe bleibt möglich.',
+          ? tx('Kamera ist belegt (anderer Tab?). Barcode bitte manuell eingeben oder als Foto wählen.', 'Camera is in use (another tab?). Enter the barcode manually or choose a photo.')
+          : tx('Kamera oder Barcode-Erkennung ist nicht verfügbar (HTTPS oder Browserberechtigung prüfen). Manuelle Eingabe bleibt möglich.', 'Camera or barcode detection is unavailable (check HTTPS or browser permissions). Manual entry is still available.'),
         'warning',
       );
     }
@@ -307,9 +308,9 @@
     }
     if (!writeQueue(remaining)) return;
     if (!remaining.length && !rejected) {
-      setStatus('Offline gespeicherte Einkäufe wurden synchronisiert.', 'success');
+      setStatus(tx('Offline gespeicherte Einkäufe wurden synchronisiert.', 'Offline purchases were synced.'), 'success');
     } else if (rejected) {
-      setStatus('Mindestens ein offline gespeicherter Einkauf wurde vom Server abgelehnt und bleibt lokal vorgemerkt.', 'warning');
+      setStatus(tx('Mindestens ein offline gespeicherter Einkauf wurde vom Server abgelehnt und bleibt lokal vorgemerkt.', 'At least one offline purchase was rejected by the server and remains saved locally.'), 'warning');
     }
   };
 
@@ -320,7 +321,7 @@
       if (hasNewPhoto) {
         if (navigator.onLine === false) {
           event.preventDefault();
-          setStatus('Das Produktfoto kann offline nicht sicher vorgemerkt werden. Bitte mit Verbindung senden oder das Foto entfernen.', 'warning');
+          setStatus(tx('Das Produktfoto kann offline nicht sicher vorgemerkt werden. Bitte mit Verbindung senden oder das Foto entfernen.', 'The product photo cannot be safely queued offline. Reconnect before sending or remove the photo.'), 'warning');
         }
         return;
       }
@@ -329,10 +330,10 @@
       event.preventDefault();
       if (navigator.onLine === false) {
         if (enqueue(entry)) {
-          setStatus('Offline gespeichert. Der Eintrag wird bei wiederhergestellter Verbindung gesendet.', 'info');
+          setStatus(tx('Offline gespeichert. Der Eintrag wird bei wiederhergestellter Verbindung gesendet.', 'Saved offline. The item will be sent when the connection is restored.'), 'info');
           resetQueuedForm();
         } else {
-          setStatus('Offline-Speicherung ist in diesem Browser nicht verfügbar.', 'warning');
+          setStatus(tx('Offline-Speicherung ist in diesem Browser nicht verfügbar.', 'Offline storage is not available in this browser.'), 'warning');
         }
         return;
       }
@@ -342,13 +343,13 @@
           window.location.assign(result.url || window.location.href);
           return;
         }
-        setStatus('Der Server hat den Einkauf abgelehnt. Bitte Eingaben prüfen.', 'warning');
+        setStatus(tx('Der Server hat den Einkauf abgelehnt. Bitte Eingaben prüfen.', 'The server rejected the purchase. Check the entered details.'), 'warning');
       } catch (_error) {
         if (enqueue(entry)) {
-          setStatus('Verbindung abgebrochen. Der Einkauf wurde lokal vorgemerkt.', 'info');
+          setStatus(tx('Verbindung abgebrochen. Der Einkauf wurde lokal vorgemerkt.', 'Connection lost. The purchase was saved locally.'), 'info');
           resetQueuedForm();
         } else {
-          setStatus('Verbindung abgebrochen und lokale Speicherung ist nicht verfügbar.', 'warning');
+          setStatus(tx('Verbindung abgebrochen und lokale Speicherung ist nicht verfügbar.', 'Connection lost and local storage is unavailable.'), 'warning');
         }
       }
     });
@@ -362,7 +363,7 @@
     if (file.size > 8 * 1024 * 1024) {
       photoInput.value = '';
       showPhoto();
-      setStatus('Produktfoto ist größer als 8 MiB.', 'warning');
+      setStatus(tx('Produktfoto ist größer als 8 MiB.', 'Product photo is larger than 8 MiB.'), 'warning');
       return;
     }
     if (photoId) photoId.value = '';
@@ -372,7 +373,7 @@
     }
     if (photoClear) photoClear.hidden = false;
     decodePhotoFile(file).then((found) => {
-      if (!found) setStatus(`Produktfoto ausgewählt: ${file.name}. Es wird beim Hinzufügen lokal gespeichert.`, 'info');
+      if (!found) setStatus(`${tx('Produktfoto ausgewählt:', 'Product photo selected:')} ${file.name}. ${tx('Es wird beim Hinzufügen lokal gespeichert.', 'It will be saved locally when you add the item.')}`, 'info');
     });
   });
   photoClear?.addEventListener('click', () => {

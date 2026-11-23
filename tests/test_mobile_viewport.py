@@ -52,7 +52,8 @@ class MobileViewportRegressionTests(unittest.TestCase):
         self.assertIn('button.id = "android-history-back"', script)
         self.assertIn('window.history.back()', script)
         self.assertIn('window.location.assign("/")', script)
-        self.assertIn('aria-label", "Zurück"', script)
+        self.assertIn('SimpleOfficeI18n?.text("Zurück", "Back")', script)
+        self.assertIn("label.textContent = backLabel", script)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 (() => {
   'use strict';
+  const text = (german, english) => window.SimpleOfficeI18n?.text(german, english) ?? english;
   const el = id => document.getElementById(`screen-support-${id}`);
   if (!el('panel')) return;
   let active = null, timer = null, version = 0, consentRevision = 0, after = 0, commandCursor = 0;
@@ -7,12 +8,12 @@
   let state = {permission: 'none'}, fieldSignature = '', locallyRevoked = false;
   let popups = [], renderedFields = '', failures = 0, shownPopup = null;
   const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
-  const labels = {request: 'Eingaben wurden angefordert', grant: 'Eingaben erlaubt', deny: 'Eingaben abgelehnt',
-    revoke: 'Eingabefreigabe widerrufen', join: 'Gegenstelle verbunden', leave: 'Gegenstelle getrennt',
-    ended: 'Sitzung beendet', end: 'Sitzung beendet', notice: 'Hinweis', ack: 'Zur Kenntnis genommen', input: 'Anwendungsfeld angepasst', 'input-result': 'Feldeingabe verarbeitet'};
-  const error = err => { el('error').textContent = err?.message || 'Support-Verbindung fehlgeschlagen.'; };
+  const labels = {request: text('Eingaben wurden angefordert', 'Input access requested'), grant: text('Eingaben erlaubt', 'Input access granted'), deny: text('Eingaben abgelehnt', 'Input access denied'),
+    revoke: text('Eingabefreigabe widerrufen', 'Input access revoked'), join: text('Gegenstelle verbunden', 'Remote party connected'), leave: text('Gegenstelle getrennt', 'Remote party disconnected'),
+    ended: text('Sitzung beendet', 'Session ended'), end: text('Sitzung beendet', 'Session ended'), notice: text('Hinweis', 'Notice'), ack: text('Zur Kenntnis genommen', 'Acknowledged'), input: text('Anwendungsfeld angepasst', 'Application field changed'), 'input-result': text('Feldeingabe verarbeitet', 'Field input processed')};
+  const error = err => { el('error').textContent = err?.message || text('Support-Verbindung fehlgeschlagen.', 'Support connection failed.'); };
   const api = async (options = {}, context = active) => {
-    if (!context) throw new Error('Keine aktive Support-Sitzung.');
+    if (!context) throw new Error(text('Keine aktive Support-Sitzung.', 'No active support session.'));
     const headers = {'X-Screen-Code': context.code || ''};
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 10000);
@@ -21,7 +22,7 @@
       const suffix = options.body ? '' : `?role=${context.role}&after=${after}&after_command=${commandCursor}`;
       const response = await fetch(`/screen/api/sessions/${encodeURIComponent(context.id)}/support${suffix}`, {
         ...options, headers, signal: controller.signal, credentials: 'same-origin'});
-      if (!response.ok) throw new Error(`Support-Anfrage fehlgeschlagen (HTTP ${response.status}).`);
+      if (!response.ok) throw new Error(text(`Support-Anfrage fehlgeschlagen (HTTP ${response.status}).`, `Support request failed (HTTP ${response.status}).`));
       return await response.json();
     } finally { window.clearTimeout(timeout); }
   };
@@ -35,9 +36,9 @@
     el('send').disabled = !active;
     el('permission-popup').classList.toggle('d-none', !sender || state.permission !== 'requested');
     el('active-banner').classList.toggle('d-none', !sender || state.permission !== 'granted' || locallyRevoked);
-    el('status').textContent = !active ? 'Keine aktive Support-Sitzung. Verlauf bleibt verfügbar.' :
-      state.permission === 'requested' ? 'Eingaben wurden angefordert. Freigabe durch den Nutzer erforderlich.' :
-      state.permission === 'granted' ? (sender && locallyRevoked ? 'Eingaben lokal gesperrt. Freigabe widerrufen und erneut anfordern.' : 'Eingabefreigabe aktiv – nur angebotene Anwendungsfelder.') : 'Nur Ansicht. Keine Eingabefreigabe.';
+    el('status').textContent = !active ? text('Keine aktive Support-Sitzung. Verlauf bleibt verfügbar.', 'No active support session. History remains available.') :
+      state.permission === 'requested' ? text('Eingaben wurden angefordert. Freigabe durch den Nutzer erforderlich.', 'Input access was requested. User approval is required.') :
+      state.permission === 'granted' ? (sender && locallyRevoked ? text('Eingaben lokal gesperrt. Freigabe widerrufen und erneut anfordern.', 'Input is locally blocked. Revoke access and request it again.') : text('Eingabefreigabe aktiv – nur angebotene Anwendungsfelder.', 'Input access is active for offered application fields only.')) : text('Nur Ansicht. Keine Eingabefreigabe.', 'View only. No input access granted.');
   };
   const popup = () => {
     const current = popups[0];
@@ -75,7 +76,7 @@
     if (signature === renderedFields) return;
     renderedFields = signature; el('fields').replaceChildren();
     if (active?.role !== 'receiver' || state.permission !== 'granted') return;
-    if (!data.fields?.length) { el('fields').textContent = 'Auf dieser Anwendungsseite sind keine freigegebenen Felder verfügbar.'; return; }
+    if (!data.fields?.length) { el('fields').textContent = text('Auf dieser Anwendungsseite sind keine freigegebenen Felder verfügbar.', 'No approved fields are available on this application page.'); return; }
     for (const field of data.fields) {
       const row = document.createElement('div'), label = document.createElement('label');
       row.className = 'my-2'; label.className = 'form-label'; label.textContent = field.label;
@@ -85,7 +86,7 @@
       if (field.type === 'select') for (const choice of field.options || []) {
         const option = document.createElement('option'); option.value = choice.value; option.textContent = choice.label; input.appendChild(option);
       } else input.type = field.type === 'checkbox' ? 'checkbox' : 'text';
-      const button = document.createElement('button'); button.type = 'button'; button.className = 'btn btn-outline-primary mt-1'; button.textContent = 'Feld anpassen';
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'btn btn-outline-primary mt-1'; button.textContent = text('Feld anpassen', 'Update field');
       const context = active, generation = state.generation, epoch = data.epoch;
       button.addEventListener('click', async () => {
         if (active !== context || state.permission !== 'granted' || state.generation !== generation) return;
@@ -114,7 +115,7 @@
         if (!locallyRevoked && state.permission === 'granted' && command.generation === state.generation) {
           let outcome = 'applied';
           try {
-            if (!window.SimpleOfficeScreenWorkspace?.apply(command)) throw new Error('Feld oder Anwendungsseite ist nicht mehr verfügbar.');
+            if (!window.SimpleOfficeScreenWorkspace?.apply(command)) throw new Error(text('Feld oder Anwendungsseite ist nicht mehr verfügbar.', 'The field or application page is no longer available.'));
           } catch (err) { outcome = 'rejected'; error(err); }
           await post('input-result', {command_seq: command.seq, outcome}, context);
           if (!current(context, ticket)) return;
