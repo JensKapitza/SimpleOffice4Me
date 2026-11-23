@@ -174,6 +174,20 @@ class FirstRunSetupTest(unittest.TestCase):
         for password in passwords:
             self.assertNotIn(password, later)
 
+    def test_macos_setup_and_rendered_help(self):
+        body = self.client.get('/documents/setup', base_url=self.base_url).get_data(as_text=True)
+        self.assertIn('value="macos"', body)
+        self.assertIn('Finder / WebDAV', body)
+        self.assertIn('<strong>CalDAV-Basisadresse einmal</strong>', body)
+        self.assertNotIn('&lt;strong&gt;CalDAV-Basisadresse', body)
+        self.assertNotIn('&lt;a href=', body)
+        response = self.client.post('/documents/setup/complete', data={'platform': 'macos'}, base_url=self.base_url)
+        self.assertEqual(302, response.status_code)
+        state = json.loads((self.root / '.simpleoffice-meta' / 'setup.json').read_text(encoding='utf-8'))
+        self.assertEqual('macos', state['users']['jens']['platform'])
+        body = self.client.get('/documents/setup', base_url=self.base_url).get_data(as_text=True)
+        self.assertIn('value="macos" selected', body)
+
     def test_completion_is_per_user_audited_and_export_has_no_passwords(self):
         response = self.client.post("/documents/setup/complete", data={"platform": "linux"}, base_url=self.base_url)
         self.assertEqual(302, response.status_code)
