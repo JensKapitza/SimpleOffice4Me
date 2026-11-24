@@ -1,3 +1,4 @@
+import http.client
 import ipaddress
 import json
 import unittest
@@ -5,7 +6,12 @@ from unittest.mock import patch
 from urllib.parse import urlsplit
 
 from app.federation_identity import public_key_fingerprint
-from app.federation_pairing_client import PairingClientError, claim_pairing_code
+from app.federation_pairing_client import (
+    PairingClientError,
+    _read_json,
+    claim_pairing_code,
+    remote_pairing_status,
+)
 
 
 class _Response:
@@ -123,6 +129,70 @@ class FederationPairingClientTests(unittest.TestCase):
                 ):
                     claim_pairing_code("/tmp/root", self.peer(), value)
         validate.assert_not_called()
+
+
+    def test_incomplete_http_reply_is_user_safe_and_closes_the_pinned_connection(self):
+        discovery = _Connection(_Response(200, self.profile()))
+        status = _Connection(_Response(200, {"pairing": {"peer_id": "peer-a", "status": "missing"}}))
+        with patch(
+            "app.federation_pairing_client._validated_target", return_value=self.target(),
+        ), patch(
+            "app.federation_pairing_client._connection_for", side_effect=[discovery, status],
+        ), patch(
+            "app.federation_pairing_client.build_pairing_request", return_value={"peer_id": "peer-a"},
+        ), patch.object(
+            status.response, "read", side_effect=http.client.IncompleteRead(b"private diagnostic body")
+        ):
+            with self.assertRaises(PairingClientError) as fault:
+                remote_pairing_status("/tmp/root", self.peer())
+
+        self.assertEqual("transport", fault.exception.reason)
+        self.assertIn("outbound HTTP connection", fault.exception.user_message("en"))
+        self.assertNotIn("private diagnostic", fault.exception.user_message("en"))
+        self.assertTrue(discovery.closed)
+        self.assertTrue(status.closed)
+
+    def test_endpoint_validation_denial_never_opens_a_connection(self):
+        with patch(
+            "app.federation_pairing_client._validated_target", side_effect=ValueError("internal exit policy"),
+        ), patch("app.federation_pairing_client._connection_for") as connect:
+            with self.assertRaises(PairingClientError) as fault:
+                remote_pairing_status("/tmp/root", self.peer())
+
+        self.assertEqual("endpoint", fault.exception.reason)
+        self.assertIn("local network policy", fault.exception.user_message("en"))
+        self.assertNotIn("internal exit policy", fault.exception.user_message("en"))
+        connect.assert_not_called()
+
+    def test_decoder_depth_failure_reports_invalid_response(self):
+        response = _Response(200, {})
+        with patch("app.federation_pairing_client.json.loads", side_effect=RecursionError("fixture decoder error")):
+            with self.assertRaises(PairingClientError) as fault:
+                _read_json(response, 1024)
+        self.assertEqual("response", fault.exception.reason)
+        detail = fault.exception.user_message("en")
+        self.assertIn("did not return a valid pairing response", detail)
+        self.assertNotIn("fixture decoder error", detail)
+
+    def test_remote_authentication_refusal_differs_from_missing_pairing_endpoint(self):
+        for http_status, body, expected in (
+            (401, {"error": "pairing_authentication_failed"}, "identity_rejected"),
+            (404, {}, "remote_endpoint"),
+        ):
+            with self.subTest(http_status=http_status):
+                discovery = _Connection(_Response(200, self.profile()))
+                status = _Connection(_Response(http_status, body))
+                with patch(
+                    "app.federation_pairing_client._validated_target", return_value=self.target(),
+                ), patch(
+                    "app.federation_pairing_client._connection_for", side_effect=[discovery, status],
+                ), patch(
+                    "app.federation_pairing_client.build_pairing_request", return_value={"peer_id": "peer-a"},
+                ):
+                    with self.assertRaises(PairingClientError) as fault:
+                        remote_pairing_status("/tmp/root", self.peer())
+                self.assertEqual(expected, fault.exception.reason)
+                self.assertTrue(status.closed)
 
 
 if __name__ == "__main__":
