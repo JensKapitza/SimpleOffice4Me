@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
 
@@ -60,6 +60,24 @@ def _diagnostic_time(timestamp: int | None) -> str:
         return datetime.fromtimestamp(int(timestamp)).astimezone().isoformat(timespec="seconds")
     except (OverflowError, OSError, TypeError, ValueError):
         return "unbekannt"
+
+
+def _download_queue(catalog: FederationCatalog, *, show_retry_timing: bool, now: int) -> list[dict]:
+    rows = catalog.queue(500)
+    if not show_retry_timing:
+        return rows
+    for row in rows:
+        if row["status"] not in {"retry", "waiting_peer"}:
+            continue
+        timestamp = row["next_attempt_at"]
+        if timestamp <= now:
+            row["retry_delay_elapsed"] = True
+            continue
+        try:
+            row["retry_not_before"] = datetime.fromtimestamp(timestamp, timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            row["retry_not_before"] = None
+    return rows
 
 
 def _inventory_sync_statuses(catalog: FederationCatalog, peers: list[dict]) -> dict:
@@ -237,7 +255,7 @@ def dashboard():
         remote_files=catalog.remote_files(remote_peer, remote_query, 500),
         remote_query=remote_query,
         remote_peer=remote_peer,
-        download_queue=catalog.queue(500),
+        download_queue=_download_queue(catalog, show_retry_timing=active_view == "transfers", now=now),
         catalog_events=catalog.events(100),
         inventory_sync_statuses=_inventory_sync_statuses(catalog, peers) if active_view == "peers" else {},
         catalog_peer_states={peer["peer_id"]: catalog.peer_state(peer["peer_id"]) for peer in peers},
