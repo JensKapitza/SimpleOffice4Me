@@ -50,5 +50,5 @@
   </div>
 </main>
 <script src="{{ url_for('static', filename='js/document_reader.js') }}" defer></script>
-{% if book.format == 'pdf' %}<script src="{{ url_for('static', filename='js/reader_read_aloud.js') }}" defer></script>{% endif %}
+{% if book.format == 'pdf' %}{% include "reader/_read_aloud_script.html" %}{% endif %}
 {% endblock %}

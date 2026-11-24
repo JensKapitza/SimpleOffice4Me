@@ -16,5 +16,5 @@
   </nav>
   <pre class="text-break bg-body-secondary border rounded p-3" style="white-space: pre-wrap">{{ text }}</pre>
 </main>
-<script src="{{ url_for('static', filename='js/reader_read_aloud.js') }}" defer></script>
+{% include "reader/_read_aloud_script.html" %}
 {% endblock %}

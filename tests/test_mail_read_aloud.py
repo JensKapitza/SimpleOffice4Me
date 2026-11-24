@@ -197,6 +197,73 @@ class MailReadAloudTests(unittest.TestCase):
         copy_source.assert_not_called()
         self.assertEqual([], self.spoken)
 
+    def test_eml_view_links_work_without_script_and_host_speech_remains_opt_in(self):
+        message = EmailMessage()
+        message["Subject"] = "Two views, one mail body"
+        message.set_content("Plain body for reading.")
+        message.add_alternative("<p>HTML <strong>body</strong> for viewing.</p>", subtype="html")
+        payload = message.as_bytes()
+        document = DocumentStore(self.root).import_upload(io.BytesIO(payload), "two-views.eml", "alice")
+        source = self.root / document["last_path"]
+        page_url = f"/documents/{document['document_id']}/eml-preview"
+
+        def page_at(href):
+            response = self.alice.get(href)
+            self.assertEqual(200, response.status_code)
+            self.assertEqual("private, no-store", response.headers["Cache-Control"])
+            self.assertIn("media-src 'self' blob:", response.headers["Content-Security-Policy"])
+            page = BeautifulSoup(response.data, "html.parser")
+            self.assertEqual(1, len(page.select('head > script[src$="/js/reader_read_aloud.js"][defer]')))
+            self.assertIsNone(page.select_one("main script"))
+            self.assertIsNotNone(page.select_one("[data-reader-read-aloud] button[data-speech-start][disabled]"))
+            return page
+
+        # Follow the actual links over HTTP, without running any scripts.
+        plain = page_at(page_url)
+        self.assertIsNone(plain.select_one("main iframe"))
+        self.assertIn("Plain body for reading.", plain.select_one("main pre").get_text())
+        self.assertTrue(plain.select_one('main nav a[aria-current="page"]')["href"].endswith("view=text"))
+        html_link = plain.select_one('main nav a[href$="view=html"]')
+        self.assertNotIn("onclick", html_link.attrs)
+        html = page_at(html_link["href"])
+        self.assertTrue(html.select_one('main nav a[aria-current="page"]')["href"].endswith("view=html"))
+        self.assertIsNone(html.select_one("main pre"))
+        iframe = html.select_one("main iframe")
+        self.assertTrue(iframe.has_attr("sandbox"))
+        self.assertFalse(iframe["sandbox"], "The sandbox grants no permissions.")
+        self.assertEqual("no-referrer", iframe["referrerpolicy"])
+        inner = BeautifulSoup(iframe["srcdoc"], "html.parser")
+        self.assertEqual("HTML body for viewing.", inner.select_one("p").get_text())
+        self.assertIsNone(inner.select_one("[data-reader-read-aloud], script"))
+        policy = inner.select_one('meta[http-equiv="Content-Security-Policy"]')["content"]
+        for blocked in ("default-src", "script-src", "form-action", "base-uri"):
+            self.assertIn(f"{blocked} 'none'", policy)
+        self.assertIn("img-src data:", policy)
+        back = page_at(html.select_one('main nav a[href$="view=text"]')["href"])
+        self.assertIn("Plain body for reading.", back.select_one("main pre").get_text())
+        self.assertEqual([], self.spoken, "GET navigation must not synthesize the message.")
+
+        # Optional speech comes from the same saved message, not the sandbox.
+        player = self._control(self.alice, html_link["href"])
+        app.config["TEST_CSRF_PROTECTION"] = True
+        self.assertEqual(403, self.alice.post(player[0], json={
+            "page": 1, "document_version": player[1],
+        }).status_code)
+        self._assert_wav(self._post(self.alice, player))
+        self.assertEqual(["Plain body for reading."], self.spoken)
+        self.assertEqual(payload, source.read_bytes())
+
+    def test_plain_only_eml_has_no_html_link_even_when_html_is_requested(self):
+        message = EmailMessage()
+        message.set_content("Only the readable version.")
+        document = DocumentStore(self.root).import_upload(io.BytesIO(message.as_bytes()), "plain.eml", "alice")
+        reply = self.alice.get(f"/documents/{document['document_id']}/eml-preview?view=html")
+        self.assertEqual(200, reply.status_code)
+        body = BeautifulSoup(reply.data, "html.parser")
+        self.assertIn("Only the readable version.", body.select_one("main pre").get_text())
+        self.assertIsNone(body.select_one('main nav a[href$="view=html"], main iframe'))
+        self.assertEqual([], self.spoken)
+
     def test_eml_html_excludes_active_parts_external_resources_and_nested_attachments(self):
         text = EmailMessage()
         text["Subject"] = "Inside attached EML"
