@@ -42,6 +42,9 @@ def _post(peer: dict[str, Any], token: str, path: str, body: bytes = b"",
         "Host": _host_header(parsed.hostname or "", port, parsed.scheme),
         "User-Agent": "SimpleOffice4Me-Federation-PeerTests/1",
     }
+    from .federation_local_profile import local_peer_id
+    from .federation_peer_auth import headers as peer_auth_headers
+    headers.update(peer_auth_headers(local_peer_id(), token, "POST", path, body))
     target = str(parsed.path or "").rstrip("/") + path
     connection = _connection_for(parsed.scheme, addresses[0].compressed, port,
                                  parsed.hostname or "", TEST_TIMEOUT_SECONDS)

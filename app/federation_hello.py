@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import secrets
 import time
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,10 @@ from .federation_local_profile import local_peer_id, local_profile
 from .federation_peer_profile import peer_profile
 from .federation_peer_schema import ensure_schema
 from .federation_store import FederationStore
+from .federation_trust_store import FederationTrustStore
+from .federation_connection_invite import (
+    FederationConnectionInvites, derive_peer_token, invite_proof, verify_invite_proof,
+)
 
 HELLO_PATH = "/federation/v1/discovery/hello"
 HELLO_TIMEOUT_SECONDS = 8
@@ -50,6 +55,12 @@ HELLO_SIGNED_FIELDS = (
 
 def _canonical_hello(payload: dict[str, Any]) -> bytes:
     narrowed = {field: payload.get(field) for field in HELLO_SIGNED_FIELDS}
+    if payload.get("invitation_id") is not None:
+        narrowed.update({
+            "invitation_id": payload.get("invitation_id"),
+            "invitation_nonce": payload.get("invitation_nonce"),
+            "invitation_proof": payload.get("invitation_proof"),
+        })
     return json.dumps(narrowed, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
@@ -168,7 +179,53 @@ def send_hello(root: str | Path, peer: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "peer_id": peer_id, "responder": responder}
 
 
-def receive_hello(root: str | Path, payload: Any) -> dict[str, Any]:
+def send_connection_invite(root: str | Path, invitation: dict[str, Any], base_url: str) -> dict[str, Any]:
+    """Claim a scanned invite, then derive and save the same peer token locally."""
+    peer = invitation["peer"]
+    peer_id = sanitize_peer_id(peer.get("peer_id", ""))
+    if not peer.get("public_key") or not peer.get("fingerprint"):
+        raise ValueError("scanned invitation has no verifiable peer identity")
+    pinned = FederationTrustStore(root).identity(peer_id) or {}
+    pinned_fingerprint = str(pinned.get("fingerprint", "") or "")
+    if pinned_fingerprint and pinned_fingerprint != peer["fingerprint"]:
+        raise ValueError("scanned peer fingerprint differs from the saved identity")
+    secret = invitation["secret"]
+    payload = build_hello(root, base_url)
+    store = FederationStore(root)
+    token = derive_peer_token(secret, payload["peer_id"], peer_id)
+    existing = store.get_peer(peer_id)
+    nonce = secrets.token_urlsafe(18)
+    payload.update({
+        "invitation_id": invitation["invite_id"],
+        "invitation_nonce": nonce,
+    })
+    payload["invitation_proof"] = invite_proof(secret, invitation["invite_id"], payload, nonce)
+    payload["signature"] = FederationIdentity(root).sign(_canonical_hello(payload))
+    answer = _post_json(normalize_endpoint(peer.get("base_url", "")), HELLO_PATH, payload, HELLO_TIMEOUT_SECONDS)
+    if not answer.get("ok") or answer.get("paired") is not True:
+        raise ValueError("peer did not complete the one-scan pairing")
+    responder = answer.get("peer") if isinstance(answer.get("peer"), dict) else {}
+    if (str(responder.get("peer_id", "")) != peer_id or
+            str(responder.get("fingerprint", "")) != str(peer.get("fingerprint", ""))):
+        raise ValueError("pairing response does not match the scanned peer")
+    _identity, conflict = FederationTrustStore(root).remember_discovered_identity(
+        peer_id, peer.get("country", ""), peer["fingerprint"], "one-scan-pairing",
+        peer["public_key"],
+    )
+    if conflict:
+        raise ValueError("scanned peer fingerprint differs from the saved identity")
+    stored = store.save_discovered_peer(peer_id, peer.get("label", peer_id), peer["base_url"])
+    enabled = bool(existing.get("enabled", True)) if existing else True
+    store.save_peer(
+        peer_id, stored.get("label") or peer.get("label", peer_id),
+        stored.get("base_url") or peer["base_url"], token,
+        policy=stored.get("policy") or {}, enabled=enabled,
+    )
+    store.record_event("peer_connection_invite_claimed", peer_id=peer_id, detail={})
+    return {"ok": True, "peer_id": peer_id, "responder": responder}
+
+
+def receive_hello(root: str | Path, payload: Any, invites: FederationConnectionInvites | None = None) -> dict[str, Any]:
     """Validate and store an incoming hello; return the local identity."""
     if not isinstance(payload, dict):
         raise ValueError("hello payload must be an object")
@@ -181,6 +238,12 @@ def receive_hello(root: str | Path, payload: Any) -> dict[str, Any]:
     if abs(int(time.time()) - timestamp) > HELLO_MAX_SKEW_SECONDS:
         raise ValueError("hello timestamp is outside the accepted window")
     signed = {**profile, "timestamp": timestamp}
+    if payload.get("invitation_id") is not None:
+        signed.update({
+            "invitation_id": payload.get("invitation_id"),
+            "invitation_nonce": payload.get("invitation_nonce"),
+            "invitation_proof": payload.get("invitation_proof"),
+        })
     if not verify(profile["public_key"], _canonical_hello(signed), signature):
         raise ValueError("hello signature is invalid")
     store = FederationStore(root)
@@ -204,15 +267,43 @@ def receive_hello(root: str | Path, payload: Any) -> dict[str, Any]:
                 detail={"reason": "fingerprint_mismatch"},
             )
             raise ValueError("hello claims a known peer with a different fingerprint")
+    paired = False
+    paired_enabled = bool(known.get("enabled", True)) if known else True
+    if payload.get("invitation_id") is not None:
+        invite_id = str(payload.get("invitation_id") or "")
+        nonce = str(payload.get("invitation_nonce") or "")
+        if not 16 <= len(nonce) <= 128 or not isinstance(payload.get("invitation_proof"), str):
+            raise ValueError("connection invitation proof is invalid")
+        invite_store = invites or FederationConnectionInvites(root)
+        invite_secret = invite_store.secret(
+            invite_id, claimant=profile["peer_id"], fingerprint=profile["fingerprint"],
+        )
+        if not verify_invite_proof(invite_secret, invite_id, signed, nonce, payload.get("invitation_proof")):
+            raise ValueError("connection invitation proof is invalid")
+        if profile["peer_id"] in store.banned_peer_ids():
+            raise ValueError("peer is blocked")
+        token = derive_peer_token(invite_secret, profile["peer_id"], local_peer_id())
+        if not invite_store.claim(invite_id, profile["peer_id"], profile["fingerprint"]):
+            raise ValueError("connection invitation was already used or expired")
+        paired = True
     remember_discovered_peer(root, profile, "hello")
+    if paired:
+        current = store.get_peer(profile["peer_id"]) or {}
+        store.save_peer(
+            profile["peer_id"], current.get("label") or profile["label"],
+            current.get("base_url") or profile["base_url"], token,
+            policy=current.get("policy") or {}, enabled=paired_enabled,
+        )
     try:
         own = local_profile(root, "")
     except ValueError:
+        public = FederationIdentity(root).public_identity()
         own = {"peer_id": local_peer_id(), "label": local_peer_id(), "base_url": "",
-               "fingerprint": "", "public_key": ""}
+               "fingerprint": public["fingerprint"], "public_key": public["public_key"]}
     store.record_event("peer_hello_received", peer_id=profile["peer_id"], detail={})
     return {
         "ok": True,
+        "paired": paired,
         "peer": {
             "peer_id": own.get("peer_id", ""), "label": own.get("label", ""),
             "base_url": own.get("base_url", ""), "fingerprint": own.get("fingerprint", ""),

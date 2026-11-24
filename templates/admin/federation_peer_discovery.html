@@ -194,6 +194,10 @@
         <img class="img-fluid" style="max-width:220px" src="{{ url_for('federation_peer_admin.lan_qr_svg', index=loop.index0) }}" alt="Connect QR-{{ 'code for' if g.language == 'en' else 'Code für' }} {{ connect.address }}" loading="lazy" decoding="async">
         <div class="fw-semibold"><code>{{ connect.address }}:{{ connect.port }}</code></div>
         <div class="small text-secondary">{{ 'Device IP' if g.language == 'en' else 'Geräte-IP' }}</div>
+        <form method="post" action="{{ url_for('federation_connection_invite_admin.create_connection_invite', index=loop.index0) }}" class="mt-2">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-sm btn-primary" type="submit">{{ 'Create one-scan setup QR' if g.language == 'en' else 'Ein-Scan-Einrichtung erstellen' }}</button>
+        </form>
         <button class="btn btn-sm btn-outline-success mt-1" type="button" data-fed-sound-announce data-endpoint="{{ connect.endpoint }}">{{ 'Announce by sound' if g.language == 'en' else 'Per Ton ansagen' }}</button>
       </div>
     </div>
@@ -209,7 +213,7 @@
 
 <div class="card card-body mb-3" id="qr-import">
   <h2 class="h5">{{ 'Import QR' if g.language == 'en' else 'QR importieren' }}</h2>
-  <p class="small text-secondary">{{ 'Scan the connect code directly with the camera, select an image or paste the payload manually.' if g.language == 'en' else 'Connect-Code direkt mit der Kamera scannen, ein Bild auswählen oder den Payload manuell einfügen.' }}</p>
+  <p class="small text-secondary">{{ 'Scan a one-scan setup QR here to exchange identities and create the same peer token on both devices automatically. No token entry or second QR scan is needed.' if g.language == 'en' else 'Hier den Ein-Scan-QR-Code scannen: Beide Geräte tauschen ihre Identität aus und richten dasselbe Peer-Token automatisch ein. Token eingeben oder zweiten QR-Code scannen ist nicht nötig.' }}</p>
   <form method="post" action="{{ url_for('federation_peer_admin.import_qr') }}">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <div class="d-flex flex-wrap gap-2 mb-2">
@@ -230,7 +234,7 @@
 <div class="card">
   <div class="card-header"><strong>{{ 'Found / known peers' if g.language == 'en' else 'Gefundene / bekannte Peers' }}</strong></div>
   <div class="card-body border-bottom">
-    <p class="small text-secondary mb-0">{{ 'Discovery and QR import first store only the peer identity. They activate neither a connection nor trust or data rights. For existing peers a differing found address is not adopted automatically; it is shown as a suggestion and must be entered manually in the connection editor after checking. Store the same peer-specific token on both devices and confirm trust locally only after the identity comparison.' if g.language == 'en' else 'Discovery und QR-Import speichern zunächst nur die Peer-Identität. Sie aktivieren weder eine Verbindung noch Trust oder Datenrechte. Bei vorhandenen Peers wird eine abweichende gefundene Adresse nicht automatisch übernommen; sie wird als Vorschlag angezeigt und muss nach Prüfung im Verbindungseditor manuell eingetragen werden. Hinterlege dasselbe peer-spezifische Token auf beiden Geräten und bestätige Trust jeweils lokal erst nach dem Identitätsabgleich.' }}</p>
+    <p class="small text-secondary mb-0">{{ 'Discovery and ordinary QR import only store identity. The one-scan setup QR creates a unique peer token on both devices and activates the connection for diagnostics, but grants no trust or data rights. Existing addresses, policy and activation are preserved.' if g.language == 'en' else 'Discovery und normaler QR-Import speichern nur Identitäten. Der Ein-Scan-QR richtet ein eindeutiges Peer-Token auf beiden Geräten ein und aktiviert die Verbindung für Diagnosen, vergibt aber weder Trust noch Datenrechte. Vorhandene Adressen, Richtlinien und Aktivierung bleiben erhalten.' }}</p>
   </div>
   <div class="table-responsive">
     <table class="table table-sm align-middle mb-0">

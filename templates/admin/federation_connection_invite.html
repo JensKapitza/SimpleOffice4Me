@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}{{ 'One-scan peer setup' if g.language == 'en' else 'Peer mit einem Scan verbinden' }}{% endblock %}
+{% block content %}
+<div class="container py-3" style="max-width:760px">
+  <a class="btn btn-outline-secondary btn-sm mb-3" href="{{ url_for('federation_peer_admin.dashboard') }}#connect-qr">{{ 'Back to peers' if g.language == 'en' else 'Zurück zu Peers' }}</a>
+  <div class="card card-body text-center">
+    <h1 class="h4">{{ 'Scan once on device B' if g.language == 'en' else 'Einmal auf Gerät B scannen' }}</h1>
+    <p class="text-secondary">{{ 'Device B sends its signed identity back to this address. Both devices then derive the same unique peer token locally.' if g.language == 'en' else 'Gerät B sendet seine signierte Identität an diese Adresse zurück. Danach leiten beide Geräte lokal dasselbe eindeutige Peer-Token ab.' }}</p>
+    <div class="my-2">{{ invite_qr|safe }}</div>
+    <p class="mb-1"><strong>{{ connect.endpoint }}</strong></p>
+    <p class="small text-secondary">{{ 'Single use; expires at' if g.language == 'en' else 'Einmal verwendbar; gültig bis' }} {{ expires_at_label }}</p>
+    <div class="alert alert-warning text-start mb-0">
+      {{ 'Treat this QR as a temporary credential. Keep it on screen while device B scans it. It expires after 10 minutes and is bound to one peer identity. Existing global server tokens are not changed. If that peer already exists, its peer token is refreshed; its address and permissions stay unchanged. The connection becomes active for diagnostics; trust and data permissions are not granted.' if g.language == 'en' else 'Behandle den QR-Code wie einen kurzlebigen Zugangsschlüssel. Zeige ihn nur, während Gerät B scannt. Er läuft nach 10 Minuten ab und ist an eine Peer-Identität gebunden. Bestehende globale Server-Tokens bleiben unverändert. Bei einem bekannten Peer wird dessen Peer-Token erneuert; Adresse und Rechte bleiben unverändert. Die Verbindung wird für Diagnosen aktiv; Trust und Datenrechte werden nicht vergeben.' }}
+    </div>
+    <details class="text-start mt-3">
+      <summary>{{ 'Manual fallback' if g.language == 'en' else 'Manuelle Alternative' }}</summary>
+      <textarea class="form-control font-monospace mt-2" rows="4" readonly aria-label="{{ 'Temporary invitation payload' if g.language == 'en' else 'Kurzlebiger Einladungs-Payload' }}">{{ invite_payload }}</textarea>
+    </details>
+  </div>
+</div>
+{% endblock %}

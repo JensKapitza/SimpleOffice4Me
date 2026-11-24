@@ -19,11 +19,19 @@ def _authorized() -> bool:
     if not legacy_peer_allowed(current_app.config["DOCUMENT_ROOT"], request):
         return False
     expected = _identity.shared_token()
-    if not expected:
-        return bool(current_app.testing)
     header = request.headers.get("Authorization", "")
     supplied = header[7:].strip() if header.startswith("Bearer ") else ""
-    return bool(supplied) and hmac.compare_digest(expected, supplied)
+    if expected and supplied and hmac.compare_digest(expected, supplied):
+        return True
+    if request.endpoint == "federation_audio_http.test_tone":
+        try:
+            from .federation_peer_auth import authenticate
+            root = current_app.config["DOCUMENT_ROOT"]
+            peer_id = authenticate(root, request)
+            return peer_id not in FederationStore(root).banned_peer_ids()
+        except (TypeError, ValueError):
+            return False
+    return bool(current_app.testing and not expected)
 
 
 @bp.before_request

@@ -14,6 +14,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const output = document.getElementById('qr-payload');
   const status = document.getElementById('qr-status');
   if (!imageInput || !cameraButton || !closeButton || !preview || !cameraPanel || !output || !status) return;
+  const submitButton = output.closest('form')?.querySelector('button[type="submit"]');
+  const defaultSubmitLabel = submitButton?.textContent || '';
 
   let stream = null;
   let scanning = false;
@@ -36,12 +38,19 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function acceptPayload(value) {
-    if (!value.startsWith('sofp://peer/')) {
+    if (!value.startsWith('sofp://peer/') && !value.startsWith('sofp://pair/')) {
       status.textContent = tx('Der QR-Code ist kein SimpleOffice-Federation-Connect-Code.', 'This QR code is not a SimpleOffice federation connect code.');
       return false;
     }
     output.value = value;
-    status.textContent = tx('SimpleOffice Connect QR-Code erkannt. Peer kann jetzt übernommen werden.', 'SimpleOffice Connect QR code recognized. You can now add the peer.');
+    if (submitButton) {
+      submitButton.textContent = value.startsWith('sofp://pair/')
+        ? tx('Einrichten und verbinden', 'Set up and connect')
+        : defaultSubmitLabel;
+    }
+    status.textContent = value.startsWith('sofp://pair/')
+      ? tx('Ein-Scan-Einladung erkannt. Absenden richtet das Peer-Token automatisch auf beiden Geräten ein.', 'One-scan invitation recognized. Submitting sets up the peer token on both devices automatically.')
+      : tx('SimpleOffice Connect QR-Code erkannt. Peer kann jetzt übernommen werden.', 'SimpleOffice Connect QR code recognized. You can now add the peer.');
     return true;
   }
 

@@ -9,13 +9,49 @@ from unittest.mock import patch
 from app import app
 from app.federation_identity import FederationIdentity
 from app.federation_pairing import FederationPairingTokens
-from app.federation_qr import encode_peer
+from app.federation_qr import encode_connection_invite, encode_peer
 from app.federation_store import FederationStore
 from app.federation_trust_store import FederationTrustStore
 from tests.federation_admin_ui_fixture import FederationAdminUiFixture
 
 
 class FederationAdminPairingUiTests(FederationAdminUiFixture, unittest.TestCase):
+    def test_one_scan_invite_page_is_short_lived_and_has_no_store_headers(self):
+        profile = {
+            "peer_id": "office-a", "label": "Office A", "country": "DE",
+            "base_url": "http://192.168.1.20:8090",
+        }
+        with patch("app.federation_peer_admin._lan_connect_profiles", return_value=[{
+            "address": "192.168.1.20", "port": 8090,
+            "endpoint": profile["base_url"], "payload": encode_peer(profile),
+        }]):
+            response = self.client.post(
+                "/admin/federation/peer-discovery/pairing/create-invite/0",
+            )
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("no-store, private", response.headers["Cache-Control"])
+        body = response.get_data(as_text=True)
+        self.assertIn("Einmal auf Gerät B scannen", body)
+        self.assertIn("Er läuft nach 10 Minuten", body)
+
+    def test_one_scan_import_calls_pairing_flow_without_manual_token(self):
+        payload = encode_connection_invite({
+            "peer_id": "office-a", "label": "Office A", "country": "DE",
+            "base_url": "https://office-a.example.test",
+        }, "a" * 24, "b" * 43)
+        with patch("app.federation_peer_admin.send_connection_invite", return_value={"ok": True}) as pair:
+            response = self.client.post(
+                "/admin/federation/peer-discovery/qr/import",
+                data={"payload": payload},
+            )
+        self.assertEqual(302, response.status_code)
+        pair.assert_called_once()
+        self.assertEqual("office-a", pair.call_args.args[1]["peer"]["peer_id"])
+        self.assertTrue(pair.call_args.args[2].startswith("http://localhost"))
+        with self.client.session_transaction() as session:
+            flashes = [message for _category, message in session.get("_flashes", [])]
+        self.assertTrue(any("eingerichtet" in message for message in flashes), flashes)
+
     def test_pairing_code_requires_discovered_public_key(self):
         FederationTrustStore(self.root).remember(
             "office-b", "DE", "fingerprint-only", "legacy-discovery",
