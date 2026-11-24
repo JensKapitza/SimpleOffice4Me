@@ -772,3 +772,12 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | `start.sh --proxy-public-host/--proxy-public-port` (validiert); Hilfe mit Global-Abschnitt, Beispielen, sudo-Verweis; Fehlermeldungen nennen Parameter zuerst (`--global`, `--proxy-public-host`), Env zweit; sudo-Hilfe mit Weiterleitungs-Hinweis. |
 | Tests und Soll-Ist-Vergleich | Soll: kein Env-Wissen nötig. Ist gemessen: 31/31 (Bind/Shell/Start), lan_proxy nur mit den 8 Sandbox-Baseline-Fehlern; ruff/compileall/shell-Syntax grün. |
 | Review und Abschluss | Auf PR #1181 gepusht (Rebase-Branch), kein Merge ohne Freigabe. |
+
+## 23. November 2026 · Security: Feature-Gate für Split-Mail-Blueprints
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Die ausgelagerten Blueprints `mail_keywords`/`mail_handover` fehlten in `FEATURE_BLUEPRINTS` und im Metering-Mapping: `enforce_feature_permission` ließ sie fail-open passieren (kein 403 ohne Mail-Feature möglich). |
+| Implementierung | Beide Blueprints auf Feature `mail` gemappt (Gate + Metering); sonst keine Verhaltensänderung. |
+| Tests und Soll-Ist-Vergleich | Soll: Nutzer ohne Mail-Feature 403, mit Feature Durchlass. Ist gemessen: 3/3 neu (ohne Fix 4 Fehler, mit Fix grün); 54/54 Nachbarn (Keywords/Handover/Case/Admin/Lizenz) grün; alle Gates grün. |
+| Review und Abschluss | PR gestellt, kein Merge ohne Freigabe. |
