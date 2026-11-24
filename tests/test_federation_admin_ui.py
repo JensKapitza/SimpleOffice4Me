@@ -9,8 +9,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from werkzeug.security import generate_password_hash
-
 from app import app
 from app import db as database
 from app.federation_identity import FederationIdentity
@@ -20,6 +18,7 @@ from app.federation_pairing_client import PairingClientError
 from app.federation_qr import encode_peer
 from app.federation_store import FederationStore
 from app.federation_trust_store import FederationTrustStore
+from tests.federation_admin_ui_fixture import FederationAdminUiFixture
 
 
 class FederationBrowserDiagnosticsFrontendTests(unittest.TestCase):
@@ -37,51 +36,7 @@ class FederationBrowserDiagnosticsFrontendTests(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
 
-class FederationAdminUiTests(unittest.TestCase):
-    def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        base = Path(self.temp.name)
-        self.root = base / "documents"
-        self.saved = {
-            key: app.config.get(key)
-            for key in ("DATABASE", "DOCUMENT_ROOT", "TESTING", "TEST_CSRF_PROTECTION")
-        }
-        app.config.update(
-            TESTING=True,
-            TEST_CSRF_PROTECTION=False,
-            DATABASE=str(base / "users.sqlite"),
-            DOCUMENT_ROOT=str(self.root),
-        )
-        self.root.mkdir(parents=True, exist_ok=True)
-        with app.app_context():
-            database.ensure_auth_database()
-            db = database.get_db()
-            db.execute(
-                "INSERT INTO user(username,password,is_admin,created_at,updated_at) "
-                "VALUES (?,?,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
-                ("federation-ui-admin", generate_password_hash("federation-ui-password")),
-            )
-            db.execute(
-                "INSERT INTO user(username,password,is_admin,created_at,updated_at) "
-                "VALUES (?,?,0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
-                ("federation-ui-user", generate_password_hash("federation-user-password")),
-            )
-            db.commit()
-        self.client = app.test_client()
-        response = self.client.post(
-            "/auth/login",
-            data={"username": "federation-ui-admin", "password": "federation-ui-password"},
-        )
-        self.assertLess(response.status_code, 400)
-        # Suite asserts German page content: pin the session to German
-        # (app default for new sessions is English).
-        with self.client.session_transaction() as session:
-            session["simpleoffice_language"] = "de"
-
-    def tearDown(self):
-        app.config.update(self.saved)
-        self.temp.cleanup()
-
+class FederationAdminUiTests(FederationAdminUiFixture, unittest.TestCase):
     def test_task_focused_views_render(self):
         expected = {
             "overview": "Was möchtest du tun?",
@@ -250,75 +205,6 @@ class FederationAdminUiTests(unittest.TestCase):
             r'name="network_diagnostics_share_status" value="1" id="fed-diagnostic-share" checked',
         )
 
-    def test_peer_form_maps_document_permissions_without_losing_advanced_policy(self):
-        response = self.client.post(
-            "/admin/federation/peers",
-            data={
-                "peer_id": "office-b",
-                "label": "Office B",
-                "base_url": "http://10.0.0.2:8080",
-                "enabled": "1",
-                "_documents_policy_form": "1",
-                "documents_send": "1",
-                "documents_seed": "1",
-                "policy_json": '{"chat":{"send":true,"receive":false}}',
-            },
-            follow_redirects=False,
-        )
-        self.assertEqual(302, response.status_code)
-        self.assertIn("view=peers", response.headers["Location"])
-
-        peer = FederationStore(self.root).get_peer("office-b")
-        self.assertIsNotNone(peer)
-        policy = peer["policy"]
-        self.assertEqual(
-            {"send": True, "receive": False, "seed": True},
-            policy["documents"],
-        )
-        self.assertEqual({"send": True, "receive": False}, policy["chat"])
-
-    def test_peer_form_maps_mail_case_policy_without_losing_advanced_policy(self):
-        response = self.client.post(
-            "/admin/federation/peers",
-            data={
-                "peer_id": "mail-peer",
-                "label": "Mail Peer",
-                "base_url": "https://mail-peer.example.test",
-                "enabled": "1",
-                "_mail_cases_policy_form": "1",
-                "mail_cases_send": "1",
-                "mail_cases_receive": "1",
-                "mail_cases_auto_accept": "1",
-                "policy_json": '{"chat":{"send":true,"receive":false},"data_classes":{"mail_cases":{"future_option":"keep"}}}',
-            },
-            follow_redirects=False,
-        )
-        self.assertEqual(302, response.status_code)
-        peer = FederationStore(self.root).get_peer("mail-peer")
-        self.assertEqual(
-            {
-                "future_option": "keep",
-                "send": True,
-                "receive": True,
-                "auto_accept": True,
-            },
-            peer["policy"]["data_classes"]["mail_cases"],
-        )
-        self.assertEqual(
-            {"send": True, "receive": False},
-            peer["policy"]["chat"],
-        )
-
-        response = self.client.get(
-            "/admin/federation?view=peers&edit_peer=mail-peer"
-        )
-        body = response.get_data(as_text=True)
-        self.assertEqual(200, response.status_code)
-        self.assertIn("Mail-Vorgang-Federation", body)
-        self.assertIn('name="mail_cases_send" value="1" checked', body)
-        self.assertIn('name="mail_cases_receive" value="1" checked', body)
-        self.assertIn('name="mail_cases_auto_accept" value="1" checked', body)
-
     def test_mail_case_policy_defaults_to_deny_in_peer_form(self):
         response = self.client.get("/admin/federation?view=peers")
         body = response.get_data(as_text=True)
@@ -357,32 +243,6 @@ class FederationAdminUiTests(unittest.TestCase):
         self.assertIn("Diesen Peer ausdrücklich als Rendezvous-Relay verwenden", body)
         self.assertIn('name="rendezvous_relay_enabled" value="1" checked', body)
         self.assertIn("Relay freigegeben", body)
-
-    def test_rendezvous_relay_can_be_revoked_without_losing_policy(self):
-        response = self.client.post(
-            "/admin/federation/peers",
-            data={
-                "peer_id": "relay-peer",
-                "label": "Relay Peer",
-                "base_url": "https://relay.example.test",
-                "enabled": "1",
-                "_rendezvous_relay_policy_form": "1",
-                "policy_json": '{"chat":{"send":true},"rendezvous_relay":{"enabled":true,"future_option":"keep"}}',
-            },
-            follow_redirects=False,
-        )
-
-        self.assertEqual(302, response.status_code)
-        peer = FederationStore(self.root).get_peer("relay-peer")
-        self.assertEqual({"send": True}, peer["policy"]["chat"])
-        self.assertEqual(
-            {"enabled": False, "future_option": "keep"},
-            peer["policy"]["rendezvous_relay"],
-        )
-
-        body = self.client.get("/admin/federation?view=peers").get_data(as_text=True)
-        self.assertIn("Relay aus", body)
-        self.assertNotIn('name="rendezvous_relay_enabled" value="1" checked', body)
 
     def test_peer_discovery_renders_sound_announce_and_listen(self):
         with patch(
@@ -460,94 +320,6 @@ class FederationAdminUiTests(unittest.TestCase):
             ).fetchone()[0]
         self.assertNotIn(match.group(0).replace("-", ""), token_hash)
 
-    def test_pairing_code_requires_discovered_public_key(self):
-        FederationTrustStore(self.root).remember(
-            "office-b", "DE", "fingerprint-only", "legacy-discovery",
-        )
-
-        response = self.client.post(
-            "/admin/federation/peer-discovery/pairing/office-b/issue",
-            follow_redirects=True,
-        )
-
-        self.assertEqual(200, response.status_code)
-        self.assertIn(
-            "Peer-Identität benötigt öffentlichen Schlüssel und Fingerprint",
-            response.get_data(as_text=True),
-        )
-        self.assertEqual("missing", FederationPairingTokens(
-            self.root, app.config["SECRET_KEY"]
-        ).status("office-b")["status"])
-
-    def test_pairing_code_can_be_revoked_without_changing_trust(self):
-        with app.app_context():
-            identity = FederationIdentity(self.root / "remote-identity").public_identity()
-        FederationTrustStore(self.root).remember(
-            "office-b", "DE", identity["fingerprint"], "qr", identity["public_key"],
-        )
-        tokens = FederationPairingTokens(self.root, app.config["SECRET_KEY"])
-        tokens.issue("office-b")
-
-        response = self.client.post(
-            "/admin/federation/peer-discovery/pairing/office-b/revoke",
-            follow_redirects=False,
-        )
-
-        self.assertEqual(302, response.status_code)
-        self.assertEqual("missing", tokens.status("office-b")["status"])
-        self.assertIsNone(FederationTrustStore(self.root).get_trust("office-b"))
-
-    def _remember_pairing_peer(self):
-        with app.app_context():
-            identity = FederationIdentity(self.root / "remote-identity").public_identity()
-        FederationStore(self.root).save_peer(
-            "office-b", "Office B", "https://office-b.example.test", "", enabled=False,
-        )
-        FederationTrustStore(self.root).remember(
-            "office-b", "DE", identity["fingerprint"], "qr", identity["public_key"],
-        )
-
-    def test_claimant_ui_requires_explicit_identity_confirmation(self):
-        self._remember_pairing_peer()
-
-        with patch("app.federation_peer_admin.claim_pairing_code") as claim:
-            response = self.client.post(
-                "/admin/federation/peer-discovery/pairing/office-b/claim",
-                data={"code": "2345-6789-ABCD"},
-                follow_redirects=True,
-            )
-
-        self.assertEqual(200, response.status_code)
-        claim.assert_not_called()
-        self.assertIn(
-            "Fingerprint und Zieladresse müssen ausdrücklich bestätigt werden",
-            response.get_data(as_text=True),
-        )
-
-    def test_claimant_ui_does_not_grant_access_or_persist_code(self):
-        self._remember_pairing_peer()
-
-        with patch(
-            "app.federation_peer_admin.claim_pairing_code",
-            return_value={"peer_id": "local-peer", "status": "claimed"},
-        ) as claim:
-            response = self.client.post(
-                "/admin/federation/peer-discovery/pairing/office-b/claim",
-                data={"code": "2345-6789-ABCD", "confirm_identity": "1"},
-                follow_redirects=True,
-            )
-
-        self.assertEqual(200, response.status_code)
-        claim.assert_called_once_with(str(self.root), claim.call_args.args[1], "2345-6789-ABCD")
-        body = response.get_data(as_text=True)
-        self.assertIn("Trust, Aktivierung und Datenrechte bleiben unverändert", body)
-        self.assertNotIn("2345-6789-ABCD", body)
-        peer = FederationStore(self.root).get_peer("office-b")
-        self.assertFalse(peer["enabled"])
-        self.assertFalse(peer["has_token"])
-        self.assertIsNone(FederationTrustStore(self.root).get_trust("office-b"))
-        self.assertNotIn("2345-6789-ABCD", json.dumps(FederationStore(self.root).events(20)))
-
     def test_claimant_error_does_not_echo_code(self):
         self._remember_pairing_peer()
         with patch(
@@ -576,12 +348,35 @@ class FederationAdminUiTests(unittest.TestCase):
             )
 
         self.assertEqual(200, response.status_code)
-        self.assertIn("Pairing-Status auf der Gegenstelle: beansprucht", response.get_data(as_text=True))
+        body = response.get_data(as_text=True)
+        self.assertIn("Pairing-Status auf der Gegenstelle: beansprucht", body)
+        self.assertIn("Geprüft: diese Instanz → Gegenstelle.", body)
+        self.assertIn("Rückrichtung nicht geprüft", body)
         status.assert_called_once()
         peer = FederationStore(self.root).get_peer("office-b")
         self.assertFalse(peer["enabled"])
         self.assertFalse(peer["has_token"])
         self.assertIsNone(FederationTrustStore(self.root).get_trust("office-b"))
+
+    def test_remote_status_distinguishes_missing_code_from_a_refused_identity_in_english(self):
+        self._remember_pairing_peer()
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "en"
+        path = "/admin/federation/peer-discovery/pairing/office-b/remote-status"
+        with patch(
+            "app.federation_peer_admin.remote_pairing_status",
+            side_effect=[
+                {"peer_id": "local-peer", "status": "missing"},
+                PairingClientError("internal-only diagnostic", reason="identity_rejected"),
+            ],
+        ):
+            missing = self.client.post(path, follow_redirects=True).get_data(as_text=True)
+            rejected = self.client.post(path, follow_redirects=True).get_data(as_text=True)
+        self.assertIn("Pairing status on the counterpart: missing.", missing)
+        self.assertIn("Reverse direction not checked", missing)
+        self.assertIn("did not accept this instance", rejected)
+        self.assertIn("check the clocks on both sides", rejected)
+        self.assertNotIn("internal-only diagnostic", rejected)
 
     def test_qr_import_opens_existing_connection_editor_without_enabling_peer(self):
         payload = encode_peer({
@@ -610,70 +405,6 @@ class FederationAdminUiTests(unittest.TestCase):
         self.assertEqual(200, editor.status_code)
         self.assertIn("Discovery hat nur Peer-Identität und Fähigkeiten gespeichert", body)
         self.assertIn("Peer-Token", body)
-
-    def test_qr_import_does_not_replace_existing_connection_configuration(self):
-        store = FederationStore(self.root)
-        with app.app_context():
-            store.save_peer(
-                "office-b", "Trusted Office B", "https://configured.example.test", "existing-peer-token",
-                {"documents": {"send": True}}, True,
-            )
-        payload = encode_peer({
-            "peer_id": "office-b",
-            "label": "Unverified replacement",
-            "country": "DE",
-            "base_url": "https://attacker.example.test",
-            "federation": {"name": "SimpleOffice Federation", "min_version": 1, "max_version": 1},
-        })
-
-        response = self.client.post(
-            "/admin/federation/peer-discovery/qr/import",
-            data={"payload": payload},
-            follow_redirects=False,
-        )
-
-        self.assertEqual(302, response.status_code)
-        with app.app_context():
-            peer = store.get_peer("office-b")
-            self.assertEqual("https://configured.example.test", peer["base_url"])
-            self.assertEqual("existing-peer-token", store.peer_token("office-b"))
-            self.assertEqual({"documents": {"send": True}}, peer["policy"])
-            self.assertTrue(peer["enabled"])
-        editor = self.client.get(response.headers["Location"])
-        self.assertIn("QR-Adresse (Vorschlag): https://attacker.example.test", editor.get_data(as_text=True))
-
-    def test_qr_import_keeps_identity_on_fingerprint_conflict(self):
-        from app.federation_identity import FederationIdentity
-
-        extra = tempfile.TemporaryDirectory()
-        self.addCleanup(extra.cleanup)
-        with app.app_context():
-            forged = FederationIdentity(Path(extra.name)).public_identity()
-            store = FederationStore(self.root)
-            store.save_peer(
-                "office-b", "Trusted Office B", "https://configured.example.test", "tok",
-                {"documents": {"send": True}}, True,
-            )
-            FederationTrustStore(self.root).remember(
-                "office-b", "DE", "0" * 64, "qr", "cHViLWtleS1vcmlnaW5hbA==")
-        payload = encode_peer({
-            "peer_id": "office-b", "label": "Office B", "country": "DE",
-            "base_url": "https://office-b.example.test",
-            "fingerprint": forged["fingerprint"], "public_key": forged["public_key"],
-            "federation": {"name": "SimpleOffice Federation", "min_version": 1, "max_version": 1},
-        })
-        response = self.client.post(
-            "/admin/federation/peer-discovery/qr/import",
-            data={"payload": payload}, follow_redirects=True)
-        self.assertEqual(200, response.status_code)
-        body = response.get_data(as_text=True)
-        self.assertIn("anderer Fingerabdruck", body)
-        with app.app_context():
-            identity = FederationTrustStore(self.root).identity("office-b")
-            self.assertEqual("0" * 64, identity["fingerprint"])
-            conflicts = [row for row in FederationStore(self.root).events()
-                         if row.get("action") == "peer_identity_conflict"]
-            self.assertEqual(1, len(conflicts))
 
     def test_qr_import_verified_ceremony_rebinds_identity(self):
         from app.federation_identity import FederationIdentity
