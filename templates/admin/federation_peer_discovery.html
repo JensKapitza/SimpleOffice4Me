@@ -5,11 +5,14 @@
 <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3"><div><h1 class="h3 mb-1">Federation · {{ 'Network' if g.language == 'en' else 'Netzwerk' }}</h1><p class="text-secondary mb-0">{{ 'Find devices in the local network, then separately check, trust and approve them for data.' if g.language == 'en' else 'Geräte im lokalen Netzwerk finden, anschließend getrennt prüfen, vertrauen und für Daten freigeben.' }}</p></div><a class="btn btn-outline-secondary" href="{{ url_for('federation_admin.dashboard') }}">{{ 'To federation' if g.language == 'en' else 'Zur Federation' }}</a></div>
 {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 {% if setup_hints %}
-<div class="alert alert-info" role="status" aria-live="polite">
-  <strong>{{ 'Setup incomplete' if g.language == 'en' else 'Einrichtung unvollständig' }} ({{ 'proposal only, nothing changed' if g.language == 'en' else 'nur Vorschlag, nichts geändert' }}):</strong>
+<div class="alert alert-info" id="federation-setup-hints" role="status" aria-live="polite">
+  <strong>{{ 'Missing peer tokens' if g.language == 'en' else 'Fehlende Peer-Token' }}</strong>
+  <p class="mb-1">{{ 'These peers are active locally but have no peer token stored. A pairing code does not replace this token.' if g.language == 'en' else 'Diese Peers sind lokal aktiv, aber es ist kein Peer-Token hinterlegt. Ein Pairing-Code ersetzt dieses Token nicht.' }}</p>
   <ul class="mb-0">
     {% for proposal in setup_hints %}
-    <li>{{ proposal.reason }}</li>
+    <li>{{ proposal.label }}:
+      <a href="{{ url_for('federation_admin.dashboard', view='peers', edit_peer=proposal.peer_id, _anchor='peer-token') }}">{{ 'Set up peer token' if g.language == 'en' else 'Peer-Token einrichten' }}</a>
+    </li>
     {% endfor %}
   </ul>
 </div>
