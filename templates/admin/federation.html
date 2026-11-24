@@ -184,6 +184,7 @@
               <form method="post" action="{{ url_for('federation_admin.send_document', document_id=selected_document.document_id) }}" class="row g-2">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="_return_view" value="files">
+                <input type="hidden" name="_return_local_q" value="{{ document_query }}">
                 <div class="col-md-7">
                   <label class="form-label" for="target-peer">{{ 'Target' if g.language == 'en' else 'Ziel' }}</label>
                   <select class="form-select" id="target-peer" name="target_peer" required>
@@ -222,6 +223,7 @@
               <form method="post" action="{{ url_for('federation_admin.orchestrate_document', document_id=selected_document.document_id) }}" class="row g-2">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="_return_view" value="files">
+                <input type="hidden" name="_return_local_q" value="{{ document_query }}">
                 <div class="col-md-5">
                   <label class="form-label">{{ 'Source' if g.language == 'en' else 'Quelle' }}</label>
                   <select class="form-select" name="source_peer" required>{% for peer in peers if peer.enabled %}<option value="{{ peer.peer_id }}">{{ peer.label }}</option>{% endfor %}</select>
