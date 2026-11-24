@@ -8,11 +8,15 @@ import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
+
+from bs4 import BeautifulSoup
 
 from werkzeug.security import generate_password_hash
 
 from app import app
 from app import db as database
+from app.federation_catalog import FederationCatalog
 from app.federation_identity import FederationIdentity
 from app.federation_moderation import FederationModerationStore
 from app.federation_pairing import FederationPairingTokens
@@ -94,6 +98,80 @@ class FederationAdminUiTests(unittest.TestCase):
                 response = self.client.get(f"/admin/federation?view={view}")
                 self.assertEqual(200, response.status_code)
                 self.assertIn(marker, response.get_data(as_text=True))
+
+    def test_remote_file_actions_keep_peer_scope_and_search_separate_from_clicked_file(self):
+        store = FederationStore(self.root)
+        catalog = FederationCatalog(self.root)
+        for peer_id, file_name, digest in (
+            ("west", "West March + Q2.pdf", "a" * 64),
+            ("east", "East March + Q2.pdf", "b" * 64),
+        ):
+            store.save_peer(peer_id, peer_id.title(), f"https://{peer_id}.example", "")
+            catalog.begin_index(peer_id, "g1")
+            catalog.ingest(peer_id, "g1", [{
+                "document_id": "shared-id", "blob_hash": digest, "path": file_name, "size": 10,
+            }])
+            catalog.finish_index(peer_id, "g1")
+        catalog.ingest("west", "g1", [{
+            "document_id": "other", "blob_hash": "c" * 64, "path": "Unrelated.pdf", "size": 5,
+        }])
+        query = "March + Q2"
+        path = "/admin/federation"
+        action_url = f"{path}/remote/action"
+
+        def read_action(action, *, scope="", peer="west"):
+            response = self.client.get(path, query_string={"view": "files", "remote_q": query, "remote_peer": scope})
+            self.assertEqual(200, response.status_code)
+            page = BeautifulSoup(response.get_data(as_text=True), "html.parser")
+            for form in page.select(f'form[action="{action_url}"]'):
+                fields = {element["name"]: element.get("value", "") for element in form.select("input[name]")}
+                if (
+                    fields.get("peer_id") == peer
+                    and fields.get("remote_document_id") == "shared-id"
+                    and fields.get("action") == action
+                ):
+                    return fields
+            self.fail(f"Missing {action} form for {peer!r} with scope {scope!r}")
+
+        for action, priority in (("priority", "9"), ("download", "5")):
+            with self.subTest(action=action):
+                fields = read_action(action)
+                fields["priority"] = priority
+                result = self.client.post(action_url, data=fields)
+                self.assertEqual(302, result.status_code)
+                self.assertEqual(path, urlsplit(result.location).path)
+                self.assertEqual({"view": ["files"], "remote_q": [query]}, parse_qs(urlsplit(result.location).query))
+                html = self.client.get(result.location).get_data(as_text=True)
+                self.assertIn("West March + Q2.pdf", html)
+                self.assertIn("East March + Q2.pdf", html)
+                self.assertNotIn("Unrelated.pdf", html)
+
+        self.assertEqual(9, catalog.get_remote("west", "shared-id")["file_priority"])
+        self.assertEqual(0, catalog.get_remote("east", "shared-id")["file_priority"])
+        self.assertEqual(
+            [("west", "shared-id", 5)],
+            [(row["peer_id"], row["remote_document_id"], row["transfer_priority"]) for row in catalog.queue()],
+        )
+
+        for scope in ("", "east"):
+            with self.subTest(rejected_scope=scope):
+                failure_data = read_action("priority", scope=scope, peer="east")
+                failure_data["priority"] = "not-a-number"
+                failure = self.client.post(action_url, data=failure_data)
+                expected = {"view": ["files"], "remote_q": [query]}
+                if scope:
+                    expected["remote_peer"] = [scope]
+                self.assertEqual(expected, parse_qs(urlsplit(failure.location).query))
+                html = self.client.get(failure.location).get_data(as_text=True)
+                self.assertIn("Remote-Aktion fehlgeschlagen", html)
+                self.assertIn("East March + Q2.pdf", html)
+                self.assertEqual(not scope, "West March + Q2.pdf" in html)
+                self.assertEqual(0, catalog.get_remote("east", "shared-id")["file_priority"])
+
+        legacy = read_action("priority")
+        legacy.pop("remote_peer_filter")
+        result = self.client.post(action_url, data=legacy)
+        self.assertEqual(["west"], parse_qs(urlsplit(result.location).query)["remote_peer"])
 
     def test_moderation_page_renders_and_escapes_reported_content(self):
         moderation = FederationModerationStore(self.root)

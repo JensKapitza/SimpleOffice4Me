@@ -597,7 +597,9 @@ def remote_action():
             raise ValueError("Unbekannte Remote-Aktion")
     except (TypeError, ValueError) as exc:
         flash(translate(g.language, "fed.remote.failed").format(exc=exc))
-    return _redirect_dashboard(remote_peer=peer_id, remote_q=request.form.get("remote_q", ""))
+    remote_peer_filter = request.form.get("remote_peer_filter", peer_id).strip()[:128]
+    remote_query = request.form.get("remote_q", "").strip()[:200]
+    return _redirect_dashboard(remote_peer=remote_peer_filter, remote_q=remote_query)
 
 
 @bp.post("/queue/<request_id>/priority")
