@@ -285,6 +285,7 @@
                     <input type="hidden" name="_return_view" value="files">
                     <input type="hidden" name="peer_id" value="{{ item.peer_id }}">
                     <input type="hidden" name="remote_document_id" value="{{ item.remote_document_id }}">
+                    <input type="hidden" name="remote_peer_filter" value="{{ remote_peer }}">
                     <input type="hidden" name="remote_q" value="{{ remote_query }}">
                     <input type="hidden" name="action" value="priority">
                     <input class="form-control" type="number" name="priority" min="-1000" max="1000" value="{{ item.file_priority }}" aria-label="{{ 'File priority' if g.language == 'en' else 'Datei-Priorität' }}">
@@ -297,6 +298,7 @@
                     <input type="hidden" name="_return_view" value="files">
                     <input type="hidden" name="peer_id" value="{{ item.peer_id }}">
                     <input type="hidden" name="remote_document_id" value="{{ item.remote_document_id }}">
+                    <input type="hidden" name="remote_peer_filter" value="{{ remote_peer }}">
                     <input type="hidden" name="remote_q" value="{{ remote_query }}">
                     <input type="hidden" name="action" value="download">
                     <input class="form-control" type="number" name="priority" min="-1000" max="1000" value="0" aria-label="{{ 'Transfer priority' if g.language == 'en' else 'Transfer-Priorität' }}">
