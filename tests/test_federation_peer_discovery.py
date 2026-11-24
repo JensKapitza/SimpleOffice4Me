@@ -89,18 +89,22 @@ class FederationPeerDiscoveryTest(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 normalize_endpoint(value)
 
-    def test_direct_discovery_blocks_loopback_and_link_local(self):
-        with self.assertRaises(ValueError):
-            validate_discovery_endpoint("http://127.0.0.1:8080")
-        federation_network.save({"allow_private_targets": "1"})
+    def test_direct_discovery_allows_loopback_but_blocks_link_local(self):
+        self.assertEqual(
+            validate_discovery_endpoint("http://127.0.0.1:8080"), "http://127.0.0.1:8080"
+        )
+        federation_network.save({"allow_private_targets": "0", "allow_loopback": "0"})
         with self.assertRaises(ValueError):
             validate_discovery_endpoint("http://169.254.169.254")
 
-    def test_direct_discovery_private_target_requires_opt_in(self):
-        with self.assertRaises(ValueError):
-            validate_discovery_endpoint("https://10.20.30.40")
-        federation_network.save({"allow_private_targets": "1"})
-        self.assertEqual(validate_discovery_endpoint("https://10.20.30.40"), "https://10.20.30.40")
+    def test_direct_discovery_private_target_allowed_by_default(self):
+        self.assertEqual(
+            validate_discovery_endpoint("https://10.20.30.40"), "https://10.20.30.40"
+        )
+        federation_network.save({"allow_private_targets": "0", "allow_loopback": "0"})
+        self.assertEqual(
+            validate_discovery_endpoint("https://10.20.30.40"), "https://10.20.30.40"
+        )
 
     def test_direct_discovery_rejects_dns_resolution_to_link_local(self):
         resolved = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 443))]

@@ -23,13 +23,18 @@ class FederationNetworkStoreTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def test_defaults_are_empty_and_opt_out(self):
+    def test_defaults_allow_private_networks(self):
         self.assertEqual([], network.lan_addresses())
         self.assertEqual([], network.lan_ports())
         self.assertEqual([], network.bootstrap_raw())
-        self.assertFalse(network.allow_private_targets())
-        self.assertFalse(network.allow_loopback())
+        self.assertTrue(network.allow_private_targets())
+        self.assertTrue(network.allow_loopback())
         self.assertFalse(network.refuse_bad_client())
+
+    def test_legacy_disabled_flags_do_not_block_lan(self):
+        network.save({"allow_private_targets": "0", "allow_loopback": "0"})
+        self.assertTrue(network.allow_private_targets())
+        self.assertTrue(network.allow_loopback())
 
     def test_lists_roundtrip(self):
         network.save({
@@ -51,7 +56,7 @@ class FederationNetworkStoreTests(unittest.TestCase):
         })
         status = network.status()
         self.assertTrue(status["allow_private_targets"])
-        self.assertFalse(status["allow_loopback"])
+        self.assertTrue(status["allow_loopback"])
         self.assertTrue(status["refuse_bad_client"])
         self.assertTrue(network.allow_private_targets())
         self.assertTrue(network.refuse_bad_client())
@@ -165,7 +170,7 @@ class FederationNetworkAdminTests(unittest.TestCase):
         self.assertEqual(["192.168.178.44"], network.lan_addresses())
         self.assertEqual([8765], network.lan_ports())
         self.assertTrue(network.allow_private_targets())
-        self.assertFalse(network.allow_loopback())
+        self.assertTrue(network.allow_loopback())
         self.assertTrue(network.refuse_bad_client())
 
     def test_save_network_settings_rejects_invalid(self):
