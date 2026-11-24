@@ -849,3 +849,21 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | Fix-PR: `resolve_for_write_under` in `_store_generated_pdf` + 3 Regressionstests. Doku-PR: Dispositions-Protokoll (1 GAP gefixt, 47 COVERED mit Helfer/Restrisiko/Testlücken). |
 | Tests und Soll-Ist-Vergleich | Soll: #1154-Akzeptanz (je Alert Fix+Test oder begründete Ausnahme). Ist: Fix-Tests 3/3 (rot ohne/grün mit), 62/62 Business-Nachbarn, ruff/compileall grün; CI beider PRs abgewartet. |
 | Review und Abschluss | Fix mergen, dann Doku-PR mit `Closes #1154` mergen, Issue-Nachweis kommentieren. |
+
+## 24. November 2026 · #1154 Runde 2: Trunkierungsfehler korrigiert, 94 Rest-Alerts
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Erste Abfrage war per `head` trunkiert (160 statt 324 Alerts gezeigt): tatsächlich 142 py/path-injection. #1154 nach voreiligem Auto-Close (per #1218) sofort wieder geöffnet + Korrektur kommentiert. 5 Cluster-Agenten (read-only) für die 94 Rest-Flows gestartet. |
+| Implementierung | Ausstehend: Synthese, Fix-PRs bei GAPs, Protokoll-Ergänzung. |
+| Tests und Soll-Ist-Vergleich | Ausstehend. |
+| Review und Abschluss | Offen. |
+
+## 24. November 2026 · #1154 Runde 2: Rest-Flows triagiert, Archiv-Admin-Gate gefixt
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | 5 read-only Subagenten für 94 Rest-Flüsse; Integrator hat beide GAPs (externe Archive ohne Admin-Gate) im Code verifiziert, Mount-Allowlist als ungeeignet verworfen (`/` ist Mount), Windows-Hinweis widerlegt (plattformsemantisch konsistent). |
+| Implementierung | Admin-Gate (403) auf Register-/Offload-Routen + 3 Regressionstests; Protokoll §6. |
+| Tests und Soll-Ist-Vergleich | Soll: alle 142 dispositioniert. Ist: 3/3 neu (ohne Fix Schreiben nach /tmp belegt), ruff/compileall grün; 142/142 abgedeckt (4 GAP-Instanzen gefixt, Rest dokumentiert). |
+| Review und Abschluss | PR gestellt; nach Merge #1154 mit Nachweis schließen. |

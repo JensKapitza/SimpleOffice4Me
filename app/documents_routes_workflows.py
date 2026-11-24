@@ -410,6 +410,8 @@ def renew_share(document_id: str, share_id: str):
 @bp.post("/<document_id>/offload-versions")
 @login_required
 def offload_versions(document_id: str):
+    if not bool(g.user["is_admin"]):
+        abort(403)
     _document_or_404(document_id)
     if request.form.get("confirm") != "AUSLAGERN":
         flash("Zum Auslagern muss AUSLAGERN bestätigt werden.")
@@ -463,6 +465,8 @@ def archives():
 @bp.post("/archives/register")
 @login_required
 def register_archive():
+    if not bool(g.user["is_admin"]):
+        abort(403)
     try:
         tags = [tag.strip() for tag in request.form.get("tags", "").split(",") if tag.strip()]
         _store().register_external_archive(request.form.get("path", ""), request.form.get("label", ""), tags, str(g.user["username"]))
