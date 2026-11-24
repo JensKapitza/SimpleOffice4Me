@@ -328,6 +328,62 @@ class FederationAdminUiTests(unittest.TestCase):
         self.assertNotIn('name="mail_cases_receive" value="1" checked', body)
         self.assertNotIn('name="mail_cases_auto_accept" value="1" checked', body)
 
+    def test_chat_rules_save_returns_to_edited_peer_with_local_feedback(self):
+        from bs4 import BeautifulSoup
+
+        store = FederationStore(self.root)
+        chat_page = "/admin/chat-policies/"
+        office_a_policy = {"documents": {"receive": True}}
+        office_b_policy = {"documents": {"receive": False}, "inventory": {"receive": True}}
+        with app.app_context():
+            store.save_peer("office-a", "Office A", "https://office-a.example", "", office_a_policy)
+            store.save_peer(
+                "office-b", "Office B", "https://office-b.example", "peer-token-fixture", office_b_policy,
+            )
+        post_path = "/admin/federation/peers/office-b/chat-policy"
+        response = self.client.get(chat_page)
+        self.assertEqual(200, response.status_code)
+        page = BeautifulSoup(response.get_data(as_text=True), "html.parser")
+        form = page.find("form", action=post_path)
+        data = {item["name"]: item.get("value", "") for item in form.select('input[type="hidden"]')}
+        data.update(chat_send="1", chat_poll_send="1")
+
+        result = self.client.post(post_path, data=data)
+        self.assertEqual(f"{chat_page}#chat-peer-office-b", result.location)
+        returned = BeautifulSoup(self.client.get(result.location).get_data(as_text=True), "html.parser")
+        office_a = returned.find("section", id="chat-peer-office-a")
+        office_b = returned.find("section", id="chat-peer-office-b")
+        self.assertIn("Chat-Regeln für Office B gespeichert.", office_b.select_one('[role="status"]').get_text())
+        self.assertIsNone(office_a.select_one('[role="status"]'))
+        self.assertTrue(office_b.select_one('[name="chat_send"]').has_attr("checked"))
+        self.assertTrue(office_b.select_one('[name="chat_poll_send"]').has_attr("checked"))
+        self.assertFalse(office_b.select_one('[name="chat_receive"]').has_attr("checked"))
+        self.assertFalse(office_a.select_one('[name="chat_send"]').has_attr("checked"))
+        self.assertEqual(office_a_policy, store.get_peer("office-a")["policy"])
+        saved_b = store.get_peer("office-b")["policy"]
+        self.assertEqual(office_b_policy, {key: saved_b[key] for key in office_b_policy})
+        with app.app_context():
+            self.assertEqual("peer-token-fixture", store.peer_token("office-b"))
+        self.assertNotIn("peer-token-fixture", returned.get_text())
+
+        with patch.object(FederationStore, "save_peer", side_effect=ValueError("Lokale Test-Ablehnung")):
+            result = self.client.post(post_path, data={"chat_receive": "1"})
+        self.assertEqual(f"{chat_page}#chat-peer-office-b", result.location)
+        rejected = BeautifulSoup(self.client.get(result.location).get_data(as_text=True), "html.parser")
+        office_b = rejected.find("section", id="chat-peer-office-b")
+        self.assertIn("Chat-Regeln konnten nicht gespeichert werden", office_b.select_one('[role="status"]').get_text())
+        self.assertEqual(saved_b, store.get_peer("office-b")["policy"])
+
+        missing = self.client.post("/admin/federation/peers/no-such-peer/chat-policy")
+        self.assertEqual(chat_page, missing.location)
+        self.assertIn("Chat-Regeln konnten nicht gespeichert werden", self.client.get(missing.location).get_data(as_text=True))
+
+        self.client.post(post_path, data=data)
+        store.delete_peer("office-b")
+        refreshed = BeautifulSoup(self.client.get(chat_page).get_data(as_text=True), "html.parser")
+        self.assertIsNone(refreshed.find("section", id="chat-peer-office-b"))
+        self.assertIn("Chat-Regeln für Office B gespeichert.", refreshed.select_one('main > [role="status"]').get_text())
+
     def test_rendezvous_relay_requires_explicit_peer_policy(self):
         response = self.client.post(
             "/admin/federation/peers",
