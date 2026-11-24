@@ -45,7 +45,7 @@
     }
   }
 
-  function playClip(url, fallback, language, statusElement) {
+  function playClip(url, fallback, language, statusElement, current) {
     if (!url || typeof window.Audio !== 'function') {
       speak(fallback, language, statusElement);
       return Promise.resolve(false);
@@ -64,25 +64,19 @@
         if (activePlayer === player) activePlayer = null;
         resolve(value);
       };
-      player.addEventListener('ended', () => finish(true), {once: true});
-      player.addEventListener('error', () => {
+      const failed = () => {
         if (settled) return;
-        settled = true;
-        if (activePlayer === player) activePlayer = null;
-        speak(fallback, language, statusElement);
-        resolve(false);
+        if (current === audioSequence) speak(fallback, language, statusElement);
+        finish(false);
+      };
+      player.addEventListener('ended', () => finish(true), {once: true});
+      player.addEventListener('error', failed, {once: true});
+      player.addEventListener('pause', () => {
+        if (current !== audioSequence) finish(false);
       }, {once: true});
       try {
         const started = player.play();
-        if (started && typeof started.catch === 'function') {
-          started.catch(() => {
-            if (settled) return;
-            settled = true;
-            if (activePlayer === player) activePlayer = null;
-            speak(fallback, language, statusElement);
-            resolve(false);
-          });
-        }
+        if (started && typeof started.catch === 'function') started.catch(failed);
       } catch (error) {
         finish(false);
       }
@@ -98,7 +92,7 @@
     parts.forEach(part => {
       chain = chain.then(async previous => {
         if (current !== audioSequence) return false;
-        await playClip(`${prefix}${part.key}.mp3${suffix}`, part.fallback, language, statusElement);
+        await playClip(`${prefix}${part.key}.mp3${suffix}`, part.fallback, language, statusElement, current);
         return previous;
       });
     });

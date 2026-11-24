@@ -1,5 +1,7 @@
 """Counting and quantities game: config unit tests plus page integration tests."""
 import re
+import shutil
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -91,6 +93,15 @@ class KidsNumbersPageTests(PublicHttpTestCase):
         self.assertIn("/kids/lernen", html)
         self.assertIn("/kids/coloring", html)
 
+    def test_counting_clips_are_served_locally_in_both_languages(self):
+        for language in ("de", "en"):
+            for amount in (1, 3, 10):
+                with self.subTest(language=language, amount=amount):
+                    with self.client.get(f"/static/audio/kids/games/numbers/{language}/num_{amount}.mp3") as response:
+                        self.assertEqual(200, response.status_code)
+                        self.assertTrue(response.content_type.startswith("audio/"))
+                        self.assertGreater(len(response.data), 100)
+
     def test_numbers_page_has_no_external_requests(self):
         response = self.client.get("/kids/numbers/")
         html = response.get_data(as_text=True)
@@ -141,6 +152,15 @@ class KidsNumbersAssetsTests(unittest.TestCase):
         self.assertIn("KidsPiperVoice", shared)
         self.assertNotIn("speechSynthesis", shared)
         self.assertNotIn("SpeechSynthesisUtterance", shared)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is needed for browser logic")
+    def test_counting_picture_flow_and_audio_supersession(self):
+        result = subprocess.run(
+            [shutil.which("node"), "--test", "tests/kids_numbers_counting.test.cjs",
+             "tests/kids_shared_audio.test.cjs"],
+            cwd=ROOT, capture_output=True, text=True, check=False, timeout=30,
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_game_uses_prerecorded_clip_keys(self):
         script = SCRIPT.read_text(encoding="utf-8")
