@@ -64,13 +64,13 @@ setup(
     ],
     install_requires=RUNTIME_DEPENDENCIES,
     extras_require={
-        "web-export": ["playwright==1.65.1"],
+        "web-export": ["playwright==1.65.2"],
         "security": ["pip-audit>=2.7,<3"],
         "sbom": ["packaging>=26.3,<27"],
-        "quality": ["ruff==0.17.5"],
+        "quality": ["ruff==0.17.6"],
         "ocr": [
             "rapidocr==3.10.0",
-            "onnxruntime==1.31.1",
+            "onnxruntime==1.32.0",
         ],
         "sftp": ["paramiko>=3.5,<6"],
         "banking": ["fints>=4.2,<6"],

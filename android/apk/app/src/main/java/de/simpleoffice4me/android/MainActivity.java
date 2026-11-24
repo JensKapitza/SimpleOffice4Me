@@ -65,7 +65,7 @@ public class MainActivity extends Activity {
     private static final String LOCAL_URL = "http://127.0.0.1:8765/";
     private static final String RUNTIME_PREFS = "simpleoffice-runtime";
     private static final String RUNTIME_VERSION = "bundle-version";
-    private static final int CAMERA_PERMISSION_REQUEST = 701;
+    private static final int WEB_CAPTURE_PERMISSION_REQUEST = 701;
     private static final int FILE_CHOOSER_REQUEST = 702;
     private static final int AUDIO_PERMISSION_REQUEST = 703;
     private static final int SCREEN_CAPTURE_REQUEST = 704;
@@ -86,7 +86,39 @@ public class MainActivity extends Activity {
     private ProgressBar progress;
     private TextView status;
     private Bundle pendingWebState;
-    private PermissionRequest pendingCameraPermission;
+    private final AndroidWebPermissionFlow<PermissionRequest> webPermissionFlow =
+            new AndroidWebPermissionFlow<>(new AndroidWebPermissionFlow.Host<>() {
+                @Override
+                public boolean canHandle(PermissionRequest request) {
+                    return localPageVisible && !mainFrameLoadFailed
+                            && isTrustedLocalOrigin(request.getOrigin());
+                }
+
+                @Override
+                public String permissionFor(String resource) {
+                    return webCapturePermission(resource);
+                }
+
+                @Override
+                public boolean hasPermission(String permission) {
+                    return checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED;
+                }
+
+                @Override
+                public void requestPermissions(String[] permissions) {
+                    MainActivity.this.requestPermissions(permissions, WEB_CAPTURE_PERMISSION_REQUEST);
+                }
+
+                @Override
+                public void grant(PermissionRequest request, String[] resources) {
+                    finishWebPermissionRequest(request, resources);
+                }
+
+                @Override
+                public void deny(PermissionRequest request) {
+                    finishWebPermissionRequest(request, null);
+                }
+            });
     private ValueCallback<Uri[]> fileChooserCallback;
     private volatile String pendingLocalFolderId = "";
     private volatile String pendingLocalFolderResult = "";
@@ -196,14 +228,12 @@ public class MainActivity extends Activity {
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(PermissionRequest request) {
-                mainHandler.post(() -> handleWebPermissionRequest(request));
+                mainHandler.post(() -> webPermissionFlow.request(request, request.getResources()));
             }
 
             @Override
             public void onPermissionRequestCanceled(PermissionRequest request) {
-                mainHandler.post(() -> {
-                    if (pendingCameraPermission == request) pendingCameraPermission = null;
-                });
+                mainHandler.post(() -> webPermissionFlow.cancel(request));
             }
 
             @Override
@@ -271,12 +301,12 @@ public class MainActivity extends Activity {
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
+                webPermissionFlow.denyPending();
                 currentWebViewUrl = url == null ? "" : url;
                 localPageVisible = isLocalUrl(url);
                 if (offlineWorksetStore != null) offlineWorksetStore.unbindOwner();
                 if (!localPageVisible) {
                     stopNfcReader();
-                    denyPendingCameraPermission();
                     return;
                 }
                 mainFrameLoadFailed = false;
@@ -308,7 +338,7 @@ public class MainActivity extends Activity {
                     mainFrameLoadFailed = true;
                     localPageVisible = false;
                     stopNfcReader();
-                    denyPendingCameraPermission();
+                    webPermissionFlow.denyPending();
                     showStatus("Seite konnte nicht geladen werden:\n" + error.getDescription(), false);
                 }
             }
@@ -321,6 +351,7 @@ public class MainActivity extends Activity {
                 super.onReceivedHttpError(view, request, errorResponse);
                 if (request.isForMainFrame() && errorResponse.getStatusCode() >= 500) {
                     mainFrameLoadFailed = true;
+                    webPermissionFlow.denyPending();
                     showStatus("Lokaler Serverfehler: HTTP " + errorResponse.getStatusCode(), false);
                 }
             }
@@ -540,23 +571,14 @@ public class MainActivity extends Activity {
                 + "window.addEventListener('simpleoffice:native-audio-status',event=>{if(event.detail&&event.detail.message)show(String(event.detail.message),'danger');else render();});render();}";
     }
 
-    private void handleWebPermissionRequest(PermissionRequest request) {
-        if (!localPageVisible || !isTrustedLocalOrigin(request.getOrigin()) || !requestsOnlyVideo(request)) {
-            request.deny();
-            return;
+    private static String webCapturePermission(String resource) {
+        if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)) {
+            return Manifest.permission.CAMERA;
         }
-        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-            request.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
-            return;
+        if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)) {
+            return Manifest.permission.RECORD_AUDIO;
         }
-        denyPendingCameraPermission();
-        pendingCameraPermission = request;
-        requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_REQUEST);
-    }
-
-    private static boolean requestsOnlyVideo(PermissionRequest request) {
-        String[] resources = request.getResources();
-        return resources.length == 1 && PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resources[0]);
+        return null;
     }
 
     private static boolean isTrustedLocalOrigin(Uri origin) {
@@ -565,14 +587,12 @@ public class MainActivity extends Activity {
         return ("127.0.0.1".equals(host) || "localhost".equals(host)) && origin.getPort() == 8765;
     }
 
-    private void denyPendingCameraPermission() {
-        PermissionRequest request = pendingCameraPermission;
-        pendingCameraPermission = null;
-        if (request != null) {
-            try {
-                request.deny();
-            } catch (IllegalStateException ignored) {
-            }
+    private static void finishWebPermissionRequest(PermissionRequest request, String[] resources) {
+        try {
+            if (resources != null) request.grant(resources);
+            else request.deny();
+        } catch (IllegalStateException ignored) {
+            // WebView may have closed the originating document before its cancellation callback.
         }
     }
 
@@ -583,18 +603,12 @@ public class MainActivity extends Activity {
             handleAudioPermissionResult(grantResults);
             return;
         }
-        if (requestCode != CAMERA_PERMISSION_REQUEST) return;
-        PermissionRequest request = pendingCameraPermission;
-        pendingCameraPermission = null;
-        if (request == null) return;
-        boolean granted = localPageVisible && grantResults.length > 0
-                && grantResults[0] == PackageManager.PERMISSION_GRANTED
-                && isTrustedLocalOrigin(request.getOrigin()) && requestsOnlyVideo(request);
-        try {
-            if (granted) request.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
-            else request.deny();
-        } catch (IllegalStateException ignored) {
+        if (requestCode != WEB_CAPTURE_PERMISSION_REQUEST) return;
+        boolean granted = grantResults.length > 0 && grantResults.length == permissions.length;
+        for (int result : grantResults) {
+            if (result != PackageManager.PERMISSION_GRANTED) granted = false;
         }
+        webPermissionFlow.onPermissionResult(permissions, granted);
     }
 
     private void handleAudioPermissionResult(int[] grantResults) {
@@ -1689,9 +1703,10 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
+        // The Android permission dialog may pause this Activity before delivering its result.
+        webPermissionFlow.setResumed(false);
         localPageVisible = false;
         stopNfcReader();
-        denyPendingCameraPermission();
         if (webView != null) {
             webView.onPause();
             webView.pauseTimers();
@@ -1707,11 +1722,22 @@ public class MainActivity extends Activity {
             webView.onResume();
             localPageVisible = isLocalUrl(webView.getUrl());
             flushPendingLocalFolderResult();
-            if (localPageVisible && !navigateToPendingIntent(webView, webView.getUrl())) {
-                flushPendingBarcodeResult();
-                injectPendingShareUi(webView, webView.getUrl());
+            if (localPageVisible) {
+                if (navigateToPendingIntent(webView, webView.getUrl())) {
+                    webPermissionFlow.denyPending();
+                } else {
+                    flushPendingBarcodeResult();
+                    injectPendingShareUi(webView, webView.getUrl());
+                }
             }
         }
+        webPermissionFlow.setResumed(true);
+    }
+
+    @Override
+    protected void onStop() {
+        webPermissionFlow.denyPending();
+        super.onStop();
     }
 
     @Override
@@ -1743,7 +1769,7 @@ public class MainActivity extends Activity {
         ScreenCaptureService.setListener(null);
         localPageVisible = false;
         stopNfcReader();
-        denyPendingCameraPermission();
+        webPermissionFlow.denyPending();
         pendingAudioTargets = null;
         audioStreamer.stopAll();
         pendingBarcodeResult = null;
