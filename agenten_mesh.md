@@ -899,3 +899,11 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | Flake-Test gehärtet (PR #1228, gemergt); #1219/#1222/#1224-Reviews sauber; #1219+#1222 gemergt; #1224 rebased+gepusht; #1154 mit Nachweis geschlossen; #1220-Branch auf Main gebracht. |
 | Tests und Soll-Ist-Vergleich | Soll: Runde abschließen. Ist: 15/15 Kids-Tests, Robustheits-Probe (echte CDN-URL schlägt weiter fehl), ruff grün; Rest (#1220/#1224-Merge, #1156-Schluss) per Cron. |
 | Review und Abschluss | Offen: #1220/#1224-Merges + #1156-Schluss nach Grün. |
+## 24. November 2026 · Issue #1156: Abschluss bis auf Merges, #1225 abgespalten
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | 3 Verifikations-Subagenten: Pins (151 SHA-ok, 4 Lücken), Coverage (Dependabot/Secrets wieder abfragbar, je 1/0 offen), Rust (cookie/url auf Main gefixt). glib GHSA als Major-Upgrade erkannt (GTK-Stack). |
+| Implementierung | PR #1224 (4 Pins), Folge-Issue #1225 (glib/Tauri), #1156-Statuskommentar. |
+| Tests und Soll-Ist-Vergleich | Soll: #1156-Akzeptanz. Ist: alle Nachweise erbracht (Fix/Ausnahme je Fund); Merges + Schluss ausstehend. |
+| Review und Abschluss | Offen: #1217/#1221/#1224 bei Grün mergen, #1154/#1156 schließen. |
