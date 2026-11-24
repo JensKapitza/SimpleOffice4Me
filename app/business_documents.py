@@ -29,7 +29,7 @@ from .business_template_dispatch import (
     render_invoice_with_template as _render_invoice_with_template,
     render_letter_with_template as _render_letter_with_template,
 )
-from .einvoice_snapshot import freeze_snapshot
+from .einvoice_snapshot import freeze_snapshot, raise_for_einvoice_fields, stamp_einvoice_snapshot
 from .invoice_addresses import parse_free_text_invoice_address as _parse_free_text_invoice_address
 from .invoice_access import _managed_invoice  # noqa: F401 (re-exported facade for invoice_relation_routes)
 from .invoice_display import _display_zugferd
@@ -378,10 +378,7 @@ def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existi
     planned_credit = min(Decimal(totals["gross"]), available_credit).quantize(MONEY)
     row["settlement"] = {"customer_credit": f"{planned_credit:.2f}", "bank_due": f"{(Decimal(totals['gross']) - planned_credit).quantize(MONEY):.2f}"}
     tpl=_business_template(root,row["template_id"],"invoice"); row["template_id"]=tpl["template_id"]
-    from .einvoice_snapshot import validate_einvoice_fields
-    field_problems = validate_einvoice_fields(row)
-    if field_problems:
-        raise ValueError("; ".join(problem["message"] for problem in field_problems[:3]))
+    raise_for_einvoice_fields(row)
     row["history"].append({"type":"draft_updated" if existing else "draft_created","at":now,"actor":actor})
     return row
 
@@ -475,9 +472,7 @@ def finalize_invoice(root: Path, invoice_id: str, actor: str) -> tuple[dict[str,
         timed("business_settings_load", lambda: business_settings(root))
         number = row.get("invoice_number", ""); number = timed("invoice_number_assign", lambda: _invoice_number(root)) if not number or number.startswith("DRAFT-") else number
         row["invoice_number"] = number; row["history"].append({"type": "number_assigned", "at": utc_now(), "actor": actor, "invoice_number": number})
-        snapshot_meta = timed("einvoice_snapshot_write", lambda: freeze_snapshot(root, row, actor))
-        row["einvoice_snapshot"] = snapshot_meta
-        row["history"].append({"type": "snapshot_finalized", "at": snapshot_meta["created_at"], "actor": actor, "sha256": snapshot_meta["sha256"]})
+        timed("einvoice_snapshot_write", lambda: stamp_einvoice_snapshot(root, row, actor))
         try:
             tpl = timed("template_load", lambda: _business_template(root, row["template_id"], "invoice"))
             visual = timed("template_pdf_render", lambda: _render_invoice_with_template(root, tpl, row))

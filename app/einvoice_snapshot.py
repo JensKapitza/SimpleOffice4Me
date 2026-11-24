@@ -86,6 +86,22 @@ def freeze_snapshot(root: Path, row: dict[str, Any], actor: str) -> dict[str, st
     return meta
 
 
+def raise_for_einvoice_fields(row: dict[str, Any]) -> None:
+    """Raise on malformed AP2 field values (first three messages)."""
+    problems = validate_einvoice_fields(row)
+    if problems:
+        raise ValueError("; ".join(problem["message"] for problem in problems[:3]))
+
+
+def stamp_einvoice_snapshot(root: Path, row: dict[str, Any], actor: str) -> dict[str, str]:
+    """Freeze the snapshot and attach its metadata and history entry to the row."""
+    meta = freeze_snapshot(root, row, actor)
+    row["einvoice_snapshot"] = meta
+    row["history"].append({"type": "snapshot_finalized", "at": meta["created_at"],
+                           "actor": str(actor), "sha256": meta["sha256"]})
+    return meta
+
+
 def read_snapshot(root: Path, invoice_id: str) -> dict[str, Any]:
     path = _snapshot_path(root, invoice_id)
     try:

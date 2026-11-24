@@ -15,7 +15,12 @@ from unittest import mock
 
 from werkzeug.datastructures import MultiDict
 
-from app.business_documents import finalize_invoice, invoice, save_invoice_draft
+from app.business_documents import (
+    InvoiceFinalizationError,
+    finalize_invoice,
+    invoice,
+    save_invoice_draft,
+)
 from app.contact_store import ContactStore
 from tests.http_api_fixture import PublicHttpTestCase
 
@@ -119,11 +124,14 @@ class FinalizationRobustnessTests(unittest.TestCase):
                     mock.patch("app.business_documents._render_invoice_with_template",
                                side_effect=RuntimeError("template exploded")), \
                     mocks[3], mocks[4], mocks[5], mocks[6], mocks[7], mocks[8]:
-                with self.assertRaisesRegex(RuntimeError, "template exploded"):
+                with self.assertRaises(InvoiceFinalizationError) as raised:
                     finalize_invoice(root, row["invoice_id"], "tester")
+            self.assertEqual("RuntimeError", raised.exception.error_type)
+            self.assertNotIn("template exploded", str(raised.exception))
             reread = invoice(root, row["invoice_id"])
             self.assertEqual("draft", reread["status"])
             self.assertIn("finalization_error", reread)
+            self.assertNotIn("template exploded", reread["finalization_error"])
             self.assertNotIn("document_id", reread)
             kinds = [event.get("type") for event in reread.get("history", [])]
             self.assertIn("finalization_failed", kinds)
@@ -139,8 +147,9 @@ class FinalizationRobustnessTests(unittest.TestCase):
                     mock.patch("app.business_documents._render_invoice_with_template",
                                side_effect=[TimeoutError("timed out"), b"visual"]), \
                     mocks[3], mocks[4], mocks[5], mocks[6], mocks[7], mocks[8]:
-                with self.assertRaises(TimeoutError):
+                with self.assertRaises(InvoiceFinalizationError) as raised:
                     finalize_invoice(root, row["invoice_id"], "tester")
+                self.assertEqual("TimeoutError", raised.exception.error_type)
                 finalized, _ = finalize_invoice(root, row["invoice_id"], "tester")
             reread = invoice(root, row["invoice_id"])
             self.assertEqual("open", reread["status"])
@@ -359,16 +368,20 @@ class ZugferdValidationTests(unittest.TestCase):
 
         pdf = _hybrid_pdf(_row())
         result = _validate_hybrid(pdf, extract_embedded_cii(pdf))
-        self.assertTrue(result["xml"])
+        self.assertNotIn("xml_not_well_formed", result["details"])
+        self.assertFalse(result["validated"])
         if shutil.which("verapdf"):
             self.assertTrue(result["pdfa"])
         else:
             self.assertFalse(result["pdfa"])
             self.assertIn("verapdf_unavailable", result["details"])
-            self.assertFalse(result["validated"])
-            self.assertEqual(
-                "validation_failed",
-                _zugferd_status("pdfa3_created", result))
+        if str(result.get("validator", "")).startswith("mustang"):
+            self.assertIn("zugferd_schema_validation_failed", result["details"])
+        else:
+            self.assertIn("en16931_default_validator_unavailable", result["details"])
+        self.assertEqual(
+            "validation_failed",
+            _zugferd_status("pdfa3_created", result))
 
     def test_standard_invoice_release_binds_both_valid_formats(self):
         import tempfile
@@ -396,7 +409,7 @@ class ZugferdValidationTests(unittest.TestCase):
             hybrid = _validate_hybrid(
                 archived_pdf_bytes(root, row),
                 extract_embedded_cii(archived_pdf_bytes(root, row)))
-            self.assertTrue(hybrid["xml"])
+            self.assertNotIn("xml_not_well_formed", hybrid["details"])
 
 
 class LegacyInvoiceTests(PublicHttpTestCase):
