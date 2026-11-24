@@ -855,11 +855,12 @@ def calendar():
         flash(f"Erinnerungen konnten nicht berechnet werden: {exc}")
     calendars = _calendars().calendars(actor)
     calendar_map = {item["calendar_id"]: item for item in calendars}
-    requested_month = request.args.get("month", date.today().strftime("%Y-%m"))
+    today = date.today()
+    requested_month = request.args.get("month", today.strftime("%Y-%m"))
     try:
         shown_month = date.fromisoformat(f"{requested_month}-01")
     except ValueError:
-        shown_month = date.today().replace(day=1)
+        shown_month = today.replace(day=1)
     events_by_day: dict[int, list[dict]] = {}
     visible_events = _calendar().events(actor)
     deleted_events = sorted(
@@ -950,4 +951,4 @@ def calendar():
     readable_calendars = set(calendar_map)
     followup_sources = {event["event_id"] for event in events if single_followup_source(event, readable_calendars)}
     followup_tasks = _todos().open_calendar_followup_ids(actor) if followup_sources else {}
-    return render_template("documents/calendar.html", followup_sources=followup_sources, followup_tasks=followup_tasks, events=events, deleted_events=deleted_events, calendars=calendars, contacts=contacts, users=users, video_chat_users=video_chat_users, current_username=actor, current_user_email=str(g.user["email"] or ""), mail_accounts=_mail().accounts(actor), local_calendar_address=local_calendar_address(actor), scheduling_access=_scheduling_access().get(actor), google_sync=_google_calendar().status(actor), booking=_calendar().booking_settings(), booking_url=url_for("documents.book_calendar_slot", _external=True), pending=_calendar().pending_bookings(), itip_messages=itip_messages, itip_hints=suggest_itip_review(itip_messages, actor), reminders=reminders, reminder_now=reminder_now.isoformat(timespec="seconds"), defaults=_settings().settings(), calendar_weeks=monthcalendar(shown_month.year, shown_month.month), calendar_events=events_by_day, shown_month=shown_month.strftime("%Y-%m"), shown_month_name=f"{month_name[shown_month.month]} {shown_month.year}", previous_month=previous, following_month=following, overlap_suggestions=suggest_calendar_overlaps(events))
+    return render_template("documents/calendar.html", followup_sources=followup_sources, followup_tasks=followup_tasks, events=events, deleted_events=deleted_events, calendars=calendars, contacts=contacts, users=users, video_chat_users=video_chat_users, current_username=actor, current_user_email=str(g.user["email"] or ""), mail_accounts=_mail().accounts(actor), local_calendar_address=local_calendar_address(actor), scheduling_access=_scheduling_access().get(actor), google_sync=_google_calendar().status(actor), booking=_calendar().booking_settings(), booking_url=url_for("documents.book_calendar_slot", _external=True), pending=_calendar().pending_bookings(), itip_messages=itip_messages, itip_hints=suggest_itip_review(itip_messages, actor), reminders=reminders, reminder_now=reminder_now.isoformat(timespec="seconds"), defaults=_settings().settings(), calendar_weeks=monthcalendar(shown_month.year, shown_month.month), today_day=today.day if shown_month == today.replace(day=1) else None, calendar_events=events_by_day, shown_month=shown_month.strftime("%Y-%m"), shown_month_name=f"{month_name[shown_month.month]} {shown_month.year}", previous_month=previous, following_month=following, overlap_suggestions=suggest_calendar_overlaps(events))

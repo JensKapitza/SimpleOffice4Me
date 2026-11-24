@@ -49,6 +49,7 @@ details.auth-card.auth-qr-attached[open] { padding-bottom: 2.25rem; }
 .calendar-day:nth-child(7n) { border-right: 0; }
 .calendar-day.empty { background: #f8fafc; }
 .calendar-number { color: #475569; font-size: .8rem; font-weight: 700; }
+#calendar-today { scroll-margin-top: 4.5rem; }
 .calendar-event { display: block; background: #ccfbf1; border-left: 3px solid #0f766e; border-radius: .25rem; color: #134e4a; font-size: .75rem; margin-top: .3rem; overflow: hidden; padding: .2rem .35rem; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
 .calendar-event:hover { background: #99f6e4; color: #134e4a; }
 .calendar-workspace-nav { background: var(--bs-body-bg); border: 1px solid var(--so-border); border-radius: .75rem; padding: .4rem; }
