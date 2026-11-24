@@ -92,10 +92,10 @@ def _sending_peer(store: FederationStore, peer_id: str) -> dict:
     return peer
 
 
-def _document_choices(query: str, limit: int = 60) -> list[dict]:
+def _document_choices(documents: list[dict], query: str, limit: int = 60) -> list[dict]:
     query = query.strip().casefold()
     result = []
-    for item in _documents().list_documents():
+    for item in documents:
         visible_tags = document_origin_tags(item)
         haystack = " ".join([
             str(item.get("last_path", "")), str(item.get("document_id", "")), " ".join(visible_tags),
@@ -225,13 +225,14 @@ def dashboard():
     transfers = store.list_transfers(200)
     if selected:
         transfers = [item for item in transfers if item.get("blob_hash") == selected["federation_sha256"]]
+    local_documents = _documents().list_documents()
     return render_template(
         "admin/federation.html",
         peers=peers,
         transfers=transfers,
         events=store.events(100),
         stats=store.stats(),
-        documents=_document_choices(query),
+        documents=_document_choices(local_documents, query),
         document_query=query,
         selected_document=selected,
         remote_files=catalog.remote_files(remote_peer, remote_query, 500),
@@ -246,6 +247,10 @@ def dashboard():
         chat_action_labels=ACTION_LABELS,
         active_view=active_view,
         edit_peer=edit_peer,
+        visible_local_download_ids={
+            item["document_id"] for item in local_documents
+            if item.get("last_path") and item.get("system_state") != "webdav_deleted"
+        } if active_view == "transfers" else set(),
     )
 
 

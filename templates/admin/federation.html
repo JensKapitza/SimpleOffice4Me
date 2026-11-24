@@ -634,6 +634,9 @@
                     <input class="form-control" type="number" name="priority" min="-1000" max="1000" value="{{ item.transfer_priority }}" aria-label="{{ 'Transfer priority' if g.language == 'en' else 'Transfer-Priorität' }}">
                     <button class="btn btn-outline-secondary" type="submit">{{ 'Set' if g.language == 'en' else 'Setzen' }}</button>
                   </form>
+                  {% if item.status == 'complete' and item.local_document_id in visible_local_download_ids %}
+                    <div class="mt-1"><a class="small" href="{{ url_for('documents.detail', document_id=item.local_document_id) }}">{{ 'Open local document' if g.language == 'en' else 'Lokales Dokument öffnen' }}</a></div>
+                  {% endif %}
                 </td>
                 <td><strong>{{ item.effective_priority }}</strong></td>
                 <td class="small text-danger text-break">{{ item.last_error }}</td>
