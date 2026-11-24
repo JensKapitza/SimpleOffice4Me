@@ -503,7 +503,7 @@
     const instructions = english
       ? `Go ${directions.join(', then ')}.`
       : `Gehe ${directions.map((direction, position) => position ? `dann nach ${direction}` : `nach ${direction}`).join(', ')}.`;
-    speak(instructions, english ? 'en-US' : 'de-DE');
+    speak(instructions, english ? 'en-US' : 'de-DE', 'instructions');
   }
   function showMazeRound() {
     window.clearTimeout(mazeHappyTimer);
@@ -574,11 +574,11 @@
     }
     const step = mazeTyping.mazeWrongStep(mazeNodes, mazeCurrentNode, target, mazeVisited);
     if (!step) {
-      speak(text('Falsch getippt. Hier geht es nicht falsch weiter.', 'Wrong letter. There is no wrong way from here.'), speechLang);
+      speak(text('Falsch getippt. Hier geht es nicht falsch weiter.', 'Wrong letter. There is no wrong way from here.'), speechLang, 'instructions');
       return;
     }
     moveMaze(step);
-    if (!mazeCompleted) speak(text('Falsch getippt. Ein Schritt zurück.', 'Wrong letter. One step back.'), speechLang);
+    if (!mazeCompleted) speak(text('Falsch getippt. Ein Schritt zurück.', 'Wrong letter. One step back.'), speechLang, 'instructions');
   }
   function setMazeTypingMode(on) {
     mazeTypingMode = on;
@@ -588,7 +588,7 @@
     mazeControls.hidden = on;
     mazeLetters.hidden = !on; mazePanel.classList.toggle('is-typing', on);
     updateMazeTask();
-    if (on) speak(text('Tipp-Modus. Tippe den eingeklammerten Buchstaben.', 'Typing mode. Type the bracketed letter.'), english ? 'en-US' : 'de-DE');
+    if (on) speak(text('Tipp-Modus. Tippe den eingeklammerten Buchstaben.', 'Typing mode. Type the bracketed letter.'), english ? 'en-US' : 'de-DE', 'instructions');
     else stopAudio();
   }
   function drawMaze() {

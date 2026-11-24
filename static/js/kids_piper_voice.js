@@ -20,9 +20,10 @@
     return String(language || '').toLowerCase().startsWith('en') ? 'en-US' : 'de-DE';
   }
 
-  function urlFor(value, language) {
+  function urlFor(value, language, purpose) {
     const lang = normalizeLanguage(language);
     const params = new URLSearchParams({text: String(value || ''), lang});
+    if (purpose === 'instructions') params.set('purpose', purpose);
     return `${endpoint()}?${params.toString()}`;
   }
 
@@ -41,7 +42,7 @@
   // Speak one text through the Piper endpoint. Resolves true when playback
   // finished, false when cancelled, superseded or unavailable (statusElement
   // then names the missing server voice).
-  function speak(value, language, statusElement) {
+  function speak(value, language, statusElement, purpose) {
     const lang = normalizeLanguage(language);
     const message = String(value || '').trim();
     if (!message || typeof window.Audio !== 'function') {
@@ -55,7 +56,7 @@
     // Cancel previous playback first, then claim the new sequence number.
     stop();
     const run = ++sequence;
-    const player = new window.Audio(urlFor(message, lang));
+    const player = new window.Audio(urlFor(message, lang, purpose));
     activePlayer = player;
     return new Promise(resolve => {
       let settled = false;
@@ -71,8 +72,8 @@
         if (activePlayer === player) activePlayer = null;
         if (statusElement) {
           statusElement.textContent = lang === 'de-DE'
-            ? 'Vorlesestimme ist nicht eingerichtet. Bitte die App-Verwaltung um das Piper-Stimmenmodell bitten.'
-            : 'Read-aloud voice is not set up. Please ask the app administrator for the Piper voice model.';
+            ? 'Vorlesen gerade nicht möglich. Bitte versuche es erneut. Wenn es nicht klappt, prüfe die Piper-Stimme mit der App-Verwaltung.'
+            : 'Read-aloud is unavailable. Try again. If it still fails, ask the app administrator to check the Piper voice.';
         }
         resolve(false);
       };

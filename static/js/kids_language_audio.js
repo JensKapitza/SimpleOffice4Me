@@ -9,7 +9,7 @@
     let sequence = 0;
     let speakRun = 0;
     const piper = () => window.KidsPiperVoice;
-    function speak(value, language = 'en-US') {
+    function speak(value, language = 'en-US', purpose) {
       const queue = (Array.isArray(value) ? value : [{text: value, language}]).filter(segment => String(segment.text || '').trim());
       if (!queue.length) return Promise.resolve(false);
       // Own generation: rapid repeats cancel the older segment chain without
@@ -19,7 +19,7 @@
       if (activeAudio) { activeAudio.pause(); activeAudio = null; }
       return queue.reduce((chain, segment) => chain.then(ok => {
         if (!ok || run !== speakRun) return false;
-        return piper().speak(segment.text, segment.language || language, speechStatus);
+        return piper().speak(segment.text, segment.language || language, speechStatus, purpose);
       }), Promise.resolve(true));
     }
     function playRecorded(url, fallbackText, language, current = sequence) {
