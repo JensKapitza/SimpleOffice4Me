@@ -61,3 +61,52 @@ Inventur: `gh api --paginate "repos/JensKapitza/SimpleOffice4Me/code-scanning/al
   #1156 (Supply-Chain/Scorecard) abarbeiten; danach Alert-Bestand erneut abfragen.
 - Dependabot-/Secret-Scanning-Abdeckung klären (#1156).
 - Kein Alert wurde in dieser Triage dismissed oder gemergt (Vorgabe: PRs nur öffnen).
+
+## 5. Nachtrag 2026-11-24: #1154 py/path-injection-Disposition (48 Alerts)
+
+Stand: CodeQL-API, Main inkl. #1185-#1211; 48 offene `py/path-injection`
+(statt 143 am 21.11. – Rest durch seitherige Merges erledigt). Jeder Alert
+wurde per Datenfluss gegen Safe-Helper geprüft (4 parallele Triagen +
+Integrator-Verifikation des GAP-Funds im Code).
+
+### GAP (1 Fundstelle, 2 Alerts) – gefixt
+
+- `app/business_document_generation.py:143,145` (`_store_generated_pdf`):
+  `contact_id` (persistierbar via Kontaktformular, MCP `upsert_contact`,
+  vCard/JSContact-`uid`, ohne Formatprüfung) wurde roh in den Ablagepfad
+  interpoliert; `mkdir -p` + PDF-Write konnten mit `../../../../x` aus
+  der Root entkommen (authentifiziert). Fix: `resolve_for_write_under`
+  vor jedem Schreiben; Regressionstests `tests/test_business_path_traversal.py`
+  (3/3 grün mit Fix, 3/3 rot ohne Fix).
+
+### COVERED (47 Alerts, je mit Helfer + Restrisiko)
+
+- WebDAV (22: part_6 alle, part_2 alle, part_3:473): hinter
+  `_authenticate` + Credential-/VFS-ACL-Gates; Pfade via `_tree_path`,
+  `_destination`, `_document_path` (`resolve_file_under`), Mutationen via
+  `VFS.resolve`/`write_bytes`. TOCTOU kippt höchstens Statuscodes.
+  Restrisiko: `part_2:248`-Fallback nutzt `path.open` statt
+  `open_file_under` (nur servererzeugte Pfade, kein Exploit) – Härtungs-Notiz.
+- DocumentStore (10): `_safe_managed_relative_path`, `resolve_file_under`,
+  VFS-ACLs, Katalogschlüssel ohne FS-Zugriff. `part_1:693`
+  (`scan_and_get_document`) scannt bewusst auch externe Pfade (Feature mit
+  `[external]`-Markierung, Test vorhanden); alle Aufrufer intern.
+  Restrisiko: Containment dort nur per Docstring-Vertrag; Aufrufer-Audit
+  liegt vor, kein Request-Pfad gefunden.
+- Screen (8) + remote_app_catalog (1): `_path`-Allowlist
+  `[A-Za-z0-9_-]{1,80}` + festes `.json` (Traversal strukturell
+  unmöglich); Katalog admin-only mit Absolut-.exe-Prüfung + Blocklist +
+  SHA-256-gepinntem Launch-Recheck. Restrisiko: TOCTOU `is_file`→`open`
+  nur innerhalb Admin-Vertrauensgrenze.
+- Business-Editor (3): UUID-Allowlist für `template_id`,
+  `ASSET_NAME`-Allowlist für Assets, Registry-Lookup, Admin-Gates.
+  Restrisiko: keine direkten Traversal-Regressionstests (Happy-Path only).
+
+### Testlücken (keine Blocker, dokumentiert)
+
+Fehlende gezielte Traversal-Regressionstests: screen_support
+(`../`-404), Editor-UUID/Asset-Strings, Copy-Ziel-Traversal,
+Extraktor-Pfade, WebDAV-Symlink-Reject direkt. Generische Abdeckung
+besteht (`test_safe_paths.py`, Symlink-/Traversal-Tests).
+
+Kein Alert wurde pauschal dismissed.
