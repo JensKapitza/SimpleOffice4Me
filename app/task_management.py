@@ -8,6 +8,9 @@ from typing import Any
 from flask import Blueprint, current_app, flash, g, redirect, render_template, request, url_for
 
 from .auth import login_required
+from .calendar_collections import CalendarCollections
+from .calendar_followups import readable_followup_source
+from .calendar_store import CalendarStore
 from .document_store import DocumentStore
 from .tasks_suggest import suggest_task_next
 from .todo_store import TodoStore
@@ -255,6 +258,20 @@ def _resubmit_view_match(view: str, row: dict[str, Any], today: str, week_end: s
     return True
 
 
+def _visible_calendar_sources(rows: list[dict[str, Any]], actor: str) -> dict[str, str]:
+    source_by_task = _store().calendar_followup_sources({row["id"] for row in rows})
+    if not source_by_task:
+        return {}
+    root = current_app.config["DOCUMENT_ROOT"]
+    calendar_ids = {calendar["calendar_id"] for calendar in CalendarCollections(root).calendars(actor)}
+    reference_ids = set(source_by_task.values())
+    available = {
+        event["event_id"] for event in CalendarStore(root).events(actor)
+        if event["event_id"] in reference_ids and readable_followup_source(event, calendar_ids)
+    }
+    return {task_id: event_id for task_id, event_id in source_by_task.items() if event_id in available}
+
+
 @bp.get("/")
 @login_required
 def board():
@@ -309,6 +326,7 @@ def board():
         grouped=grouped,
         children=by_parent,
         source_documents=source_documents,
+        calendar_sources=_visible_calendar_sources(top_level, actor),
         lists=_store().lists(actor),
         query=request.args.get("q", "").strip(),
         selected_list=request.args.get("list_id", "").strip(),

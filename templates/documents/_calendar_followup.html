@@ -1,0 +1,30 @@
+{% if event.event_id in followup_sources %}
+  {% set existing_followup = followup_tasks.get(event.event_id) %}
+  <section class="border-top pt-2 mt-3" aria-labelledby="followup-heading-{{ event.event_id }}">
+    <h3 class="h6" id="followup-heading-{{ event.event_id }}">{{ 'Appointment follow-up' if g.language == 'en' else 'Termin-Wiedervorlage' }}</h3>
+    {% if existing_followup %}
+    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('tasks.board', _anchor='task-' ~ existing_followup) }}">{{ 'Open existing follow-up' if g.language == 'en' else 'Offene Wiedervorlage anzeigen' }}</a>
+    {% else %}
+    <details>
+      <summary>{{ 'Add follow-up' if g.language == 'en' else 'Wiedervorlage anlegen' }}</summary>
+      <p class="small text-secondary mt-2">{{ 'Adds a task to your own task list. The appointment and its participants are not changed or notified.' if g.language == 'en' else 'Legt eine Aufgabe in deiner eigenen Aufgabenliste an. Der Termin bleibt unverändert; Teilnehmende werden nicht benachrichtigt.' }}</p>
+      <form method="post" action="{{ url_for('documents.create_calendar_followup', event_id=event.event_id) }}" class="row g-2" data-calendar-followup>
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-sm-5">
+          <label for="followup-due-{{ event.event_id }}" class="form-label">{{ 'Due date' if g.language == 'en' else 'Fälligkeitsdatum' }}</label>
+          <input type="date" id="followup-due-{{ event.event_id }}" name="due" required class="form-control">
+        </div>
+        <div class="col-sm-7">
+          <label for="followup-title-{{ event.event_id }}" class="form-label">{{ 'Task title (optional)' if g.language == 'en' else 'Aufgabentitel (optional)' }}</label>
+          <input type="text" id="followup-title-{{ event.event_id }}" name="task_title" maxlength="300" class="form-control">
+        </div>
+        <div class="col-12">
+          <label for="followup-note-{{ event.event_id }}" class="form-label">{{ 'Note (optional)' if g.language == 'en' else 'Notiz (optional)' }}</label>
+          <textarea id="followup-note-{{ event.event_id }}" name="note" maxlength="2000" rows="2" class="form-control"></textarea>
+        </div>
+        <div class="col-12"><button type="submit" class="btn btn-primary btn-sm">{{ 'Create follow-up' if g.language == 'en' else 'Wiedervorlage speichern' }}</button></div>
+      </form>
+    </details>
+    {% endif %}
+  </section>
+{% endif %}

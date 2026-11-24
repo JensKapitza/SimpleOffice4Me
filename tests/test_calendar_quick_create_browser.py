@@ -16,6 +16,7 @@ from werkzeug.serving import make_server
 
 from app import app
 from app import db as database
+from app.calendar_store import CalendarStore
 from app.password_security import hash_password
 
 
@@ -119,6 +120,42 @@ class CalendarQuickCreateBrowserTests(unittest.TestCase):
                 add_box = quick_add.bounding_box()
                 self.assertGreaterEqual(add_box["height"], 44)
                 self.assertGreaterEqual(add_box["width"], 44)
+            finally:
+                context.close()
+                browser.close()
+
+
+    def test_phone_creates_appointment_followup_and_link_reopens_source(self):
+        event = CalendarStore(app.config["DOCUMENT_ROOT"]).add(
+            "Planning appointment", "Private fixture note", "2026-11-19T09:00",
+            "2026-11-19T10:00", "", "calendar-tester",
+        )
+        event_id = event["event_id"]
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(
+                executable_path=shutil.which("chromium"), headless=True, args=["--no-sandbox"],
+            )
+            try:
+                context = self._context(browser, viewport={"width": 390, "height": 844},
+                                        is_mobile=True, has_touch=True)
+                page = context.new_page()
+                errors: list[str] = []
+                page.on("pageerror", lambda error: errors.append(str(error)))
+                page.goto(self.origin + f"/documents/calendar?month=2026-11#calendar-event-{event_id}",
+                          wait_until="domcontentloaded")
+                modal = page.locator(f"#calendar-event-{event_id}")
+                modal.wait_for(state="visible")
+                form = modal.locator("[data-calendar-followup]")
+                form.locator("xpath=../summary").click()
+                self.assertEqual(0, form.locator("[data-appointment-context]").count())
+                form.locator("input[name=due]").fill("2026-11-23")
+                form.locator('button[type=submit]').click()
+                page.wait_for_url("**/tasks/#task-*")
+                self.assertEqual(0, page.get_by_text("Private fixture note", exact=True).count())
+                page.locator("[data-task-appointment-link]").click()
+                page.locator(f"#calendar-event-{event_id}").wait_for(state="visible")
+                self.assertEqual(0, page.locator("[data-calendar-followup]").count())
+                self.assertEqual([], errors)
             finally:
                 context.close()
                 browser.close()
