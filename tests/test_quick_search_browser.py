@@ -1,6 +1,7 @@
 """Browser coverage: live quick search, keyboard navigation, preview and recents."""
 from __future__ import annotations
 
+import re
 import shutil
 import tempfile
 import threading
@@ -8,7 +9,7 @@ import unittest
 from pathlib import Path
 
 try:
-    from playwright.sync_api import sync_playwright
+    from playwright.sync_api import expect, sync_playwright
 except ImportError:  # Browser extras are optional for the regular unit suite.
     sync_playwright = None
 
@@ -131,6 +132,36 @@ class QuickSearchBrowserTests(unittest.TestCase):
                 self.assertTrue(preview.locator("[data-quick-preview-title]").inner_text().strip())
                 page.locator("[data-quick-preview-close]").click()
                 self.assertFalse(preview.is_visible())
+            finally:
+                context.close()
+                browser.close()
+
+    def test_mobile_preview_copy_offers_manual_selection_when_clipboard_is_denied(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(
+                executable_path=shutil.which("chromium"), headless=True, args=["--no-sandbox"],
+            )
+            context = self._context(
+                browser, viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True,
+            )
+            try:
+                page = context.new_page()
+                page.add_init_script("""Object.defineProperty(navigator, 'clipboard', {
+                    value: {writeText: () => Promise.reject(new Error('Denied'))}
+                });""")
+                page.goto(self.origin + "/documents/quick-search", wait_until="domcontentloaded")
+                page.locator("#quick-search-query").fill("Live Test Alpha")
+                page.locator("[data-quick-preview-open]").click()
+                preview = page.locator("[data-quick-preview]")
+                copy = preview.get_by_role("button", name=re.compile(r"^(Vorschau kopieren|Copy preview)$"))
+                copy.click()
+                manual = preview.locator("[data-quick-preview-manual]")
+                expect(manual).to_be_visible()
+                self.assertTrue(manual.input_value().startswith("Live Test Alpha\n"))
+                self.assertTrue(manual.evaluate("el => el.selectionEnd === el.value.length && el.selectionStart === 0"))
+                preview.locator("[data-quick-preview-close]").click()
+                expect(manual).to_be_hidden()
+                expect(manual).to_have_value("")
             finally:
                 context.close()
                 browser.close()
