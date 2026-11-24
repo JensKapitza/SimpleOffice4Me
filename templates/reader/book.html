@@ -9,6 +9,7 @@
   </div>
   {% if reader_state.stale %}<div class="alert alert-warning">Das Dokument wurde seit der gespeicherten Leseposition geändert. Die alte Position wird nicht automatisch auf die neue Version übertragen.</div>{% endif %}
   <div id="reader-root" style="padding-bottom:max(1rem, env(safe-area-inset-bottom));touch-action:pan-x pan-y pinch-zoom"
+       data-document-reader
        data-format="{{ book.format }}"
        data-document-id="{{ document.document_id }}"
        data-document-version="{{ book.version }}"
@@ -35,6 +36,9 @@
           <div class="d-flex justify-content-end gap-2 mb-2"><button class="btn btn-sm btn-outline-secondary" type="button" data-reader-font-minus>A−</button><button class="btn btn-sm btn-outline-secondary" type="button" data-reader-font-plus>A+</button><button class="btn btn-sm btn-outline-secondary" type="button" data-reader-theme>Kontrast</button><button class="btn btn-sm btn-outline-secondary" type="button" data-reader-fullscreen>Vollbild</button></div>
           <div data-reader-error class="alert alert-warning d-none"></div>
           {% if book.format == 'pdf' %}
+          {% with speech_url=url_for('reader.read_aloud', document_id=document.document_id), speech_kind='pdf' %}
+            {% include 'reader/_read_aloud.html' %}
+          {% endwith %}
           <div data-reader-native-pdf class="text-center d-none"><img data-reader-pdf-image class="img-fluid" alt="PDF-Seite" loading="lazy" decoding="async"></div>
           <iframe data-reader-pdf-frame title="PDF Reader" src="{{ url_for('documents.image_preview', document_id=document.document_id) }}" style="width:100%;height:75vh;border:0"></iframe>
           {% else %}
@@ -46,4 +50,5 @@
   </div>
 </main>
 <script src="{{ url_for('static', filename='js/document_reader.js') }}" defer></script>
+{% if book.format == 'pdf' %}<script src="{{ url_for('static', filename='js/reader_read_aloud.js') }}" defer></script>{% endif %}
 {% endblock %}

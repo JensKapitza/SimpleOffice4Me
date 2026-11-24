@@ -6,13 +6,17 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template, request, send_file, url_for
+from flask import Blueprint, abort, current_app, flash, g, jsonify, make_response, redirect, render_template, request, send_file, url_for
 
 from .access_control import audit, has_feature
 from .auth import login_required
 from .document_store import DocumentStore
 from .epub_reader import EpubBook, MAX_EPUB_BYTES
 from .pdf_limits import MAX_PDF_BYTES
+from .private_read_aloud import ReadAloudError, private_audio_response, read_aloud_error, read_aloud_request
+from .reader_speech_text import (
+    MAX_READ_ALOUD_PDF_BYTES, MAX_READ_ALOUD_TEXT_BYTES, pdf_page_text, plain_text_sections, verified_speech_source,
+)
 from .reading_store import ReaderVersionChanged, ReadingStateStore, reader_version
 from .v2.contracts import LogicalObjectId
 from .v2.storage_runtime import storage_for
@@ -273,6 +277,82 @@ def open_book(document_id: str):
         "reader/book.html", document=document, book=payload, reader_state=state,
         annotations=annotations,
     )
+
+
+def _speech_document(document_id: str) -> tuple[dict[str, Any], str]:
+    try:
+        document = _documents().get_document(document_id)
+    except (ValueError, OSError):
+        raise ReadAloudError("document_unavailable", 404) from None
+    suffix = Path(str(document.get("last_path") or "")).suffix.casefold()
+    if document["document_id"] != document_id or suffix not in {".pdf", ".txt"}:
+        raise ReadAloudError("document_unavailable", 404)
+    return document, suffix
+
+
+def _speech_source_for(document: dict[str, Any], maximum: int) -> bytes:
+    return verified_speech_source(
+        storage_for(current_app.config["DOCUMENT_ROOT"], _actor()), document, maximum,
+    )
+
+
+@bp.get("/<document_id>/text")
+@login_required
+def open_text(document_id: str):
+    """Display verified UTF-8 text in the Reader, one bounded section at a time."""
+    _require_documents()
+    try:
+        document, suffix = _speech_document(document_id)
+        if suffix != ".txt":
+            raise ReadAloudError("document_unavailable", 404)
+        sections = plain_text_sections(_speech_source_for(document, MAX_READ_ALOUD_TEXT_BYTES))
+        section = request.args.get("section", 1, type=int)
+        if not 1 <= section <= len(sections):
+            raise ReadAloudError("invalid_page", 404)
+    except ReadAloudError as exc:
+        if exc.status == 404:
+            abort(404)
+        response = make_response(render_template(
+            "reader/error.html", document=document, format="text",
+            message=("The text is unavailable or exceeds the Reader limit (256 KiB)." if g.language == "en"
+                     else "Der Text ist nicht verfügbar oder überschreitet die Reader-Grenze (256 KiB)."),
+        ), exc.status)
+    else:
+        response = make_response(render_template(
+            "reader/text.html", document=document, text=sections[section - 1],
+            section=section, section_count=len(sections), document_version=reader_version(document),
+        ))
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
+@bp.post("/<document_id>/read-aloud")
+@login_required
+def read_aloud(document_id: str):
+    """Read the named document's version from authorized storage, not client text."""
+    _require_documents()
+    try:
+        document, suffix = _speech_document(document_id)
+        page, version = read_aloud_request()
+        if version != reader_version(document):
+            raise ReadAloudError("document_changed", 409)
+
+        def load_text():
+            if suffix == ".pdf":
+                return pdf_page_text(_speech_source_for(document, MAX_READ_ALOUD_PDF_BYTES), page)
+            sections = plain_text_sections(_speech_source_for(document, MAX_READ_ALOUD_TEXT_BYTES))
+            if page > len(sections):
+                raise ReadAloudError("invalid_page", 404)
+            return sections[page - 1]
+
+        response = private_audio_response(load_text, language=g.language)
+        if response.status_code == 200:
+            current, _ = _speech_document(document_id)
+            if version != reader_version(current):
+                raise ReadAloudError("document_changed", 409)
+        return response
+    except ReadAloudError as exc:
+        return read_aloud_error(exc.code, exc.status)
 
 
 @bp.get("/<document_id>/cover")

@@ -1,0 +1,122 @@
+"""Short, private audio responses using the operator's local Piper setup."""
+from __future__ import annotations
+
+import json
+import tempfile
+import threading
+import wave
+from pathlib import Path
+from typing import Callable
+
+from flask import Response, current_app, jsonify, request
+
+from .audio_output_engine import render_tts
+from .settings_store import SettingsStore
+
+MAX_SPEECH_CHARS = 5000
+MAX_SPEECH_AUDIO_BYTES = 8 * 1024 * 1024
+_MAX_REQUEST_BYTES = 1024
+_slots = threading.BoundedSemaphore(2)
+
+
+class ReadAloudError(ValueError):
+    def __init__(self, code: str, status: int):
+        super().__init__(code)
+        self.code = code
+        self.status = status
+
+
+def _private(response: Response) -> Response:
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+def read_aloud_error(code: str, status: int) -> Response:
+    response = jsonify(error=code)
+    response.status_code = status
+    return _private(response)
+
+
+def limit_read_aloud_request() -> Response | None:
+    """Reject oversized/non-JSON submissions before the global CSRF form parser."""
+    if not request.is_json:
+        return read_aloud_error("invalid_request", 400)
+    if request.content_length is not None and request.content_length > _MAX_REQUEST_BYTES:
+        return read_aloud_error("request_too_large", 413)
+    return None
+
+
+def read_aloud_request() -> tuple[int, str]:
+    """Parse only the shared player's small locator envelope; never accept text."""
+    if not request.is_json:
+        raise ReadAloudError("invalid_request", 400)
+    if request.content_length is not None and request.content_length > _MAX_REQUEST_BYTES:
+        raise ReadAloudError("request_too_large", 413)
+    body = request.stream.read(_MAX_REQUEST_BYTES + 1)
+    if len(body) > _MAX_REQUEST_BYTES:
+        raise ReadAloudError("request_too_large", 413)
+    try:
+        value = json.loads(body)
+    except (UnicodeError, ValueError, RecursionError) as exc:
+        raise ReadAloudError("invalid_request", 400) from exc
+    if not isinstance(value, dict) or set(value) != {"page", "document_version"}:
+        raise ReadAloudError("invalid_request", 400)
+    page, version = value["page"], value["document_version"]
+    if type(page) is not int or not 1 <= page <= 10_000:
+        raise ReadAloudError("invalid_page", 400)
+    if not isinstance(version, str) or not version or len(version) > 160:
+        raise ReadAloudError("invalid_version", 400)
+    return page, version
+
+
+def _configured_model(language: str) -> str:
+    media = SettingsStore(current_app.config["DOCUMENT_ROOT"]).settings()["media"]
+    model = media.get("piper_model_en", "") if language.lower().startswith("en") else ""
+    configured = str(model or media.get("piper_model", "")).strip()
+    if not configured or "://" in configured or configured.startswith(("//", "\\")):
+        raise ReadAloudError("piper_unavailable", 503)
+    path = Path(configured).expanduser()
+    if path.suffix.casefold() != ".onnx" or not path.is_file():
+        raise ReadAloudError("piper_unavailable", 503)
+    return str(path.resolve())
+
+
+def private_audio_response(
+    load_text: Callable[[], str], *, language: str = "", recheck_source: bool = False,
+) -> Response:
+    """Run a server-selected text loader and local Piper without a shared cache."""
+    if not _slots.acquire(blocking=False):
+        return read_aloud_error("read_aloud_busy", 503)
+    try:
+        model = _configured_model(language)
+        text = " ".join(load_text().split())
+        if not text:
+            raise ReadAloudError("no_text", 422)
+        if len(text) > MAX_SPEECH_CHARS:
+            raise ReadAloudError("too_much_text", 413)
+        try:
+            text.encode("utf-8", errors="strict")
+        except UnicodeError as exc:
+            raise ReadAloudError("invalid_text", 422) from exc
+        with tempfile.TemporaryDirectory(prefix="simpleoffice-private-speech-") as directory:
+            path = render_tts(text, "private-reader", directory, model=model)
+            with path.open("rb") as generated:
+                audio = generated.read(MAX_SPEECH_AUDIO_BYTES + 1)
+        if len(audio) > MAX_SPEECH_AUDIO_BYTES:
+            raise ReadAloudError("audio_too_large", 413)
+        if len(audio) < 44 or audio[:4] != b"RIFF" or audio[8:12] != b"WAVE":
+            raise ReadAloudError("invalid_audio", 503)
+        if recheck_source and " ".join(load_text().split()) != text:
+            raise ReadAloudError("document_changed", 409)
+        return _private(Response(audio, mimetype="audio/wav"))
+    except ReadAloudError as exc:
+        return read_aloud_error(exc.code, exc.status)
+    except TimeoutError:
+        return read_aloud_error("read_aloud_timeout", 503)
+    except (KeyError, OSError, ValueError, RuntimeError, wave.Error) as exc:
+        current_app.logger.info("Private speech render failed: %s", type(exc).__name__)
+        return read_aloud_error("piper_unavailable", 503)
+    finally:
+        _slots.release()

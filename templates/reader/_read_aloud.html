@@ -1,0 +1,21 @@
+<div class="border rounded p-2 my-2" data-reader-read-aloud
+     data-speech-url="{{ speech_url }}"
+     data-speech-loading="{{ 'Preparing local audio…' if g.language == 'en' else 'Lokale Sprachausgabe wird vorbereitet …' }}"
+     data-speech-playing="{{ 'Reading aloud.' if g.language == 'en' else 'Wird vorgelesen.' }}"
+     data-speech-paused="{{ 'Paused.' if g.language == 'en' else 'Pausiert.' }}"
+     data-speech-unavailable="{{ 'Local read-aloud is unavailable. Check the Piper voice in Media settings.' if g.language == 'en' else 'Lokales Vorlesen ist nicht verfügbar. Prüfe die Piper-Stimme in den Medien-Einstellungen.' }}{% if speech_kind == 'pdf' %} {{ 'PDF also needs the local pdftotext tool.' if g.language == 'en' else 'Für PDF ist zusätzlich das lokale Werkzeug pdftotext nötig.' }}{% endif %}"
+     data-speech-error="{{ 'Read-aloud could not play this section.' if g.language == 'en' else 'Dieser Abschnitt konnte nicht vorgelesen werden.' }}"
+     data-speech-no-text="{{ ('This page has no readable text layer. Create an OCR copy first.' if g.language == 'en' else 'Diese Seite hat keine lesbare Textebene. Erstelle zuerst eine OCR-Kopie.') if speech_kind == 'pdf' else ('There is no readable text in this section.' if g.language == 'en' else 'Dieser Abschnitt enthält keinen lesbaren Text.') }}"
+     data-speech-stale="{{ 'This document changed. Reload the page to read the current version.' if g.language == 'en' else 'Das Dokument hat sich geändert. Lade die Seite neu, um die aktuelle Version vorzulesen.' }}"
+     data-speech-too-large="{{ 'The document or section is too large for read-aloud.' if g.language == 'en' else 'Das Dokument oder der Abschnitt ist zum Vorlesen zu groß.' }}"
+     data-speech-pause-label="{{ 'Pause' if g.language == 'en' else 'Pause' }}"
+     data-speech-resume-label="{{ 'Resume' if g.language == 'en' else 'Fortsetzen' }}"
+     data-speech-play-required="{{ 'Audio is ready. Select Resume to play.' if g.language == 'en' else 'Die Sprachausgabe ist bereit. Tippe auf Fortsetzen.' }}">
+  <div class="d-flex flex-wrap gap-2">
+    <button class="btn btn-sm btn-outline-primary" type="button" data-speech-start disabled>{{ 'Read aloud' if g.language == 'en' else 'Vorlesen' }}</button>
+    <button class="btn btn-sm btn-outline-secondary" type="button" data-speech-pause disabled>Pause</button>
+    <button class="btn btn-sm btn-outline-secondary" type="button" data-speech-stop disabled>{{ 'Stop' if g.language == 'en' else 'Stopp' }}</button>
+  </div>
+  {% if speech_kind == 'pdf' %}<div class="form-text">{{ 'Reads the page selected in Reader. Scan-only pages need a text layer (OCR) first.' if g.language == 'en' else 'Liest die im Reader ausgewählte Seite. Reine Scanseiten brauchen zuerst eine Textebene (OCR).' }}</div>{% endif %}
+  <div class="small mt-1" data-speech-status role="status" aria-live="polite"></div>
+</div>

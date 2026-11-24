@@ -119,18 +119,26 @@
     frame.src = url.toString();
     frame.classList.remove('d-none');
   };
+  let pdfRequest = 0;
   const loadPdf = async (page) => {
+    const requestId = ++pdfRequest;
+    const previous = current;
     current = Math.max(1, pageCount ? Math.min(pageCount, Number(page) || 1) : Number(page) || 1);
     updateStatus(pageCount);
+    if (current !== previous) {
+      root.dispatchEvent(new CustomEvent('reader:page-changed', {bubbles: true, detail: {page: current}}));
+    }
     if (window.SimpleOfficePdf && nativeBox && nativeImage) {
       try {
         const rendered = await window.SimpleOfficePdf.render(root.dataset.pdfUrl, current - 1, Math.min(2048, Math.max(720, window.innerWidth * window.devicePixelRatio * fontScale)));
+        if (requestId !== pdfRequest) return;
         if (rendered && rendered.dataUrl) {
           nativeImage.src = rendered.dataUrl;
           nativeBox.classList.remove('d-none');
           frame?.classList.add('d-none');
         }
       } catch (_) {
+        if (requestId !== pdfRequest) return;
         nativeBox.classList.add('d-none');
         showPdfFramePage();
       }

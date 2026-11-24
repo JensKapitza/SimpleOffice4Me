@@ -35,7 +35,9 @@ def archive_locations(store: MailStore, actor: str, account_id: str) -> list[str
             sorted(paths, key=lambda path: (path.stat().st_mtime, str(path)), reverse=True)]
 
 
-def archive_document(store: MailStore, actor: str, account_id: str, path: str) -> dict:
+def archive_document(
+    store: MailStore, actor: str, account_id: str, path: str, *, scan_unregistered: bool = True,
+) -> dict:
     store._owned_row(actor, account_id)
     relative = relative_under(store.root, path, require_name=True)
     if relative.suffix.casefold() != ".eml":
@@ -51,7 +53,8 @@ def archive_document(store: MailStore, actor: str, account_id: str, path: str) -
     else:
         if not (store.root / relative).is_file():
             raise FileNotFoundError("archive message does not exist")
-        document = documents.get_or_scan_document(relative.as_posix(), force_hash=True)
+        document = (documents.get_or_scan_document(relative.as_posix(), force_hash=True)
+                    if scan_unregistered else documents.get_document(relative.as_posix()))
     if document.get("deleted_at") or document.get("system_state") == "webdav_deleted":
         raise FileNotFoundError("archive message is deleted")
     return document

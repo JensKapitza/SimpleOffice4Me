@@ -43,6 +43,10 @@
 </form>{% endif %}
 <a class="btn btn-outline-primary" href="{{ url_for('documents.image_preview', document_id=document.document_id) }}" target="_blank" rel="noopener noreferrer">
 {{ 'Open original' if g.language == 'en' else 'Original öffnen' }}</a>
+{% if document.last_path.lower().endswith('.pdf') or document.last_path.lower().endswith('.txt') %}
+<a class="btn btn-outline-primary" href="{{ url_for('reader.open_text' if document.last_path.lower().endswith('.txt') else 'reader.open_book', document_id=document.document_id) }}">
+{{ 'Open in Reader' if g.language == 'en' else 'Im Reader öffnen' }}</a>
+{% endif %}
 <a class="btn btn-primary" href="{{ url_for('webdav.setup_document', document_id=document.document_id) }}">
 {{ 'Edit in LibreOffice' if g.language == 'en' else 'In LibreOffice bearbeiten' }}</a>
 <span class="badge text-bg-secondary align-self-center">{{ document.state }}</span>

@@ -48,6 +48,16 @@ Im PDF-Reader kann über **S/W-PDF mit OCR** eine separate Graustufenfassung her
 
 Der erkannte Text kommt als unsichtbare PDF-Textebene hinter den sichtbaren Seiteninhalt: Er bleibt durchsuchbar und kopierbar, wird aber nicht über das Bild gemalt. Vorhandener PDF-Text bleibt erhalten; identische Zeilen werden nicht nochmals ergänzt. Schlägt die Konvertierung oder OCR einer Seite fehl, wird keine teilweise erzeugte Datei ausgeliefert. Eingabe und Ausgabe sind jeweils auf 1 GiB (1024 MiB) begrenzt; Ghostscript hat ein 15-Minuten-Limit, Tesseract pro Versuch 30 Sekunden und pro Seitenrender 90 Sekunden. Es gibt keine feste Seitenobergrenze. Für die Funktion werden Ghostscript und Poppler (`pdftoppm`) benötigt; zusätzlich mindestens eine OCR-Engine (RapidOCR aus dem optionalen `ocr`-Extra oder Tesseract samt Sprachdaten). Der Export wird als Download geliefert und legt keine zweite Dokumentkopie im Bestand an.
 
+## Lokal vorlesen: PDF und Text
+
+Öffne ein PDF oder eine UTF-8-`.txt`-Datei über **Im Reader öffnen** in der Dokumentansicht. **Vorlesen** liest die im Reader gewählte PDF-Seite beziehungsweise den aktuellen Textabschnitt. **Pause**, **Fortsetzen** und **Stopp** steuern die Wiedergabe. Wenn der Browser nach der Vorbereitung nicht automatisch spielt, startet **Fortsetzen** das fertige Audio. Ein Seitenwechsel beendet die bisherige Wiedergabe.
+
+Die Instanz verwendet die separat installierte lokale Piper-CLI und das in den Medien-Einstellungen hinterlegte lokale ONNX-Stimmenmodell. Bei englischer Oberfläche wird das optionale englische Modell bevorzugt. Modelle und Engine werden nicht mitgeliefert oder bei der Wiedergabe heruntergeladen. PDF benötigt zusätzlich das lokale Poppler-Werkzeug `pdftotext`; reine Scanseiten brauchen eine vorhandene Textebene. **S/W-PDF mit OCR** erstellt auf Wunsch zuvor eine neue Datei. **Vorlesen** löst selbst keine OCR aus.
+
+Für die Sprachausgabe gelten 16 MiB pro PDF, 256 KiB pro TXT, höchstens 5.000 Zeichen je Seite oder Abschnitt und 8 MiB WAV. PDF-Textextraktion hat sechs Sekunden Zeit, die vorhandene Piper-Engine bis zu 45 Sekunden. Private Sprachdaten werden nicht an einen externen Dienst geschickt. Audio wird nur temporär erzeugt, ohne Servercache bereitgestellt und nach der Wiedergabe im Browser freigegeben; ein Zugriff setzt die aktuelle Dokumentberechtigung voraus.
+
+Die gleiche Steuerung ist in der Vorschau von E-Mails verfügbar: im Postfach nach dem Öffnen einer Nachricht, im lokalen Archiv, in berechtigten lokalen Mail-Vorgängen und in der EML-Dokumentvorschau. Gelesen wird nur der Nachrichtenkörper, keine Anhänge oder externen Bilder. Eine Postfachnachricht muss noch im bereits geladenen flüchtigen Cache sein; **Vorlesen** verbindet sich nicht erneut zu IMAP oder einem Föderations-Peer. Für EML gelten 16 MiB Gesamtgröße und höchstens 5.000 Zeichen lesbarer Text. Ist eine Quelle nicht mehr vorhanden oder der Zugriff inzwischen entzogen, wird kein Audio ausgeliefert.
+
 ## EPUB
 
 EPUB wird ohne Entpacken in das Dateisystem verarbeitet. XML wird mit `defusedxml` geparst. Publisher-HTML, CSS und Skripte werden nicht direkt ausgeführt; Kapitel werden als bereinigter, reflow-fähiger Text neu aufgebaut. Externe Ressourcen werden nicht geladen.
