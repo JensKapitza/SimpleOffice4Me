@@ -399,6 +399,57 @@ class FederationAdminUiTests(unittest.TestCase):
         for script in ("js/acoustic_fec.js", "js/acoustic_codec.js", "js/federation_sound.js"):
             self.assertIn(script, body)
 
+    def test_setup_hints_separate_missing_peer_token_from_expired_pairing_code(self):
+        store = FederationStore(self.root)
+        trust = FederationTrustStore(self.root)
+        old_time = int(time.time()) - 3600
+        old_pairing = FederationPairingTokens(self.root, app.config["SECRET_KEY"], clock=lambda: old_time)
+        with app.app_context():
+            store.save_peer("configured", "Configured Office", "https://configured.example", "fixture-token")
+            store.save_peer("inactive", "Inactive Office", "https://inactive.example", "", enabled=False)
+            store.save_peer("blocked", "Blocked Office", "https://blocked.example", "")
+        for peer_id in ("configured", "inactive", "blocked"):
+            trust.remember(peer_id, "DE", "", "qr")
+        FederationModerationStore(self.root).ban("blocked", "fixture", actor="admin")
+        issued = old_pairing.issue("configured")
+        old_pairing.claim(issued["code"], "configured")
+        path = "/admin/federation/peer-discovery"
+
+        before = self.client.get(path).get_data(as_text=True)
+        self.assertNotIn("Einrichtung unvollständig", before)
+        self.assertNotIn('id="federation-setup-hints"', before)
+        self.assertIn("abgelaufen", before)
+
+        store.save_peer("missing-token", "Office <b>East</b>", "https://missing.example", "")
+        trust.remember("missing-token", "DE", "", "qr")
+        pending = old_pairing.issue("missing-token")
+        for lang, heading, link, expired in (
+            ("de", "Fehlende Peer-Token", "Peer-Token einrichten", "abgelaufen"),
+            ("en", "Missing peer tokens", "Set up peer token", "expired"),
+        ):
+            with self.subTest(language=lang):
+                with self.client.session_transaction() as session:
+                    session["simpleoffice_language"] = lang
+                response = self.client.get(path)
+                self.assertEqual(200, response.status_code)
+                body = response.get_data(as_text=True)
+                notice = body.split('id="federation-setup-hints"', 1)[1].split("</div>", 1)[0]
+                self.assertIn(heading, notice)
+                self.assertIn(link, notice)
+                self.assertIn("Office &lt;b&gt;East&lt;/b&gt;", notice)
+                self.assertIn("view=peers&amp;edit_peer=missing-token#peer-token", notice)
+                for label in ("Configured Office", "Inactive Office", "Blocked Office"):
+                    self.assertNotIn(label, notice)
+                self.assertIn(expired, body)
+                for secret in ("fixture-token", issued["code"], pending["code"]):
+                    self.assertNotIn(secret, body)
+
+        tokens = FederationPairingTokens(self.root, app.config["SECRET_KEY"])
+        self.assertEqual(old_time, tokens.status("configured")["claimed_at"])
+        self.assertEqual("expired", tokens.status("missing-token")["status"])
+        self.assertTrue(store.get_peer("configured")["enabled"])
+        self.assertFalse(store.get_peer("missing-token")["has_token"])
+
     def test_peer_discovery_exposes_mail_case_mapping_controls(self):
         response = self.client.get("/admin/federation/peer-discovery")
         body = response.get_data(as_text=True)
