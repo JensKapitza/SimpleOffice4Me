@@ -108,6 +108,7 @@ def _document_choices(query: str, limit: int = 60) -> list[dict]:
     return result
 
 
+_LOCAL_FILE_QUERY_LIMIT = 160
 _DASHBOARD_VIEWS = {"overview", "files", "peers", "transfers"}
 
 
@@ -119,6 +120,11 @@ def _redirect_dashboard(**values):
         values.pop("view", None)
     args = {key: value for key, value in values.items() if value}
     return redirect(url_for("federation_admin.dashboard", **args))
+
+
+def _redirect_document_action(document_id: str):
+    query = request.form.get("_return_local_q", "").strip()[:_LOCAL_FILE_QUERY_LIMIT]
+    return _redirect_dashboard(document_id=document_id, q=query)
 
 
 def _chat_form_values() -> dict:
@@ -140,7 +146,7 @@ def _chat_form_values() -> dict:
 def dashboard():
     store = _store()
     catalog = _catalog()
-    query = request.args.get("q", "").strip()[:160]
+    query = request.args.get("q", "").strip()[:_LOCAL_FILE_QUERY_LIMIT]
     remote_query = request.args.get("remote_q", "").strip()[:200]
     remote_peer = request.args.get("remote_peer", "").strip()[:128]
     selected_id = request.args.get("document_id", "").strip()
@@ -308,7 +314,7 @@ def send_document(document_id: str):
             flash(translate(g.language, "fed.transfer.created").format(job=job_id))
     except Exception as exc:
         flash(translate(g.language, "fed.doc.send.failed").format(exc=exc))
-    return _redirect_dashboard(document_id=document_id)
+    return _redirect_document_action(document_id)
 
 
 @bp.post("/documents/<document_id>/orchestrate")
@@ -329,7 +335,7 @@ def orchestrate_document(document_id: str):
         flash(translate(g.language, "fed.b2c.done").format(transfer=result.get('transfer_id')))
     except Exception as exc:
         flash(translate(g.language, "fed.b2c.failed").format(exc=exc))
-    return _redirect_dashboard(document_id=document_id)
+    return _redirect_document_action(document_id)
 
 
 @bp.post("/documents/<document_id>/availability/<peer_id>")
