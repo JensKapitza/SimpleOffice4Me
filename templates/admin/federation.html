@@ -521,7 +521,7 @@
                           <input type="hidden" name="_return_view" value="peers">
                           {% set receive_enabled = inventory_receive_by_peer.get(peer.peer_id, false) %}
                           {% set inventory_hint = 'inventory-fetch-' ~ loop.index %}
-                          <button class="btn btn-sm btn-outline-success" type="submit" aria-describedby="{{ inventory_hint }}" {% if not peer.enabled or not receive_enabled %}disabled{% endif %}>{{ 'Fetch inventory index' if g.language == 'en' else 'Inventarindex holen' }}</button>
+                          <button class="btn btn-sm btn-outline-success" type="submit" aria-describedby="{{ inventory_hint }}" {% if not peer.enabled or not receive_enabled or not peer.has_token %}disabled{% endif %}>{{ 'Fetch inventory index' if g.language == 'en' else 'Inventarindex holen' }}</button>
                           <div id="{{ inventory_hint }}" class="small text-secondary mt-1">
                             {% if peer.banned %}
                               {{ 'This peer is blocked.' if g.language == 'en' else 'Dieser Peer ist gesperrt.' }}
@@ -529,6 +529,8 @@
                               {{ 'This peer is inactive.' if g.language == 'en' else 'Dieser Peer ist nicht aktiv.' }}
                             {% elif not receive_enabled %}
                               <a href="{{ url_for('federation_admin.dashboard', view='peers', edit_peer=peer.peer_id, _anchor='peer-inventory-policy') }}">{{ 'Configure inventory receive' if g.language == 'en' else 'Inventar-Empfang konfigurieren' }}</a>
+                            {% elif not peer.has_token %}
+                              <a href="{{ url_for('federation_admin.dashboard', view='peers', edit_peer=peer.peer_id, _anchor='peer-token') }}">{{ 'Set up the local peer token' if g.language == 'en' else 'Lokales Peer-Token einrichten' }}</a>
                             {% else %}
                               {{ 'The other instance must separately allow sending.' if g.language == 'en' else 'Die Gegenstelle muss den Versand separat erlauben.' }}
                             {% endif %}
