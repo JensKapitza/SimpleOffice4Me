@@ -8,6 +8,7 @@ from flask import Blueprint, Response, current_app, flash, g, jsonify, make_resp
 from .federation_admin import admin_required
 from .federation_attestations import FederationAttestationStore
 from .federation_compatibility import requirements
+from .federation_discovery_feedback import direct_discovery_feedback
 from .federation_discovery_lan import discover_lan, local_lan_addresses, scan_ports
 from .federation_discovery_publish import publish
 from .federation_discovery_service import discover_country, discover_direct, discover_email
@@ -544,9 +545,7 @@ def lan():
 def direct():
     try:
         peer = discover_direct(_root(), request.form.get("endpoint", ""))
-        flash(translate(g.language, "fedpeer.peer.found").format(
-            peer=peer['peer_id'], url=str(peer['base_url'])[:240])
-            + _compatibility_summary(peer))
+        flash(direct_discovery_feedback(_root(), g.language, peer, _compatibility_summary(peer)))
     except Exception as exc:
         flash(translate(g.language, "fedpeer.direct.failed").format(exc=_safe_discovery_error(exc)))
     return redirect(url_for("federation_peer_admin.dashboard"))
