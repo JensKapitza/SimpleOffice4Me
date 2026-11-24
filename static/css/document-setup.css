@@ -1,0 +1,30 @@
+.setup-mobile-safe {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.setup-mobile-safe pre {
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.setup-mobile-safe code {
+  overflow-wrap: anywhere;
+}
+
+.setup-mobile-safe .card,
+.setup-mobile-safe .card-body {
+  min-width: 0;
+}
+
+@media (max-width: 575px) {
+  .setup-mobile-safe {
+    padding-bottom: 6rem !important;
+  }
+
+  .setup-mobile-safe .btn {
+    white-space: normal;
+  }
+}
