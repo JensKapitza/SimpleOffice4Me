@@ -254,12 +254,13 @@ class PhotoUploadHttpTest(unittest.TestCase):
         Image.new("RGB", (80, 40), "white").save(stream, format="JPEG")
         return stream.getvalue()
 
-    def _post(self, filename: str, payload: bytes):
+    def _post(self, filename: str, payload: bytes, *, run_ocr: bool = False):
         return self.client.post(
             "/documents/photos/upload",
             data={
                 "_csrf_token": "photo-upload-http-csrf-token",
                 "file": (io.BytesIO(payload), filename),
+                "run_ocr": "1" if run_ocr else "0",
                 "batch_id": f"batch-{filename}",
             },
         )
@@ -267,13 +268,60 @@ class PhotoUploadHttpTest(unittest.TestCase):
     def test_duplicate_photo_response_reuses_existing_document(self):
         payload = self._jpeg()
         first = self._post("camera.jpg", payload)
-        duplicate = self._post("camera-retry.jpg", payload)
+        with patch.object(DocumentStore, "_image_ocr") as ocr:
+            duplicate = self._post("camera-retry.jpg", payload, run_ocr=True)
+            ocr.assert_not_called()
 
         self.assertEqual(200, first.status_code)
         self.assertFalse(first.json["duplicate"])
         self.assertEqual(200, duplicate.status_code)
         self.assertTrue(duplicate.json["duplicate"])
         self.assertEqual(first.json["document_id"], duplicate.json["document_id"])
+        self.assertEqual(first.json["detail_url"], duplicate.json["detail_url"])
+        self.assertEqual("deferred", first.json["ocr_status"])
+        self.assertEqual("deferred", duplicate.json["ocr_status"])
+
+    def test_photo_upload_exposes_only_fixed_current_ocr_outcomes(self):
+        cases = (
+            ("white", "Synthetic recognized text", "recognized"),
+            ("lightgray", "", "empty"),
+            ("gray", RuntimeError("synthetic-internal-ocr-detail"), "unavailable"),
+        )
+        for color, engine_result, status in cases:
+            with self.subTest(status=status):
+                image = io.BytesIO()
+                Image.new("RGB", (80, 40), color).save(image, format="JPEG")
+                if isinstance(engine_result, RuntimeError):
+                    engine = patch.object(DocumentStore, "_image_ocr", side_effect=engine_result)
+                else:
+                    engine = patch.object(DocumentStore, "_image_ocr", return_value=engine_result)
+                with engine as ocr:
+                    response = self._post(f"{color}.jpg", image.getvalue(), run_ocr=True)
+                    ocr.assert_called_once()
+                self.assertEqual(200, response.status_code)
+                self.assertEqual(status, response.json["ocr_status"])
+                self.assertNotIn("synthetic-internal-ocr-detail", response.get_data(as_text=True))
+
+
+    def test_duplicate_does_not_claim_old_or_missing_recognition(self):
+        payload = self._jpeg()
+        with patch.object(DocumentStore, "_image_ocr", return_value="Synthetic recognized text"):
+            first = self._post("current.jpg", payload, run_ocr=True)
+        store = DocumentStore(self.temp.name)
+        document = store.get_document(first.json["document_id"])
+        analysis = document["image_analysis"]
+        original_digest = analysis["source_sha256"]
+        analysis["source_sha256"] = "a" * 64
+        store._save_document(document)
+        stale = self._post("stale.jpg", payload, run_ocr=True)
+        self.assertTrue(stale.json["duplicate"])
+        self.assertEqual("unknown", stale.json["ocr_status"])
+        analysis["source_sha256"] = original_digest
+        document.pop("ocr_text", None)
+        store._save_document(document)
+        missing = self._post("missing.jpg", payload, run_ocr=True)
+        self.assertTrue(missing.json["duplicate"])
+        self.assertEqual("unknown", missing.json["ocr_status"])
 
     def test_photo_upload_records_a_completed_item_through_the_optional_web_inbox(self):
         payload = self._jpeg()
