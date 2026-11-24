@@ -277,6 +277,24 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: nach Scan beide Seiten sichtbar, Fälschung/Identitätsdiebstahl abgelehnt, kein Vertrauen durch Hello. Ist gemessen: 5/5 Zwei-Instanzen-Blackbox-Tests; Nachbarn (Admin-UI, Discovery, Kompatibilität) grün; Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen: Praxistest mit zwei echten Instanzen durch Eigentümer; Diagnose-Buttons (Datei, Ton, QR, Druck-Test) als Folge-PR. |
 
+## 21. November 2026 · E-Rechnung Phase 2b: UBL-2.1-Generator (KoSIT-bestätigt)
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Auftrag AP3: eigenständiger XRechnung-Export (UBL 2.1, XRechnung 3.0.2) aus dem eingefrorenen Snapshot. KoSIT-Validator lokal installiert (1.6.3, Config 2026-08-31) und als Entwicklungs-Orakel verwendet. |
+| Implementierung | Neues Modul `app/einvoice_ubl.py`: CustomizationID aus Installer-Konstante, Parteien mit E-Adressen/Steuernummern/Kontakt (BG-6), Zahlungsmittel IBAN/BIC, Steueraufschlüsselung je Gruppe mit Kategorien/Befreiungsgründen, Rabatte als positionsbezogene AllowanceCharge (UNCL-95-Code, keine stillen Korrekturen), Summen-Revalidierung mit Decimal (Fehler statt Fix). Zusätzlich AP2-Lücke geschlossen: Verkäufer-Ansprechpartner in Settings + Snapshot (KoSIT BR-DE-2 Pflicht). |
+| Tests und Soll-Ist-Vergleich | Soll: standardkonforme XML, Summenfehler laut, KoSIT-Erfolg. Ist gemessen: 5/5 (`test_einvoice_ubl.py`: Struktur, Summen-Manipulation abgelehnt, Pflichtfelder, XML-Escaping, **echte KoSIT-Prüfung ACCEPTABLE**, Skip ohne Validator); 62/62 Bestand + 9/9 Validator-Suite; Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen: Phase 3 (Freigabe-Gate + Archivpaket + Editor-Protokoll). PR #1174 bleibt Draft, kein Auto-Merge. |
+
+## 21. November 2026 · E-Rechnung Phase 2a: Snapshot-Artefakt + AP2-Felder
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Auftrag AP1→2a: eingefrorener Snapshot + XRechnungs-Felder (BT-10, E-Adressen, Refs, Zeitraum, Kategorien, Kontenzuordnung, Rabatt). Bestand wiederverwendet: Finalisierungs-Locks, Nummernkreis, Decimal-Summen, Settings/Editor-Muster. |
+| Implementierung | Neues Modul `app/einvoice_snapshot.py` (kanonischer Snapshot, SHA-256, Tolerant-Reader, Formatvalidierung ohne erfundene Defaults); Finalisierung schreibt Snapshot + Hash + Historie; Positionen mit Rabatt %/Steuerkategorie/Befreiungsgrund (Summen rabattbereinigt, Decimal); Belegfelder + Käufer-Steuernummer + E-Adressen; Verkäufer-E-Adresse in Settings; Editor- + Settings-Formulare + JS-Vorschau. Keine Migration nötig (tolerante Leser, alte Belege unverändert lesbar). |
+| Tests und Soll-Ist-Vergleich | Soll: Snapshot-Beweis, Hash-Manipulation erkannt, Felder rundum, Bestand grün. Ist gemessen: 10/10 neu (`test_einvoice_snapshot.py`); 103/103 Rechnungs-Nachbarsuites; `node --check`, Ruff, Policy-, Größen-, Compile-Gates grün. |
+| Review und Abschluss | Offen: Phase 2b (UBL-Generator), Phase 3 (Freigabe-Gate + Archivpaket + Editor-Protokoll). PR #1174 bleibt Draft, kein Auto-Merge. |
+
 ## 21. November 2026 · Sieve: Skripte mit Sonderzeichen werden gefunden + Diagnose
 
 | Phase | Arbeit und Nachweis |
@@ -746,10 +764,30 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: beide Blockrichtungen, Freigabe außerhalb des Fensters, stornierte Reservierung/Rückgabe geben frei, Rechte. Ist gemessen: 5/5 Blackbox-HTTP-Tests (beide Richtungen, Fenster-daneben erlaubt, Storno/Rückgabe entsperrt); Nachbar-Suites 13/13 (lending/reservations/neu), 369/369 `test_inventory*.py`; Ruff, Policy-, Größen-, Compile-Gates grün. |
 | Review und Abschluss | Offen als Follow-up (weitere #1111-Slices): Scanmodi pro Aktion, Fotoerkennung, Offline-Sync, föderierte Rechte. |
 
-## 23. November 2026 · CI-Gate: mail_reader_routes-Split (1008 → 621 Zeilen)
+## 22. November 2026 · E-Rechnung Phase 3: Freigabe-Gate + Abgleich + Archivpaket + Editor (AP4/AP5/AP6)
 
 | Phase | Arbeit und Nachweis |
 |---|---|
+| Analyse | Auftrag AP4–AP6: Freigabe als bewusster Akt nach Finalisierung (Gate mit KoSIT-Pflicht, kein falscher Erfolg), PDF↔Snapshot-Abgleich aus dem eingebetteten CII, Archivnachweise (SHA-256), feldbezogene Fehler im Editor. Vorgefunden: `einvoice_release.py`-Entwurf mit totem Abgleich (falsche XPath `ram:Summation`, nie verdrahtet), UBL aus Live-Row statt Frozen-Snapshot, keine Pflichtfeld-, Idempotenz- oder PDF-Nachweise. |
+| Implementierung | `app/einvoice_release.py` repariert/vervollständigt: Abgleich gegen echte CII-Pfade (Nummer, Datum, Währung, Summen, Steuergruppen, Positionen), UBL strikt aus `read_snapshot`, Pflichtfelder BT-10/BT-27/Käufername feldbezogen (T04), KoSIT-Gate (T17: explizite Blockade), Idempotenz per Snapshot+XML-SHA (T11), Protokoll mit PDF-/XML-/Snapshot-Hashes + Validatorversionen (AP5), Historie + Audit (nur technische Minimaldaten). Neu: `app/einvoice_release_routes.py` (Vorabprüfung, Freigabe, Protokoll, XML-Download mit Hash-Check T13), Templates `einvoice_precheck.html`/`einvoice_protocol.html`, AP6-Sektion in `invoice_detail.html`. T14 via `_managed_invoice` (404-Existenzschutz). Größe: `_write_einvoice_snapshot` → `freeze_snapshot` nach `einvoice_snapshot.py` ausgelagert (996/1000). |
+| Tests und Soll-Ist-Vergleich | Soll: T04/T11/T13/T14/T17 + Abgleich + AP6-Routen. Ist gemessen: 21/21 in `tests/test_einvoice_release.py` (Abgleich gegen echten `_cii_xml`-Output: Match ok, Manipulation feldgenau erkannt; Full-Release mit KoSIT 1.6.3 ACCEPTABLE; Replay ohne Neuschrieb; Routen: fremder Benutzer auf allen 4 Routen abgewiesen, manipuliertes XML blockiert, Protokollseite rendert). Nachbarn: 15/15 Snapshot+UBL, 74/74 Business-Dokumente. Gates: Policy ok, Dateigröße ok, Funktionen ok, compileall ok, ruff ok. |
+| Review und Abschluss | Offen: Phase 4 (voller T01–T20-Testplan + Negativtests), Phase 5 (Abnahme). Code-PR #1176 (Draft, Rebase auf Main), kein Auto-Merge. |
+
+## 22. November 2026 · E-Rechnung Phase 4: T01–T20-Testplan + Negativtests
+
+| Analyse | Testplan-Abgleich: T04/T11/T13/T14/T15/T17 bereits aus Phase 3 abgedeckt. Lücken: T01/T02/T03/T05/T06/T09/T10/T12/T16/T18/T19/T20 + Negativtests. Sondenbefund T05: KoSIT akzeptiert Müll-USt-IdNr. („INVALID!!“ → acceptable), daher eigene Format-Plausibilisierung im Gate nötig (AP4.1). |
+| Implementierung | `validate_einvoice_fields`: USt-IdNr.-Format (Ländercode + 2–12 Zeichen, Leerzeichen-tolerant) und Steuernummer-Länge; greift in Vorabprüfung + Freigabe-Checkliste. `tests/test_einvoice_phase4.py` (19 Tests): T03 (20 parallele Finalisierungen, Barriere, echter Nummernkreis), T10 (Fehlerpfad), T19 (Timeout-Wiederholung, identische Nummer belegt), T01/T02/T06 (formateübergreifend), T09 (Cent-Abweichung laut, Rabatt exakt), T12 (Gutschrift eigene Nummer + Originalreferenz), T16 (Hybrid-Validierung ehrlich ohne veraPDF), T18 (Alt-Rechnung rendert), T20 (Zahlungen → ein offener Posten), Negative (malformed, Billion-Laughs, >32 MiB ohne Validatoraufruf, Timeout per Mock). |
+| Tests und Soll-Ist-Vergleich | Soll: T01–T20 + Negative. Ist gemessen: 19/19 Phase 4, 58/58 E-Rechnung gesamt, 112/112 Business, 9/9 Validator. T07/T08 über Phase-2b-Referenzrechnung (3 Steuersätze inkl. G + Grund, KoSIT-ACCEPTABLE) abgedeckt. Gates: Funktionen ok, compileall ok, ruff ok. |
+| Review und Abschluss | Offen: Phase 5 (Abnahme, PR #1176 bereitstellen). Kein Merge ohne Freigabe. |
+
+## 23. November 2026 · E-Rechnung Phase 5: Abnahme (AP1–AP6, PR #1176 Draft)
+
+| Analyse | Abnahmekriterien §7 gegen Bestand geprüft: Pflichtfunktionen AP1–AP6 implementiert; Nummern-/Betragsidentität (T02/T06); XML KoSIT-ACCEPTABLE + PDF strukturell validiert (T01/T15/T16); keine Doppelbuchung (T11/T20); kritische Tests lokal grün; Bestandsfunktionen unverändert (112 Business, 41 Rechnung); Doku vollständig (Gap-Analyse, Validatorbasis, Bedienung, Protokolle). |
+| Implementierung | Bedienungs-/Fehlerbehebungs-Doku `docs/E_RECHNUNG_BEDIENUNG.md` (Liefergegenstand 6). CI-Befund eigener Test im Scanner-Image (`precheck_draft` ohne `note` ohne Validator) per Root-Fix behoben + Regressionstest (fällt ohne Fix, besteht mit Fix). CRA-Check grün, keine neuen Abhängigkeiten. |
+| Tests und Soll-Ist-Vergleich | Soll: T01–T20 + Negative + grüne CI. Ist gemessen: 58/58 E-Rechnung, 112/112 Business, 41/41 Rechnung, 9/9 Validator lokal; Scanner-Image volle Suite grün (6649 passed). CI-Restrot: 3 Jobs scheitern ausschließlich am Dateigrößen-Gate `app/mail_reader_routes.py` (1008, pre-existing auf Main, fremder Workstream) – auf dem Branch nicht behebbar ohne Scope-Verletzung. |
+| Review und Abschluss | PR #1176 bleibt Draft bis Main den Mail-Gate behebt; kein Merge ohne Eigentümer-Freigabe. Bekannte Einschränkungen: veraPDF fehlt lokal (PDF/A nur strukturell + ehrlich berichtet), Endgeräte-Praxistest durch Eigentümer offen. |
+## 23. November 2026 · CI-Gate: mail_reader_routes-Split (1008 → 621 Zeilen)
+
 | Analyse | Main-CI rot: `app/mail_reader_routes.py` (1008 Zeilen) verletzt das 1000-Zeilen-Gate und blockiert jeden PR. 17 Case-Routen (~385 Zeilen) als kohärente Auslagerung identifiziert; Muster `mail_keyword_routes` (eigener Blueprint, gleicher URL-Prefix) wiederverwendet. |
 | Implementierung | Neu `app/mail_reader_case_routes.py` (Blueprint `mail_reader_cases`, Code wortgleich verschoben). Parität: Endpunkt-Checks + `case_context` in `document_store.py`, Feature-Gate in `auth.py`, Metering in `license_metering.py` erweitert; Template-Referenzen (17 Views) umgeschrieben; URLs unverändert. |
 | Tests und Soll-Ist-Vergleich | Soll: Gate grün, kein Verhalten geändert. Ist gemessen: Dateigrößen-Gate grün; 313 Mail-Tests grün nach Fix (2 Datenschutz-Tests brachen durch Mock-Namespace-Kopplung – Patch-Ziele auf neues Modul umgestellt, bewusste Spezifikationsänderung); 34 Nachbartests grün; Policy/Funktionen/compileall/ruff grün. |
@@ -757,8 +795,6 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 
 ## 23. November 2026 · LAN-Proxy: globaler Bind + sudo-start.sh
 
-| Phase | Arbeit und Nachweis |
-|---|---|
 | Analyse | Proxy-Start lehnte `0.0.0.0` ab (`_host` + Runtime-Guard, nur Docker-Modus erlaubt). Main-Server akzeptierte Wildcard bereits. Root-Rechte nur für Ports <1024 nötig (Proxy-Minimum bleibt 1024); Firewall-Öffnung fehlte. |
 | Implementierung | Opt-in `SIMPLEOFFICE_LAN_PROXY_GLOBAL=1` (Default aus, Warn-Log bei globalem Bind); `SIMPLEOFFICE_LAN_PROXY_BIND_HOST/PORT`-Overrides nur im Startpfad; Docker-Meldungen neutralisiert; `start.sh --global/--proxy-bind/--proxy-port` + Root-Hinweis; neu `sudo-start.sh` (sudo-vs-su-Erkennung, Least-Privilege, `--open-firewall` für ufw/firewalld, `--print-command`-Dry-Run, `%q`-sicheres Quoting). |
 | Tests und Soll-Ist-Vergleich | Soll: global starten, Root-Ports, Firewall. Ist gemessen: 9/9 Bind-Tests, 21/21 Shell-Tests, lan_proxy-Suite nur mit den 8 Main-Baseline-Fehlern (Sandbox, belegt). Gates: Policy/Funktionen/compileall/ruff/shellcheck-Stil grün; Dateigröße nur via fremden Mail-Split (#1179) rot. |
@@ -766,8 +802,6 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 
 ## 23. November 2026 · LAN-Proxy: Parameter statt Magic-Vars + Hilfe-Doku
 
-| Phase | Arbeit und Nachweis |
-|---|---|
 | Analyse | Nutzer-Vorgabe: keine Magic-Vars – alles per Parameter, `--help` als Anleitung. Lücke: `PUBLIC_HOST/PORT` nur per Env setzbar; Hilfe ohne Global-Anleitung. Nebenbei vorgefundener, fremd begonnener Rebase auf Main+#1179 abgeschlossen (nur Doku-Konflikte, bereits vereinigt). |
 | Implementierung | `start.sh --proxy-public-host/--proxy-public-port` (validiert); Hilfe mit Global-Abschnitt, Beispielen, sudo-Verweis; Fehlermeldungen nennen Parameter zuerst (`--global`, `--proxy-public-host`), Env zweit; sudo-Hilfe mit Weiterleitungs-Hinweis. |
 | Tests und Soll-Ist-Vergleich | Soll: kein Env-Wissen nötig. Ist gemessen: 31/31 (Bind/Shell/Start), lan_proxy nur mit den 8 Sandbox-Baseline-Fehlern; ruff/compileall/shell-Syntax grün. |
@@ -775,8 +809,6 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 
 ## 23. November 2026 · Security: Feature-Gate für Split-Mail-Blueprints
 
-| Phase | Arbeit und Nachweis |
-|---|---|
 | Analyse | Die ausgelagerten Blueprints `mail_keywords`/`mail_handover` fehlten in `FEATURE_BLUEPRINTS` und im Metering-Mapping: `enforce_feature_permission` ließ sie fail-open passieren (kein 403 ohne Mail-Feature möglich). |
 | Implementierung | Beide Blueprints auf Feature `mail` gemappt (Gate + Metering); sonst keine Verhaltensänderung. |
 | Tests und Soll-Ist-Vergleich | Soll: Nutzer ohne Mail-Feature 403, mit Feature Durchlass. Ist gemessen: 3/3 neu (ohne Fix 4 Fehler, mit Fix grün); 54/54 Nachbarn (Keywords/Handover/Case/Admin/Lizenz) grün; alle Gates grün. |
@@ -784,24 +816,17 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 
 ## 23. November 2026 · Federation: Peer-Discovery per Ton
 
-| Phase | Arbeit und Nachweis |
-|---|---|
 | Analyse | Wunsch: schnelles Erkennen via Ton – eigene IPs ansagen, hörender Client kann einladen. Bestand: AcousticCodec (max. 128 Bytes, Ultraschall/hörbar, FEC), QR-Connect-Ablauf, Direkt-Discovery. Voll-Payload passt nicht in 128 Bytes → Ton trägt nur die Endpunkt-URL, Identität kommt per Netzabruf (gleicher TOFU-Ablauf). |
 | Implementierung | Neu `static/js/federation_sound.js` (Ansage pro Adresse, Lauschen ≤90 s, lokale Strict-Prüfung als Spiegel der Serverregel, kein Auto-Abruf, kein Beacon). Template: Ansage-Buttons in der QR-Schleife, Hör-Block im Direkt-Formular, Codec-Skripte eingebunden. Kein neuer Server-Endpunkt nötig. |
 | Tests und Soll-Ist-Vergleich | Soll: ansagen, hören, übernehmen; nichts Heimliches. Ist gemessen: 6/6 Node-Tests (Validierungsmatrix, Ansage-Ablauf, Lauschen gültig/ungültig, Stopp; Fehlschlag erkannt); 31/31 Protokoll+Admin-UI; `node --check` grün. |
 | Review und Abschluss | PR gestellt, kein Merge ohne Freigabe. Danach: Pairing-Code-Austausch und Chat wie bisher (Raum mit remote_peer_id). |
 ## 23. November 2026 · Federation: Token-Transfer per QR-Code
 
-| Phase | Arbeit und Nachweis |
-|---|---|
 | Analyse | Wunsch: rotiertes Token per Ton/QR übertragen statt abtippen. Bewertung: QR zeigt denselben bereits angezeigten Wert (keine neue Offenlegung); Ton für ein Secret abgelehnt (Broadcast über Hörweite/Wände, aufzeichenbar – größer als Bildschirm-Sichtbarkeit). |
 | Implementierung | Rotate-Seite rendert zusätzlich eingeklappten QR-SVG (serverseitig, kein neuer Endpunkt, Token nie in URLs). Peer-Formular: Kamera-Scan-Button füllt Peer-Token nach Strict-Prüfung (`^[A-Za-z0-9_-]{32,128}$`); Muster von federation_qr_scan.js (BarcodeDetector/jsQR, Generationen-Guard). |
 | Tests und Soll-Ist-Vergleich | Soll: anzeigen, scannen, übernehmen; Müll abweisen. Ist gemessen: 3/3 Node (Matrix, Übernahme-Ablauf, Ungültig-Fall), 12/12 Token/Identity (inkl. QR-SVG-Assert), 30/30 Admin-UI; `node --check`, ruff, compileall grün. |
-| Review und Abschluss | PR gestellt, kein Merge ohne Freigabe. |
 ## 23. November 2026 · Issue #738 (FinTS): Verifikation + Doku, bereit zum Schließen
 
-| Phase | Arbeit und Nachweis |
-|---|---|
 | Analyse | Alle 9 Checkboxen gegen Code/Tests geprüft: TAN/SCA, Salden, Fähigkeiten, Sync/Retry, Abgleich-Vorschläge, Mock-Bank-Tests, Read-only/SEPA-frei implementiert und grün (144 Tests). Lücken: Doku fehlte; Depot optional/unsupported. |
 | Implementierung | Neu `docs/FINTS_BANKING.md` (Banken, Limits, Sicherheitsmodell, Testhinweis). Keine Codeänderung nötig. |
 | Tests und Soll-Ist-Vergleich | Soll: #738-Kriterien. Ist: 144/144 FinTS-Tests grün; Geheimnis-Blocklisten und Einmal-Challenges im Code verankert; Doku aus Code zitiert und belegt. |

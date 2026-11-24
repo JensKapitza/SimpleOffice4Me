@@ -373,5 +373,8 @@ _register_contact_extensions(bp)
 from .business_documents import bp as _business_documents_bp
 bp.register_blueprint(_business_documents_bp)
 
+from .einvoice_release_routes import bp as _einvoice_release_bp
+bp.register_blueprint(_einvoice_release_bp)
+
 from .euer import bp as _euer_bp
 bp.register_blueprint(_euer_bp)
