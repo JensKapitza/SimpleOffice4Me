@@ -315,7 +315,8 @@
   {% elif active_view == 'peers' %}
     {% set peer_policy = edit_peer.get('policy', {}) if edit_peer else {} %}
     {% set document_policy = peer_policy.get('documents', {}) if peer_policy else {} %}
-    {% set inventory_policy = peer_policy.get('inventory', {}) if peer_policy else {} %}
+    {% set inventory_value = peer_policy.get('inventory') if peer_policy is mapping else none %}
+    {% set inventory_policy = inventory_value if inventory_value is mapping else {} %}
     {% set data_class_policy = peer_policy.get('data_classes', {}) if peer_policy else {} %}
     {% set mail_case_policy = data_class_policy.get('mail_cases', {}) if data_class_policy else {} %}
     {% set rendezvous_relay_policy = peer_policy.get('rendezvous_relay', {}) if peer_policy else {} %}
@@ -363,15 +364,15 @@
                 <div class="form-text">{{ ('Leave empty to keep the existing token.' if edit_peer else 'Configure identically on both devices for exactly this peer; stored encrypted.') if g.language == 'en' else ('Leer lassen, um das vorhandene Token zu behalten.' if edit_peer else 'Auf beiden Geräten für genau diesen Peer identisch konfigurieren; wird verschlüsselt gespeichert.') }} {{ 'Do not use the global server token.' if g.language == 'en' else 'Nicht das globale Server-Token verwenden.' }}</div>
               </div>
 
-              <fieldset class="col-12">
+              <fieldset class="col-12" id="peer-inventory-policy">
                 <legend class="h6 mb-2">{{ 'Inventory sync (ID + display name only)' if g.language == 'en' else 'Inventarabgleich (nur Kennung + Anzeigename)' }}</legend>
                 <div class="vstack gap-2 border rounded p-3">
                   <label class="form-check">
-                    <input class="form-check-input" type="checkbox" name="inventory_send" value="1" {% if inventory_policy.get('send', false) %}checked{% endif %}>
+                    <input class="form-check-input" type="checkbox" name="inventory_send" value="1" {% if inventory_policy.get('send', false) is sameas true %}checked{% endif %}>
                     <span class="form-check-label">{{ 'Send inventory index to this peer (ISBN/GTIN + display name only, default off)' if g.language == 'en' else 'Inventarindex an diesen Peer senden (nur ISBN/GTIN + Anzeigename, Standard aus)' }}</span>
                   </label>
                   <label class="form-check">
-                    <input class="form-check-input" type="checkbox" name="inventory_receive" value="1" {% if inventory_policy.get('receive', false) %}checked{% endif %}>
+                    <input class="form-check-input" type="checkbox" name="inventory_receive" value="1" {% if inventory_policy.get('receive', false) is sameas true %}checked{% endif %}>
                     <span class="form-check-label">{{ 'Receive inventory index from this peer (synced locally only, default off)' if g.language == 'en' else 'Inventarindex von diesem Peer empfangen (nur lokal synchronisiert, Standard aus)' }}</span>
                   </label>
                 </div>
@@ -515,7 +516,20 @@
                         <form method="post" action="{{ url_for('federation_admin.sync_peer_inventory_index', peer_id=peer.peer_id) }}">
                           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                           <input type="hidden" name="_return_view" value="peers">
-                          <button class="btn btn-sm btn-outline-success" type="submit">{{ 'Fetch inventory index' if g.language == 'en' else 'Inventarindex holen' }}</button>
+                          {% set receive_enabled = inventory_receive_by_peer.get(peer.peer_id, false) %}
+                          {% set inventory_hint = 'inventory-fetch-' ~ loop.index %}
+                          <button class="btn btn-sm btn-outline-success" type="submit" aria-describedby="{{ inventory_hint }}" {% if not peer.enabled or not receive_enabled %}disabled{% endif %}>{{ 'Fetch inventory index' if g.language == 'en' else 'Inventarindex holen' }}</button>
+                          <div id="{{ inventory_hint }}" class="small text-secondary mt-1">
+                            {% if peer.banned %}
+                              {{ 'This peer is blocked.' if g.language == 'en' else 'Dieser Peer ist gesperrt.' }}
+                            {% elif not peer.enabled %}
+                              {{ 'This peer is inactive.' if g.language == 'en' else 'Dieser Peer ist nicht aktiv.' }}
+                            {% elif not receive_enabled %}
+                              <a href="{{ url_for('federation_admin.dashboard', view='peers', edit_peer=peer.peer_id, _anchor='peer-inventory-policy') }}">{{ 'Configure inventory receive' if g.language == 'en' else 'Inventar-Empfang konfigurieren' }}</a>
+                            {% else %}
+                              {{ 'The other instance must separately allow sending.' if g.language == 'en' else 'Die Gegenstelle muss den Versand separat erlauben.' }}
+                            {% endif %}
+                          </div>
                         </form>
                         <form method="post" action="{{ url_for('federation_admin.network_diagnostic_peer', peer_id=peer.peer_id) }}">
                           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">

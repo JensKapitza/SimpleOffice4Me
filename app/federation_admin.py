@@ -16,6 +16,7 @@ from .document_store import DocumentStore
 from .federation_catalog import FederationCatalog
 from .federation_core import build_manifest, transfer_id, validate_operation
 from .federation_download_worker import (
+    inventory_receive_opt_in,
     process_queue,
     sync_peer_catalog,
     sync_peer_inventory_catalog,
@@ -229,6 +230,9 @@ def dashboard():
         diagnostic_states=diagnostic_states,
         manual_confirmations=manual_confirmations,
         chat_action_labels=ACTION_LABELS,
+        inventory_receive_by_peer={
+            peer["peer_id"]: inventory_receive_opt_in(peer) for peer in peers
+        },
         active_view=active_view,
         edit_peer=edit_peer,
     )
