@@ -332,6 +332,7 @@
             <form method="post" action="{{ url_for('federation_admin.save_peer') }}" class="row g-3">
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="_return_view" value="peers">
+              {% if edit_peer %}<input type="hidden" name="_editing_peer" value="1">{% endif %}
               <input type="hidden" name="_documents_policy_form" value="1">
               <input type="hidden" name="_mail_cases_policy_form" value="1">
               <input type="hidden" name="_rendezvous_relay_policy_form" value="1">
