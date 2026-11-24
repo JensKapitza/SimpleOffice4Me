@@ -13,6 +13,11 @@
   }
 
   function speak(value, language, statusElement) {
+    // Lazy clip fallbacks can decline stale requests after activity changes.
+    if (typeof value === 'function') {
+      value = value();
+      if (value === null) return Promise.resolve(false);
+    }
     if (statusElement) statusElement.textContent = '';
     if (window.KidsPiperVoice) return window.KidsPiperVoice.speak(value, language, statusElement);
     if (statusElement) {

@@ -159,8 +159,11 @@
   const clipLang = english ? 'en' : 'de';
   const speechStatus = null;
   let currentClips = [];
+  let speechRun = 0;
   function playNow(parts) {
-    return playClips(audioBase, audioVersion, clipLang, parts, speechLang, speechStatus);
+    const run = ++speechRun;
+    const guarded = parts.map(({key, fallback}) => ({key, fallback: () => run === speechRun ? fallback : null}));
+    return playClips(audioBase, audioVersion, clipLang, guarded, speechLang, speechStatus);
   }
   function say(parts) {
     currentClips = parts;
@@ -182,6 +185,7 @@
   let score = 0;
   let mistakes = 0;
   let taps = 0;
+  let cancelExample = null;
 
   function focusElement(element) {
     if (element && typeof element.focus === 'function') element.focus();
@@ -215,6 +219,7 @@
   }
 
   function showQuestion() {
+    stopExample();
     const question = questions[questionIndex];
     mistakes = 0;
     taps = 0;
@@ -236,6 +241,76 @@
     return picture;
   }
 
+  function stopExample() {
+    const cancel = cancelExample;
+    cancelExample = null;
+    if (cancel) cancel();
+  }
+
+  // Only the existing same-origin recordings are used in the demonstration.
+  // A failed/missing recording still leaves a visible beat to clap along with.
+  function stopQuestionAudio() {
+    speechRun += 1;
+    stopAudio();
+  }
+
+  function playExample(parts, paintBeat) {
+    stopExample();
+    stopQuestionAudio();
+    let timer;
+    let player;
+    let removePlayerListeners;
+    let index = 0;
+    const pauseBeat = () => {
+      if (removePlayerListeners) removePlayerListeners();
+      removePlayerListeners = null;
+      if (player) player.pause();
+    };
+    const cancel = () => {
+      window.clearTimeout(timer);
+      pauseBeat();
+      paintBeat(-1);
+    };
+    cancelExample = cancel;
+
+    function advance() {
+      if (cancelExample !== cancel) return;
+      if (index >= parts.length) { stopExample(); return; }
+      const part = parts[index];
+      paintBeat(index);
+      index += 1;
+      const startedAt = Date.now();
+      let ended = false;
+      const finishBeat = () => {
+        if (ended || cancelExample !== cancel) return;
+        ended = true;
+        window.clearTimeout(timer);
+        pauseBeat();
+        // Leave a small gap for a child's clap, including when audio is off.
+        timer = window.setTimeout(advance, Math.max(240, 690 - (Date.now() - startedAt)));
+      };
+      if (typeof window.Audio !== 'function') { finishBeat(); return; }
+      timer = window.setTimeout(finishBeat, 2000);
+      try {
+        const suffix = audioVersion ? `?v=${encodeURIComponent(audioVersion)}` : '';
+        // Retain the same trusted-click element across clips for WebKit.
+        if (!player) player = new window.Audio();
+        player.src = `${audioBase}/${clipLang}/p_${slugify(part)}.mp3${suffix}`;
+        player.addEventListener('ended', finishBeat, {once: true});
+        player.addEventListener('error', finishBeat, {once: true});
+        removePlayerListeners = () => {
+          player.removeEventListener('ended', finishBeat);
+          player.removeEventListener('error', finishBeat);
+        };
+        const playing = player.play();
+        if (playing && typeof playing.catch === 'function') playing.catch(finishBeat);
+      } catch {
+        finishBeat();
+      }
+    }
+    advance();
+  }
+
   function showClapQuestion(question) {
     const spoken = text(
       `Höre gut zu: ${slowWord(question)}. Tippe für jede Silbe einmal auf die Hände!`,
@@ -247,8 +322,17 @@
     const dots = document.createElement('div');
     dots.className = 'kids-syll-dots';
     dots.setAttribute('aria-hidden', 'true');
-    const paintDots = () => {
-      dots.textContent = '●'.repeat(taps) + '○'.repeat(question.parts.length - taps);
+    const markers = question.parts.map(() => {
+      const marker = document.createElement('span');
+      marker.className = 'kids-syll-dot';
+      dots.append(marker);
+      return marker;
+    });
+    const paintDots = (exampleBeat = -1) => {
+      markers.forEach((marker, index) => {
+        marker.textContent = index < taps ? '●' : '○';
+        marker.classList.toggle('is-example-beat', index === exampleBeat);
+      });
     };
     const partClips = part => ({key: `p_${slugify(part)}`, fallback: part});
     paintDots();
@@ -258,7 +342,8 @@
     clap.textContent = '👏';
     clap.setAttribute('aria-label', text(`Klatschen, ${question.parts.length} Silben`, `Clap, ${question.parts.length} syllables`));
     clap.addEventListener('click', () => {
-      if (clap.disabled) return;
+      if (clap.disabled || play.hidden || !stage.contains(clap)) return;
+      stopExample();
       taps += 1;
       paintDots();
       if (taps >= question.parts.length) {
@@ -280,7 +365,21 @@
         {key: `clap_more_${question.parts.length - taps}`, fallback: feedback.textContent},
       ]);
     });
-    stage.append(makePicture(question.emoji, question.word), dots, clap);
+    const example = document.createElement('button');
+    example.type = 'button';
+    example.className = 'btn btn-outline-primary btn-lg kids-syll-example';
+    example.textContent = text('👂 Vormachen', '👂 Show me');
+    example.setAttribute('aria-pressed', 'false');
+    example.addEventListener('click', () => {
+      if (!stage.contains(example) || play.hidden) return;
+      if (cancelExample) { stopExample(); return; }
+      playExample(question.parts, beat => {
+        paintDots(beat);
+        example.setAttribute('aria-pressed', String(beat >= 0));
+      });
+    });
+
+    stage.append(makePicture(question.emoji, question.word), dots, clap, example);
     say([
       {key: CLIPS.listenWell, fallback: text('Höre gut zu:', 'Listen carefully:')},
       ...question.parts.map(partClips),
@@ -385,9 +484,11 @@
   }
 
   function nextQuestion() {
+    stopExample();
     if (questionIndex >= QUESTIONS_PER_LEVEL - 1) { finish(); return; }
     questionIndex += 1;
     showQuestion();
+    focusElement(title);
   }
 
   function finish() {
@@ -410,7 +511,8 @@
   }
 
   function showPicker() {
-    stopAudio();
+    stopExample();
+    stopQuestionAudio();
     result.hidden = true;
     play.hidden = true;
     picker.hidden = false;
@@ -418,7 +520,10 @@
   }
 
   root.querySelectorAll('[data-syll-level]').forEach(button => button.addEventListener('click', () => begin(button.dataset.syllLevel)));
-  root.querySelector('[data-syll-repeat]').addEventListener('click', () => { if (currentClips.length) playNow(currentClips); });
+  root.querySelector('[data-syll-repeat]').addEventListener('click', () => {
+    stopExample();
+    if (currentClips.length) playNow(currentClips);
+  });
   next.addEventListener('click', nextQuestion);
   root.querySelector('[data-syll-back]').addEventListener('click', showPicker);
   root.querySelector('[data-result-back]').addEventListener('click', showPicker);
