@@ -628,7 +628,7 @@
       <div class="card-body py-2">
         <details class="small text-secondary">
           <summary>{{ 'How is prioritised?' if g.language == 'en' else 'Wie wird priorisiert?' }}</summary>
-          <div class="pt-2">{{ 'Effective priority = server + file + transfer. Waiting peers stay stored and are retried later.' if g.language == 'en' else 'Effektive Priorität = Server + Datei + Transfer. Wartende Peers bleiben gespeichert und werden später erneut versucht.' }}</div>
+          <div class="pt-2">{{ 'Effective priority = server + file + transfer. Processing the queue skips downloads whose retry delay has not elapsed.' if g.language == 'en' else 'Effektive Priorität = Server + Datei + Transfer. Beim Abarbeiten der Warteschlange werden Downloads mit laufender Wartezeit übersprungen.' }}</div>
         </details>
       </div>
       <div class="table-responsive">
@@ -637,7 +637,17 @@
           <tbody>
             {% for item in download_queue %}
               <tr>
-                <td><span class="badge {{ 'text-bg-success' if item.status == 'complete' else 'text-bg-warning' if item.status in ['queued','retry','waiting_peer'] else 'text-bg-primary' if item.status == 'running' else 'text-bg-danger' }}">{{ item.status }}</span></td>
+                <td>
+                  <span class="badge {{ 'text-bg-success' if item.status == 'complete' else 'text-bg-warning' if item.status in ['queued','retry','waiting_peer'] else 'text-bg-primary' if item.status == 'running' else 'text-bg-danger' }}">{{ item.status }}</span>
+                  {% if item.retry_not_before %}
+                    <div class="small text-secondary mt-1">
+                      {{ 'Earliest retry:' if g.language == 'en' else 'Frühester nächster Versuch:' }}
+                      <time class="text-nowrap" datetime="{{ item.retry_not_before.isoformat() }}">{{ item.retry_not_before.strftime('%Y-%m-%d %H:%M:%S UTC') }}</time>
+                    </div>
+                  {% elif item.retry_delay_elapsed %}
+                    <div class="small text-secondary mt-1">{{ 'Retry delay elapsed' if g.language == 'en' else 'Wartezeit abgelaufen' }}</div>
+                  {% endif %}
+                </td>
                 <td><strong>{{ item.peer_id }}</strong><br><span class="text-break">{{ item.path }}</span></td>
                 <td>{{ item.server_priority }}</td>
                 <td>{{ item.file_priority }}</td>
