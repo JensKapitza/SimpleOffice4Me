@@ -52,6 +52,8 @@ jobs:
           PACKAGE_NAME: ${{ matrix.package }}
           SOURCE_SHA256: ${{ matrix.sdist_sha256 }}
           LIBFFI_SOURCE_COMMIT: 3d0ce1e6fcf19f853894862abcbac0ae78a7be60
+          JPEG_SOURCE_COMMIT: 4e151a4ad91001b3aa8c2ece2205c15f487ce320
+          FREETYPE_SOURCE_COMMIT: 42608f77f20749dd6ddc9e0536788eaad70ea4b5
           PILLOW_SOURCE_COMMIT: 293218ad059d994baf1777d882911bed6a49704a
           PILLOW_DEPENDENCIES_COMMIT: 93950a8f9ada1165a4ab8c719326d5017e3f6c72
         shell: bash
@@ -175,6 +177,11 @@ jobs:
               jpeg_source="$GITHUB_WORKSPACE/sources/libjpeg-turbo"
               git clone --depth 1 --branch 3.1.2 \
                 https://github.com/libjpeg-turbo/libjpeg-turbo.git "$jpeg_source"
+              actual_jpeg_commit="$(git -C "$jpeg_source" rev-parse HEAD)"
+              if [[ "$actual_jpeg_commit" != "$JPEG_SOURCE_COMMIT" ]]; then
+                echo "libjpeg-turbo source tag resolved to unexpected commit: $actual_jpeg_commit" >&2
+                exit 1
+              fi
               jpeg_prefix="$GITHUB_WORKSPACE/sources/android-jpeg-prefix"
               cmake -S "$jpeg_source" -B "$jpeg_source/build-android" \
                 -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" \
@@ -191,6 +198,11 @@ jobs:
               freetype_source="$GITHUB_WORKSPACE/sources/freetype"
               git clone --depth 1 --branch VER-2-13-3 \
                 https://github.com/freetype/freetype.git "$freetype_source"
+              actual_freetype_commit="$(git -C "$freetype_source" rev-parse HEAD)"
+              if [[ "$actual_freetype_commit" != "$FREETYPE_SOURCE_COMMIT" ]]; then
+                echo "FreeType source tag resolved to unexpected commit: $actual_freetype_commit" >&2
+                exit 1
+              fi
               freetype_prefix="$GITHUB_WORKSPACE/sources/android-freetype-prefix"
               cmake -S "$freetype_source" -B "$freetype_source/build-android" \
                 -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" \
