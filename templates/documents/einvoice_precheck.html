@@ -1,0 +1,14 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="mb-4"><a href="{{ url_for('contact_audit.business_documents.invoice_detail', invoice_id=invoice.invoice_id) }}">← {{ 'Invoice' if g.language == 'en' else 'Rechnung' }} {{ invoice.invoice_number }}</a><h1 class="h2 mt-2"><i class="fa-solid fa-list-check me-2" aria-hidden="true"></i>{{ 'E-invoice precheck' if g.language == 'en' else 'E-Rechnung-Vorabprüfung' }}</h1>
+  <p class="text-secondary mb-0">{{ 'Dry run without saving anything. Release is only possible after finalization.' if g.language == 'en' else 'Prüflauf ohne Speicherung. Die Freigabe ist erst nach Finalisierung möglich.' }}</p></div>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  <div class="card mb-4"><div class="card-header">{{ 'Checks' if g.language == 'en' else 'Prüfungen' }}</div><div class="card-body p-0"><ul class="list-group list-group-flush">{% for item in report.checks %}<li class="list-group-item d-flex gap-2 align-items-start"><span aria-hidden="true">{% if item.ok %}✅{% else %}❌{% endif %}</span><div><strong>{{ item.id }}</strong><div>{{ item.message }}</div>{% if item.field %}<div class="small text-secondary"><code>{{ item.field }}</code></div>{% endif %}</div></li>{% endfor %}</ul></div></div>
+  <div class="d-flex gap-2 flex-wrap">
+    {% if report.ok and invoice.status != 'draft' and not released %}<form method="post" action="{{ url_for('contact_audit.einvoice_release.einvoice_release', invoice_id=invoice.invoice_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn btn-success"><i class="fa-solid fa-check me-1" aria-hidden="true"></i>{{ 'Release e-invoice' if g.language == 'en' else 'E-Rechnung freigeben' }}</button></form>{% endif %}
+    <a class="btn btn-outline-secondary" href="{{ url_for('contact_audit.business_documents.invoice_detail', invoice_id=invoice.invoice_id) }}">{{ 'Back' if g.language == 'en' else 'Zurück' }}</a>
+  </div>
+</main>
+{% endblock %}
