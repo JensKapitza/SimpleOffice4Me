@@ -453,7 +453,8 @@ def claim_remote_pairing_code(peer_id):
         else:
             flash(translate(g.language, "fedpeer.pairing.claimed"))
     except (PairingClientError, TypeError, ValueError) as exc:
-        flash(translate(g.language, "fedpeer.pairing.claim.failed").format(exc=exc))
+        detail = exc.user_message(g.language) if isinstance(exc, PairingClientError) else str(exc)
+        flash(translate(g.language, "fedpeer.pairing.claim.failed").format(exc=detail))
     return redirect(url_for("federation_peer_admin.dashboard"))
 
 
@@ -463,15 +464,11 @@ def check_remote_pairing_status(peer_id):
     try:
         peer = _remote_pairing_peer(peer_id)
         result = remote_pairing_status(_root(), peer)
-        labels = {
-            "missing": "nicht vorhanden",
-            "pending": "wartet",
-            "claimed": "beansprucht",
-            "expired": "abgelaufen",
-        }
-        flash(translate(g.language, "fedpeer.pairing.status").format(status=labels[result['status']]))
+        status = translate(g.language, f"fedpeer.pairing.code.{result['status']}")
+        flash(translate(g.language, "fedpeer.pairing.status").format(status=status))
     except (PairingClientError, TypeError, ValueError) as exc:
-        flash(translate(g.language, "fedpeer.pairing.status.failed").format(exc=exc))
+        detail = exc.user_message(g.language) if isinstance(exc, PairingClientError) else str(exc)
+        flash(translate(g.language, "fedpeer.pairing.status.failed").format(exc=detail))
     return redirect(url_for("federation_peer_admin.dashboard"))
 
 

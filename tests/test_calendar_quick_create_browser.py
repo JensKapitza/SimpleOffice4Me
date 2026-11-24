@@ -125,6 +125,31 @@ class CalendarQuickCreateBrowserTests(unittest.TestCase):
                 browser.close()
 
 
+    def test_today_activates_calendar_pane_and_scrolls_on_a_phone(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(
+                executable_path=shutil.which("chromium"), headless=True, args=["--no-sandbox"],
+            )
+            try:
+                context = self._context(browser, viewport={"width": 360, "height": 800},
+                                        is_mobile=True, has_touch=True)
+                page = context.new_page()
+                page.goto(self.origin + "/documents/calendar?month=2020-01", wait_until="domcontentloaded")
+                page.evaluate("sessionStorage.setItem('simpleoffice.calendar.workspace', 'booking')")
+                page.locator('a[href$="#calendar-today"]').click()
+                page.wait_for_url("**/documents/calendar#calendar-today")
+                target = page.locator('#calendar-today[aria-current="date"]')
+                target.wait_for(state="visible")
+                self.assertTrue(page.locator('[data-calendar-pane="calendar"]').is_visible())
+                self.assertTrue(page.locator('[data-calendar-pane="booking"]').is_hidden())
+                page.wait_for_function("""() => {
+                    const rect = document.getElementById('calendar-today').getBoundingClientRect();
+                    return rect.top >= 0 && rect.bottom < window.innerHeight;
+                }""")
+            finally:
+                context.close()
+                browser.close()
+
     def test_phone_creates_appointment_followup_and_link_reopens_source(self):
         event = CalendarStore(app.config["DOCUMENT_ROOT"]).add(
             "Planning appointment", "Private fixture note", "2026-11-19T09:00",

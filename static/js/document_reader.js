@@ -13,13 +13,20 @@
   let currentChapterId = format === 'epub' ? String(saved.chapter || '') : '';
   let currentOffset = format === 'epub' ? Math.max(0, Number(saved.offset || 0)) : 0;
   let restoredOffset = false;
+  let requestedEpub = current;
+  let resumeEpubIndex = current;
+  let epubRequest = 0;
+  let displayedEpubRequest = 0;
+  let errorSource;
+  let scrollTimer = null;
   let fontScale = 1;
   let contrast = false;
   let saveTimer = null;
   const pageCount = Math.max(0, Number(root.dataset.pageCount || 0));
 
-  const showError = (message) => {
+  const showError = (message, source) => {
     if (!errorBox) return;
+    errorSource = source;
     errorBox.textContent = message || 'Reader-Fehler';
     errorBox.classList.remove('d-none');
   };
@@ -59,24 +66,47 @@
   };
 
   const epubBody = root.querySelector('[data-reader-epub-body]');
+  const addNote = root.querySelector('[data-reader-add-note]');
+  if (format === 'epub' && addNote) addNote.disabled = true;
   const loadEpub = async (index) => {
     const total = root.querySelectorAll('[data-reader-chapter]').length || 1;
-    current = Math.max(0, Math.min(total - 1, Number(index) || 0));
+    requestedEpub = Math.max(0, Math.min(total - 1, Number(index) || 0));
+    const target = requestedEpub;
+    const requestId = ++epubRequest;
     try {
-      const chapter = await request(root.dataset.epubUrl + '/' + current);
-      currentChapterId = String(chapter.id || current);
+      const chapter = await request(root.dataset.epubUrl + '/' + target);
+      if (requestId !== epubRequest) return;
+      clearTimeout(scrollTimer);
+      displayedEpubRequest = requestId;
+      current = target;
+      currentChapterId = String(chapter.id || target);
       epubBody.innerHTML = chapter.html || '<p>(Leeres Kapitel)</p>';
       epubBody.style.fontSize = (1.05 * fontScale) + 'rem';
+      if (addNote) addNote.disabled = false;
+      if (errorSource === 'epub') {
+        errorBox?.classList.add('d-none');
+        errorSource = undefined;
+      }
       updateStatus(total);
-      if (!restoredOffset && Number(saved.chapter_index || 0) === current && currentOffset > 0) {
+      if (!restoredOffset && resumeEpubIndex === current && currentOffset > 0) {
         restoredOffset = true;
-        requestAnimationFrame(() => window.scrollTo({top: epubBody.offsetTop + currentOffset, behavior: 'auto'}));
+        const offset = currentOffset;
+        requestAnimationFrame(() => {
+          if (displayedEpubRequest === requestId) {
+            window.scrollTo({top: epubBody.offsetTop + offset, behavior: 'auto'});
+          }
+        });
       } else {
         currentOffset = 0;
         window.scrollTo({top: root.offsetTop, behavior: 'smooth'});
       }
       scheduleSave();
-    } catch (error) { showError(error.message); }
+    } catch (error) {
+      if (requestId !== epubRequest) return;
+      requestedEpub = displayedEpubRequest ? current : target;
+      if (position) position.value = String(requestedEpub + 1);
+      showError(error.message, 'epub');
+    }
   };
 
   const frame = root.querySelector('[data-reader-pdf-frame]');
@@ -110,12 +140,13 @@
     scheduleSave();
   };
 
-  root.querySelector('[data-reader-prev]')?.addEventListener('click', () => format === 'pdf' ? loadPdf(current - 1) : loadEpub(current - 1));
-  root.querySelector('[data-reader-next]')?.addEventListener('click', () => format === 'pdf' ? loadPdf(current + 1) : loadEpub(current + 1));
+  root.querySelector('[data-reader-prev]')?.addEventListener('click', () => format === 'pdf' ? loadPdf(current - 1) : loadEpub(requestedEpub - 1));
+  root.querySelector('[data-reader-next]')?.addEventListener('click', () => format === 'pdf' ? loadPdf(current + 1) : loadEpub(requestedEpub + 1));
   position?.addEventListener('change', () => format === 'pdf' ? loadPdf(Number(position.value)) : loadEpub(Number(position.value) - 1));
   root.querySelectorAll('[data-reader-chapter]').forEach(button => button.addEventListener('click', () => loadEpub(Number(button.dataset.readerChapter))));
 
-  root.querySelector('[data-reader-add-note]')?.addEventListener('click', async () => {
+  addNote?.addEventListener('click', async () => {
+    if (format === 'epub' && !displayedEpubRequest) return;
     const input = root.querySelector('[data-reader-note]');
     const text = input?.value.trim() || '';
     if (!text) return;
@@ -152,9 +183,8 @@
   }));
   root.querySelector('[data-reader-theme]')?.addEventListener('click', () => { contrast = !contrast; root.classList.toggle('bg-dark', contrast); root.classList.toggle('text-light', contrast); });
   root.querySelector('[data-reader-fullscreen]')?.addEventListener('click', () => { if (!document.fullscreenElement) root.requestFullscreen?.(); else document.exitFullscreen?.(); });
-  let scrollTimer = null;
   window.addEventListener('scroll', () => {
-    if (format !== 'epub' || !epubBody) return;
+    if (format !== 'epub' || !epubBody || !displayedEpubRequest) return;
     clearTimeout(scrollTimer);
     scrollTimer = setTimeout(() => {
       currentOffset = Math.max(0, Math.round(window.scrollY - epubBody.offsetTop));
@@ -166,7 +196,8 @@
     const byId = [...root.querySelectorAll('[data-reader-chapter]')].find(
       item => String(item.dataset.readerChapterId || '') === String(saved.chapter || '')
     );
-    loadEpub(byId ? Number(byId.dataset.readerChapter) : current);
+    resumeEpubIndex = byId ? Number(byId.dataset.readerChapter) : current;
+    loadEpub(resumeEpubIndex);
   } else {
     loadPdf(current);
   }
