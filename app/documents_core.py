@@ -302,6 +302,35 @@ MAX_INLINE_TEXT_PREVIEW_CHARS = 12_000
 MAX_INLINE_TEXT_PREVIEW_LINES = 300
 
 
+def _bound_preview_text(text: str) -> tuple[str, bool]:
+    truncated = len(text) > MAX_INLINE_TEXT_PREVIEW_CHARS
+    lines = text[:MAX_INLINE_TEXT_PREVIEW_CHARS].splitlines()
+    return (
+        "\n".join(lines[:MAX_INLINE_TEXT_PREVIEW_LINES]),
+        truncated or len(lines) > MAX_INLINE_TEXT_PREVIEW_LINES,
+    )
+
+
+def _recognized_preview_text(document: dict, suffix: str) -> str:
+    """Use only a locally saved, current-source text projection; never run OCR from detail."""
+    digest = document.get("sha256")
+    if not digest:
+        return ""
+    if suffix in IMAGE_SUFFIXES:
+        analysis = document.get("image_analysis")
+        if (isinstance(analysis, dict) and analysis.get("source_sha256") == digest
+                and analysis.get("ocr_status") == "completed"):
+            value = document.get("ocr_text")
+            return value if isinstance(value, str) else ""
+        return ""
+    extraction = document.get("text_extraction")
+    if (isinstance(extraction, dict) and extraction.get("source_sha256") == digest
+            and extraction.get("status") in {"completed", "partial"}):
+        value = document.get("extracted_text")
+        return value if isinstance(value, str) else ""
+    return ""
+
+
 def _safe_inline_text_preview(document: dict) -> tuple[str, str, bool]:
     """Return only small, verified UTF-8 text; never interpret uploaded markup."""
     filename = str(document.get("last_path", ""))
@@ -352,13 +381,8 @@ def _safe_inline_text_preview(document: dict) -> tuple[str, str, bool]:
     if not text:
         return "", "empty", False
 
-    lines = text.splitlines()
-    truncated = (
-        len(lines) > MAX_INLINE_TEXT_PREVIEW_LINES
-        or len(text) > MAX_INLINE_TEXT_PREVIEW_CHARS
-    )
-    text = "\n".join(lines[:MAX_INLINE_TEXT_PREVIEW_LINES])
-    return text[:MAX_INLINE_TEXT_PREVIEW_CHARS], "ready", truncated
+    display, truncated = _bound_preview_text(text)
+    return display, "ready", truncated
 
 
 def _preview_data(document: dict) -> dict[str, str]:
@@ -408,9 +432,7 @@ def _document_detail_preview_context(document: dict) -> dict[str, Any]:
     if not isinstance(archive_preview, dict):
         archive_preview = {}
     if not text and suffix not in TEXT_SUFFIXES:
-        text = str(
-            document.get("extracted_text") or document.get("ocr_text") or ""
-        )[:MAX_INLINE_TEXT_PREVIEW_CHARS]
+        text, text_truncated = _bound_preview_text(_recognized_preview_text(document, suffix))
         text_status = "ready" if text else ""
     extraction = document.get("text_extraction") if isinstance(document.get("text_extraction"), dict) else {}
     extraction_status = str(extraction.get("status", "")) if text and suffix not in TEXT_SUFFIXES else ""

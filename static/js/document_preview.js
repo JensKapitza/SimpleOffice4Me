@@ -9,6 +9,8 @@
   const search = root.querySelector('[data-text-preview-search]');
   const count = root.querySelector('[data-text-preview-count]');
   const feedback = root.querySelector('[data-text-preview-feedback]');
+  const manual = root.querySelector('[data-text-preview-manual]');
+  const manualWrap = root.querySelector('[data-text-preview-manual-wrap]');
   const original = body ? body.textContent : '';
   const query = () => (search.value || '').trim();
   let renderedQuery = '';
@@ -148,26 +150,55 @@
   function announce(message) {
     if (feedback) feedback.textContent = message;
   }
-  function copyText(value, isSelection) {
-    const emptyMessage = root.dataset.msgEmpty || '';
+  let copyRevision = 0;
+  function clearManualCopy() {
+    if (!manual || !manualWrap) return;
+    manualWrap.hidden = true;
+    manual.value = '';
+  }
+  async function copyText(value, isSelection) {
+    const revision = ++copyRevision;
+    clearManualCopy();
+    announce('');
     if (!value) {
-      announce(isSelection ? emptyMessage : '');
+      if (isSelection) announce(root.dataset.msgEmpty || '');
       return;
     }
-    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-      navigator.clipboard.writeText(value).then(
-        () => announce(root.dataset.msgCopied || ''),
-        () => announce(emptyMessage),
-      );
-    } else {
-      announce(emptyMessage);
+    let copied = false;
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        await navigator.clipboard.writeText(value);
+        copied = true;
+      }
+    } catch {
+      // Clipboard access can be denied or absent on HTTP LAN connections.
     }
+    if (revision !== copyRevision) return;
+    if (copied) {
+      announce(root.dataset.msgCopied || '');
+    } else if (manual && manualWrap) {
+      manual.value = value;
+      manualWrap.hidden = false;
+      manual.focus();
+      manual.select();
+      announce(root.dataset.msgManual || '');
+    }
+  }
+  function previewSelection() {
+    const selection = window.getSelection?.();
+    if (!selection || selection.rangeCount !== 1 || !body.contains(selection.anchorNode)
+        || !body.contains(selection.focusNode)) return '';
+    return String(selection);
   }
   root.querySelector('[data-text-preview-copy]').addEventListener('click', () => {
     copyText(body.textContent, false);
   });
   root.querySelector('[data-text-preview-copy-selection]').addEventListener('click', () => {
-    const selection = window.getSelection ? String(window.getSelection() || '') : '';
-    copyText(selection, true);
+    copyText(previewSelection(), true);
+  });
+  window.addEventListener('pagehide', () => {
+    copyRevision++;
+    clearManualCopy();
+    announce('');
   });
 })();

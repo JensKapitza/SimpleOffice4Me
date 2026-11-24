@@ -7,6 +7,10 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+from bs4 import BeautifulSoup
+from PIL import Image, ImageDraw, ImageFont
 
 from bs4 import BeautifulSoup
 
@@ -37,7 +41,7 @@ class DocumentTextPreviewTests(unittest.TestCase):
         self.pdf_doc = store.import_upload(io.BytesIO(b"%PDF-1.4\nbinary"), "bericht.pdf", "alice")
         pdf = store.get_document(self.pdf_doc["document_id"])
         pdf["extracted_text"] = "Erkannter Berichtstext mit Suchwort Kolibri"
-        pdf["text_extraction"] = {"status": "completed", "updated_by": "alice"}
+        pdf["text_extraction"] = {"status": "completed", "updated_by": "alice", "source_sha256": pdf["sha256"]}
         store._save_document(pdf)
 
     def tearDown(self):
@@ -48,7 +52,7 @@ class DocumentTextPreviewTests(unittest.TestCase):
         for marker in (
             "data-text-preview", "data-text-preview-search", "data-text-preview-prev",
             "data-text-preview-next", "data-text-preview-count", "data-text-preview-copy",
-            "data-text-preview-copy-selection", "js/document_preview.js",
+            "data-text-preview-copy-selection", "data-text-preview-manual", "js/document_preview.js",
         ):
             self.assertIn(marker, html)
         self.assertIn("Alpha Bravo Alpha", html)
@@ -87,6 +91,83 @@ class DocumentTextPreviewTests(unittest.TestCase):
                 if line:
                     self.assertIsNone(line.select_one("time"))
                     self.assertNotIn("synthetic-index-actor", line.get_text())
+
+    def test_detail_offers_only_a_bounded_escaped_current_text_and_never_prefills_fallback(self):
+        pdf = self.store.get_document(self.pdf_doc["document_id"])
+        pdf["extracted_text"] = "Erkanntes <b>Symbol</b>\n" + "sichtbar\n" * 299 + "UNSHOWN-PASSAGE\n"
+        self.store._save_document(pdf)
+        response = self.client.get(f"/documents/{pdf['document_id']}")
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("private, no-store", response.headers["Cache-Control"])
+        page = BeautifulSoup(response.data, "html.parser")
+        preview = page.select_one("[data-text-preview]")
+        body = preview.select_one("[data-text-preview-body]")
+        self.assertIn("Erkanntes <b>Symbol</b>", body.get_text())
+        self.assertIsNone(body.select_one("b"))
+        self.assertEqual(300, len(body.get_text().splitlines()))
+        self.assertNotIn("UNSHOWN-PASSAGE", response.get_data(as_text=True))
+        fallback = preview.select_one("[data-text-preview-manual-wrap][hidden] textarea[readonly]")
+        self.assertIsNotNone(fallback)
+        self.assertFalse(fallback.get_text())
+        self.assertIn("12.000" if page.html["lang"] == "de" else "12,000", page.get_text())
+
+    def test_mismatched_pdf_extraction_has_no_preview_or_copy_controls(self):
+        pdf = self.store.get_document(self.pdf_doc["document_id"])
+        pdf["text_extraction"]["source_sha256"] = "a" * 64
+        pdf["extracted_text"] = "StalePDFSample"
+        # A file can keep image metadata after being renamed or restored.
+        pdf.update(ocr_text="PreviousImageSample", image_analysis={
+            "source_sha256": pdf["sha256"], "ocr_status": "completed", "exif": {},
+        })
+        self.store._save_document(pdf)
+        response = self.client.get(f"/documents/{pdf['document_id']}")
+        self.assertEqual(200, response.status_code)
+        html = response.get_data(as_text=True)
+        self.assertNotIn("StalePDFSample", html)
+        self.assertNotIn("PreviousImageSample", html)
+        self.assertNotIn("data-text-preview-copy", html)
+
+    @unittest.skipUnless(shutil.which("tesseract"), "Requires real local OCR for a synthetic phone image")
+    def test_image_detail_does_not_copy_legacy_ocr_after_pixels_were_replaced(self):
+        def fixture(text):
+            image = Image.new("RGB", (1600, 900), "white")
+            try:
+                font = ImageFont.truetype("DejaVuSans.ttf", 76)
+            except OSError:
+                self.skipTest("DejaVu Sans is required for the synthetic photo")
+            ImageDraw.Draw(image).text((140, 380), text, font=font, fill="black")
+            file = io.BytesIO()
+            image.save(file, format="JPEG")
+            return file.getvalue()
+
+        first = fixture("HANDY ALTFOTO")
+        second = fixture("HANDY NEUFOTO")
+        incoming = self.client.post("/documents/photos/upload", data={
+            "file": (io.BytesIO(first), "handy.jpg"), "run_ocr": "1",
+        })
+        self.assertEqual(200, incoming.status_code)
+        result = incoming.get_json()
+        doc_id, detail_url = result["document_id"], result["detail_url"]
+        saved = self.store.get_document(doc_id)
+        self.assertIn("ALTFOTO", saved["ocr_text"])
+
+        with patch.object(DocumentStore, "_image_ocr", side_effect=AssertionError("view must not rerun OCR")):
+            html = BeautifulSoup(self.client.get(detail_url).data, "html.parser")
+            self.assertIn("ALTFOTO", html.select_one("[data-text-preview-body]").get_text())
+            self.assertIsNotNone(html.select_one("[data-text-preview-copy]"))
+            current = self.store.replace_content(doc_id, second, "alice", expected_sha256=saved["sha256"])
+            # Old stored metadata could stamp extracted_text with the new digest
+            # even though image_analysis still referred to the old file.
+            current.update(image_analysis=saved["image_analysis"], ocr_text=saved["ocr_text"],
+                           extracted_text=saved["ocr_text"], text_extraction={
+                               "source_sha256": current["sha256"], "status": "completed", "kind": "image",
+                           })
+            self.store._save_document(current)
+            replaced = self.client.get(detail_url)
+        self.assertEqual(200, replaced.status_code)
+        self.assertNotIn("ALTFOTO", replaced.get_data(as_text=True))
+        self.assertNotIn("data-text-preview-copy", replaced.get_data(as_text=True))
+        self.assertEqual(second, (self.store.root / current["last_path"]).read_bytes())
 
     def test_plain_text_has_no_extraction_line(self):
         html = self.client.get(f"/documents/{self.text_doc['document_id']}").get_data(as_text=True)
