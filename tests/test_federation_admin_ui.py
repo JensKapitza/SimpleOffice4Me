@@ -192,6 +192,71 @@ class FederationAdminUiTests(unittest.TestCase):
         self.assertIn("admin", body)
         self.assertIn("nicht technisch verifiziert", body)
 
+    def test_peer_inventory_sync_status_is_separate_read_only_and_does_not_echo_errors(self):
+        from datetime import datetime
+        from bs4 import BeautifulSoup
+        from app.federation_catalog import FederationCatalog
+
+        store = FederationStore(self.root)
+        catalog = FederationCatalog(self.root)
+        receive = {"inventory": {"receive": True}}
+        for peer_id in ("ready", "failed", "failed-first", "no-status", "blocked"):
+            store.save_peer(peer_id, peer_id, f"https://{peer_id}.example", "", receive)
+        store.save_peer("not-opted-in", "not-opted-in", "https://not-opted-in.example", "")
+        with patch("app.federation_catalog._now", return_value=1700000001):
+            catalog.finish_index("failed", "doc-generation")
+        with patch("app.federation_catalog._now", return_value=1700000010):
+            for peer_id in ("ready", "failed", "blocked"):
+                catalog.finish_inventory_index(peer_id, "inventory-generation")
+        catalog.fail_inventory_index("failed", "transport-detail-not-for-status")
+        catalog.fail_inventory_index("failed-first", "transport-detail-not-for-status")
+        FederationModerationStore(self.root).ban("blocked", "fixture", actor="admin")
+
+        def stored_peers():
+            with catalog._db() as db:
+                return {row["peer_id"] for row in db.execute("SELECT peer_id FROM federation_inventory_peer")}
+
+        before = stored_peers()
+        self.assertNotIn("no-status", before)
+        expected_time = datetime.fromtimestamp(1700000010).astimezone().isoformat(timespec="seconds")
+        for lang, inventory, document, empty, failure in (
+            (
+                "de", "Inventarindex", "Dateiindex", "Kein erfolgreicher Abruf gespeichert.",
+                "Der letzte gespeicherte Abruf ist fehlgeschlagen.",
+            ),
+            (
+                "en", "Inventory index", "File index", "No successful sync recorded.",
+                "The last recorded sync failed.",
+            ),
+        ):
+            with self.subTest(language=lang):
+                with self.client.session_transaction() as session:
+                    session["simpleoffice_language"] = lang
+                response = self.client.get("/admin/federation?view=peers")
+                self.assertEqual(200, response.status_code)
+                page = BeautifulSoup(response.get_data(as_text=True), "html.parser")
+                self.assertNotIn("transport-detail-not-for-status", page.get_text())
+
+                def status(peer_id):
+                    button = page.find("form", action=f"/admin/federation/peers/{peer_id}/sync-inventory-index")
+                    return button.find_parent("tr").select_one("[data-inventory-sync-status]")
+
+                self.assertIsNotNone(status("ready"))
+                self.assertIn(inventory, status("ready").get_text())
+                self.assertEqual(expected_time, status("ready").time["datetime"])
+                self.assertNotIn(failure, status("ready").get_text())
+                self.assertIn(failure, status("failed").get_text())
+                self.assertEqual(expected_time, status("failed").time["datetime"])
+                self.assertIn(f"{document}: 1700000001", status("failed").find_parent("tr").get_text())
+                self.assertIn(empty, status("failed-first").get_text())
+                self.assertIn(failure, status("failed-first").get_text())
+                self.assertIsNone(status("failed-first").time)
+                self.assertIn(empty, status("no-status").get_text())
+                self.assertNotIn(failure, status("no-status").get_text())
+                self.assertIsNone(status("blocked"))
+                self.assertIsNone(status("not-opted-in"))
+        self.assertEqual(before, stored_peers())
+
     def test_normal_users_only_see_admin_shared_aggregate_status(self):
         store = FederationStore(self.root)
         with app.app_context():
