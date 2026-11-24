@@ -195,6 +195,122 @@ class FederationDiagnosticsTests(unittest.TestCase):
         self.assertEqual(21, history[0]["detail"]["attempt"])
         self.assertEqual(2, history[-1]["detail"]["attempt"])
 
+    def test_outbound_evidence_follows_saved_address_without_erasing_history(self):
+        old_address = self.store.get_peer("remote-peer")["base_url"]
+        self.store.record_network_diagnostic(
+            "remote-peer", direction="outbound", source="local", status="success",
+        )
+        self.store.record_network_diagnostic(
+            "remote-peer", direction="inbound", source="remote-peer", status="success",
+        )
+        self.store.save_peer("remote-peer", "New label", old_address, "")
+        self.assertEqual("success", self.store.network_diagnostic("remote-peer", direction="outbound")["status"])
+
+        self.store.save_peer("remote-peer", "New label", "https://new.example", "")
+        self.assertIsNone(self.store.network_diagnostic("remote-peer", direction="outbound"))
+        records = self.store.network_diagnostics(["remote-peer"])["remote-peer"]
+        self.assertEqual(["inbound"], [record["direction"] for record in records])
+        self.assertEqual(1, len(self.store.network_diagnostic_history("remote-peer", direction="outbound")))
+        self.assertEqual([], self.store.network_diagnostic_history(
+            "remote-peer", direction="outbound", target_base_url="https://new.example",
+        ))
+
+        new_probe = self.store.record_network_diagnostic(
+            "remote-peer", direction="outbound", source="local", status="failure",
+        )
+        self.assertIsNone(new_probe["last_success_at"])
+        self.assertEqual(["failure"], [
+            result["status"] for result in self.store.network_diagnostic_history(
+                "remote-peer", direction="outbound", target_base_url="https://new.example",
+            )
+        ])
+
+    def test_probe_finished_after_address_change_cannot_replace_new_target_status(self):
+        def switch_endpoint(_original):
+            self.store.save_peer("remote-peer", "Remote", "https://new.example", "")
+            self.store.record_network_diagnostic(
+                "remote-peer", direction="outbound", source="local", status="success",
+                latency_ms=42,
+            )
+            raise TimeoutError("synthetic old address no longer responds")
+
+        with self.app.app_context(), patch(
+            "app.federation_diagnostics.resolve_pinned_endpoint", side_effect=switch_endpoint,
+        ):
+            outcome = probe_peer(self.root, "remote-peer")
+
+        self.assertEqual("target_changed", outcome["category"])
+        current = self.store.network_diagnostic("remote-peer", direction="outbound")
+        self.assertEqual("success", current["status"])
+        self.assertEqual(42, current["latency_ms"])
+        self.assertEqual(1, len(self.store.network_diagnostic_history("remote-peer", direction="outbound")))
+
+    def test_delayed_valid_receipt_cannot_mark_new_address_reachable(self):
+        old_address = self.store.get_peer("remote-peer")["base_url"]
+        parsed = urlsplit(old_address)
+        address = ipaddress.ip_address(parsed.hostname)
+        connection = MagicMock()
+        response = MagicMock(status=200)
+
+        def delayed_receipt():
+            request = connection.request.call_args.kwargs
+            probe = json.loads(request["body"])
+            nonce = request["headers"]["X-SimpleOffice-Peer-Nonce"]
+            body = _json_bytes({
+                "peer_id": "remote-peer", "probe_id": probe["probe_id"],
+                "request_nonce": nonce, "received_at": 1_800_000_000,
+            })
+            response.read.return_value = body
+            response.getheader.return_value = response_signature(self.token, nonce, body)
+            self.store.save_peer("remote-peer", "Remote", "https://new.example", "")
+            self.store.record_network_diagnostic(
+                "remote-peer", direction="outbound", source="local", status="failure",
+                category="configuration",
+            )
+            return response
+
+        connection.getresponse.side_effect = delayed_receipt
+        with (
+            self.app.app_context(),
+            patch("app.federation_diagnostics.resolve_pinned_endpoint", return_value=(
+                old_address, parsed, parsed.port, [address],
+            )),
+            patch("app.federation_diagnostics._connect_pinned", return_value=(address, MagicMock())),
+            patch("app.federation_diagnostics.http.client.HTTPConnection", return_value=connection),
+        ):
+            outcome = probe_peer(self.root, "remote-peer")
+
+        self.assertEqual("target_changed", outcome["category"])
+        current = self.store.network_diagnostic("remote-peer", direction="outbound")
+        self.assertEqual("configuration", current["category"])
+        self.assertEqual("failure", current["status"])
+        self.assertIsNone(current["last_success_at"])
+
+    def test_legacy_unbound_outbound_result_is_history_only(self):
+        self.store.record_network_diagnostic(
+            "remote-peer", direction="outbound", source="local", status="success",
+        )
+        with self.store._db() as db:
+            db.execute("UPDATE federation_network_diagnostic SET detail_json='{}'")
+            db.execute("UPDATE federation_network_diagnostic_history SET detail_json='{}'")
+        self.assertIsNone(self.store.network_diagnostic("remote-peer", direction="outbound"))
+        self.assertEqual([], self.store.network_diagnostics(["remote-peer"])["remote-peer"])
+        self.assertEqual(1, len(self.store.network_diagnostic_history("remote-peer", direction="outbound")))
+
+    def test_write_returns_its_own_probe_not_a_concurrent_latest_result(self):
+        with patch.object(
+            self.store, "network_diagnostic",
+            return_value={"status": "success", "latency_ms": 99},
+        ) as latest_read:
+            written = self.store.record_network_diagnostic(
+                "remote-peer", direction="outbound", source="local", status="failure",
+                category="dns_timeout", latency_ms=43,
+            )
+        self.assertEqual("failure", written["status"])
+        self.assertEqual("dns_timeout", written["category"])
+        self.assertEqual(43, written["latency_ms"])
+        latest_read.assert_not_called()
+
     def _start_probe_server(self):
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), _ProbeHandler)
         self.server.peer_token = self.token

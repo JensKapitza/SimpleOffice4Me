@@ -8,6 +8,7 @@ from flask import Blueprint, Response, current_app, flash, g, jsonify, make_resp
 from .federation_admin import admin_required
 from .federation_attestations import FederationAttestationStore
 from .federation_compatibility import requirements
+from .federation_discovery_feedback import direct_discovery_feedback
 from .federation_discovery_lan import discover_lan, local_lan_addresses, scan_ports
 from .federation_discovery_publish import publish
 from .federation_discovery_service import discover_country, discover_direct, discover_email
@@ -453,7 +454,8 @@ def claim_remote_pairing_code(peer_id):
         else:
             flash(translate(g.language, "fedpeer.pairing.claimed"))
     except (PairingClientError, TypeError, ValueError) as exc:
-        flash(translate(g.language, "fedpeer.pairing.claim.failed").format(exc=exc))
+        detail = exc.user_message(g.language) if isinstance(exc, PairingClientError) else str(exc)
+        flash(translate(g.language, "fedpeer.pairing.claim.failed").format(exc=detail))
     return redirect(url_for("federation_peer_admin.dashboard"))
 
 
@@ -463,15 +465,11 @@ def check_remote_pairing_status(peer_id):
     try:
         peer = _remote_pairing_peer(peer_id)
         result = remote_pairing_status(_root(), peer)
-        labels = {
-            "missing": "nicht vorhanden",
-            "pending": "wartet",
-            "claimed": "beansprucht",
-            "expired": "abgelaufen",
-        }
-        flash(translate(g.language, "fedpeer.pairing.status").format(status=labels[result['status']]))
+        status = translate(g.language, f"fedpeer.pairing.code.{result['status']}")
+        flash(translate(g.language, "fedpeer.pairing.status").format(status=status))
     except (PairingClientError, TypeError, ValueError) as exc:
-        flash(translate(g.language, "fedpeer.pairing.status.failed").format(exc=exc))
+        detail = exc.user_message(g.language) if isinstance(exc, PairingClientError) else str(exc)
+        flash(translate(g.language, "fedpeer.pairing.status.failed").format(exc=detail))
     return redirect(url_for("federation_peer_admin.dashboard"))
 
 
@@ -547,9 +545,7 @@ def lan():
 def direct():
     try:
         peer = discover_direct(_root(), request.form.get("endpoint", ""))
-        flash(translate(g.language, "fedpeer.peer.found").format(
-            peer=peer['peer_id'], url=str(peer['base_url'])[:240])
-            + _compatibility_summary(peer))
+        flash(direct_discovery_feedback(_root(), g.language, peer, _compatibility_summary(peer)))
     except Exception as exc:
         flash(translate(g.language, "fedpeer.direct.failed").format(exc=_safe_discovery_error(exc)))
     return redirect(url_for("federation_peer_admin.dashboard"))

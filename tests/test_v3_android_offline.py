@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -235,6 +237,17 @@ class V3AndroidOfflineRoutesTests(unittest.TestCase):
         self.assertEqual(200, page.status_code)
         self.assertIn(b'data-v3-android-offline="0"', page.data)
         self.assertIn(b'data-v3-android-offline-owner=""', page.data)
+
+
+class AndroidOfflineFrontendTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for frontend tests")
+    def test_android_offline_sync_counts_only_confirmed_local_results(self):
+        script = Path(__file__).with_name("android_offline_sync_frontend.test.cjs")
+        result = subprocess.run(
+            [shutil.which("node"), "--test", str(script)],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

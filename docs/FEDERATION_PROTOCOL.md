@@ -102,7 +102,14 @@ DNS zwischen Prüfung und Verbindung aufgelöst.
 Pro Peer werden letzter Versuch, letzter Erfolg, Fehlerkategorie und
 Transportstufen getrennt gespeichert; die letzten 20 Ergebnisse je Richtung und
 Peer bleiben als begrenzte Historie verfügbar. Nach fünf Minuten gilt der aktuelle
-Status als veraltet. Nicht authentifizierte Anfragen werden keinem Peer
+Status als veraltet. Ausgehende Statuswerte und die im Admin-UI zugehörige
+Historie beziehen sich auf die gespeicherte Zieladresse. Für ein abweichendes
+Ziel wird ein alter Erfolg nicht als erreichbar angezeigt; wenn sich das Ziel
+während einer Prüfung ändert, wird die verspätete Antwort nicht als Ergebnis
+für das neue Ziel gespeichert. Ältere, keiner Zieladresse zugeordnete
+Ergebnisse bleiben in der begrenzten Historie gespeichert, gelten aber nicht
+als aktueller Nachweis. Eingehende Proben und manuelle Einträge bleiben davon
+unberührt. Nicht authentifizierte Anfragen werden keinem Peer
 zugeschrieben. Pro authentifiziertem Peer sind zehn Proben pro Minute erlaubt.
 Manuelle Seitenbestätigungen werden getrennt von technischen Ergebnissen mit
 Administrator und Zeitstempel gespeichert und bleiben ausdrücklich unverifiziert.

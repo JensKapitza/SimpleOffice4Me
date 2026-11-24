@@ -42,15 +42,19 @@
     </ul>
   </div>
   {% endif %}
-  <form method="get" class="row g-2 mb-3" role="search" aria-label="{{ 'Search tasks' if g.language == 'en' else 'Aufgaben durchsuchen' }}">
+  <form method="get" action="{{ url_for('tasks.board') }}" class="row g-2 mb-3" role="search" aria-label="{{ 'Search tasks' if g.language == 'en' else 'Aufgaben durchsuchen' }}">
+    {% if selected_view != 'all' %}<input type="hidden" name="view" value="{{ selected_view }}">{% endif %}
     <div class="col-md-5"><label class="visually-hidden" for="task-q">{{ 'Search' if g.language == 'en' else 'Suche' }}</label><input id="task-q" type="search" name="q" value="{{ query }}" class="form-control" placeholder="{{ 'Search tasks' if g.language == 'en' else 'Aufgaben durchsuchen' }}"></div>
     <div class="col-md-3"><label class="visually-hidden" for="task-list">{{ 'List' if g.language == 'en' else 'Liste' }}</label><select id="task-list" name="list_id" class="form-select"><option value="">{{ 'All lists' if g.language == 'en' else 'Alle Listen' }}</option>{% for list in lists %}<option value="{{ list.list_id }}" {% if selected_list == list.list_id %}selected{% endif %}>{{ list.name }}</option>{% endfor %}</select></div>
     <div class="col-md-3"><label class="visually-hidden" for="task-assigned">{{ 'Assigned to' if g.language == 'en' else 'Zugewiesen an' }}</label><input id="task-assigned" name="assigned" value="{{ assigned }}" class="form-control" placeholder="{{ 'Assigned to' if g.language == 'en' else 'Zugewiesen an' }}"></div>
     <div class="col-md-1 d-grid"><button type="submit" class="btn btn-outline-secondary">{{ 'Filter' if g.language == 'en' else 'Filtern' }}</button></div>
+    {% if query or selected_list or assigned %}
+    <div class="col-12"><a class="small" data-task-filter-reset href="{{ url_for('tasks.board', view=selected_view if selected_view != 'all' else none) }}">{{ 'Clear search, list and assignee filters' if g.language == 'en' else 'Such-, Listen- und Zuständigkeitsfilter löschen' }}</a></div>
+    {% endif %}
   </form>
   <div class="d-flex flex-wrap gap-2 mb-3" role="group" aria-label="{{ 'Due date views' if g.language == 'en' else 'Fristenansichten' }}">
     {% for view_id, label_de, label_en in resubmit_views %}
-    <a class="btn btn-sm {{ 'btn-primary' if selected_view == view_id else 'btn-outline-secondary' }}" href="{{ url_for('tasks.board', view=view_id, q=query, list_id=selected_list, assigned=assigned) }}">{{ label_en if g.language == 'en' else label_de }} <span class="badge text-bg-light text-dark">{{ view_counts[view_id] }}</span></a>
+    <a class="btn btn-sm {{ 'btn-primary' if selected_view == view_id else 'btn-outline-secondary' }}" href="{{ url_for('tasks.board', view=view_id, q=query, list_id=selected_list, assigned=assigned) }}"{% if selected_view == view_id %} aria-current="page"{% endif %}>{{ label_en if g.language == 'en' else label_de }} <span class="badge text-bg-light text-dark">{{ view_counts[view_id] }}</span></a>
     {% endfor %}
   </div>
 
