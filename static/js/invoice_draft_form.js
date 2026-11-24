@@ -28,7 +28,9 @@
     let net = 0;
     let tax = 0;
     body.querySelectorAll("tr").forEach(row => {
-      const line = number(row.querySelector(".line-qty").value) * number(row.querySelector(".line-net").value);
+      const discountEl = row.querySelector(".line-discount");
+      const discount = discountEl ? Math.min(100, Math.max(0, number(discountEl.value))) : 0;
+      const line = number(row.querySelector(".line-qty").value) * number(row.querySelector(".line-net").value) * (1 - discount / 100);
       net += line;
       tax += line * number(row.querySelector(".line-vat").value) / 100;
       row.querySelector(".line-total").textContent = format(line);
@@ -53,6 +55,12 @@
     row.querySelector('[name="line_unit"]').value = line.unit || "C62";
     row.querySelector(".line-net").value = line.net_unit_price || "0.00";
     row.querySelector(".line-vat").value = line.vat_rate || "0";
+    const discount = row.querySelector(".line-discount");
+    if (discount) discount.value = line.discount_percent || "";
+    const vatcat = row.querySelector(".line-vatcat");
+    if (vatcat) vatcat.value = line.vat_category || "";
+    const exemption = row.querySelector(".line-exemption");
+    if (exemption) exemption.value = line.exemption_reason || "";
     row.querySelectorAll("input").forEach(input => input.addEventListener("input", recalculate));
     row.querySelector(".remove-line").addEventListener("click", () => { row.remove(); recalculate(); });
     body.append(row);
