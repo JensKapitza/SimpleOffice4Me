@@ -488,8 +488,24 @@
                     <td>
                       <span class="badge {{ 'text-bg-success' if peer.enabled else 'text-bg-secondary' }}">{{ ('blocked' if peer.banned else ('active' if peer.enabled else 'deactivated')) if g.language == 'en' else ('gesperrt' if peer.banned else ('aktiv' if peer.enabled else 'deaktiviert')) }}</span>
                       <span class="badge {{ 'text-bg-info' if peer_relay_policy.get('enabled', false) is sameas true else 'text-bg-secondary' }}">Relay {{ ('allowed' if peer_relay_policy.get('enabled', false) is sameas true else 'off') if g.language == 'en' else ('freigegeben' if peer_relay_policy.get('enabled', false) is sameas true else 'aus') }}</span>
-                      <br><small>Index: {{ state.last_index_at or ('never' if g.language == 'en' else 'noch nie') }}</small>
+                      <br><small>{{ 'File index' if g.language == 'en' else 'Dateiindex' }}: {{ state.last_index_at or ('never' if g.language == 'en' else 'noch nie') }}</small>
                       {% if state.last_index_error %}<div class="text-danger small text-break">{{ state.last_index_error }}</div>{% endif %}
+                      {% set inventory_policy = peer.policy.get('inventory') if peer.policy is mapping else none %}
+                      {% if peer.enabled and inventory_policy is mapping and inventory_policy.get('receive') is sameas true %}
+                        {% set inventory_sync = inventory_sync_statuses.get(peer.peer_id, {}) %}
+                        <div class="small" data-inventory-sync-status>
+                          {{ 'Inventory index' if g.language == 'en' else 'Inventarindex' }}:
+                          {% if inventory_sync.last_success %}
+                            {{ 'Last successful sync:' if g.language == 'en' else 'Letzter erfolgreicher Abruf:' }}
+                            <time datetime="{{ inventory_sync.last_success }}">{{ inventory_sync.last_success }}</time>
+                          {% else %}
+                            {{ 'No successful sync recorded.' if g.language == 'en' else 'Kein erfolgreicher Abruf gespeichert.' }}
+                          {% endif %}
+                          {% if inventory_sync.failed %}
+                            <div class="text-danger">{{ 'The last recorded sync failed.' if g.language == 'en' else 'Der letzte gespeicherte Abruf ist fehlgeschlagen.' }}</div>
+                          {% endif %}
+                        </div>
+                      {% endif %}
                       <br><small>{{ 'Server → configured peer address:' if g.language == 'en' else 'Server → konfigurierte Peer-Adresse:' }} {{ outbound.get('status_label', 'unbekannt') }} · {{ 'last attempt' if g.language == 'en' else 'letzter Versuch' }} {{ outbound.get('checked_at_label', 'noch nie') }} · {{ 'last successful' if g.language == 'en' else 'zuletzt erfolgreich' }} {{ outbound.get('last_success_label', 'noch nie') }}{% if outbound.get('latency_ms') %} · {{ outbound.latency_ms }} ms{% endif %}</small>
                       {% if outbound.get('stages_label') %}<br><small class="text-secondary">{{ outbound.stages_label|e }}</small>{% endif %}
                       {% if outbound.get('category') %}<br><small class="text-secondary">{{ 'Error category:' if g.language == 'en' else 'Fehlerkategorie:' }} {{ outbound.category|e }}</small>{% endif %}

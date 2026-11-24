@@ -186,6 +186,22 @@ class FederationCatalog:
             row = db.execute("SELECT * FROM federation_inventory_peer WHERE peer_id=?", (peer_id,)).fetchone()
         return dict(row) if row else {}
 
+    def inventory_sync_statuses(self, peer_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Read only saved timestamps and failure flags, without adding missing peer rows."""
+        ids = dict.fromkeys(sanitize_peer_id(peer_id) for peer_id in peer_ids)
+        statuses = {}
+        if ids:
+            with self._db() as db:
+                for peer_id in ids:
+                    row = db.execute(
+                        """SELECT last_index_at, length(trim(last_index_error)) > 0 AS failed
+                           FROM federation_inventory_peer WHERE peer_id=?""",
+                        (peer_id,),
+                    ).fetchone()
+                    if row is not None:
+                        statuses[peer_id] = {"last_success_at": row["last_index_at"], "failed": bool(row["failed"])}
+        return statuses
+
     def begin_inventory_index(self, peer_id: str, generation: str) -> None:
         peer_id = self._ensure_inventory_peer(peer_id)
         with self._db() as db:

@@ -62,6 +62,17 @@ def _diagnostic_time(timestamp: int | None) -> str:
         return "unbekannt"
 
 
+def _inventory_sync_statuses(catalog: FederationCatalog, peers: list[dict]) -> dict:
+    states = catalog.inventory_sync_statuses([peer["peer_id"] for peer in peers if peer["enabled"]])
+    return {
+        peer_id: {
+            "last_success": _diagnostic_time(state["last_success_at"]) if state["last_success_at"] else None,
+            "failed": state["failed"],
+        }
+        for peer_id, state in states.items()
+    }
+
+
 def _document_blob(document_id: str) -> tuple[dict, dict, str]:
     documents = _documents()
     document = documents.get_document(document_id)
@@ -228,6 +239,7 @@ def dashboard():
         remote_peer=remote_peer,
         download_queue=catalog.queue(500),
         catalog_events=catalog.events(100),
+        inventory_sync_statuses=_inventory_sync_statuses(catalog, peers) if active_view == "peers" else {},
         catalog_peer_states={peer["peer_id"]: catalog.peer_state(peer["peer_id"]) for peer in peers},
         diagnostic_states=diagnostic_states,
         manual_confirmations=manual_confirmations,
