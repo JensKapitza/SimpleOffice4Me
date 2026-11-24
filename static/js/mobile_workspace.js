@@ -6,13 +6,27 @@
   const fab = document.querySelector('[data-mobile-fab]');
   if (!bar || !fab) return;
 
-  const path = window.location.pathname || '/';
-  bar.querySelectorAll('[data-mobile-link]').forEach(link => {
-    const prefix = link.dataset.mobileLink || '';
-    const active = prefix !== '/' && (path === prefix || path.startsWith(prefix));
-    if (active) link.setAttribute('aria-current', 'page');
+  const normalize = value => (value || '').replace(/\/+$/, '');
+  const path = normalize(window.location.pathname);
+  const matchLength = value => {
+    const prefix = normalize(value);
+    return prefix && (path === prefix || path.startsWith(prefix + '/')) ? prefix.length : 0;
+  };
+  const links = Array.from(bar.querySelectorAll('[data-mobile-link]'));
+  let active = null;
+  let bestLength = 0;
+  // Search and Calendar sit under Files. Mark only the most specific rendered link.
+  for (const link of links) {
+    const length = matchLength(link.dataset.mobileLink);
+    if (length > bestLength) {
+      active = link;
+      bestLength = length;
+    }
+  }
+  for (const link of links) {
+    if (link === active) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');
-  });
+  }
 
   // Contextual actions: order and visibility follow the current section.
   const menu = fab.querySelector('[data-mobile-fab-menu]');
@@ -24,7 +38,7 @@
     {match: ['/documents/'], order: ['capture', 'copy', 'resubmit', 'share']},
     {match: ['/chat'], order: ['copy', 'event', 'task', 'share']},
   ];
-  const context = CONTEXTS.find(entry => entry.match.some(prefix => path.startsWith(prefix)));
+  const context = CONTEXTS.find(entry => entry.match.some(prefix => matchLength(prefix) > 0));
   const order = context ? context.order : ['event', 'resubmit', 'task', 'copy', 'share'];
   const byAction = {};
   actions.forEach(action => { byAction[action.dataset.mobileAction] = action; });

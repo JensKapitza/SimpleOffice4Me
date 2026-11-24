@@ -1,6 +1,8 @@
 """Mobile workspace: quick-access bar and contextual action button markers."""
 from __future__ import annotations
 
+import shutil
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -56,6 +58,17 @@ class MobileWorkspaceTests(PublicHttpTestCase):
         self.assertIn("min-height: 48px", css)
         self.assertIn("safe-area-inset-bottom", css)
         self.assertIn('html[data-so-keyboard-open="1"] .so-fab-wrap', css)
+
+
+class MobileWorkspaceNavigationTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for frontend tests")
+    def test_mobile_navigation_has_one_current_destination(self):
+        script = ROOT / "tests" / "mobile_workspace_navigation.test.cjs"
+        result = subprocess.run(
+            [shutil.which("node"), "--test", str(script)],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":
