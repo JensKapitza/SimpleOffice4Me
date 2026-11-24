@@ -42,12 +42,28 @@ class CalendarQuickCreateTests(PublicHttpTestCase):
         self.assertRegex(current, r'data-calendar-day="2026-01-24">\s*<div[^>]+>\s*<span id="calendar-today" aria-current="date" tabindex="-1">24 ')
         self.assertIn('data-calendar-quick-add="2026-01-24"', current)
 
-    def test_invalid_month_falls_back_to_today_and_has_named_neighbors(self):
-        with patch("app.documents_routes_workflows.date", FixedCalendarDate):
-            html = self.client.get("/documents/calendar?month=unknown").get_data(as_text=True)
-        self.assertIn('id="calendar-today" aria-current="date"', html)
-        self.assertIn('href="/documents/calendar?month=2025-12" aria-label="Vorheriger Monat"', html)
-        self.assertIn('href="/documents/calendar?month=2026-02" aria-label="Nächster Monat"', html)
+    def test_invalid_month_falls_back_to_today_with_localized_navigation(self):
+        labels = (
+            ("en", "Today", "Previous month", "Next month"),
+            ("de", "Heute", "Vorheriger Monat", "Nächster Monat"),
+        )
+        for language, today_label, previous_label, next_label in labels:
+            with self.subTest(language=language):
+                switch = self.client.post(
+                    "/auth/language",
+                    data={"language": language},
+                    headers=self._csrf_headers(self.client, "/documents/calendar"),
+                )
+                self.assertEqual(302, switch.status_code)
+                self.assertEqual("/auth/login", switch.location)
+                with patch("app.documents_routes_workflows.date", FixedCalendarDate):
+                    response = self.client.get("/documents/calendar?month=unknown")
+                self.assertEqual(200, response.status_code)
+                html = response.get_data(as_text=True)
+                self.assertEqual(html.count('id="calendar-today" aria-current="date"'), 1)
+                self.assertIn(f'href="/documents/calendar#calendar-today">{today_label}</a>', html)
+                self.assertIn(f'href="/documents/calendar?month=2025-12" aria-label="{previous_label}"', html)
+                self.assertIn(f'href="/documents/calendar?month=2026-02" aria-label="{next_label}"', html)
 
     def test_quick_add_handler_prefills_booking_form(self):
         template = TEMPLATE.read_text(encoding="utf-8")
