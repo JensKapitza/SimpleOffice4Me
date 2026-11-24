@@ -152,7 +152,10 @@ def dashboard():
     peers = store.list_peers()
     for peer in peers:
         peer["chat_policy"] = chat_policy_state(peer.get("policy"))
-    diagnostic_states = store.network_diagnostics([peer["peer_id"] for peer in peers])
+    diagnostic_states = store.network_diagnostics(
+        [peer["peer_id"] for peer in peers],
+        target_base_urls={peer["peer_id"]: peer["base_url"] for peer in peers},
+    )
     manual_confirmations = store.manual_network_confirmations([peer["peer_id"] for peer in peers])
     now = int(time.time())
     for confirmation in manual_confirmations.values():
@@ -202,7 +205,7 @@ def dashboard():
                     for entry in store.network_diagnostic_history(
                         peer["peer_id"], direction=direction,
                         source="local" if direction == "outbound" else peer["peer_id"],
-                        limit=5,
+                        limit=5, target_base_url=peer["base_url"] if direction == "outbound" else None,
                     )
                 ],
             }
@@ -508,6 +511,10 @@ def network_diagnostic_peer(peer_id: str):
         category = str(result.get("category") or "unknown")
         labels = {
             "configuration": "Peer-Konfiguration prüfen",
+            "target_changed": (
+                "Peer address changed during the check; run it again"
+                if g.language == "en" else "Peer-Adresse wurde während der Prüfung geändert; erneut prüfen"
+            ),
             "dns": "DNS-Auflösung fehlgeschlagen",
             "dns_timeout": "DNS-Auflösung überschritt das Zeitlimit oder der Resolver ist ausgelastet",
             "policy": "Ziel durch Netzwerk-Sicherheitsrichtlinie blockiert",
