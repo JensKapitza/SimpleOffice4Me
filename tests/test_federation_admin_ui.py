@@ -503,6 +503,56 @@ class FederationAdminUiTests(FederationAdminUiFixture, unittest.TestCase):
         self.assertEqual("https://configured.example.test", peer["base_url"])
         self.assertTrue(peer["enabled"])
 
+    def test_failed_peer_edit_returns_to_saved_editor_without_leaking_submission(self):
+        store = FederationStore(self.root)
+        with app.app_context():
+            store.save_peer(
+                "office-b", "Office B", "https://saved.example", "saved-token",
+                {"documents": {"send": False, "receive": True}}, enabled=False,
+            )
+        for address, policy in (("", "{}"), ("https://unsaved.example", "[]")):
+            with self.subTest(address=address, policy=policy):
+                failure = self.client.post("/admin/federation/peers", data={
+                    "peer_id": "office-b", "label": "Unsaved name", "token": "unsaved-token",
+                    "base_url": address, "policy_json": policy, "enabled": "1", "_editing_peer": "1",
+                })
+                self.assertEqual(302, failure.status_code)
+                self.assertEqual(
+                    "/admin/federation?view=peers&edit_peer=office-b#peer-form", failure.location,
+                )
+                page = self.client.get(failure.location).get_data(as_text=True)
+                self.assertIn("Peer konnte nicht gespeichert werden", page)
+                self.assertIn("Peer bearbeiten", page)
+                self.assertIn('name="_editing_peer" value="1"', page)
+                self.assertIn('id="peer-url" name="base_url" value="https://saved.example"', page)
+                for value in ("unsaved-token", "saved-token", "unsaved.example", "Unsaved name"):
+                    self.assertNotIn(value, page)
+                peer = store.get_peer("office-b")
+                self.assertFalse(peer["enabled"])
+                self.assertEqual({"documents": {"send": False, "receive": True}}, peer["policy"])
+                with app.app_context():
+                    self.assertEqual("saved-token", store.peer_token("office-b"))
+
+    def test_peer_save_redirect_treats_new_unknown_and_success_as_normal(self):
+        store = FederationStore(self.root)
+        store.save_peer("office-b", "Office B", "https://saved.example", "", enabled=False)
+        add = self.client.get("/admin/federation?view=peers")
+        self.assertNotIn('name="_editing_peer"', add.get_data(as_text=True))
+        for peer_id, edit, policy in (
+            ("new-peer", "", "[]"), ("unknown-peer", "1", "[]"),
+            ("??", "1", "[]"), ("office-b?", "1", "[]"),
+            ("office-b", "", "[]"), ("office-b", "1", "{}"),
+        ):
+            with self.subTest(peer_id=peer_id):
+                response = self.client.post("/admin/federation/peers", data={
+                    "peer_id": peer_id, "base_url": "https://new.example",
+                    "policy_json": policy, "_editing_peer": edit,
+                })
+                self.assertEqual("/admin/federation?view=peers", response.location)
+        self.assertEqual("https://new.example", store.get_peer("office-b")["base_url"])
+        self.assertIsNone(store.get_peer("new-peer"))
+        self.assertIsNone(store.get_peer("unknown-peer"))
+
     def test_edit_peer_prefills_form(self):
         FederationStore(self.root).save_peer(
             "office-b",

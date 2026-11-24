@@ -387,6 +387,13 @@ def save_peer():
         flash(translate(g.language, "fed.peer.saved"))
     except (ValueError, json.JSONDecodeError) as exc:
         flash(translate(g.language, "fed.peer.save.failed").format(exc=exc))
+        if request.form.get("_editing_peer") == "1":
+            try:
+                saved_peer = _store().get_peer(peer_id)
+            except ValueError:
+                saved_peer = None
+            if saved_peer and saved_peer["peer_id"] == peer_id:
+                return _redirect_dashboard(view="peers", edit_peer=peer_id, _anchor="peer-form")
     return _redirect_dashboard(view="peers")
 
 
