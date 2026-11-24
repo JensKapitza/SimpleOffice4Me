@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import io
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -77,9 +79,20 @@ class BulkDocumentTests(unittest.TestCase):
         html = self.client.get("/documents/").get_data(as_text=True)
         for marker in (
             "data-bulk-select", "data-bulk-bar", "data-bulk-tags", "data-bulk-folder",
-            "data-bulk-progress", "js/documents_bulk.js",
+            "data-bulk-progress", "data-bulk-reload", "data-bulk-language", "js/documents_bulk.js",
         ):
             self.assertIn(marker, html)
+
+
+class BulkDocumentFrontendTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for frontend tests")
+    def test_bulk_submits_once_and_keeps_uncertain_results(self):
+        script = Path(__file__).with_name("documents_bulk_frontend.test.cjs")
+        result = subprocess.run(
+            [shutil.which("node"), "--test", str(script)],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":
