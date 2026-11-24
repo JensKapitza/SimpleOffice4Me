@@ -345,7 +345,16 @@
             {% if edit_peer %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('federation_admin.dashboard', view='peers') }}">{{ 'Cancel' if g.language == 'en' else 'Abbrechen' }}</a>{% endif %}
           </div>
           <div class="card-body">
-            {% if edit_peer %}<div class="alert alert-info small" role="status" aria-live="polite">{{ 'Discovery stored only peer identity and capabilities. A differing address is not adopted automatically for an already configured peer; enter it here manually only after checking. For the connection the peer-specific token must be securely compared with the counterpart and stored there as well. Do not use the global federation server token. Trust must be confirmed locally by each side; data rights are configured separately below.' if g.language == 'en' else 'Discovery hat nur Peer-Identität und Fähigkeiten gespeichert. Eine abweichende Adresse wird bei einem bereits konfigurierten Peer nicht automatisch übernommen; trage sie erst nach Prüfung hier manuell ein. Für die Verbindung muss das peer-spezifische Token mit dem Gegenüber sicher abgeglichen und dort ebenfalls gespeichert werden. Verwende nicht das globale Federation-Server-Token. Trust muss jede Seite lokal bestätigen; Datenrechte werden separat darunter konfiguriert.' }}</div>{% endif %}
+            <div class="alert alert-info small" role="note">
+              <strong>{{ 'Connection setup' if g.language == 'en' else 'Verbindung einrichten' }}</strong>
+              <ol class="mb-1 mt-1 ps-3">
+                <li>{{ 'Use the other instance’s address and peer ID.' if g.language == 'en' else 'Adresse und Peer-ID der anderen Instanz eintragen.' }}</li>
+                <li>{{ 'Set the same peer token on both instances (QR or copy/paste).' if g.language == 'en' else 'Dasselbe Peer-Token auf beiden Instanzen eintragen (QR oder kopieren/einfügen).' }}</li>
+                <li>{{ 'The server token is a separate credential and must also match on both instances.' if g.language == 'en' else 'Das Server-Token ist ein eigener Zugang und muss ebenfalls auf beiden Instanzen übereinstimmen.' }} <a href="{{ url_for('federation_peer_admin.dashboard') }}#local-identity">{{ 'Check server token' if g.language == 'en' else 'Server-Token prüfen' }}</a></li>
+              </ol>
+              {{ 'A 401 usually means the server token is missing or differs, or the peer is blocked remotely. Trust and data permissions are configured separately below.' if g.language == 'en' else 'Ein 401 bedeutet meistens, dass das Server-Token fehlt oder abweicht oder der Peer auf der Gegenseite gesperrt ist. Vertrauen und Datenrechte werden separat darunter eingestellt.' }}
+            </div>
+            {% if edit_peer %}<div class="alert alert-light border small" role="note">{{ 'Discovery stored only peer identity and capabilities. A different address is not adopted automatically for an existing peer; check it before changing it. Trust is confirmed locally by each side.' if g.language == 'en' else 'Discovery hat nur Peer-Identität und Fähigkeiten gespeichert. Eine abweichende Adresse wird für bestehende Peers nicht automatisch übernommen; prüfe sie vor einer Änderung. Vertrauen bestätigt jede Seite lokal.' }}</div>{% endif %}
             <form method="post" action="{{ url_for('federation_admin.save_peer') }}" class="row g-3">
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="_return_view" value="peers">
@@ -371,14 +380,16 @@
                 <label class="form-label" for="peer-token">Peer-Token</label>
                 <div class="d-flex flex-wrap gap-2">
                   <input class="form-control flex-grow-1" id="peer-token" type="password" name="token" autocomplete="new-password" style="min-width:12rem">
-                  <button class="btn btn-outline-success" id="token-qr-camera-button" type="button">{{ 'Scan QR' if g.language == 'en' else 'QR scannen' }}</button>
+                  <button class="btn btn-outline-success" id="token-qr-camera-button" type="button">{{ 'Scan with camera' if g.language == 'en' else 'Mit Kamera scannen' }}</button>
+                  <button class="btn btn-outline-secondary" id="token-qr-image-button" type="button">{{ 'Choose QR image' if g.language == 'en' else 'QR-Bild auswählen' }}</button>
+                  <input id="token-qr-image-file" class="visually-hidden" type="file" accept="image/*" capture="environment" aria-label="{{ 'Choose a photo of the peer token QR code' if g.language == 'en' else 'Foto des Peer-Token-QR-Codes auswählen' }}">
                 </div>
                 <div id="token-qr-camera-panel" class="border rounded p-2 mt-2" hidden>
                   <video id="token-qr-camera-preview" autoplay muted playsinline class="w-100 rounded" style="max-height:360px;object-fit:contain" aria-label="{{ 'Live camera image for scanning the peer token QR code' if g.language == 'en' else 'Live-Kamerabild zum Scannen des Peer-Token-QR-Codes' }}"></video>
                   <button id="token-qr-camera-close" class="btn btn-outline-secondary btn-sm mt-2" type="button">{{ 'Close camera' if g.language == 'en' else 'Kamera schließen' }}</button>
                 </div>
                 <div id="token-qr-status" class="small text-secondary mt-1" aria-live="polite"></div>
-                <div class="form-text">{{ ('Leave empty to keep the existing token.' if edit_peer else 'Configure identically on both devices for exactly this peer; stored encrypted.') if g.language == 'en' else ('Leer lassen, um das vorhandene Token zu behalten.' if edit_peer else 'Auf beiden Geräten für genau diesen Peer identisch konfigurieren; wird verschlüsselt gespeichert.') }} {{ 'Do not use the global server token.' if g.language == 'en' else 'Nicht das globale Server-Token verwenden.' }}</div>
+                <div class="form-text">{{ ('Leave empty to keep the existing token.' if edit_peer else 'Use the same unique token for this peer on both devices; stored encrypted.') if g.language == 'en' else ('Leer lassen, um das vorhandene Token zu behalten.' if edit_peer else 'Für diesen Peer auf beiden Geräten dasselbe eindeutige Token verwenden; wird verschlüsselt gespeichert.') }} {{ 'This is separate from the server token above.' if g.language == 'en' else 'Dieses Token ist getrennt vom Server-Token oben.' }}</div>
               </div>
 
               <fieldset class="col-12" id="peer-inventory-policy">
