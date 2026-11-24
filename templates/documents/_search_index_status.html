@@ -1,0 +1,27 @@
+<div id="document-search-index-status" class="alert {{ 'alert-info' if index_status == 'working' else 'alert-warning' }}" role="status">
+  {% if index_status == 'working' %}
+    <strong>{{ 'Indexing in progress' if g.language == 'en' else 'Indexierung läuft' }}</strong>
+    <p class="mb-2">{{ 'The last report shows the index is being prepared. Search results may be incomplete.' if g.language == 'en' else 'Die letzte Meldung zeigt eine laufende Indexierung. Suchergebnisse können unvollständig sein.' }}</p>
+  {% else %}
+    {% if index_status == 'failed' %}
+      <strong>{{ 'Indexing did not finish' if g.language == 'en' else 'Indexierung wurde nicht abgeschlossen' }}</strong>
+    {% elif index_status == 'recovery' %}
+      <strong>{{ 'Index recovery needs attention' if g.language == 'en' else 'Indexabgleich muss geprüft werden' }}</strong>
+    {% else %}
+      <strong>{{ 'Indexing reported errors' if g.language == 'en' else 'Die Indexierung meldet Fehler' }}</strong>
+    {% endif %}
+    <p class="mb-2">{{ 'Existing results are still available, but search results may be incomplete.' if g.language == 'en' else 'Vorhandene Treffer bleiben verfügbar, die Suchergebnisse können aber unvollständig sein.' }}
+      {% if g.user.is_admin %}
+        {% if index_status == 'recovery' %}{{ 'Check the storage and index reconciliation before trying again.' if g.language == 'en' else 'Prüfe zuerst den Speicher und den Indexabgleich.' }}
+        {% else %}{{ 'Check the index worker, its local logs, and file access.' if g.language == 'en' else 'Prüfe den Indexdienst, seine lokalen Protokolle und die Dateizugriffe.' }}{% endif %}
+      {% else %}{{ 'Ask an administrator to check the index service.' if g.language == 'en' else 'Bitte einen Administrator, den Indexdienst zu prüfen.' }}{% endif %}
+    </p>
+  {% endif %}
+  {% if query and not error %}
+    <a class="alert-link" data-search-refresh href="{{ url_for('documents.document_search', q=query, page=page if page > 1 else none, cursor=current_cursor|default(none)) }}">{{ 'Reload results' if g.language == 'en' else 'Treffer neu laden' }}</a>
+    {% if page > 1 %} · <a class="alert-link" href="{{ url_for('documents.document_search', q=query) }}">{{ 'Back to the first results' if g.language == 'en' else 'Zurück zu den ersten Treffern' }}</a>{% endif %}
+  {% endif %}
+  {% if g.user.is_admin and index_status != 'working' %}
+    {% if query and not error %} · {% endif %}<a class="alert-link" href="{{ url_for('admin_server.server_settings', _anchor='server-bgindex') }}">{{ 'Index service settings' if g.language == 'en' else 'Einstellungen des Indexdienstes' }}</a>
+  {% endif %}
+</div>

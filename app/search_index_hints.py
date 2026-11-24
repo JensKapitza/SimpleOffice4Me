@@ -41,6 +41,23 @@ def _day(raw: Any) -> str:
     return ""
 
 
+def index_search_availability(scan_status: Any) -> str:
+    """Return a fixed display state from the last worker report, not live health."""
+    state = _get(scan_status, "state")
+    if not isinstance(state, str):
+        return ""
+    if state in ("starting", "detecting_tools", "running"):
+        return "working"
+    if state in ("failed", "error"):
+        return "failed"
+    if state == "recovery-needed":
+        return "recovery"
+    errors = _get(scan_status, "errors")
+    if state in ("completed", "watching") and type(errors) is int and errors > 0:
+        return "file-errors"
+    return ""
+
+
 def suggest_index_review(
     scan_status: Any,
     today: str = "",
@@ -55,8 +72,8 @@ def suggest_index_review(
     if not _day(current):
         current = date.today().isoformat()
     hints: list[dict[str, Any]] = []
-    state = str(_get(scan_status, "state") or "").strip().lower()
-    if state == "running":
+    state = index_search_availability(scan_status)
+    if state == "working":
         hints.append(
             {
                 "reason": (
@@ -65,7 +82,7 @@ def suggest_index_review(
                 ),
             }
         )
-    elif state == "error":
+    elif state in ("failed", "recovery", "file-errors"):
         hints.append(
             {
                 "reason": (
