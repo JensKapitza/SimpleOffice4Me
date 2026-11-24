@@ -7,6 +7,7 @@ const vm = require('node:vm');
 const script = fs.readFileSync(path.join(__dirname, '../static/js/reader_read_aloud.js'), 'utf8');
 const base = 'https://office.invalid';
 const endpoint = '/reader/book/speech';
+const ocrEndpoint = '/reader/book/speech/ocr';
 
 class Element {
   constructor() { this.handlers = new Map(); }
@@ -35,10 +36,14 @@ function response(bytes = wav(), type = 'audio/wav', status = 200) {
   return new Response(bytes, {status, headers: {'Content-Type': type}});
 }
 
-function fixture({url = endpoint, token = 'fixture-csrf', page = '4', hasAudio = true, playResults = []} = {}) {
+function fixture({
+  url = endpoint, ocrUrl, token = 'fixture-csrf', page = '4', hasAudio = true, playResults = [],
+} = {}) {
   const root = new Element();
   root.dataset = {
-    speechUrl: url, speechLoading: 'Lädt', speechPaused: 'Pausiert', speechPlaying: 'Liest',
+    speechUrl: url, speechOcrUrl: ocrUrl, speechLoading: 'Lädt', speechPaused: 'Pausiert', speechPlaying: 'Liest',
+    speechOcrLoading: 'OCR lädt', speechOcrUnavailable: 'OCR fehlt', speechOcrNoText: 'OCR leer',
+    speechOcrTimeout: 'OCR Zeitlimit', speechPdfTextUnavailable: 'PDF nicht lesbar',
     speechUnavailable: 'Nicht verfügbar', speechPauseLabel: 'Pause', speechResumeLabel: 'Weiter',
     speechPlayRequired: 'Bereit', speechError: 'Fehler', speechNoText: 'Kein Text', speechStale: 'Neu laden',
     speechTooLarge: 'Zu groß',
@@ -49,6 +54,7 @@ function fixture({url = endpoint, token = 'fixture-csrf', page = '4', hasAudio =
   reader.querySelector = selector => selector === '[data-reader-position]' ? position : null;
   root.closest = () => reader;
   const controls = Object.fromEntries(['start', 'pause', 'stop', 'status'].map(key => [key, new Element()]));
+  if (ocrUrl !== undefined) controls.ocr = new Element();
   root.querySelector = selector => controls[selector.slice(13, -1)] ?? null;
   const window = new Element();
   window.location = new URL(base + '/reader/book');
@@ -193,7 +199,9 @@ test('wrong MIME, invalid WAV and server refusal produce only localized status, 
     [response('<html>Sensitive debug</html>', 'text/html'), 'Fehler'],
     [response(wav(), 'audio/wav; charset=utf-8'), 'Fehler'],
     [response(Buffer.alloc(48)), 'Fehler'],
-    [response('{}', 'application/json', 422), 'Kein Text'],
+    [response('{"error":"no_text"}', 'application/json', 422), 'Kein Text'],
+    [response('{"error":"Sensitive debug"}', 'application/json', 422), 'Fehler'],
+    [response('{"error":"pdf_text_unavailable"}', 'application/json', 422), 'PDF nicht lesbar'],
     [response('{}', 'application/json', 409), 'Neu laden'],
     [response('{}', 'application/json', 413), 'Zu groß'],
     [response('{}', 'application/json', 503), 'Nicht verfügbar'],
@@ -236,5 +244,100 @@ test('WAV size is checked before downloading a declared oversized body and again
     assert.equal(reads, blobReads);
     assert.equal(f.created.length, 0);
     assert.equal(f.status.textContent, 'Fehler');
+  }
+});
+
+
+test('OCR is an explicit same-origin request with the same page/version and playback lifecycle', async () => {
+  const f = fixture({ocrUrl: ocrEndpoint});
+  assert.equal(f.requests.length, 0);
+  const nativeReading = f.start.fire('click');
+  f.requests[0].resolve(response('{"error":"no_text"}', 'application/json', 422));
+  await nativeReading;
+  assert.equal(f.status.textContent, 'Kein Text');
+  assert.equal(f.ocr.disabled, false);
+  assert.equal(f.requests.length, 1, 'empty native text must not run OCR automatically');
+
+  const ocrReading = f.ocr.fire('click');
+  assert.equal(f.status.textContent, 'OCR lädt');
+  assert.equal(f.start.disabled, true);
+  assert.equal(f.ocr.disabled, true);
+  await f.ocr.fire('click');
+  await f.start.fire('click');
+  assert.equal(f.requests.length, 2);
+  const request = f.requests[1];
+  assert.equal(request.url, base + ocrEndpoint);
+  assert.equal(request.opts.method, 'POST');
+  assert.equal(request.opts.credentials, 'same-origin');
+  assert.equal(request.opts.cache, 'no-store');
+  assert.equal(request.opts.redirect, 'error');
+  assert.equal(request.opts.headers['X-CSRF-Token'], 'fixture-csrf');
+  assert.equal(request.opts.headers.Accept, 'audio/wav');
+  assert.deepEqual(JSON.parse(request.opts.body), {page: 4, document_version: 'version-2'});
+  request.resolve(response());
+  await ocrReading;
+  assert.equal(f.status.textContent, 'Liest');
+  assert.equal(f.audios[0].playCount, 1);
+  f.stop.fire('click');
+  assert.equal(f.ocr.disabled, false);
+  assert.deepEqual(f.revoked, [f.created[0].id]);
+});
+
+test('OCR error codes render fixed messages, never subprocess or server details', async () => {
+  for (const [status, error, message] of [
+    [422, 'ocr_no_text', 'OCR leer'],
+    [422, 'no_text', 'OCR leer'],
+    [422, 'pdf_text_unavailable', 'PDF nicht lesbar'],
+    [503, 'ocr_unavailable', 'OCR fehlt'],
+    [503, 'ocr_timeout', 'OCR Zeitlimit'],
+    [422, 'runtime secret', 'Fehler'],
+    [503, 'runtime secret', 'Nicht verfügbar'],
+  ]) {
+    const f = fixture({ocrUrl: ocrEndpoint});
+    const reading = f.ocr.fire('click');
+    f.requests[0].resolve(response(JSON.stringify({error, detail: 'runtime secret'}), 'application/json', status));
+    await reading;
+    assert.equal(f.status.textContent, message);
+    assert.equal(f.ocr.disabled, false);
+    assert.equal(f.created.length, 0);
+    f.goTo(5);
+    assert.equal(f.status.textContent, '');
+  }
+});
+
+test('navigation cancels pending OCR and stale success/error cannot replace playback on the new page', async () => {
+  const f = fixture({ocrUrl: ocrEndpoint});
+  const staleAudio = f.ocr.fire('click');
+  f.goTo(5);
+  assert.equal(f.requests[0].opts.signal.aborted, true);
+  const staleError = f.ocr.fire('click');
+  let resolveProblem;
+  const problem = new Promise(resolve => { resolveProblem = resolve; });
+  f.requests[1].resolve({ok: false, status: 503, json: () => problem});
+  await Promise.resolve();
+  f.goTo(6);
+  assert.equal(f.requests[1].opts.signal.aborted, true);
+  const current = f.start.fire('click');
+  f.requests[2].resolve(response());
+  await current;
+  f.requests[0].resolve(response());
+  resolveProblem({error: 'ocr_unavailable'});
+  await Promise.all([staleAudio, staleError]);
+  assert.equal(f.status.textContent, 'Liest');
+  assert.equal(f.audios.length, 1);
+  assert.equal(f.revoked.length, 0);
+  f.window.fire('pagehide');
+  assert.deepEqual(f.revoked, [f.created[0].id]);
+});
+
+test('an absent or unsafe OCR URL cannot be requested and leaves native speech unchanged', async () => {
+  const text = fixture();
+  assert.equal(text.ocr, undefined);
+  for (const ocrUrl of ['', 'https://elsewhere.invalid/ocr', '/ocr#fragment']) {
+    const f = fixture({ocrUrl});
+    assert.equal(f.ocr.disabled, true);
+    assert.equal(f.start.disabled, false);
+    await f.ocr.fire('click');
+    assert.equal(f.requests.length, 0);
   }
 });

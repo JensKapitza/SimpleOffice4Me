@@ -80,40 +80,65 @@ def plain_text_sections(payload: bytes) -> list[str]:
     return sections or [""]
 
 
-def pdf_page_text(payload: bytes, page: int) -> str:
-    tool = shutil.which("pdftotext")
-    if not tool:
-        raise ReadAloudError("pdf_extractor_unavailable", 503)
+def bounded_tool_output(
+    command: list[str], *, payload: bytes = b"", max_output: int, timeout: float,
+    unavailable_code: str, failure_code: str, timeout_code: str, failure_status: int = 422,
+    overflow_code: str = "too_much_text", env: dict[str, str] | None = None,
+) -> bytes:
+    """Run a selected local tool with private input, bounded output and no diagnostics payload."""
+    if timeout <= 0:
+        raise ReadAloudError(timeout_code, 503)
     with tempfile.TemporaryFile(mode="w+b") as source:
         source.write(payload)
         source.seek(0)
-        command = [tool, "-f", str(page), "-l", str(page), "-enc", "UTF-8", "-", "-"]
-        with subprocess.Popen(command, stdin=source, stdout=subprocess.PIPE,
-                              stderr=subprocess.DEVNULL, close_fds=True) as process:
+        try:
+            process = subprocess.Popen(
+                command, stdin=source, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                env=env, close_fds=True,
+            )
+        except OSError as exc:
+            raise ReadAloudError(unavailable_code, 503) from exc
+        with process:
             output = bytearray()
             overflow = threading.Event()
+            read_failed = threading.Event()
             assert process.stdout is not None
 
             def collect() -> None:
-                while block := process.stdout.read(8192):
-                    if len(output) + len(block) > MAX_PDF_STDOUT_BYTES:
-                        overflow.set()
-                        process.kill()
-                        return
-                    output.extend(block)
+                try:
+                    while block := process.stdout.read(8192):
+                        if len(output) + len(block) > max_output:
+                            overflow.set()
+                            process.kill()
+                            return
+                        output.extend(block)
+                except OSError:
+                    read_failed.set()
 
             thread = threading.Thread(target=collect, daemon=True)
             thread.start()
             try:
-                process.wait(timeout=_PDF_TIMEOUT_SECONDS)
+                process.wait(timeout=timeout)
             except subprocess.TimeoutExpired as exc:
                 process.kill()
                 process.wait(timeout=2)
                 thread.join(timeout=1)
-                raise ReadAloudError("read_aloud_timeout", 503) from exc
+                raise ReadAloudError(timeout_code, 503) from exc
             thread.join(timeout=1)
             if overflow.is_set():
-                raise ReadAloudError("too_much_text", 413)
-            if thread.is_alive() or process.returncode != 0:
-                raise ReadAloudError("pdf_text_unavailable", 422)
-    return output.decode("utf-8", errors="replace")
+                raise ReadAloudError(overflow_code, 413)
+            if read_failed.is_set() or thread.is_alive() or process.returncode != 0:
+                raise ReadAloudError(failure_code, failure_status)
+    return bytes(output)
+
+
+def pdf_page_text(payload: bytes, page: int) -> str:
+    tool = shutil.which("pdftotext")
+    if not tool:
+        raise ReadAloudError("pdf_extractor_unavailable", 503)
+    return bounded_tool_output(
+        [tool, "-f", str(page), "-l", str(page), "-enc", "UTF-8", "-", "-"],
+        payload=payload, max_output=MAX_PDF_STDOUT_BYTES, timeout=_PDF_TIMEOUT_SECONDS,
+        unavailable_code="pdf_extractor_unavailable", failure_code="pdf_text_unavailable",
+        timeout_code="read_aloud_timeout",
+    ).decode("utf-8", errors="replace")

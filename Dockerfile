@@ -16,6 +16,7 @@ RUN apt-get update \
         ca-certificates \
         cups-client \
         ffmpeg \
+        ghostscript \
         fonts-dejavu-core \
         git \
         gosu \
@@ -26,6 +27,9 @@ RUN apt-get update \
         nftables \
         openssh-client \
         poppler-utils \
+        tesseract-ocr \
+        tesseract-ocr-deu \
+        tesseract-ocr-eng \
         rsync \
         procps \
         util-linux \

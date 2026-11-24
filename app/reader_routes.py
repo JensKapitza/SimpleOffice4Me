@@ -14,6 +14,7 @@ from .document_store import DocumentStore
 from .epub_reader import EpubBook, MAX_EPUB_BYTES
 from .pdf_limits import MAX_PDF_BYTES
 from .private_read_aloud import ReadAloudError, private_audio_response, read_aloud_error, read_aloud_request
+from .reader_page_ocr import pdf_page_has_images, recognize_pdf_page, supplement_native_text
 from .reader_speech_text import (
     MAX_READ_ALOUD_PDF_BYTES, MAX_READ_ALOUD_TEXT_BYTES, pdf_page_text, plain_text_sections, verified_speech_source,
 )
@@ -329,17 +330,40 @@ def open_text(document_id: str):
 @bp.post("/<document_id>/read-aloud")
 @login_required
 def read_aloud(document_id: str):
-    """Read the named document's version from authorized storage, not client text."""
+    """Read native text from an authorized, current document version."""
+    return _read_aloud(document_id, allow_ocr=False)
+
+
+@bp.post("/<document_id>/read-aloud/ocr")
+@login_required
+def read_aloud_ocr(document_id: str):
+    """Recognize one image-only PDF page, only on an explicit user request."""
+    return _read_aloud(document_id, allow_ocr=True)
+
+
+def _read_aloud(document_id: str, *, allow_ocr: bool):
     _require_documents()
     try:
         document, suffix = _speech_document(document_id)
+        if allow_ocr and suffix != ".pdf":
+            raise ReadAloudError("document_unavailable", 404)
         page, version = read_aloud_request()
         if version != reader_version(document):
             raise ReadAloudError("document_changed", 409)
 
         def load_text():
             if suffix == ".pdf":
-                return pdf_page_text(_speech_source_for(document, MAX_READ_ALOUD_PDF_BYTES), page)
+                payload = _speech_source_for(document, MAX_READ_ALOUD_PDF_BYTES)
+                text = pdf_page_text(payload, page)
+                if not allow_ocr or (text.strip() and not pdf_page_has_images(payload, page)):
+                    return text
+                try:
+                    recognized = recognize_pdf_page(payload, page, g.language)
+                except ReadAloudError as exc:
+                    if exc.code == "ocr_no_text" and text.strip():
+                        return text
+                    raise
+                return supplement_native_text(text, recognized)
             sections = plain_text_sections(_speech_source_for(document, MAX_READ_ALOUD_TEXT_BYTES))
             if page > len(sections):
                 raise ReadAloudError("invalid_page", 404)
@@ -403,7 +427,13 @@ def grayscale_pdf(document_id: str):
             "Reader PDF conversion failed for %s: %s",
             document_id, type(exc).__name__,
         )
-        flash("Das Graustufen-PDF konnte wegen eines Verarbeitungsfehlers nicht erstellt werden.")
+        flash(
+            "Could not create the searchable copy. Check local Ghostscript, Poppler and OCR setup. "
+            "To read only this page, use ‘OCR and read aloud’."
+            if g.language == "en" else
+            "Die durchsuchbare Kopie konnte nicht erstellt werden. Prüfe die lokale Installation "
+            "von Ghostscript, Poppler und OCR. Für diese einzelne Seite nutze „OCR und vorlesen“."
+        )
         return redirect(url_for("reader.open_book", document_id=document_id))
 
     stem = Path(str(document.get("last_path") or "document.pdf")).stem[:100]

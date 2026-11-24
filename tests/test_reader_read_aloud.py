@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import os
 import shutil
 import subprocess
 import tempfile
@@ -11,11 +12,16 @@ from pathlib import Path
 from unittest.mock import patch
 
 from bs4 import BeautifulSoup
+from PIL import Image, ImageDraw, ImageFont
+from pypdf import PdfReader, PdfWriter
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
 from app import app
 from app import db as database
+from app.audio_output_engine import render_tts
 from app.document_store import DocumentStore
+from app.reader_speech_text import MAX_READ_ALOUD_PDF_BYTES
 from app.reading_store import reader_version
 
 
@@ -147,6 +153,199 @@ class ReaderReadAloudTests(unittest.TestCase):
         self.assertEqual("no_text", missing.get_json()["error"])
         self.assertEqual("private, no-store", missing.headers["Cache-Control"])
         renderer.assert_called_once()
+
+    def scan_pdf(self, *pages):
+        output = io.BytesIO()
+        writer = canvas.Canvas(output)
+        for kind, line in pages:
+            if kind in {"scan", "mixed"}:
+                if kind == "mixed":
+                    writer.drawString(45, 730, "Native heading")
+                image = Image.new("RGB", (1600, 1100), "white")
+                try:
+                    font = ImageFont.truetype("DejaVuSans.ttf", 72)
+                except OSError:
+                    self.skipTest("DejaVu Sans font is required for the synthetic OCR fixture")
+                if line:
+                    ImageDraw.Draw(image).text((120, 450), line, font=font, fill="black")
+                writer.drawImage(ImageReader(image), 40, 250, 510, 350)
+            else:
+                writer.drawString(45, 640, line)
+            writer.showPage()
+        writer.save()
+        return output.getvalue()
+
+    def ocr_route(self, document):
+        return self.route(document) + "/ocr"
+
+    def post_ocr(self, document, *, page=1, version=None, csrf=True):
+        return self.client.post(self.ocr_route(document), json={
+            "page": page, "document_version": version or reader_version(document),
+        }, headers={"X-CSRF-Token": self.csrf} if csrf else {})
+
+    @unittest.skipUnless(all(shutil.which(t) for t in ("pdftotext", "pdftoppm", "pdfimages", "tesseract")),
+                         "Poppler and Tesseract are required for actual OCR")
+    def test_ocr_reads_only_the_selected_scan_page_in_a_mixed_pdf_without_writes(self):
+        pdf = self.scan_pdf(("scan", "FIRST SCANNED PAGE ONLY"), ("native", "Native page text"),
+                            ("scan", "THIRD SCANNED PAGE ONLY"), ("scan", ""))
+        document = self.document("mixed-fixture.pdf", pdf)
+        source = self.root / document["last_path"]
+        reader = self.client.get(f"/documents/reader/{document['document_id']}")
+        self.assertEqual(200, reader.status_code)
+        body = BeautifulSoup(reader.get_data(as_text=True), "html.parser")
+        controls = body.select_one("[data-reader-read-aloud]")
+        self.assertEqual(self.ocr_route(document), controls["data-speech-ocr-url"])
+        with patch(self.speech_patch, side_effect=self.render_wave):
+            usual = self.post(document, page=3)
+            self.assertEqual(422, usual.status_code)
+            scanned = self.post_ocr(document, page=3)
+            self.assert_private_audio(scanned)
+            self.assertEqual(["THIRD SCANNED PAGE ONLY"], self.spoken)
+            with patch("app.reader_routes.recognize_pdf_page") as ocr:
+                self.assert_private_audio(self.post_ocr(document, page=2))
+                self.assertEqual(422, self.post_ocr(document, page=8).status_code)
+                ocr.assert_not_called()
+            blank = self.post_ocr(document, page=4)
+            self.assertEqual(422, blank.status_code)
+            self.assertEqual("ocr_no_text", blank.get_json()["error"])
+        self.assertEqual(["THIRD SCANNED PAGE ONLY", "Native page text"], self.spoken)
+        self.assertEqual(pdf, source.read_bytes())
+        self.assertEqual([source], list(source.parent.glob("*.pdf")))
+
+    @unittest.skipUnless(all(shutil.which(t) for t in ("pdftotext", "pdftoppm", "pdfimages", "tesseract")),
+                         "Poppler and Tesseract are required for actual OCR")
+    def test_image_only_pdf_reaches_piper_from_http(self):
+        real_model = os.environ.get("SIMPLEOFFICE_TEST_PIPER_MODEL")
+        if not real_model or not shutil.which("piper") or not Path(real_model).is_file():
+            self.skipTest("Opt-in real Piper runtime/CC0 test voice not configured")
+        languages = subprocess.run(["tesseract", "--list-langs"], capture_output=True, text=True, timeout=4, check=True)
+        line = "Überprüfung für Köln." if "deu" in languages.stdout.splitlines() else "SYNTHETIC OCR STARTS HERE"
+        document = self.document("scan-only.pdf", self.scan_pdf(("scan", line)))
+        with patch("app.private_read_aloud._configured_model", return_value=real_model), \
+                patch(self.speech_patch, wraps=render_tts) as actual:
+            response = self.post_ocr(document)
+        self.assertEqual(line, actual.call_args.args[0])
+        self.assertEqual(200, response.status_code, response.get_data(as_text=True) if response.status_code != 200 else "")
+        self.assertEqual("private, no-store", response.headers["Cache-Control"])
+        with wave.open(io.BytesIO(response.data), "rb") as result:
+            self.assertGreater(result.getnframes(), 500)
+            self.assertGreater(result.getframerate(), 8000)
+
+    @unittest.skipUnless(all(shutil.which(t) for t in ("pdftotext", "pdftoppm", "pdfimages", "tesseract")),
+                         "Poppler and Tesseract are required for actual OCR")
+    def test_german_diacritics_in_the_selected_page_of_a_mixed_pdf(self):
+        languages = subprocess.run(["tesseract", "--list-langs"], capture_output=True,
+                                   text=True, timeout=4, check=True)
+        if "deu" not in languages.stdout.splitlines():
+            self.skipTest("German Tesseract language file is not installed")
+        pdf = self.scan_pdf(("native", "Not the selected page"), ("scan", "Überprüfung für Köln."),
+                            ("scan", ""))
+        document = self.document("gemischt.pdf", pdf)
+        with patch(self.speech_patch, side_effect=self.render_wave):
+            result = self.post_ocr(document, page=2)
+        self.assert_private_audio(result)
+        self.assertEqual(["Überprüfung für Köln."], self.spoken)
+        self.assertEqual(pdf, (self.root / document["last_path"]).read_bytes())
+
+    @unittest.skipUnless(all(shutil.which(t) for t in ("gs", "pdftotext", "pdftoppm", "tesseract")),
+                         "Ghostscript, Poppler and Tesseract are required for a genuine export")
+    def test_searchable_copy_download_feeds_ordinary_read_aloud_without_re_ocr(self):
+        pdf = self.scan_pdf(("native", "Native text stays"), ("scan", "SCAN BECOMES SEARCHABLE"),
+                            ("scan", ""))
+        document = self.document("export-source.pdf", pdf)
+        reader = self.client.get(f"/documents/reader/{document['document_id']}")
+        action = f"/documents/reader/{document['document_id']}/pdf/grayscale"
+        page = BeautifulSoup(reader.get_data(as_text=True), "html.parser")
+        export = page.find("form", action=action)
+        self.assertIsNotNone(export)
+        token = export.find("input", attrs={"name": "_csrf_token"})["value"]
+        response = self.client.post(action, data={"_csrf_token": token})
+        self.assertEqual(200, response.status_code)
+        self.assertIn("attachment", response.headers["Content-Disposition"])
+        self.assertEqual("private, no-store", response.headers["Cache-Control"])
+        exported = PdfReader(io.BytesIO(response.data))
+        self.assertEqual(3, len(exported.pages))
+        self.assertIn("Native text stays", exported.pages[0].extract_text())
+        self.assertIn("SCAN BECOMES SEARCHABLE", exported.pages[1].extract_text())
+        self.assertFalse(exported.pages[2].extract_text().strip())
+        source = self.root / document["last_path"]
+        self.assertEqual(pdf, source.read_bytes())
+        self.assertEqual([source], list(source.parent.glob("*.pdf")))
+
+        # Reopen only the exported copy, as an explicit user would after saving it.
+        reopened = self.document("exported-searchable.pdf", response.data)
+        with patch(self.speech_patch, side_effect=self.render_wave), \
+                patch("app.reader_routes.recognize_pdf_page") as ocr:
+            self.assert_private_audio(self.post(reopened, page=2))
+            ocr.assert_not_called()
+        self.assertEqual(["SCAN BECOMES SEARCHABLE"], self.spoken)
+
+    @unittest.skipUnless(all(shutil.which(t) for t in ("pdftotext", "pdftoppm", "pdfimages", "tesseract")),
+                         "Poppler and Tesseract are required for mixed-page OCR")
+    def test_explicit_ocr_supplements_raster_body_on_a_page_with_native_heading(self):
+        pdf = self.scan_pdf(("mixed", "Image text also belongs here"))
+        document = self.document("one-mixed-page.pdf", pdf)
+        with patch(self.speech_patch, side_effect=self.render_wave):
+            self.assert_private_audio(self.post(document))
+            self.assert_private_audio(self.post_ocr(document))
+        self.assertEqual("Native heading", self.spoken[0])
+        self.assertEqual("Native heading Image text also belongs here", self.spoken[1])
+        self.assertEqual(pdf, (self.root / document["last_path"]).read_bytes())
+
+    def test_actual_pdf_above_16_mib_has_clear_limit_before_ocr_or_synthesis(self):
+        writer = PdfWriter()
+        writer.add_page(PdfReader(io.BytesIO(self.pdf(False))).pages[0])
+        # A real but inert embedded file keeps the PDF valid while it exceeds the audio limit.
+        writer.add_attachment("fixture-padding.bin", b" " * MAX_READ_ALOUD_PDF_BYTES)
+        fixture = io.BytesIO()
+        writer.write(fixture)
+        self.assertGreater(fixture.tell(), MAX_READ_ALOUD_PDF_BYTES)
+        document = self.document("large-fixture.pdf", fixture.getvalue())
+        reader = self.client.get(f"/documents/reader/{document['document_id']}")
+        self.assertEqual(200, reader.status_code)
+        controls = BeautifulSoup(reader.get_data(as_text=True), "html.parser").select_one("[data-reader-read-aloud]")
+        self.assertIn("16 MiB", controls["data-speech-too-large"])
+        with patch("app.reader_routes.pdf_page_text") as extract, patch(self.speech_patch) as piper:
+            result = self.post_ocr(document)
+        self.assertEqual(413, result.status_code)
+        self.assertEqual("document_too_large", result.get_json()["error"])
+        self.assertEqual("private, no-store", result.headers["Cache-Control"])
+        extract.assert_not_called()
+        piper.assert_not_called()
+
+    def test_ocr_access_version_source_size_and_pdf_type_fail_before_extraction(self):
+        document = self.document("ordinary.pdf", self.pdf(False))
+        private = self.document("private.pdf", self.pdf() + b"\n% other")
+        text = self.document("not-a-pdf.txt", b"Cannot OCR this")
+        self.store.update_metadata(private["document_id"], author="admin", attributes={
+            "chat_attachment": {"visibility": "chat", "allowed_local_users": ["another-member"]},
+        })
+        with patch("app.reader_routes.pdf_page_text") as extract, patch("app.reader_routes.recognize_pdf_page") as ocr:
+            self.assertEqual(403, self.post_ocr(document, csrf=False).status_code)
+            self.assertEqual(409, self.post_ocr(document, version="sha256:stale:v1").status_code)
+            self.assertEqual(404, self.post_ocr(text).status_code)
+            with patch("app.reader_routes.MAX_READ_ALOUD_PDF_BYTES", 5):
+                self.assertEqual(413, self.post_ocr(document).status_code)
+            self.login("limited")
+            self.assertEqual(403, self.post_ocr(document).status_code)
+            self.login("member")
+            self.assertEqual(404, self.post_ocr(private).status_code)
+        extract.assert_not_called()
+        ocr.assert_not_called()
+
+    def test_local_ocr_tools_and_deadline_have_fixed_private_errors(self):
+        document = self.document("ordinary.pdf", self.pdf(False))
+        with patch("app.reader_routes.pdf_page_text", return_value=""), patch(self.speech_patch) as piper:
+            with patch("app.reader_page_ocr.shutil.which", return_value=None):
+                unavailable = self.post_ocr(document)
+            with patch("app.reader_page_ocr.shutil.which", side_effect=lambda name: name), \
+                    patch("app.reader_page_ocr._OCR_TIMEOUT_SECONDS", 0):
+                timeout = self.post_ocr(document)
+        for response, expected in ((unavailable, "ocr_unavailable"), (timeout, "ocr_timeout")):
+            self.assertEqual(503, response.status_code)
+            self.assertEqual(expected, response.get_json()["error"])
+            self.assertEqual("private, no-store", response.headers["Cache-Control"])
+        piper.assert_not_called()
 
     def test_guards_reject_permission_csrf_stale_and_client_text_before_render(self):
         document = self.document("ordinary.txt", b"not submitted by the browser")

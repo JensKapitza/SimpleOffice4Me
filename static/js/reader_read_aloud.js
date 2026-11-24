@@ -31,6 +31,7 @@
   function initialize(root) {
     const reader = root.closest('[data-document-reader], #reader-root');
     const start = root.querySelector('[data-speech-start]');
+    const ocr = root.querySelector('[data-speech-ocr]');
     const pause = root.querySelector('[data-speech-pause]');
     const stop = root.querySelector('[data-speech-stop]');
     const status = root.querySelector('[data-speech-status]');
@@ -39,6 +40,7 @@
     const position = reader?.querySelector('[data-reader-position]');
     const version = reader?.dataset.documentVersion;
     const url = sameOriginUrl(root.dataset.speechUrl);
+    const ocrUrl = sameOriginUrl(root.dataset.speechOcrUrl);
     const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content || '';
     const pageNumber = () => {
       const value = Number(position?.value);
@@ -50,10 +52,13 @@
       typeof URL.revokeObjectURL === 'function');
     let active = null;
     let state = 'idle';
+    let displayedPage = pageNumber();
 
     function render(nextState, message = '') {
       state = nextState;
-      start.disabled = !available || !['idle', 'error', 'unavailable'].includes(state);
+      const canStart = available && ['idle', 'error', 'unavailable'].includes(state);
+      start.disabled = !canStart;
+      if (ocr) ocr.disabled = !canStart || !ocrUrl;
       pause.disabled = !['playing', 'paused'].includes(state);
       stop.disabled = !active;
       pause.textContent = state === 'paused'
@@ -105,19 +110,54 @@
       }
     }
 
-    async function startPage() {
-      if (!available || start.disabled) return;
+    async function showHttpError(request, response) {
+      const statusCode = response.status;
+      if (statusCode === 422 || statusCode === 503) {
+        // Only recognized application codes may select localized messages.
+        const problem = await response.json().catch(() => null);
+        if (!isCurrent(request)) return;
+        const code = problem?.error;
+        if (statusCode === 422) {
+          if (request.ocr && (code === 'ocr_no_text' || code === 'no_text')) {
+            release('error', label('speechOcrNoText', 'OCR found no readable text on this page.'));
+          } else if (code === 'no_text') {
+            release('error', label('speechNoText', 'No readable text on this page.'));
+          } else if (code === 'pdf_text_unavailable') {
+            release('error', label('speechPdfTextUnavailable', 'Text could not be read from this PDF page.'));
+          } else {
+            fail(request);
+          }
+        } else if (request.ocr && code === 'ocr_unavailable') {
+          release('unavailable', label('speechOcrUnavailable', 'Local OCR is unavailable.'));
+        } else if (request.ocr && code === 'ocr_timeout') {
+          release('error', label('speechOcrTimeout', 'Local OCR took too long.'));
+        } else {
+          release('unavailable', label('speechUnavailable', 'Read aloud is unavailable.'));
+        }
+      } else if (statusCode === 409) {
+        release('error', label('speechStale', 'This document changed. Reload the reader.'));
+      } else if (statusCode === 413) {
+        release('error', label('speechTooLarge', 'This page exceeds the read-aloud limit.'));
+      } else {
+        fail(request);
+      }
+    }
+
+    async function startPage(endpoint, button) {
+      if (!available || !endpoint || button.disabled) return;
       const token = csrf();
       if (!token) {
         render('unavailable', label('speechUnavailable', 'Read aloud is unavailable.'));
         return;
       }
 
-      const request = {page: pageNumber(), controller: new AbortController()};
+      const request = {page: pageNumber(), ocr: button === ocr, controller: new AbortController()};
       active = request;
-      render('loading', label('speechLoading', 'Preparing audio…'));
+      render('loading', request.ocr
+        ? label('speechOcrLoading', 'Recognizing this page locally…')
+        : label('speechLoading', 'Preparing audio…'));
       try {
-        const response = await fetch(url, {
+        const response = await fetch(endpoint, {
           method: 'POST',
           headers: {'Content-Type': 'application/json', Accept: wavMime, 'X-CSRF-Token': token},
           credentials: 'same-origin',
@@ -128,17 +168,7 @@
         });
         if (!isCurrent(request)) return;
         if (!response.ok) {
-          if (response.status === 503) {
-            release('unavailable', label('speechUnavailable', 'Read aloud is unavailable.'));
-          } else if (response.status === 422) {
-            release('error', label('speechNoText', 'No readable text on this page.'));
-          } else if (response.status === 409) {
-            release('error', label('speechStale', 'This document changed. Reload the reader.'));
-          } else if (response.status === 413) {
-            release('error', label('speechTooLarge', 'This page exceeds the read-aloud limit.'));
-          } else {
-            fail(request);
-          }
+          await showHttpError(request, response);
           return;
         }
         const blob = await readWav(response);
@@ -157,7 +187,8 @@
     render(available ? 'idle' : 'unavailable', available ? '' :
       label('speechUnavailable', 'Read aloud is unavailable.'));
     if (!available) return;
-    start.addEventListener('click', startPage);
+    start.addEventListener('click', () => startPage(url, start));
+    if (ocrUrl && ocr) ocr.addEventListener('click', () => startPage(ocrUrl, ocr));
     pause.addEventListener('click', () => {
       if (!active || !active.audio || pause.disabled || !isCurrent(active)) return;
       if (state === 'paused') return play(active);
@@ -166,7 +197,10 @@
     });
     stop.addEventListener('click', () => release());
     reader.addEventListener('reader:page-changed', event => {
-      if (active && active.page !== (event.detail?.page ?? pageNumber())) release();
+      const nextPage = event.detail?.page ?? pageNumber();
+      if (displayedPage === nextPage) return;
+      displayedPage = nextPage;
+      release();
     });
     window.addEventListener('pagehide', () => { if (active) release(); });
   }

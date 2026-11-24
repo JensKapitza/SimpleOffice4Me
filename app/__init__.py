@@ -544,7 +544,7 @@ def bound_document_upload_form_parts():
 
 
 PRIVATE_READ_ALOUD_ENDPOINTS = frozenset({
-    "reader.read_aloud", "mail_reader.live_read_aloud", "mail_reader.archive_read_aloud",
+    "reader.read_aloud", "reader.read_aloud_ocr", "mail_reader.live_read_aloud", "mail_reader.archive_read_aloud",
     "mail_reader.case_read_aloud", "contact_audit.eml_read_aloud",
 })
 
