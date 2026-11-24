@@ -307,7 +307,19 @@
                 </td>
               </tr>
             {% else %}
-              <tr><td colspan="4" class="text-secondary text-center py-4">{{ 'No remote index present yet. Under “Peers” first synchronise a file index.' if g.language == 'en' else 'Noch kein Remote-Index vorhanden. Unter „Peers“ zuerst einen Dateiindex synchronisieren.' }}</td></tr>
+              <tr>
+                <td colspan="4" class="text-secondary text-center py-4">
+                  {% if remote_query or remote_peer %}
+                    <div>{{ 'No files match these filters.' if g.language == 'en' else 'Keine Dateien für diese Filter.' }}</div>
+                    <a class="d-inline-block mt-1" href="{{ url_for('federation_admin.dashboard', view='files', q=document_query or none, document_id=selected_document.document_id if selected_document else none, _anchor='remote-files') }}">{{ 'Clear filters' if g.language == 'en' else 'Filter zurücksetzen' }}</a>
+                  {% else %}
+                    <div>{{ 'No remote files in the index.' if g.language == 'en' else 'Keine entfernten Dateien im Index.' }}</div>
+                    <div>{{ 'You can refresh a file index under Peers.' if g.language == 'en' else 'Unter „Peers“ kannst du einen Dateiindex aktualisieren.' }}
+                      <a href="{{ url_for('federation_admin.dashboard', view='peers') }}">{{ 'Go to peers' if g.language == 'en' else 'Zur Peer-Liste' }}</a>
+                    </div>
+                  {% endif %}
+                </td>
+              </tr>
             {% endfor %}
           </tbody>
         </table>
