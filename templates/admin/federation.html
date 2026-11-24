@@ -285,6 +285,7 @@
                     <input type="hidden" name="_return_view" value="files">
                     <input type="hidden" name="peer_id" value="{{ item.peer_id }}">
                     <input type="hidden" name="remote_document_id" value="{{ item.remote_document_id }}">
+                    <input type="hidden" name="remote_peer_filter" value="{{ remote_peer }}">
                     <input type="hidden" name="remote_q" value="{{ remote_query }}">
                     <input type="hidden" name="action" value="priority">
                     <input class="form-control" type="number" name="priority" min="-1000" max="1000" value="{{ item.file_priority }}" aria-label="{{ 'File priority' if g.language == 'en' else 'Datei-Priorität' }}">
@@ -297,6 +298,7 @@
                     <input type="hidden" name="_return_view" value="files">
                     <input type="hidden" name="peer_id" value="{{ item.peer_id }}">
                     <input type="hidden" name="remote_document_id" value="{{ item.remote_document_id }}">
+                    <input type="hidden" name="remote_peer_filter" value="{{ remote_peer }}">
                     <input type="hidden" name="remote_q" value="{{ remote_query }}">
                     <input type="hidden" name="action" value="download">
                     <input class="form-control" type="number" name="priority" min="-1000" max="1000" value="0" aria-label="{{ 'Transfer priority' if g.language == 'en' else 'Transfer-Priorität' }}">
@@ -333,6 +335,7 @@
             <form method="post" action="{{ url_for('federation_admin.save_peer') }}" class="row g-3">
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="_return_view" value="peers">
+              {% if edit_peer %}<input type="hidden" name="_editing_peer" value="1">{% endif %}
               <input type="hidden" name="_documents_policy_form" value="1">
               <input type="hidden" name="_mail_cases_policy_form" value="1">
               <input type="hidden" name="_rendezvous_relay_policy_form" value="1">
@@ -534,7 +537,7 @@
                         <form method="post" action="{{ url_for('federation_admin.network_diagnostic_peer', peer_id=peer.peer_id) }}">
                           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                           <input type="hidden" name="_return_view" value="peers">
-                          <button class="btn btn-sm btn-outline-primary" type="submit" {% if not peer.enabled %}disabled{% endif %}>{{ 'Check mutually' if g.language == 'en' else 'Gegenseitig prüfen' }}</button>
+                          <button class="btn btn-sm btn-outline-primary" type="submit" {% if not peer.enabled %}disabled{% endif %}>{{ 'Run signed outbound check' if g.language == 'en' else 'Ausgehend signiert prüfen' }}</button>
                         </form>
                         {% if peer.base_url.startswith('https://') or peer.base_url.startswith('http://') %}
                         <button class="btn btn-sm btn-outline-secondary" type="button" data-peer-open="{{ peer.peer_id|e }}" data-peer-url="{{ peer.base_url|e }}" aria-label="{{ ('Open peer page of ' ~ peer.label ~ ' in new tab') if g.language == 'en' else ('Peer-Seite von ' ~ peer.label ~ ' im neuen Tab öffnen') }}">{{ 'Open peer page' if g.language == 'en' else 'Peer-Seite öffnen' }}</button>
@@ -582,7 +585,7 @@
           <summary class="card-header">{{ 'Understanding network diagnostics' if g.language == 'en' else 'Netzwerkdiagnose verstehen' }}</summary>
           <div class="card-body small">
             <p class="mb-2"><strong>DNS</strong> {{ 'checks resolution of the configured peer host;' if g.language == 'en' else 'prüft die Auflösung des konfigurierten Peer-Hosts;' }} <strong>TCP</strong> {{ 'socket setup;' if g.language == 'en' else 'den Socket-Aufbau;' }} <strong>TLS</strong> {{ 'certificate and encrypted connection;' if g.language == 'en' else 'Zertifikat und verschlüsselte Verbindung;' }} <strong>HTTP</strong> {{ 'the response;' if g.language == 'en' else 'die Antwort;' }} <strong>Auth</strong> {{ 'peer identity and signed probe response.' if g.language == 'en' else 'Peer-Identität und signierte Probeantwort.' }}</p>
-            <p class="mb-2">{{ '“Server → configured peer address” measures only the outgoing path from this instance. “Incoming authenticated request” appears only when the peer itself sends a signed diagnostic request to this server. That proves exactly this incoming network path at check time, but no actively requested counter-check by the server. Neither proves public reachability nor derives any NAT, tunnel or relay path.' if g.language == 'en' else '„Server → konfigurierte Peer-Adresse“ misst nur den ausgehenden Weg von dieser Instanz. „Eingehende authentifizierte Anfrage“ erscheint erst, wenn der Peer selbst eine signierte Diagnoseanfrage an diesen Server sendet. Das ist ein Nachweis für genau diesen eingehenden Netzwerkweg zum Prüfzeitpunkt, aber keine aktiv vom Server angeforderte Gegenprüfung. Beides beweist keine öffentliche Erreichbarkeit und leitet keinen NAT-, Tunnel- oder Relay-Pfad ab.' }}</p>
+            <p class="mb-2">{{ '“Server → configured peer address” measures only the outgoing path from this instance. “Incoming authenticated request” appears only when the peer itself sends a signed diagnostic request to this server. That proves this incoming network path at check time. Run the check on the other instance for the reverse direction. A successful probe does not verify access to individual services. Neither proves public reachability nor derives any NAT, tunnel or relay path.' if g.language == 'en' else '„Server → konfigurierte Peer-Adresse“ misst nur den ausgehenden Weg von dieser Instanz. „Eingehende authentifizierte Anfrage“ erscheint erst, wenn der Peer selbst eine signierte Diagnoseanfrage an diesen Server sendet. Das belegt den eingehenden Netzwerkweg zum Prüfzeitpunkt. Gegenrichtung auf der anderen Instanz prüfen. Eine erfolgreiche Probe bestätigt keine Rechte für einzelne Dienste. Beides beweist keine öffentliche Erreichbarkeit und leitet keinen NAT-, Tunnel- oder Relay-Pfad ab.' }}</p>
             <p class="mb-0">{{ 'Browser check is a separate best-effort client view. CORS, CSP, mixed content, TLS and browser policies can make it unevaluable; no offline status is derived from it. Stale results are older than five minutes.' if g.language == 'en' else 'Browserprüfung ist eine getrennte Best-effort-Client-Sicht. CORS, CSP, Mixed Content, TLS und Browserrichtlinien können sie unauswertbar machen; daraus wird kein Offline-Status abgeleitet. Veraltete Ergebnisse sind älter als fünf Minuten.' }}</p>
           </div>
         </details>

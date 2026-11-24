@@ -352,12 +352,12 @@ def verify_mutual_network_probe(
         f"{requester_base}/admin/federation?view=peers", wait_until="domcontentloaded"
     )
     row = requester_page.locator("tr").filter(has_text=target_peer_id).first
-    row.get_by_role("button", name="Gegenseitig prüfen", exact=True).click()
+    row.get_by_role("button", name="Ausgehend signiert prüfen", exact=True).click()
     requester_page.wait_for_load_state("domcontentloaded")
     outbound_row = requester_page.locator("tr").filter(has_text=target_peer_id).first
     outbound_text = compact(outbound_row.inner_text())
     outbound_ok = (
-        "Serverprüfung erfolgreich" in requester_page.locator("body").inner_text()
+        "Ausgehende Prüfung erfolgreich" in requester_page.locator("body").inner_text()
         and "Server → konfigurierte Peer-Adresse: erreichbar" in outbound_text
         and "DNS: ok" in outbound_text
         and "TCP: ok" in outbound_text

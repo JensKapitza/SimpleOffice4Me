@@ -15,6 +15,22 @@
   const outboxState = root.querySelector('[data-offline-outbox]');
   const bytesState = root.querySelector('[data-offline-bytes]');
   const worksets = root.querySelector('[data-offline-worksets]');
+  const syncButton = root.querySelector('[data-offline-sync]');
+  const switchButton = root.querySelector('[data-offline-switch-account]');
+  const clearButton = root.querySelector('[data-offline-clear]');
+  let syncing = false;
+  let workspaceRevision = 0;
+  const binding = () => ({bridge, revision: workspaceRevision});
+  const isCurrent = active =>
+    active.bridge === bridge && active.bridge === window.SimpleOfficeOffline && active.revision === workspaceRevision;
+  const SYNC_TIMEOUT_MS = 30000;
+  const offline = () => document.documentElement.dataset.soNetwork === 'offline' || navigator.onLine === false;
+  const updateSyncControls = () => {
+    [syncButton, switchButton, clearButton].forEach(button => {
+      if (button) button.disabled = !bridge || syncing;
+    });
+  };
+
 
   const show = (text, level = 'info') => {
     if (!message) return;
@@ -52,11 +68,13 @@
     return payload;
   };
   const taskUrl = id => root.dataset.taskApiPrefix + encodeURIComponent(id);
-  const serverTask = id => jsonFetch(taskUrl(id));
+  const serverTask = (id, signal) => jsonFetch(taskUrl(id), {signal});
 
   const cacheTask = async id => {
+    const active = binding();
     const task = await serverTask(id);
-    const result = bridge.cache(
+    if (!isCurrent(active)) return false;
+    const result = active.bridge.cache(
       task.id,
       'task',
       task.version,
@@ -66,6 +84,7 @@
     );
     if (result !== 'ok') throw new Error(text(`Lokales Speichern fehlgeschlagen: ${result}`, `Could not save locally: ${result}`));
     await render();
+    return true;
   };
 
   const parseCachedTask = metadata => {
@@ -175,10 +194,15 @@
     });
   };
 
-  const refreshTaskFromServer = async id => {
-    const task = await serverTask(id);
-    const result = bridge.cache(task.id, 'task', task.version, JSON.stringify(task), 7 * 24 * 60 * 60, 'tasks');
+  const refreshTaskFromServer = async (id, active, signal) => {
+    const task = await serverTask(id, signal);
+    if (!isCurrent(active) || signal?.aborted) return false;
+    if (task.id !== id || typeof task.version !== 'string' || !task.version) {
+      throw new Error(text('Serverstand nicht verfügbar.', 'Server version unavailable.'));
+    }
+    const result = active.bridge.cache(task.id, 'task', task.version, JSON.stringify(task), 7 * 24 * 60 * 60, 'tasks');
     if (result !== 'ok') throw new Error(text(`Serverstand konnte lokal nicht gespeichert werden: ${result}`, `Could not save server state locally: ${result}`));
+    return true;
   };
   const acknowledge = (operationId, status) => {
     const result = bridge.ack(operationId, status);
@@ -219,7 +243,8 @@
         accept.textContent = text('Serverstand übernehmen', 'Use server version');
         accept.addEventListener('click', async () => {
           try {
-            await refreshTaskFromServer(op.targetId);
+            const active = binding();
+            if (!await refreshTaskFromServer(op.targetId, active) || !isCurrent(active)) return;
             acknowledge(op.operationId, 'discarded');
             show(text('Konflikt verworfen und aktueller Serverstand geladen.', 'Conflict discarded and current server version loaded.'), 'success');
             await render();
@@ -281,16 +306,43 @@
     renderQueue(operations);
   };
 
-  const syncOutbox = async () => {
-    if (!bridge) return;
-    const pending = bridge.outbox().filter(op => (op.status || 'pending') === 'pending');
-    if (!pending.length) {
-      await render();
+  function matchedResults(results, pending) {
+    const byId = new Map(pending.map(op => [op.operationId, op]));
+    const seen = new Map();
+    for (const result of Array.isArray(results) ? results : []) {
+      const op = byId.get(result?.operationId);
+      if (!op) continue;
+      if (seen.has(op.operationId) || result.targetId !== op.targetId || result.baseVersion !== op.baseVersion ||
+          !['synced', 'conflict', 'rejected'].includes(result.status)) {
+        seen.set(op.operationId, null);
+      } else {
+        seen.set(op.operationId, result);
+      }
+    }
+    return Array.from(seen.values()).filter(Boolean);
+  }
+
+  const syncOutbox = async (manual = false) => {
+    if (syncing || !bridge) return;
+    if (offline()) {
+      if (manual) show(text('Offline. Änderungen bleiben im Ausgang.', 'Offline. Changes stay in the outbox.'), 'warning');
       return;
     }
+    syncing = true;
+    const active = binding();
+    const controller = new AbortController();
+    const deadline = window.setTimeout(() => controller.abort(), SYNC_TIMEOUT_MS);
+    updateSyncControls();
     try {
+      const pending = active.bridge.outbox().filter(op => (op.status || 'pending') === 'pending');
+      if (!pending.length) {
+        if (manual) show(text('Keine Änderungen zur Synchronisation ausstehend.', 'No changes are waiting to synchronize.'));
+        return;
+      }
+      show(text('Offline-Änderungen werden synchronisiert …', 'Synchronizing offline changes …'));
       const payload = await jsonFetch(root.dataset.syncApi, {
         method: 'POST',
+        signal: controller.signal,
         body: JSON.stringify({
           operations: pending.map(op => ({
             operationId: op.operationId,
@@ -301,25 +353,40 @@
           })),
         }),
       });
-      for (const result of payload.results || []) {
-        if (result.status === 'synced') {
-          try {
-            await refreshTaskFromServer(result.targetId);
-          } catch (_) {
-            continue;
-          }
-          acknowledge(result.operationId, 'synced');
-        } else if (result.status === 'conflict') {
-          acknowledge(result.operationId, 'conflict');
-        } else {
-          acknowledge(result.operationId, 'rejected');
+      const counts = {synced: 0, conflict: 0, rejected: 0};
+      for (const result of matchedResults(payload.results, pending)) {
+        if (!isCurrent(active)) return;
+        if (controller.signal.aborted) break;
+        try {
+          if (result.status === 'synced' && !await refreshTaskFromServer(result.targetId, active, controller.signal)) continue;
+          if (!isCurrent(active)) return;
+          if (controller.signal.aborted) break;
+          acknowledge(result.operationId, result.status);
+          counts[result.status]++;
+        } catch (_) {
+          // A missing reply, refresh or local acknowledgement is not a completed operation.
+          // Leave it pending; the original operation ID remains safe to retry later.
         }
       }
-      show(text('Offline-Änderungen wurden mit dem Server abgeglichen.', 'Offline changes were synchronized with the server.'), 'success');
-    } catch (error) {
-      show(text(`Synchronisation nicht möglich: ${error.message || error}`, `Could not synchronize: ${error.message || error}`), 'warning');
+      if (!isCurrent(active)) return;
+      const pendingCount = active.bridge.outbox().filter(op => (op.status || 'pending') === 'pending').length;
+      const {synced, conflict, rejected} = counts;
+      const status = text(
+        `Synchronisiert: ${synced} · Konflikte: ${conflict} · Abgelehnt: ${rejected} · Weiter ausstehend: ${pendingCount}`,
+        `Synced: ${synced} · Conflicts: ${conflict} · Rejected: ${rejected} · Still pending: ${pendingCount}`
+      );
+      show(status, conflict || rejected || pendingCount ? 'warning' : 'success');
+    } catch (_) {
+      if (isCurrent(active)) {
+        show(text('Synchronisation nicht möglich. Änderungen bleiben im Ausgang.',
+          'Could not synchronize. Changes stay in the outbox.'), 'warning');
+      }
+    } finally {
+      window.clearTimeout(deadline);
+      syncing = false;
+      updateSyncControls();
+      await render();
     }
-    await render();
   };
 
   root.querySelectorAll('[data-offline-cache-task]').forEach(button => {
@@ -330,7 +397,7 @@
       }
       try {
         hideMessage();
-        await cacheTask(button.dataset.offlineCacheTask);
+        if (!await cacheTask(button.dataset.offlineCacheTask)) return;
         show(text('Aufgabe wurde für die Offline-Nutzung gespeichert.', 'Task saved for offline use.'), 'success');
       } catch (error) {
         show(error.message || String(error), 'warning');
@@ -338,40 +405,37 @@
     });
   });
 
-  const syncButton = root.querySelector('[data-offline-sync]');
-  if (syncButton) syncButton.addEventListener('click', syncOutbox);
-  const switchButton = root.querySelector('[data-offline-switch-account]');
+  if (syncButton) syncButton.addEventListener('click', () => syncOutbox(true));
   if (switchButton) {
-    switchButton.disabled = !bridge;
     switchButton.addEventListener('click', () => {
-      if (!bridge) return;
+      if (!bridge || syncing) return;
       if (!window.confirm(text('Android-Konto wechseln? Lokale Offline-Daten und vorgemerkte Änderungen werden vorher gelöscht.', 'Switch Android account? Local offline data and queued changes will be deleted first.'))) return;
+      workspaceRevision++;
       const result = bridge.switchAccount();
       if (result !== 'ok') show(text(`Kontowechsel nicht möglich: ${result}`, `Could not switch account: ${result}`), 'warning');
     });
   }
-  const clearButton = root.querySelector('[data-offline-clear]');
   if (clearButton) clearButton.addEventListener('click', async () => {
-    if (!bridge) return;
+    if (!bridge || syncing) return;
     if (!window.confirm(text('Alle lokalen Offline-Arbeitsdaten und vorgemerkten Änderungen löschen?', 'Delete all local offline data and queued changes?'))) return;
+    workspaceRevision++;
     const result = bridge.clear();
     show(result === 'ok' ? text('Lokale Offline-Daten wurden gelöscht.', 'Local offline data was deleted.') : text(`Löschen fehlgeschlagen: ${result}`, `Could not delete data: ${result}`), result === 'ok' ? 'success' : 'warning');
     await render();
   });
 
   window.addEventListener('simpleoffice:native-ready', () => {
-    bridge = window.SimpleOfficeOffline || null;
-    if (switchButton) switchButton.disabled = !bridge;
-    render().then(() => {
-      if (bridge && document.documentElement.dataset.soNetwork !== 'offline' && navigator.onLine !== false) syncOutbox();
-    });
+    const next = window.SimpleOfficeOffline || null;
+    if (bridge !== next) hideMessage();
+    bridge = next;
+    updateSyncControls();
+    render().then(() => syncOutbox());
   });
   window.addEventListener('simpleoffice:network', event => {
     if (event.detail && event.detail.online) syncOutbox();
   });
-  window.addEventListener('online', syncOutbox);
+  window.addEventListener('online', () => syncOutbox());
 
-  render().then(() => {
-    if (document.documentElement.dataset.soNetwork !== 'offline' && navigator.onLine !== false) syncOutbox();
-  });
+  updateSyncControls();
+  render().then(() => syncOutbox());
 })();

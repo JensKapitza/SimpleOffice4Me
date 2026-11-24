@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import io
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -48,6 +50,7 @@ class DocumentTextPreviewTests(unittest.TestCase):
         ):
             self.assertIn(marker, html)
         self.assertIn("Alpha Bravo Alpha", html)
+        self.assertIn('aria-keyshortcuts="Enter Shift+Enter"', html)
 
     def test_extraction_status_is_shown_for_recognized_text(self):
         html = self.client.get(f"/documents/{self.pdf_doc['document_id']}").get_data(as_text=True)
@@ -64,6 +67,17 @@ class DocumentTextPreviewTests(unittest.TestCase):
         self.assertNotIn("innerHTML", script)
         self.assertIn("clipboard", script)
         self.assertIn("data-preview-match", script)
+
+
+class TextPreviewFrontendTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for frontend tests")
+    def test_preview_search_preserves_text_and_navigates_latest_query(self):
+        script = Path(__file__).with_name("document_preview_navigation.test.cjs")
+        result = subprocess.run(
+            [shutil.which("node"), "--test", str(script)],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

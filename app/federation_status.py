@@ -31,7 +31,10 @@ def shared_diagnostics():
         shared = policy.get("network_diagnostics", {}) if isinstance(policy, dict) else {}
         if peer.get("enabled") and isinstance(shared, dict) and shared.get("share_status_with_users") is True:
             peers.append(peer)
-    records = store.network_diagnostics([peer["peer_id"] for peer in peers])
+    records = store.network_diagnostics(
+        [peer["peer_id"] for peer in peers],
+        target_base_urls={peer["peer_id"]: peer["base_url"] for peer in peers},
+    )
     now = int(time.time())
     for peer in peers:
         rows = records.get(peer["peer_id"], [])

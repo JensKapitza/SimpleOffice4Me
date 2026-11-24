@@ -10,6 +10,9 @@ on:
       - tests/browser/manual_screenshot_smoke.py
       - tests/browser/peer_to_peer_smoke.py
       - tests/test_federation_admin_ui.py
+      - tests/federation_admin_ui_fixture.py
+      - tests/test_federation_admin_pairing_ui.py
+      - tests/test_federation_admin_policy_ui.py
       - tests/test_federation_diagnostics.py
       - templates/documents/nav.html
       - .github/workflows/manual-browser-screenshots.yml
