@@ -1,4 +1,5 @@
-"""Presentation helpers for direct discovery, without network or settings writes."""
+"""Presentation helpers for peer discovery, without network or settings writes."""
+from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 from .federation_discovery_endpoint import normalize_endpoint
@@ -34,3 +35,13 @@ def direct_discovery_feedback(root, language: str, peer: dict, compatibility_sum
             if _endpoint_key(configured) != _endpoint_key(reached) else ""
         )
     return " ".join(part for part in (message, compatibility_summary, notice) if part)
+
+
+def receive_deadline(expires_at: int) -> datetime | None:
+    """Convert a persisted positive expiry to UTC without changing readiness."""
+    if expires_at <= 0:
+        return None
+    try:
+        return datetime.fromtimestamp(expires_at, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None

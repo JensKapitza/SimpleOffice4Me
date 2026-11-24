@@ -143,6 +143,16 @@ bewusste administrative Konfiguration beziehungsweise den Pairing-Ablauf.
 
 Dort gibt es als ersten Schnellweg **„Netzwerk scannen“**. Außerdem können Peers nach Land, URL/IP oder E-Mail gesucht, QR-Codes ausgetauscht, persönliche Prüfungen bestätigt, Trust-Level gesetzt und die Weitergabe jeder Trust-Beziehung einzeln festgelegt werden.
 
+Unter **Auf diesem Gerät empfangen** zeigt der LAN-Empfangshinweis seine
+genaue Frist in UTC. Ein Neuladen zeigt, ob das Zeitfenster noch aktiv oder
+abgelaufen ist. Auch danach kann die Instanz gefunden werden. Aktiviere
+den Hinweis nur dann erneut, wenn das Suchprofil wieder Bereitschaft
+anzeigen soll. Er öffnet keinen Port und ändert weder Pairing, Trust noch
+Datenfreigaben. Bei Übertragungen, die nur in eine Richtung funktionieren,
+prüfe unter **Federation → Peers** auf der sendenden Instanz die Verbindung
+in Richtung der Empfängerinstanz. Ein abgelaufener Hinweis allein erklärt
+keinen Fehler einer bereits eingerichteten Übertragung.
+
 Unter **Federation → Peers → Bearbeiten** wird ein geeigneter aktiver Peer
 separat als Rendezvous-Relay freigegeben. Für bestehende Installationen bleibt
 der Schalter nach dem Update aus; es ist keine Datenmigration erforderlich.

@@ -97,32 +97,45 @@
   </form>
 </div>
 
-<section class="card mb-3 {{ 'border-success' if lan_receive.active else 'border-secondary' }}">
+<section id="lan-receive" aria-labelledby="lan-receive-heading" class="card mb-3 {{ 'border-success' if lan_receive.active else 'border-secondary' }}">
   <div class="card-body">
     <div class="d-flex flex-column flex-md-row justify-content-between gap-3 align-items-md-center">
       <div>
-        <h2 class="h4 mb-1">{{ 'Receive on this device' if g.language == 'en' else 'Auf diesem Gerät empfangen' }}</h2>
-        <p class="text-secondary mb-2">{{ 'Enable reception only if another device in the same local network should send data to this SimpleOffice.' if g.language == 'en' else 'Aktiviere den Empfang nur dann, wenn ein anderes Gerät im gleichen lokalen Netzwerk Daten an dieses SimpleOffice senden soll.' }}</p>
+        <h2 class="h4 mb-1" id="lan-receive-heading">{{ 'Receive on this device' if g.language == 'en' else 'Auf diesem Gerät empfangen' }}</h2>
+        <p class="text-secondary mb-2">{{ 'The notice appears in this device’s discovery profile. It does not open network ports or change access permissions.' if g.language == 'en' else 'Der Hinweis steht im Suchprofil dieses Geräts. Er öffnet keine Netzwerkports und ändert keine Zugriffsrechte.' }}</p>
         {% if lan_receive.active %}
-          <span class="badge text-bg-success">{{ 'Reception noted' if g.language == 'en' else 'Empfang vorgemerkt' }}</span>
-          <span class="small text-secondary ms-1">{{ 'Automatic end after 15 minutes at the latest.' if g.language == 'en' else 'Automatisches Ende nach spätestens 15 Minuten.' }}</span>
+          <span class="badge text-bg-success">{{ 'Receive notice active' if g.language == 'en' else 'Empfangshinweis aktiv' }}</span>
+        {% elif lan_receive_deadline %}
+          <span class="badge text-bg-secondary">{{ 'Receive notice expired' if g.language == 'en' else 'Empfangshinweis abgelaufen' }}</span>
         {% else %}
-          <span class="badge text-bg-secondary">{{ 'Off' if g.language == 'en' else 'Aus' }}</span>
-          <span class="small text-secondary ms-1">{{ 'No permanent reception mode.' if g.language == 'en' else 'Kein dauerhafter Empfangsmodus.' }}</span>
+          <span class="badge text-bg-secondary">{{ 'No receive notice is active' if g.language == 'en' else 'Kein Empfangshinweis aktiv' }}</span>
+        {% endif %}
+        {% if lan_receive_deadline %}
+          <span class="small text-secondary ms-1">
+            {% if lan_receive.active %}{{ 'Expires at:' if g.language == 'en' else 'Aktiv bis:' }}
+            {% else %}{{ 'Expired at:' if g.language == 'en' else 'Abgelaufen um:' }}{% endif %}
+            <time datetime="{{ lan_receive_deadline.isoformat() }}">{{ lan_receive_deadline.strftime('%Y-%m-%d %H:%M:%S UTC') }}</time>
+          </span>
+        {% elif lan_receive.active %}
+          <span class="small text-secondary ms-1">{{ 'Expiry time unavailable.' if g.language == 'en' else 'Ablauf: Zeitpunkt nicht verfügbar.' }}</span>
         {% endif %}
       </div>
       {% if lan_receive.active %}
       <form method="post" action="{{ url_for('federation_peer_admin.stop_receive') }}">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-        <button class="btn btn-outline-danger" type="submit">{{ 'End reception' if g.language == 'en' else 'Empfang beenden' }}</button>
+        <button class="btn btn-outline-danger" type="submit">{{ 'End receive notice' if g.language == 'en' else 'Empfangshinweis beenden' }}</button>
       </form>
       {% else %}
       <form method="post" action="{{ url_for('federation_peer_admin.start_receive') }}">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-        <button class="btn btn-success" type="submit"><i class="fas fa-satellite-dish me-1" aria-hidden="true"></i>{{ 'Ready to receive for 15 minutes' if g.language == 'en' else '15 Minuten empfangsbereit' }}</button>
+        <button class="btn btn-success" type="submit"><i class="fas fa-satellite-dish me-1" aria-hidden="true"></i>{{ 'Show receive notice for 15 minutes' if g.language == 'en' else 'Empfangshinweis für 15 Minuten anzeigen' }}</button>
       </form>
       {% endif %}
     </div>
+    {% if lan_receive.active %}
+      <p class="small text-secondary mt-2 mb-0">{{ 'Status at page load; reload the page to refresh it.' if g.language == 'en' else 'Stand beim Laden der Seite. Zum Aktualisieren die Seite neu laden.' }}</p>
+    {% endif %}
+    <p class="small text-secondary mt-2 mb-0">{{ 'This device can still be found after the notice expires. Renew it here only if you want to advertise readiness again. If a transfer fails or only works in one direction, open Federation → Peers on the sending device and check the connection to this device.' if g.language == 'en' else 'Dieses Gerät bleibt auch nach Ablauf des Hinweises auffindbar. Aktiviere ihn hier nur erneut, wenn du wieder Empfangsbereitschaft signalisieren willst. Schlägt eine Übertragung fehl oder funktioniert sie nur in eine Richtung, prüfe unter Federation → Peers auf dem sendenden Gerät die Verbindung in Richtung dieses Geräts.' }}</p>
   </div>
 </section>
 
