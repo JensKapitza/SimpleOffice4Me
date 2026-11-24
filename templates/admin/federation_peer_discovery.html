@@ -18,6 +18,24 @@
 </div>
 {% endif %}
 
+<section class="card border-success shadow-sm mb-3" id="simple-peer-connect">
+  <div class="card-body">
+    <h2 class="h5 mb-1">{{ 'Quick peer connection' if g.language == 'en' else 'Peers schnell verbinden' }}</h2>
+    <p class="small text-secondary mb-2">{{ 'Use the QR code when both screens are available. Use sound when you cannot scan the other screen.' if g.language == 'en' else 'Nimm den QR-Code, wenn beide Bildschirme erreichbar sind. Nutze den Ton, wenn du den anderen Bildschirm nicht scannen kannst.' }}</p>
+    <ol class="small mb-2 ps-3">
+      <li>{{ 'On the sending instance, show its Connect QR below; on the receiving instance, scan it under QR import. If camera access is blocked, choose a QR photo.' if g.language == 'en' else 'Auf der sendenden Instanz unten den Connect-QR anzeigen; auf der empfangenden Instanz unter QR importieren scannen. Wenn die Kamera blockiert ist, ein QR-Foto auswählen.' }}</li>
+      <li>{{ 'For sound instead: announce the correct server address on one side and listen for sound in the IP / URL field on the other, then press Check.' if g.language == 'en' else 'Für Ton stattdessen: Auf einer Seite die passende Server-Adresse ansagen, auf der anderen im Feld IP / URL auf Ton hören und danach „Prüfen“ drücken.' }}</li>
+      <li>{{ 'Repeat the discovery in reverse so both instances know each other. Then use the same server token and the same unique peer token on both sides.' if g.language == 'en' else 'Die Suche in Gegenrichtung wiederholen, damit beide Instanzen einander kennen. Danach auf beiden Seiten dasselbe Server-Token und dasselbe eindeutige Peer-Token eintragen.' }}</li>
+    </ol>
+    <p class="small text-secondary mb-2">{{ 'QR transfers the address and public identity; sound transfers only the address. Neither sends tokens, enables trust or grants data access.' if g.language == 'en' else 'Der QR-Code überträgt Adresse und öffentliche Identität; der Ton überträgt nur die Adresse. Beides sendet keine Tokens, aktiviert kein Vertrauen und vergibt keine Datenrechte.' }}</p>
+    <div class="d-flex flex-wrap gap-2">
+      <a class="btn btn-sm btn-outline-primary" href="#connect-qr">{{ 'Show QR / announce' if g.language == 'en' else 'QR anzeigen / Ton ansagen' }}</a>
+      <a class="btn btn-sm btn-outline-secondary" href="#qr-import">{{ 'Scan / import QR' if g.language == 'en' else 'QR scannen / importieren' }}</a>
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('federation_admin.dashboard', view='peers', _anchor='peer-form') }}">{{ 'Set tokens and permissions' if g.language == 'en' else 'Tokens und Rechte einrichten' }}</a>
+    </div>
+  </div>
+</section>
+
 <section class="card border-primary shadow-sm mb-3" id="network-scan">
   <div class="card-body">
     <div class="row g-3 align-items-start">
@@ -162,7 +180,7 @@
   </form>
 </div>
 
-<div class="card card-body mb-3" data-fed-sound>
+<div class="card card-body mb-3" id="connect-qr" data-fed-sound>
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
     <div><h2 class="h5 mb-1">Connect QR-Codes</h2><p class="small text-secondary mb-0">{{ 'Scan on the other device. A separate connect code is generated for each currently detected IPv4 address of this device – including hotspot/tethering.' if g.language == 'en' else 'Auf dem anderen Gerät scannen. Für jede aktuell erkannte IPv4-Adresse dieses Geräts wird ein eigener Connect-Code erzeugt – auch bei Hotspot/Tethering.' }}</p></div>
     <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('federation_peer_admin.dashboard') }}">{{ 'Refresh' if g.language == 'en' else 'Aktualisieren' }}</a>
@@ -189,7 +207,7 @@
   {% endif %}
 </div>
 
-<div class="card card-body mb-3">
+<div class="card card-body mb-3" id="qr-import">
   <h2 class="h5">{{ 'Import QR' if g.language == 'en' else 'QR importieren' }}</h2>
   <p class="small text-secondary">{{ 'Scan the connect code directly with the camera, select an image or paste the payload manually.' if g.language == 'en' else 'Connect-Code direkt mit der Kamera scannen, ein Bild auswählen oder den Payload manuell einfügen.' }}</p>
   <form method="post" action="{{ url_for('federation_peer_admin.import_qr') }}">
