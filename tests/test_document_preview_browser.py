@@ -57,8 +57,12 @@ class DocumentPreviewBrowserTests(unittest.TestCase):
         self.cookie = cookie.value
         store = DocumentStore(base / "documents")
         store.initialize()
+        self.composed = "Überprüfung"
+        self.decomposed = "U\u0308berpru\u0308fung"
+        fixture = "Preview search finds Kirsche twice: Kirsche.\n"
+        fixture += f"Unicode: 🧾 İ {self.decomposed} | {self.composed} | Uberprufung."
         document = store.import_upload(
-            io.BytesIO("Preview search finds Kirsche twice: Kirsche.\nSecond line without.\n".encode("utf-8")),
+            io.BytesIO(fixture.encode("utf-8")),
             "obst.txt", "preview-tester",
         )
         self.document_id = document["document_id"]
@@ -112,6 +116,17 @@ class DocumentPreviewBrowserTests(unittest.TestCase):
                 )
                 pasted = page.evaluate("() => navigator.clipboard.readText()")
                 self.assertIn("Kirsche", pasted)
+                source = page.locator("[data-text-preview-body]").text_content()
+                for written in (self.composed, self.decomposed):
+                    search.fill(written)
+                    search.press("Enter")
+                    self.assertEqual(
+                        [self.decomposed, self.composed],
+                        page.locator("[data-preview-match]").all_text_contents(),
+                    )
+                    self.assertEqual(source, page.locator("[data-text-preview-body]").text_content())
+                page.locator("[data-text-preview-copy]").click()
+                self.assertEqual(source, page.evaluate("() => navigator.clipboard.readText()"))
                 self.assertEqual([], errors)
             finally:
                 context.close()

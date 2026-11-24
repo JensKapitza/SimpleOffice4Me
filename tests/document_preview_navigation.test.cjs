@@ -5,6 +5,7 @@ const test = require('node:test');
 const vm = require('node:vm');
 
 const script = fs.readFileSync(path.join(__dirname, '../static/js/document_preview.js'), 'utf8');
+let previewIntl = Intl;
 
 class Element {
   constructor() {
@@ -47,6 +48,7 @@ function preview(original) {
   let serial = 0;
   const clipboard = [];
   vm.runInNewContext(script, {
+    Intl: previewIntl,
     document: {querySelector: () => root,
       createElement: () => new Element(), createTextNode: text,
       createDocumentFragment: () => ({children: [], append(node) { this.children.push(node); }}),
@@ -77,6 +79,66 @@ test('Unicode case folding preserves source offsets and copy retains the origina
   assert.equal(p.parts.body.textContent, original);
   p.parts.copy.fire('click');
   assert.deepEqual(p.clipboard, [original]);
+});
+
+test('canonical OCR spellings match in both directions, retain accents and copy the original text', async () => {
+  const canonical = 'Überprüfung';
+  const decomposed = canonical.normalize('NFD');
+  const original = '🧾 İ: ' + decomposed + ' / ' + canonical + ' / Uberprufung';
+  const p = preview(original);
+  for (const needle of [canonical, decomposed]) {
+    p.edit(needle);
+    p.flush();
+    assert.deepEqual(p.marks(), [decomposed, canonical]);
+    assert.equal(p.parts.count.textContent, '1 / 2');
+    assert.equal(p.parts.body.textContent, original);
+    p.parts.copy.fire('click');
+  }
+  assert.deepEqual(p.clipboard, [original, original]);
+  p.edit('Uberprufung');
+  p.flush();
+  assert.deepEqual(p.marks(), ['Uberprufung']);
+});
+
+test('multi-unit canonical decompositions are valid and compatibility forms stay distinct', () => {
+  const greek = preview('ᾂ');
+  greek.edit('ᾂ'.normalize('NFD'));
+  greek.flush();
+  assert.deepEqual(greek.marks(), ['ᾂ']);
+  const hangul = preview('가 / 가');
+  hangul.edit('가');
+  hangul.flush();
+  assert.deepEqual(hangul.marks(), ['가', '가']);
+  const ligature = preview('ﬀ / ff');
+  ligature.edit('ff');
+  ligature.flush();
+  assert.deepEqual(ligature.marks(), ['ff']);
+});
+
+test('rejected partial graphemes cannot swallow a later valid whole match', () => {
+  const p = preview('👩‍👩👩👩');
+  p.edit('👩👩');
+  p.flush();
+  assert.deepEqual(p.marks(), ['👩👩']);
+  assert.equal(p.parts.body.nodes[0].textContent, '👩‍👩');
+});
+
+test('a browser without grapheme segmentation keeps literal matching and copy', () => {
+  previewIntl = {};
+  try {
+    const original = 'U\u0308berpru\u0308fung';
+    const p = preview(original);
+    p.edit('Überprüfung');
+    p.flush();
+    assert.deepEqual(p.marks(), []);
+    p.edit(original);
+    p.flush();
+    assert.deepEqual(p.marks(), [original]);
+    p.parts.copy.fire('click');
+    assert.deepEqual(p.clipboard, [original]);
+  } finally {
+    previewIntl = Intl;
+  }
 });
 
 test('quoted punctuation is found literally and not interpreted as a pattern', () => {
@@ -131,7 +193,7 @@ test('a pasted query longer than the bounded preview clears stale matches withou
   const p = preview('Alpha');
   p.edit('Alpha');
   p.flush();
-  p.edit('['.repeat(50000));
+  p.edit('['.repeat(100000));
   p.parts.next.fire('click');
   p.flush();
   assert.deepEqual(p.marks(), []);
