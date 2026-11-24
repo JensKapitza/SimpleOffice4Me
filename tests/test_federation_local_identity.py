@@ -190,6 +190,8 @@ class LocalIdentityAdminTests(unittest.TestCase):
             fresh = identity.shared_token()
         self.assertTrue(fresh)
         self.assertIn(fresh, body)
+        self.assertIn("<svg", body)
+        self.assertIn("QR-Code des neuen Federation-Tokens", body)
         events = FederationStore(self.root).events(20)
         self.assertTrue(any(event["action"] == "identity_token_rotated" for event in events))
         self.assertNotIn(fresh, json.dumps(events))
