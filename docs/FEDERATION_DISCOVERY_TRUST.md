@@ -151,6 +151,61 @@ Trust und alle Daten-Policies bleiben dabei unverändert.
 
 Für eine bereits per Discovery oder QR bekannte Identität mit öffentlichem Schlüssel kann ein Administrator einen peer-gebundenen Pairing-Code erzeugen. Der Code wird nur in der unmittelbaren, mit `Cache-Control: no-store` ausgelieferten Antwort angezeigt und kann dort widerrufen oder durch einen neuen Code ersetzt werden. Auf der Gegenstelle wählt ein Administrator denselben bekannten Peer, gleicht Fingerprint und Zieladresse bewusst ab und gibt den Code ein. Vor der Übertragung prüft SimpleOffice das öffentliche Profil erneut über eine DNS-Rebinding-geschützte, an die geprüfte IP gebundene Verbindung; Peer-ID, öffentlicher Schlüssel und Fingerprint müssen exakt der bekannten Identität entsprechen. Die Übersicht zeigt `wartet`, `beansprucht` oder `abgelaufen`, aber niemals den Code oder seinen Digest. Ein Remote-Statusabruf ermöglicht die Wiederaufnahme nach einem Neustart. Erzeugung, Beanspruchung, Statusabruf und Widerruf aktivieren keinen Peer und ändern weder Trust noch Datenrechte.
 
+## LAN/VPN: Nur eine Richtung funktioniert
+
+**A und B sind zwei eigene Instanzen.** Für A → B zählt die Sicht des
+SimpleOffice-Prozesses auf A (bei Docker: aus dem Container), nicht die des
+Browsers am Arbeitsplatz. Für B → A gilt das entsprechend.
+
+1. **Ziel und Profil auf beiden Seiten prüfen.** Auf A unter
+   **Federation · Netzwerk → IP / URL → Prüfen & Kompatibilität testen**
+   die von A erreichbare Basis-URL von B eintragen; auf B dasselbe mit der
+   URL von A. Bei einem Reverse Proxy gehört der Basispfad dazu, z. B.
+   `https://office-b.example/simpleoffice`; den Well-Known-Pfad, Query,
+   Fragment und Zugangsdaten nicht anhängen. Wird eine Instanz nur per Scan
+   oder QR angezeigt, beweist das weder den Rückweg noch das Pairing.
+   Peer-ID, öffentlichen Schlüssel und Fingerprint beider Instanzen über
+   einen vertrauenswürdigen Weg abgleichen. Bei einem gespeicherten Peer die
+   tatsächlich hinterlegte Zieladresse über **Verbindung einrichten** prüfen;
+   Discovery ersetzt sie nicht.
+2. **Pairing vom aufrufenden Peer aus prüfen.** Für A → B auf A in der
+   Zeile für B **Remote-Status prüfen** wählen. Ein erfolgreicher Abruf
+   ohne für A hinterlegten Code ist kein Verbindungsfehler. Zum Beanspruchen
+   auf B einen Code **für A** erzeugen und auf A in der Zeile für B
+   **Code sicher beanspruchen**. Für B → A die Rollen tauschen. Weder
+   Abruf noch Beanspruchung setzen einen Peer-Token, aktivieren den Peer
+   oder vergeben Trust und Datenrechte.
+3. **Nur die fehlerhafte Strecke eingrenzen.** Absenderseite: Zieladresse
+   und Port, DNS aus dem Serverprozess, Routing im LAN/VPN, Firewall und
+   TLS-Zertifikat für den eingegebenen Namen prüfen. Empfängerseite: Der
+   Reverse Proxy muss unter demselben Basispfad den Profilabruf
+   (`GET /.well-known/simpleoffice-federation`) **und** die Pairing-Aufrufe
+   (`POST /federation/v1/pairing/claim` und `…/status`) an die richtige App
+   weiterleiten, nicht auf eine Anmeldeseite umleiten. Ein Browserzugriff auf
+   die Startseite zeigt das nicht. Falls das Profil stimmt, aber der
+   signierte Aufruf abgewiesen wird, die gespeicherte Identität des Absenders
+   auf der Empfängerseite und die Systemzeit beider Instanzen prüfen.
+   TLS-Prüfung und Netzwerkregeln nicht als Fehlerumgehung abschalten.
+4. **Bei bereits eingerichteten, aktiven Peers:** Unter **Federation → Peers**
+   die signierte Netzwerkprüfung auf A und separat auf B starten
+   (**Ausgehend signiert prüfen**, in älteren Versionen **Gegenseitig prüfen**).
+   Der Knopf startet nur die ausgehende Probe dieser Instanz. Die
+   eingehende authentifizierte Anfrage belegt eine von der Gegenseite
+   gestartete Probe. Sie ist kein automatisch gestarteter Rücktest.
+   Frische Ergebnisse und die erste fehlgeschlagene Stufe (DNS, TCP, TLS, HTTP oder Auth) vergleichen.
+   Wenn nur die signierte Probe hinter einem Reverse Proxy mit Pfad scheitert,
+   den Pfad abgleichen, den der Sender signiert und den die App tatsächlich
+   prüft. Alternativ kann ein eigener Hostname ohne Basispfad verwendet
+   werden, ohne die Signaturprüfung zu ändern.
+   Pairing/Direktsuche und die signierte Probe verwenden nicht dieselben
+   Freigaben für private Adressen: Die Ausnahme für ausdrücklich eingegebene
+   lokale IPv4-Literale gilt für Direktsuche und Pairing, nicht für die
+   signierte Probe. Siehe [Gegenseitige Netzwerkdiagnose](FEDERATION_PROTOCOL.md#gegenseitige-netzwerkdiagnose).
+   Wenn beide Strecken funktionieren, aber z. B. nur Kalender oder
+   Dokumente in eine Richtung fehlen, die Sende- und Empfangsrechte für
+   genau diese Funktion getrennt prüfen, nicht die Freigaben pauschal
+   erweitern.
+
 ## Netzwerk-Scan im Detail
 
 Der Scan ist ein lokaler Komfortmechanismus für LAN/WLAN, Container-Netze und ausdrücklich angegebene lokale/VPN-Netze:
