@@ -29,6 +29,19 @@ complete. The capture page does not create a parallel attachment store. A
 mobile upload is not automatically linked to a business object; the user can
 add existing document relationships later.
 
+## Recognize a photo after upload
+
+Bulk photo upload can defer OCR. Open its document detail and choose **Run
+OCR** in **Image analysis** to process just that photo locally, without
+uploading it again. A successful result appears as recognized text and can be
+found using `text:` in advanced document search. If Tesseract or its local
+language packs are unavailable, retry after restoring them. The app tells
+apart no readable text and a failed run. A failed retry on identical bytes
+keeps the previously recognized text; changed image bytes require OCR again
+and do not inherit the old full text. Existing tags are retained because
+older OCR tags are not distinguished from user-entered tags. The retry
+does not modify or send the original file.
+
 Camera availability, permission prompts, HEIC support, iOS file selection, and
 physical-device retry behavior still require Android WebView and iOS device
 acceptance. If a browser ignores the capture hint, the standard system file

@@ -326,21 +326,7 @@ class _DocumentStorePart2:
         return {"applied": True, "candidates": candidates, "moved": moved}
 
     def analyze_image(self, reference: str | Path, author: str) -> dict[str, Any]:
-        self._require_actor(author)
-        metadata = self.get_document(reference)
-        self._require_document_editable(metadata)
-        try:
-            path = resolve_file_under(self.root, str(metadata.get("last_path", "")))
-        except (OSError, ValueError) as exc:
-            raise ValueError("document file is unavailable") from exc
-        if not self._is_image(path):
-            raise ValueError("document is not a supported image")
-        self._apply_image_analysis(path, metadata, force=True)
-        self._save_document(metadata)
-        self._refresh_search_index(metadata)
-        self._event("image_analyzed", {"document_id": metadata["document_id"], "actor": author})
-        self._record_revision("image_analyzed", author, "documents", metadata["document_id"], metadata)
-        return metadata
+        return self.refresh_document_analysis(reference, author, image_only=True)
 
     def refresh_missing_text(self, actor: str, force: bool = False) -> int:
         self._require_actor(actor)

@@ -736,19 +736,36 @@ class _DocumentStorePart4:
         return [stem, *words]
 
     @staticmethod
-    def _is_image(path: Path) -> bool:
-        return path.is_file() and path.suffix.lower() in {".jpg", ".jpeg", ".png", ".gif", ".webp", ".tif", ".tiff", ".bmp"}
+    def _is_image_name(path: Path) -> bool:
+        return path.suffix.casefold() in {".jpg", ".jpeg", ".png", ".gif", ".webp", ".tif", ".tiff", ".bmp"}
+
+    @classmethod
+    def _is_image(cls, path: Path) -> bool:
+        return path.is_file() and cls._is_image_name(path)
+
+    @staticmethod
+    def _current_image_ocr(metadata: dict[str, Any]) -> bool:
+        analysis = metadata.get("image_analysis")
+        source = metadata.get("sha256")
+        return bool(
+            source and isinstance(analysis, dict)
+            and analysis.get("source_sha256") == source
+            and analysis.get("ocr_status") == "completed"
+            and isinstance(metadata.get("ocr_text"), str)
+        )
 
     def _apply_document_text_extraction(self, path: Path, metadata: dict[str, Any], force: bool = False) -> bool:
         current = metadata.get("text_extraction", {})
         current = current if isinstance(current, dict) else {}
         is_pdf = path.suffix.lower() == ".pdf"
+        is_image = self._is_image_name(path)
         current_pipeline = current.get("ocr_pipeline_version")
         if (
             not force
             and current.get("source_sha256") == metadata.get("sha256")
             and current.get("status") == "completed"
             and (not is_pdf or current_pipeline == PDF_OCR_PIPELINE_VERSION)
+            and (not is_image or self._current_image_ocr(metadata))
             and "extracted_text" in metadata
         ):
             return False
@@ -759,9 +776,17 @@ class _DocumentStorePart4:
         }
         native_text = ""
         image_text = ""
-        if self._is_image(path):
-            native_text = metadata.get("ocr_text", "")
+        if is_image:
             analysis["kind"] = "image"
+            if self._current_image_ocr(metadata):
+                image_text = metadata["ocr_text"][:MAX_INDEXED_TEXT_CHARACTERS]
+            else:
+                image = metadata.get("image_analysis")
+                if not isinstance(image, dict) or image.get("source_sha256") != metadata.get("sha256"):
+                    image = {"source_sha256": metadata.get("sha256", ""), "ocr_status": "not_run", "exif": {}}
+                    metadata["image_analysis"] = image
+                analysis["status"] = "deferred" if image.get("ocr_status") == "deferred_bulk_upload" else "partial"
+                metadata.pop("ocr_text", None)
         elif is_pdf:
             analysis.update({"kind": "pdf", "ocr_pipeline_version": PDF_OCR_PIPELINE_VERSION})
             try:

@@ -357,8 +357,8 @@ class _DocumentStorePart5:
 
     def _apply_image_analysis(self, path: Path, metadata: dict[str, Any], force: bool = False) -> None:
         """Keep analysis local; failures are recorded with the document, not hidden."""
-        current = metadata.get("image_analysis", {})
-        if not force and current.get("source_sha256") == metadata.get("sha256"):
+        current = metadata.get("image_analysis")
+        if not force and isinstance(current, dict) and current.get("source_sha256") == metadata.get("sha256"):
             return
         analysis: dict[str, Any] = {"source_sha256": metadata.get("sha256", ""), "analyzed_at": utc_now(), "exif": {}, "ocr_status": "not_run"}
         generated_tags = {"bild", f"format-{path.suffix.lower().lstrip('.')}"}
@@ -405,9 +405,15 @@ class _DocumentStorePart5:
             analysis["ocr_status"] = "completed"
             analysis["ocr_characters"] = len(ocr_text)
             generated_tags.update(self._ocr_tags(ocr_text))
-        except RuntimeError as exc:
-            analysis["ocr_status"] = "unavailable"
-            analysis["ocr_error"] = str(exc)
+        except (OSError, RuntimeError):
+            if self._current_image_ocr(metadata):
+                # The same verified bytes already have a good result. Keep it,
+                # but distinguish this failed attempt from the earlier OCR.
+                analysis.update(ocr_status="completed", ocr_retry_status="unavailable",
+                                ocr_characters=len(metadata["ocr_text"]))
+            else:
+                metadata.pop("ocr_text", None)
+                analysis["ocr_status"] = "unavailable"
         metadata["image_analysis"] = analysis
         metadata["tags"] = sorted({*metadata.get("tags", []), *generated_tags}, key=str.casefold)
 
@@ -417,6 +423,7 @@ class _DocumentStorePart5:
         actor: str,
         *,
         max_bytes: int = MAX_MANUAL_ANALYSIS_BYTES,
+        image_only: bool = False,
     ) -> dict[str, Any]:
         """Refresh bounded OCR/text analysis without changing original bytes."""
         self._require_actor(actor)
@@ -425,26 +432,46 @@ class _DocumentStorePart5:
         with exclusive_file_lock(self.control / ".document-content.lock"):
             metadata = self.get_document(reference)
             self._require_document_editable(metadata)
-            path = resolve_file_under(self.root, str(metadata.get("last_path", "")))
+            relative = str(metadata.get("last_path", ""))
+            path = resolve_file_under(self.root, relative)
             if path.stat().st_size > min(max_bytes, MAX_MANUAL_ANALYSIS_BYTES):
                 raise ValueError("document exceeds the manual analysis size limit")
             expected_digest = str(metadata.get("sha256", ""))
             if not expected_digest or not hmac.compare_digest(sha256_file(path), expected_digest):
                 raise ValueError("document content changed before analysis")
-            if self._is_image(path):
+            is_image = self._is_image(path)
+            if image_only and not is_image:
+                raise ValueError("document is not a supported image")
+            previous_tags = set(metadata.get("tags", []))
+            if is_image:
                 self._apply_image_analysis(path, metadata, force=True)
             self._apply_document_text_extraction(path, metadata, force=True)
+            metadata["text_extraction"]["updated_by"] = actor
             if not hmac.compare_digest(sha256_file(path), expected_digest):
                 raise ValueError("document content changed during analysis")
-            self._save_document(metadata)
-            self._refresh_search_index(metadata)
-            details = {"document_id": metadata["document_id"], "actor": actor}
-            self._event("document_analysis_refreshed", details)
-            self._record_revision(
-                "document_analysis_refreshed", actor, "documents",
-                metadata["document_id"], details,
+            # Keep independent changes, such as a tag added while the OCR tool ran.
+            latest = self.get_document(metadata["document_id"])
+            self._require_document_editable(latest)
+            if latest.get("sha256") != expected_digest or latest.get("last_path") != relative:
+                raise ValueError("document changed during analysis")
+            fields = ("image_analysis", "ocr_text", "text_extraction", "extracted_text") if is_image else (
+                "text_extraction", "extracted_text",
             )
-            return metadata
+            for field in fields:
+                if field in metadata:
+                    latest[field] = metadata[field]
+                else:
+                    latest.pop(field, None)
+            if is_image:
+                added = set(metadata.get("tags", [])) - previous_tags
+                latest["tags"] = sorted(set(latest.get("tags", [])) | added, key=str.casefold)
+            self._save_document(latest)
+            self._refresh_search_index(latest)
+            details = {"document_id": latest["document_id"], "actor": actor}
+            event = "image_analyzed" if image_only else "document_analysis_refreshed"
+            self._event(event, details)
+            self._record_revision(event, actor, "documents", latest["document_id"], details)
+            return latest
 
     @staticmethod
     def _gps_data(value: Any, labels: dict[int, str]) -> dict[str, Any]:
@@ -597,6 +624,10 @@ class _DocumentStorePart5:
             )
 
     def _refresh_search_index(self, metadata: dict[str, Any]) -> None:
+        if self._is_image_name(Path(str(metadata.get("last_path", "")))):
+            content = metadata["ocr_text"][:MAX_INDEXED_TEXT_CHARACTERS] if self._current_image_ocr(metadata) else ""
+        else:
+            content = "\n".join(part for part in (metadata.get("extracted_text", ""), metadata.get("ocr_text", "")) if part)
         row = (
             metadata["document_id"],
             metadata.get("last_path", ""),
@@ -604,7 +635,7 @@ class _DocumentStorePart5:
             " ".join(metadata.get("tags", [])),
             "\n".join(note.get("text", "") for note in metadata.get("notes", [])),
             json.dumps(metadata.get("attributes", {}), ensure_ascii=False),
-            "\n".join(part for part in (metadata.get("extracted_text", ""), metadata.get("ocr_text", "")) if part),
+            content,
         )
         with self._db() as db:
             updated = db.execute(
