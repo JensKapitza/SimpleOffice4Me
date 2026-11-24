@@ -227,6 +227,36 @@ class FederationAdminUiTests(unittest.TestCase):
         self.assertNotIn("certificate_failed", body)
         self.assertEqual(403, user_client.get("/admin/federation?view=peers").status_code)
 
+    def test_changed_peer_address_does_not_reuse_outbound_success_in_either_view(self):
+        store = FederationStore(self.root)
+        policy = {"network_diagnostics": {"share_status_with_users": True}}
+        store.save_peer("visible-peer", "Visible Office", "https://old.example", "", policy, True)
+        for direction, source in (("outbound", "local"), ("inbound", "visible-peer")):
+            store.record_network_diagnostic("visible-peer", direction=direction, source=source, status="success")
+        user = app.test_client()
+        result = user.post("/auth/login", data={
+            "username": "federation-ui-user", "password": "federation-user-password",
+        })
+        self.assertLess(result.status_code, 400)
+
+        def assert_status(outbound):
+            admin_body = self.client.get("/admin/federation?view=peers").get_data(as_text=True)
+            self.assertIn(f"Server → konfigurierte Peer-Adresse: {outbound}", admin_body)
+            self.assertIn("(kein aktiver Rücktest): erreichbar", admin_body)
+            user_body = user.get("/federation/diagnostics").get_data(as_text=True)
+            self.assertRegex(user_body, rf"Visible Office</th>\s*<td>{outbound}</td>\s*<td>erreichbar</td>")
+            self.assertNotIn(".example", user_body.split("Visible Office</th>", 1)[1].split("</tr>", 1)[0])
+
+        assert_status("erreichbar")
+        saved = self.client.post("/admin/federation/peers", data={
+            "peer_id": "visible-peer", "label": "Visible Office", "base_url": "https://new.example",
+            "policy_json": json.dumps(policy), "enabled": "1",
+        })
+        self.assertEqual(302, saved.status_code)
+        assert_status("unbekannt")
+        store.record_network_diagnostic("visible-peer", direction="outbound", source="local", status="success")
+        assert_status("erreichbar")
+
     def test_peer_form_explicitly_controls_user_status_sharing(self):
         response = self.client.post(
             "/admin/federation/peers",

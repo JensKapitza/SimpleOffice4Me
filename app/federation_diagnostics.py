@@ -47,6 +47,7 @@ def _record_failure(
     started: float,
     category: str,
     stages: dict[str, str],
+    *, expected_base_url: str,
 ) -> dict:
     elapsed = int((time.monotonic() - started) * 1000)
     record = store.record_network_diagnostic(
@@ -57,6 +58,7 @@ def _record_failure(
         category=category,
         latency_ms=elapsed,
         detail={"stages": stages},
+        expected_base_url=expected_base_url,
     )
     return record
 
@@ -116,29 +118,37 @@ def probe_peer(root: str | Path, peer_id: str, *, now: int | None = None) -> dic
         if not peer:
             return _unavailable_peer(peer_id)
         peer_id = str(peer["peer_id"])
+        target = str(peer["base_url"])
+    except (KeyError, RuntimeError, ValueError):
+        return _unavailable_peer(peer_id)
+
+    def fail(category, detail):
+        return _record_failure(store, peer_id, started, category, detail, expected_base_url=target)
+
+    try:
         if not peer.get("enabled"):
-            return _record_failure(store, peer_id, started, "configuration", {**stages, "peer": "disabled"})
+            return fail("configuration", {**stages, "peer": "disabled"})
         token = store.peer_token(peer_id)
         if not token:
-            return _record_failure(store, peer_id, started, "configuration", {**stages, "authentication": "missing_peer_token"})
+            return fail("configuration", {**stages, "authentication": "missing_peer_token"})
         shared_bearer = _identity.shared_token()
         if not shared_bearer and not current_app.testing:
-            return _record_failure(store, peer_id, started, "configuration", {**stages, "authentication": "shared_bearer_not_configured"})
+            return fail("configuration", {**stages, "authentication": "shared_bearer_not_configured"})
         if not store.claim_diagnostic_attempt(peer_id, limit=RATE_LIMIT_COUNT, window_seconds=RATE_LIMIT_WINDOW_SECONDS):
-            return _record_failure(store, peer_id, started, "rate_limited", stages)
+            return fail("rate_limited", stages)
     except (KeyError, RuntimeError, ValueError):
         return _unavailable_peer(peer_id)
 
     try:
-        base_url, parsed, port, addresses = resolve_pinned_endpoint(peer["base_url"])
+        base_url, parsed, port, addresses = resolve_pinned_endpoint(target)
     except TimeoutError:
         stages["dns"] = "timeout"
-        return _record_failure(store, peer_id, started, "dns_timeout", stages)
+        return fail("dns_timeout", stages)
     except ValueError as exc:
         message = str(exc).casefold()
         category = "dns" if "resolve" in message else "policy" if any(word in message for word in ("private", "loopback", "network address", "endpoint")) else "configuration"
         stages["dns"] = "failed" if category == "dns" else "not_checked"
-        return _record_failure(store, peer_id, started, category, stages)
+        return fail(category, stages)
     stages["dns"] = "ok"
     request_path = (parsed.path.rstrip("/") + PROBE_PATH) or PROBE_PATH
     probe_id = secrets.token_urlsafe(18)
@@ -147,7 +157,7 @@ def probe_peer(root: str | Path, peer_id: str, *, now: int | None = None) -> dic
         proof = peer_auth_headers(local_peer_id(), token, "POST", request_path, payload)
     except (RuntimeError, ValueError):
         stages["authentication"] = "local_peer_identity_unavailable"
-        return _record_failure(store, peer_id, started, "configuration", stages)
+        return fail("configuration", stages)
     bearer = _identity.shared_token() or token
     headers = {
         "Authorization": f"Bearer {bearer}",
@@ -177,10 +187,10 @@ def probe_peer(root: str | Path, peer_id: str, *, now: int | None = None) -> dic
                 stages["tls"] = "ok"
             except ssl.SSLCertVerificationError:
                 stages["tls"] = "certificate_failed"
-                return _record_failure(store, peer_id, started, "tls_certificate", stages)
+                return fail("tls_certificate", stages)
             except ssl.SSLError:
                 stages["tls"] = "failed"
-                return _record_failure(store, peer_id, started, "tls", stages)
+                return fail("tls", stages)
         else:
             connection.sock = raw_socket
             raw_socket = None
@@ -189,28 +199,28 @@ def probe_peer(root: str | Path, peer_id: str, *, now: int | None = None) -> dic
         stages["http"] = str(response.status)
         if response.status == 401:
             stages["authentication"] = "rejected"
-            return _record_failure(store, peer_id, started, "authentication", stages)
+            return fail("authentication", stages)
         if response.status == 403:
             stages["authentication"] = "authenticated_but_forbidden"
-            return _record_failure(store, peer_id, started, "permission", stages)
+            return fail("permission", stages)
         if response.status == 429:
-            return _record_failure(store, peer_id, started, "rate_limited", stages)
+            return fail("rate_limited", stages)
         if response.status != 200:
-            return _record_failure(store, peer_id, started, "http", stages)
+            return fail("http", stages)
         raw = response.read(MAX_RESPONSE_BYTES + 1)
         if len(raw) > MAX_RESPONSE_BYTES:
-            return _record_failure(store, peer_id, started, "response_too_large", stages)
+            return fail("response_too_large", stages)
         stages["authentication"] = "checking_signature"
         supplied_signature = response.getheader("X-SimpleOffice-Diagnostic-Signature", "").casefold()
         expected_signature = response_signature(token, nonce, raw)
         if not hmac.compare_digest(expected_signature, supplied_signature):
             stages["authentication"] = "signature_failed"
-            return _record_failure(store, peer_id, started, "authentication", stages)
+            return fail("authentication", stages)
         try:
             result = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
             stages["authentication"] = "invalid_response"
-            return _record_failure(store, peer_id, started, "authentication", stages)
+            return fail("authentication", stages)
         if (
             not isinstance(result, dict)
             or result.get("peer_id") != peer["peer_id"]
@@ -218,7 +228,7 @@ def probe_peer(root: str | Path, peer_id: str, *, now: int | None = None) -> dic
             or result.get("request_nonce") != nonce
         ):
             stages["authentication"] = "identity_mismatch"
-            return _record_failure(store, peer_id, started, "authentication", stages)
+            return fail("authentication", stages)
         stages["authentication"] = "ok"
         elapsed = int((time.monotonic() - started) * 1000)
         result = store.record_network_diagnostic(
@@ -229,6 +239,7 @@ def probe_peer(root: str | Path, peer_id: str, *, now: int | None = None) -> dic
             latency_ms=elapsed,
             checked_at=int(time.time() if now is None else now),
             detail={"stages": stages, "remote_received_at": int(result.get("received_at", 0))},
+            expected_base_url=target,
         )
         return result
     except (socket.gaierror, TimeoutError):
@@ -241,7 +252,7 @@ def probe_peer(root: str | Path, peer_id: str, *, now: int | None = None) -> dic
         else:
             stages["http"] = "timeout"
             category = "http_timeout"
-        return _record_failure(store, peer_id, started, category, stages)
+        return fail(category, stages)
     except OSError as exc:
         category = "tls" if isinstance(exc, ssl.SSLError) else "tcp" if stages["tcp"] != "ok" else "http"
         if category == "tls":
@@ -250,10 +261,10 @@ def probe_peer(root: str | Path, peer_id: str, *, now: int | None = None) -> dic
             stages["tcp"] = "failed"
         else:
             stages["http"] = "failed"
-        return _record_failure(store, peer_id, started, category, stages)
+        return fail(category, stages)
     except (http.client.HTTPException, ValueError):
         stages["http"] = "failed"
-        return _record_failure(store, peer_id, started, "http", stages)
+        return fail("http", stages)
     finally:
         if connection is not None:
             connection.close()

@@ -1,6 +1,7 @@
 """Persistent peer, transfer and replay state for SOFP federation."""
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from .sqlite_utils import connect as sqlite_connect
@@ -19,6 +20,7 @@ class PeerBanned(ValueError):
 
 
 SCHEMA_VERSION = 1
+_DIAGNOSTIC_TARGET_KEY = "_target_sha256"
 
 
 def _now() -> int:
@@ -35,6 +37,14 @@ def _load(value: str | None, default: Any) -> Any:
         return parsed
     except (TypeError, json.JSONDecodeError):
         return default
+
+
+def _diagnostic_target(url: str) -> str:
+    return hashlib.sha256(url.encode("utf-8")).hexdigest()
+
+
+def _diagnostic_matches_target(detail: Any, url: str) -> bool:
+    return isinstance(detail, dict) and detail.get(_DIAGNOSTIC_TARGET_KEY) == _diagnostic_target(url)
 
 
 class FederationStore:
@@ -397,7 +407,7 @@ class FederationStore:
     def record_network_diagnostic(
         self, peer_id: str, *, direction: str, source: str, status: str,
         category: str = "", latency_ms: int = 0, detail: dict[str, Any] | None = None,
-        checked_at: int | None = None,
+        checked_at: int | None = None, expected_base_url: str | None = None,
     ) -> dict[str, Any]:
         peer_id = sanitize_peer_id(peer_id)
         if direction not in {"inbound", "outbound"} or status not in {"success", "failure"}:
@@ -406,33 +416,50 @@ class FederationStore:
         if not source:
             raise ValueError("diagnostic source is required")
         timestamp = _now() if checked_at is None else int(checked_at)
-        clean_detail = detail if isinstance(detail, dict) else {}
-        serialized = _json(clean_detail)
-        if len(serialized.encode("utf-8")) > 2048:
-            raise ValueError("federation diagnostic detail is too large")
+        clean_detail = dict(detail) if isinstance(detail, dict) else {}
+        category = str(category or "")[:80]
+        latency_ms = max(0, min(int(latency_ms), 300_000))
         with self._db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            target = ""
+            if direction == "outbound":
+                peer = db.execute("SELECT base_url FROM federation_peer WHERE peer_id=?", (peer_id,)).fetchone()
+                if peer is None or (expected_base_url is not None and peer["base_url"] != expected_base_url):
+                    return {"status": "failure", "category": "target_changed"}
+                target = str(peer["base_url"])
+                clean_detail[_DIAGNOSTIC_TARGET_KEY] = _diagnostic_target(target)
+            serialized = _json(clean_detail)
+            if len(serialized.encode("utf-8")) > 2048:
+                raise ValueError("federation diagnostic detail is too large")
+            last_success = timestamp if status == "success" else None
+            if status == "failure":
+                previous = db.execute(
+                    """SELECT last_success_at,detail_json FROM federation_network_diagnostic
+                       WHERE peer_id=? AND direction=? AND source=?""",
+                    (peer_id, direction, source),
+                ).fetchone()
+                if previous is not None and (
+                    direction == "inbound" or _diagnostic_matches_target(_load(previous["detail_json"], {}), target)
+                ):
+                    last_success = previous["last_success_at"]
             db.execute(
                 """INSERT INTO federation_network_diagnostic(
                        peer_id,direction,source,checked_at,last_success_at,status,category,latency_ms,detail_json
                    ) VALUES(?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(peer_id,direction,source) DO UPDATE SET
-                       checked_at=excluded.checked_at,
-                       last_success_at=CASE WHEN excluded.status='success' THEN excluded.checked_at
-                                            ELSE federation_network_diagnostic.last_success_at END,
+                       checked_at=excluded.checked_at,last_success_at=excluded.last_success_at,
                        status=excluded.status,category=excluded.category,
                        latency_ms=excluded.latency_ms,detail_json=excluded.detail_json""",
                 (
-                    peer_id, direction, source, timestamp,
-                    timestamp if status == "success" else None,
-                    status, str(category or "")[:80], max(0, min(int(latency_ms), 300_000)), serialized,
+                    peer_id, direction, source, timestamp, last_success, status,
+                    category, latency_ms, serialized,
                 ),
             )
             db.execute(
                 """INSERT INTO federation_network_diagnostic_history(
                        peer_id,direction,source,checked_at,status,category,latency_ms,detail_json
                    ) VALUES(?,?,?,?,?,?,?,?)""",
-                (peer_id, direction, source, timestamp, status, str(category or "")[:80],
-                 max(0, min(int(latency_ms), 300_000)), serialized),
+                (peer_id, direction, source, timestamp, status, category, latency_ms, serialized),
             )
             db.execute(
                 """DELETE FROM federation_network_diagnostic_history
@@ -443,7 +470,11 @@ class FederationStore:
                    )""",
                 (peer_id, direction, source, peer_id, direction, source),
             )
-        return self.network_diagnostic(peer_id, direction=direction, source=source) or {}
+        return {
+            "peer_id": peer_id, "direction": direction, "source": source, "checked_at": timestamp,
+            "last_success_at": last_success, "status": status, "category": category,
+            "latency_ms": latency_ms, "detail": _load(serialized, {}),
+        }
 
     def network_diagnostic(
         self, peer_id: str, *, direction: str, source: str = "local",
@@ -453,20 +484,27 @@ class FederationStore:
             raise ValueError("invalid federation diagnostic direction")
         with self._db() as db:
             row = db.execute(
-                "SELECT * FROM federation_network_diagnostic WHERE peer_id=? AND direction=? AND source=?",
+                """SELECT d.*, p.base_url FROM federation_network_diagnostic d
+                   JOIN federation_peer p USING(peer_id)
+                   WHERE d.peer_id=? AND d.direction=? AND d.source=?""",
                 (peer_id, direction, str(source or "")[:128]),
             ).fetchone()
         if row is None:
+            return None
+        detail = _load(row["detail_json"], {})
+        if direction == "outbound" and not _diagnostic_matches_target(detail, row["base_url"]):
             return None
         return {
             "peer_id": str(row["peer_id"]), "direction": str(row["direction"]),
             "source": str(row["source"]), "checked_at": int(row["checked_at"]),
             "last_success_at": int(row["last_success_at"]) if row["last_success_at"] is not None else None,
             "status": str(row["status"]), "category": str(row["category"]),
-            "latency_ms": int(row["latency_ms"]), "detail": _load(row["detail_json"], {}),
+            "latency_ms": int(row["latency_ms"]), "detail": detail,
         }
 
-    def network_diagnostics(self, peer_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+    def network_diagnostics(
+        self, peer_ids: list[str], *, target_base_urls: dict[str, str] | None = None,
+    ) -> dict[str, list[dict[str, Any]]]:
         ids = list(dict.fromkeys(sanitize_peer_id(value) for value in peer_ids if str(value or "")))
         if not ids:
             return {}
@@ -477,14 +515,21 @@ class FederationStore:
                 ((peer_id,) for peer_id in ids),
             )
             rows = db.execute(
-                """SELECT diagnostic.* FROM federation_network_diagnostic AS diagnostic
+                """SELECT diagnostic.*, peer.base_url FROM federation_network_diagnostic AS diagnostic
                    JOIN selected_diagnostic_peers AS selected USING(peer_id)
+                   JOIN federation_peer AS peer USING(peer_id)
                    ORDER BY diagnostic.peer_id,diagnostic.direction,diagnostic.source""",
             ).fetchall()
         result = {peer_id: [] for peer_id in ids}
         for row in rows:
             detail = _load(row["detail_json"], {})
-            result[str(row["peer_id"])].append({
+            peer_id = str(row["peer_id"])
+            if row["direction"] == "outbound" and (
+                not _diagnostic_matches_target(detail, row["base_url"])
+                or (target_base_urls is not None and target_base_urls.get(peer_id) != row["base_url"])
+            ):
+                continue
+            result[peer_id].append({
                 "direction": str(row["direction"]), "source": str(row["source"]),
                 "checked_at": int(row["checked_at"]),
                 "last_success_at": int(row["last_success_at"]) if row["last_success_at"] is not None else None,
@@ -495,6 +540,7 @@ class FederationStore:
 
     def network_diagnostic_history(
         self, peer_id: str, *, direction: str, source: str = "local", limit: int = 5,
+        target_base_url: str | None = None,
     ) -> list[dict[str, Any]]:
         peer_id = sanitize_peer_id(peer_id)
         if direction not in {"inbound", "outbound"}:
@@ -506,7 +552,7 @@ class FederationStore:
                    FROM federation_network_diagnostic_history
                    WHERE peer_id=? AND direction=? AND source=?
                    ORDER BY diagnostic_id DESC LIMIT ?""",
-                (peer_id, direction, str(source or "")[:128], limit),
+                (peer_id, direction, str(source or "")[:128], 20 if target_base_url is not None else limit),
             ).fetchall()
         return [
             {
@@ -515,7 +561,8 @@ class FederationStore:
                 "detail": _load(row["detail_json"], {}),
             }
             for row in rows
-        ]
+            if target_base_url is None or _diagnostic_matches_target(_load(row["detail_json"], {}), target_base_url)
+        ][:limit]
 
     def record_manual_network_confirmation(
         self, peer_id: str, *, actor: str, outcome: str, confirmed_at: int | None = None,
