@@ -4,6 +4,7 @@ from __future__ import annotations
 import shutil
 import struct
 import time
+from pathlib import Path
 
 from .document_store_core import ocr_subprocess_environment
 from .private_read_aloud import MAX_SPEECH_CHARS, ReadAloudError
@@ -36,14 +37,14 @@ def _check_raster(raster: bytes) -> None:
         raise ReadAloudError("ocr_raster_too_large", 413)
 
 
-def pdf_page_has_images(payload: bytes, page: int) -> bool:
+def pdf_page_has_images(source: Path, page: int) -> bool:
     """Inspect only the selected page's image table; do not extract any images."""
     tool = shutil.which("pdfimages")
     if not tool:
         raise ReadAloudError("ocr_unavailable", 503)
     table = bounded_tool_output(
-        [tool, "-f", str(page), "-l", str(page), "-list", "-"],
-        payload=payload, max_output=128 * 1024, timeout=4,
+        [tool, "-f", str(page), "-l", str(page), "-list", str(source)],
+        max_output=128 * 1024, timeout=4,
         unavailable_code="ocr_unavailable", failure_code="ocr_render_failed", timeout_code="ocr_timeout",
         overflow_code="ocr_raster_too_large",
     )
@@ -101,7 +102,7 @@ def supplement_native_text(native: str, recognized: str) -> str:
     return "\n".join([native.strip(), *additions]).strip()
 
 
-def recognize_pdf_page(payload: bytes, page: int, language: str) -> str:
+def recognize_pdf_page(source: Path, page: int, language: str) -> str:
     """Render and recognize one page without storing an OCR copy or changing the source."""
     poppler, tesseract = shutil.which("pdftoppm"), shutil.which("tesseract")
     if not poppler or not tesseract:
@@ -112,8 +113,8 @@ def recognize_pdf_page(payload: bytes, page: int, language: str) -> str:
     pack = _language_pack(tesseract, language, env, deadline - time.monotonic())
     raster = bounded_tool_output(
         [poppler, "-f", str(page), "-l", str(page), "-scale-to", str(MAX_OCR_EDGE),
-         "-singlefile", "-gray", "-png", "-"],
-        payload=payload, max_output=MAX_OCR_RASTER_BYTES, timeout=min(8, deadline - time.monotonic()),
+         "-singlefile", "-gray", "-png", str(source)],
+        max_output=MAX_OCR_RASTER_BYTES, timeout=min(8, deadline - time.monotonic()),
         unavailable_code="ocr_unavailable", failure_code="ocr_render_failed", timeout_code="ocr_timeout",
         overflow_code="ocr_raster_too_large",
     )

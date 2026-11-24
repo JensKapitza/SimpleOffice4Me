@@ -9,7 +9,8 @@ import tempfile
 import unittest
 import wave
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from bs4 import BeautifulSoup
 from PIL import Image, ImageDraw, ImageFont
@@ -23,6 +24,10 @@ from app.audio_output_engine import render_tts
 from app.document_store import DocumentStore
 from app.reader_speech_text import MAX_READ_ALOUD_PDF_BYTES
 from app.reading_store import reader_version
+from app.v2.contracts import ErrorCode, LogicalObjectId, OperationResult, StorageLocation, StoredObject
+from app.v2.cutover import activate_v2, prepare_shadow
+from app.v2.migration import create_migration_backup, transfer_legacy_documents
+from app.v2.storage_runtime import storage_for
 
 
 class ReaderReadAloudTests(unittest.TestCase):
@@ -292,24 +297,159 @@ class ReaderReadAloudTests(unittest.TestCase):
         self.assertEqual("Native heading Image text also belongs here", self.spoken[1])
         self.assertEqual(pdf, (self.root / document["last_path"]).read_bytes())
 
-    def test_actual_pdf_above_16_mib_has_clear_limit_before_ocr_or_synthesis(self):
+    def pdf_with_attachment(self, source, size):
         writer = PdfWriter()
-        writer.add_page(PdfReader(io.BytesIO(self.pdf(False))).pages[0])
-        # A real but inert embedded file keeps the PDF valid while it exceeds the audio limit.
-        writer.add_attachment("fixture-padding.bin", b" " * MAX_READ_ALOUD_PDF_BYTES)
+        for page in PdfReader(io.BytesIO(source)).pages:
+            writer.add_page(page)
+        # Keep the PDF valid while increasing its physical size; OCR still uses its real raster.
+        writer.add_attachment("fixture-padding.bin", b" " * size)
         fixture = io.BytesIO()
         writer.write(fixture)
-        self.assertGreater(fixture.tell(), MAX_READ_ALOUD_PDF_BYTES)
-        document = self.document("large-fixture.pdf", fixture.getvalue())
+        return fixture.getvalue()
+
+    @unittest.skipUnless(all(shutil.which(t) for t in ("pdftotext", "pdftoppm", "pdfimages", "tesseract")),
+                         "Poppler and Tesseract are required for actual large scan OCR")
+    def test_real_large_scan_uses_reader_control_and_removes_verified_stage_before_audio(self):
+        pdf = self.pdf_with_attachment(
+            self.scan_pdf(("native", "Different page"), ("mixed", "SCAN ON SELECTED PAGE")), 17 * 1024 * 1024,
+        )
+        self.assertGreater(len(pdf), 16 * 1024 * 1024)
+        self.assertLess(len(pdf), MAX_READ_ALOUD_PDF_BYTES)
+        document = self.document("large-scan.pdf", pdf)
+        with patch("app.reader_routes._verified_bytes", side_effect=AssertionError("must not re-materialize scans")):
+            reader = self.client.get(f"/documents/reader/{document['document_id']}")
+        self.assertEqual(200, reader.status_code)
+        body = BeautifulSoup(reader.data, "html.parser")
+        controls = body.select_one("[data-reader-read-aloud]")
+        version = body.select_one("[data-document-reader]")["data-document-version"]
+        self.assertIn("64 MiB", controls["data-speech-pdf-too-large"])
+        stage_paths = []
+        from app.reader_routes import pdf_page_has_images, pdf_page_text, recognize_pdf_page
+
+        def track(function):
+            def observed(path, *args):
+                self.assertEqual(len(pdf), path.stat().st_size)
+                if os.name != "nt":
+                    self.assertEqual(0o600, path.stat().st_mode & 0o777)
+                    self.assertEqual(0o700, path.parent.stat().st_mode & 0o777)
+                stage_paths.append(path)
+                return function(path, *args)
+            return observed
+
+        piper_model = os.environ.get("SIMPLEOFFICE_TEST_PIPER_MODEL")
+        real_piper = piper_model and shutil.which("piper") and Path(piper_model).is_file()
+
+        def after_stage(text, voice, directory, *, model):
+            self.assertEqual(1, len(set(stage_paths)))
+            self.assertFalse(stage_paths[0].parent.exists())
+            if real_piper:
+                self.spoken.append(text)
+                self.temp_dirs.append(Path(directory))
+                return render_tts(text, voice, directory, model=piper_model)
+            return self.render_wave(text, voice, directory, model=model)
+
+        with patch("app.reader_routes.pdf_page_text", side_effect=track(pdf_page_text)), \
+                patch("app.reader_routes.pdf_page_has_images", side_effect=track(pdf_page_has_images)), \
+                patch("app.reader_routes.recognize_pdf_page", side_effect=track(recognize_pdf_page)), \
+                patch(self.speech_patch, side_effect=after_stage):
+            result = self.client.post(controls["data-speech-ocr-url"], json={
+                "page": 2, "document_version": version,
+            }, headers={"X-CSRF-Token": self.csrf})
+        self.assert_private_audio(result)
+        with wave.open(io.BytesIO(result.data), "rb") as audio:
+            self.assertGreater(audio.getnframes(), 500 if real_piper else 100)
+        self.assertEqual(3, len(stage_paths))
+        self.assertEqual(["Native heading SCAN ON SELECTED PAGE"], self.spoken)
+        self.assertEqual(pdf, (self.root / document["last_path"]).read_bytes())
+
+    def test_actual_pdf_above_64_mib_rejected_before_storage_copy_or_tools(self):
+        fixture = self.pdf_with_attachment(self.pdf(False), MAX_READ_ALOUD_PDF_BYTES)
+        self.assertGreater(len(fixture), MAX_READ_ALOUD_PDF_BYTES)
+        document = self.document("above-limit.pdf", fixture)
+        del fixture
+        storage = storage_for(self.root, "admin")
+        with patch("app.reader_routes.storage_for", return_value=storage), \
+                patch.object(storage, "copy_verified_to") as copy, \
+                patch("app.reader_routes.pdf_page_text") as extract, patch(self.speech_patch) as piper:
+            for result in (self.post_ocr(document), self.post(document)):
+                self.assertEqual(413, result.status_code)
+                self.assertEqual("document_too_large", result.get_json()["error"])
+                self.assertEqual("private, no-store", result.headers["Cache-Control"])
+        copy.assert_not_called()
+        extract.assert_not_called()
+        piper.assert_not_called()
+
+    def test_invalid_or_incomplete_storage_never_reaches_poppler_or_leaves_stage(self):
+        pdf = self.pdf()
+        document = self.document("ordinary.pdf", pdf)
+        metadata = StoredObject(
+            object_id=LogicalObjectId(document["document_id"]), location=StorageLocation(document["last_path"]),
+            version="version", size=len(pdf),
+        )
+        provisional = OperationResult.failure(ErrorCode.INTEGRITY_ERROR, "fixture")
+        success = OperationResult.success(metadata)
+        cases = (
+            (pdf + b"unexpected", success, len(pdf) + 5, "document_too_large", 413),
+            (pdf + b"x", success, len(pdf) + 5, "document_changed", 409),
+            (b"x" + pdf[1:], success, len(pdf), "document_changed", 409),
+            (pdf, provisional, len(pdf), "document_unavailable", 404),
+        )
+        for data, copy_result, cap, code, status in cases:
+            paths = []
+            def copy(_object, target):
+                with patch.object(target.stream, "write", wraps=target.stream.write) as written:
+                    paths.append(Path(target.stream.name))
+                    try:
+                        target.write(data)
+                    except ValueError:
+                        written.assert_not_called()
+                        return OperationResult.failure(ErrorCode.INVALID_INPUT, "fixture writer rejected data")
+                return copy_result
+
+            fake = SimpleNamespace(stat=Mock(return_value=success), copy_verified_to=Mock(side_effect=copy))
+            with self.subTest(code=code), patch("app.reader_routes.storage_for", return_value=fake), \
+                    patch("app.reader_routes.MAX_READ_ALOUD_PDF_BYTES", cap), \
+                    patch("app.reader_routes.pdf_page_text") as extract, patch(self.speech_patch) as piper:
+                result = self.post_ocr(document)
+                self.assertEqual(status, result.status_code)
+                self.assertEqual(code, result.get_json()["error"])
+                self.assertEqual("private, no-store", result.headers["Cache-Control"])
+                extract.assert_not_called()
+                piper.assert_not_called()
+                self.assertEqual(1, len(paths))
+                self.assertFalse(paths[0].parent.exists())
+
+    @unittest.skipUnless(shutil.which("pdftotext"), "Poppler is required for actual PDF extraction")
+    def test_reader_and_speech_stage_use_v2_authority_without_plaintext_projection(self):
+        document = self.document("v2-native.pdf", self.pdf())
+        backup = self.root.parent / "backup"
+        create_migration_backup(self.root, backup)
+        transfer_legacy_documents(self.root, backup)
+        prepare_shadow(self.root, apply=True, acknowledge_local_plaintext=True)
+        activate_v2(self.root, apply=True, acknowledge_local_plaintext=True)
+        (self.root / document["last_path"]).unlink()
         reader = self.client.get(f"/documents/reader/{document['document_id']}")
         self.assertEqual(200, reader.status_code)
-        controls = BeautifulSoup(reader.get_data(as_text=True), "html.parser").select_one("[data-reader-read-aloud]")
-        self.assertIn("16 MiB", controls["data-speech-too-large"])
+        body = BeautifulSoup(reader.data, "html.parser")
+        controls = body.select_one("[data-reader-read-aloud]")
+        with patch(self.speech_patch, side_effect=self.render_wave):
+            result = self.client.post(controls["data-speech-url"], json={
+                "page": 2, "document_version": body.select_one("[data-document-reader]")["data-document-version"],
+            }, headers={"X-CSRF-Token": self.csrf})
+        self.assert_private_audio(result)
+        self.assertEqual(["Second unique page"], self.spoken)
+
+    def test_pdf_preparation_timeout_and_unavailable_space_are_distinct_private_errors(self):
+        document = self.document("ordinary.pdf", self.pdf())
         with patch("app.reader_routes.pdf_page_text") as extract, patch(self.speech_patch) as piper:
-            result = self.post_ocr(document)
-        self.assertEqual(413, result.status_code)
-        self.assertEqual("document_too_large", result.get_json()["error"])
-        self.assertEqual("private, no-store", result.headers["Cache-Control"])
+            with patch("app.reader_speech_text._PDF_STAGE_SECONDS", 0):
+                timeout = self.post_ocr(document)
+            with patch("app.reader_speech_text.tempfile.TemporaryDirectory", side_effect=OSError("fixture")):
+                unavailable = self.post_ocr(document)
+        for result, code in ((timeout, "pdf_source_timeout"), (unavailable, "pdf_stage_unavailable")):
+            self.assertEqual(503, result.status_code)
+            self.assertEqual(code, result.get_json()["error"])
+            self.assertEqual("private, no-store", result.headers["Cache-Control"])
         extract.assert_not_called()
         piper.assert_not_called()
 

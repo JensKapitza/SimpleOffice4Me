@@ -15,7 +15,12 @@
      data-speech-error="{{ 'Read-aloud could not play this section.' if g.language == 'en' else 'Dieser Abschnitt konnte nicht vorgelesen werden.' }}"
      data-speech-no-text="{{ ('This page has no readable text layer. Select ‘OCR and read aloud’ to recognize it.' if g.language == 'en' else 'Diese Seite hat keine lesbare Textebene. Wähle „OCR und vorlesen“, um den Text zu erkennen.') if speech_kind == 'pdf' else ('There is no readable text in this section.' if g.language == 'en' else 'Dieser Abschnitt enthält keinen lesbaren Text.') }}"
      data-speech-stale="{{ 'This document changed. Reload the page to read the current version.' if g.language == 'en' else 'Das Dokument hat sich geändert. Lade die Seite neu, um die aktuelle Version vorzulesen.' }}"
-     data-speech-too-large="{{ ('This PDF or page exceeds the read-aloud limit. Split large scans into PDFs up to 16 MiB.' if g.language == 'en' else 'Dieses PDF oder diese Seite überschreitet die Vorlesegrenze. Teile große Scans in PDFs bis 16 MiB.') if speech_kind == 'pdf' else ('The document or section is too large for read-aloud.' if g.language == 'en' else 'Das Dokument oder der Abschnitt ist zum Vorlesen zu groß.') }}"
+     data-speech-too-large="{{ 'This page or section exceeds the read-aloud limit.' if g.language == 'en' else 'Diese Seite oder dieser Abschnitt überschreitet die Vorlesegrenze.' }}"
+     {% if speech_kind == 'pdf' %}
+     data-speech-pdf-too-large="{{ ('This PDF exceeds %s MiB. Split it into smaller PDFs to read aloud.' if g.language == 'en' else 'Dieses PDF überschreitet %s MiB. Teile es zum Vorlesen in kleinere PDFs.') | format(speech_pdf_limit_mib) }}"
+     data-speech-pdf-stage-unavailable="{{ 'The server could not prepare the PDF. Check its temporary storage and try again.' if g.language == 'en' else 'Der Server konnte das PDF nicht vorbereiten. Prüfe den temporären Speicher und versuche es erneut.' }}"
+     data-speech-pdf-source-timeout="{{ 'Preparing the PDF took too long. Try again or split the PDF.' if g.language == 'en' else 'Das Vorbereiten des PDFs hat zu lange gedauert. Versuche es erneut oder teile das PDF.' }}"
+     {% endif %}
      data-speech-pause-label="{{ 'Pause' if g.language == 'en' else 'Pause' }}"
      data-speech-resume-label="{{ 'Resume' if g.language == 'en' else 'Fortsetzen' }}"
      data-speech-play-required="{{ 'Audio is ready. Select Resume to play.' if g.language == 'en' else 'Die Sprachausgabe ist bereit. Tippe auf Fortsetzen.' }}">

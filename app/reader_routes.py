@@ -1,10 +1,11 @@
 """Integrated PDF/EPUB bookshelf and reader routes."""
 from __future__ import annotations
 
+from contextlib import contextmanager
 import io
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO, Iterator
 
 from flask import Blueprint, abort, current_app, flash, g, jsonify, make_response, redirect, render_template, request, send_file, url_for
 
@@ -16,10 +17,10 @@ from .pdf_limits import MAX_PDF_BYTES
 from .private_read_aloud import ReadAloudError, private_audio_response, read_aloud_error, read_aloud_request
 from .reader_page_ocr import pdf_page_has_images, recognize_pdf_page, supplement_native_text
 from .reader_speech_text import (
-    MAX_READ_ALOUD_PDF_BYTES, MAX_READ_ALOUD_TEXT_BYTES, pdf_page_text, plain_text_sections, verified_speech_source,
+    MAX_READ_ALOUD_PDF_BYTES, MAX_READ_ALOUD_PDF_MIB, MAX_READ_ALOUD_TEXT_BYTES, copy_verified_reader_source, pdf_page_text,
+    plain_text_sections, staged_speech_pdf, verified_speech_source,
 )
 from .reading_store import ReaderVersionChanged, ReadingStateStore, reader_version
-from .v2.contracts import LogicalObjectId
 from .v2.storage_runtime import storage_for
 
 bp = Blueprint("reader", __name__, url_prefix="/documents/reader")
@@ -67,24 +68,22 @@ def _book(document_id: str) -> tuple[dict[str, Any], str]:
     return document, kind
 
 
+@contextmanager
+def _verified_reader_spool(document: dict[str, Any], *, maximum: int) -> Iterator[BinaryIO]:
+    # Keep the existing small in-memory spool, but never re-materialize a rolled file.
+    with tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b") as spool:
+        storage = storage_for(current_app.config["DOCUMENT_ROOT"], _actor())
+        try:
+            copy_verified_reader_source(storage, document, spool, maximum)
+        except ReadAloudError as exc:
+            abort(exc.status)
+        spool.seek(0)
+        yield spool
+
+
 def _verified_bytes(document: dict[str, Any], *, maximum: int) -> bytes:
-    spool = tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b")
-    result = storage_for(current_app.config["DOCUMENT_ROOT"], _actor()).copy_verified_to(
-        LogicalObjectId(str(document["document_id"])), spool,
-    )
-    if not result.ok:
-        spool.close()
-        abort(404)
-    size = int(result.value.size)
-    if size > maximum:
-        spool.close()
-        abort(413)
-    spool.seek(0)
-    payload = spool.read(maximum + 1)
-    spool.close()
-    if len(payload) != size or len(payload) > maximum:
-        abort(413)
-    return payload
+    with _verified_reader_spool(document, maximum=maximum) as spool:
+        return spool.read(maximum + 1)
 
 
 def _catalog(query: str = "") -> list[dict[str, Any]]:
@@ -211,25 +210,26 @@ def open_book(document_id: str):
             payload.update(detected)
             payload["toc"] = book.toc()
         else:
-            raw = _verified_bytes(document, maximum=MAX_PDF_BYTES)
             from pypdf import PdfReader
-            pdf = PdfReader(io.BytesIO(raw))
-            if pdf.is_encrypted:
-                try:
-                    if not pdf.decrypt(""):
+
+            with _verified_reader_spool(document, maximum=MAX_PDF_BYTES) as spool:
+                pdf = PdfReader(spool)
+                if pdf.is_encrypted:
+                    try:
+                        if not pdf.decrypt(""):
+                            raise ReaderDocumentRejected(
+                                "Passwortgeschützte PDF-Dateien werden im Reader nicht unterstützt."
+                            )
+                    except ReaderDocumentRejected:
+                        raise
+                    except Exception as exc:
                         raise ReaderDocumentRejected(
                             "Passwortgeschützte PDF-Dateien werden im Reader nicht unterstützt."
-                        )
-                except ReaderDocumentRejected:
-                    raise
-                except Exception as exc:
-                    raise ReaderDocumentRejected(
-                        "Passwortgeschützte PDF-Dateien werden im Reader nicht unterstützt."
-                    ) from exc
-            payload["page_count"] = len(pdf.pages)
-            metadata = pdf.metadata or {}
-            detected_title = str(getattr(metadata, "title", "") or metadata.get("/Title", "") or "")[:500]
-            detected_author = str(getattr(metadata, "author", "") or metadata.get("/Author", "") or "")[:500]
+                        ) from exc
+                payload["page_count"] = len(pdf.pages)
+                metadata = pdf.metadata or {}
+                detected_title = str(getattr(metadata, "title", "") or metadata.get("/Title", "") or "")[:500]
+                detected_author = str(getattr(metadata, "author", "") or metadata.get("/Author", "") or "")[:500]
     except ReaderDocumentRejected:
         return render_template(
             "reader/error.html", document=document, format=kind,
@@ -276,7 +276,7 @@ def open_book(document_id: str):
     )
     return render_template(
         "reader/book.html", document=document, book=payload, reader_state=state,
-        annotations=annotations,
+        annotations=annotations, speech_pdf_limit_mib=MAX_READ_ALOUD_PDF_MIB,
     )
 
 
@@ -353,17 +353,9 @@ def _read_aloud(document_id: str, *, allow_ocr: bool):
 
         def load_text():
             if suffix == ".pdf":
-                payload = _speech_source_for(document, MAX_READ_ALOUD_PDF_BYTES)
-                text = pdf_page_text(payload, page)
-                if not allow_ocr or (text.strip() and not pdf_page_has_images(payload, page)):
-                    return text
-                try:
-                    recognized = recognize_pdf_page(payload, page, g.language)
-                except ReadAloudError as exc:
-                    if exc.code == "ocr_no_text" and text.strip():
-                        return text
-                    raise
-                return supplement_native_text(text, recognized)
+                storage = storage_for(current_app.config["DOCUMENT_ROOT"], _actor())
+                with staged_speech_pdf(storage, document, MAX_READ_ALOUD_PDF_BYTES) as source:
+                    return _speech_pdf_page(source, page, g.language, allow_ocr=allow_ocr)
             sections = plain_text_sections(_speech_source_for(document, MAX_READ_ALOUD_TEXT_BYTES))
             if page > len(sections):
                 raise ReadAloudError("invalid_page", 404)
@@ -377,6 +369,19 @@ def _read_aloud(document_id: str, *, allow_ocr: bool):
         return response
     except ReadAloudError as exc:
         return read_aloud_error(exc.code, exc.status)
+
+
+def _speech_pdf_page(source: Path, page: int, language: str, *, allow_ocr: bool) -> str:
+    text = pdf_page_text(source, page)
+    if not allow_ocr or (text.strip() and not pdf_page_has_images(source, page)):
+        return text
+    try:
+        recognized = recognize_pdf_page(source, page, language)
+    except ReadAloudError as exc:
+        if exc.code == "ocr_no_text" and text.strip():
+            return text
+        raise
+    return supplement_native_text(text, recognized)
 
 
 @bp.get("/<document_id>/cover")

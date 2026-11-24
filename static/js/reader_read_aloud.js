@@ -112,12 +112,15 @@
 
     async function showHttpError(request, response) {
       const statusCode = response.status;
-      if (statusCode === 422 || statusCode === 503) {
+      if (statusCode === 413 || statusCode === 422 || statusCode === 503) {
         // Only recognized application codes may select localized messages.
         const problem = await response.json().catch(() => null);
         if (!isCurrent(request)) return;
         const code = problem?.error;
-        if (statusCode === 422) {
+        if (statusCode === 413) {
+          const documentLimit = code === 'document_too_large' && root.dataset.speechPdfTooLarge;
+          release('error', documentLimit || label('speechTooLarge', 'This page exceeds the read-aloud limit.'));
+        } else if (statusCode === 422) {
           if (request.ocr && (code === 'ocr_no_text' || code === 'no_text')) {
             release('error', label('speechOcrNoText', 'OCR found no readable text on this page.'));
           } else if (code === 'no_text') {
@@ -127,6 +130,10 @@
           } else {
             fail(request);
           }
+        } else if (code === 'pdf_source_timeout') {
+          release('error', label('speechPdfSourceTimeout', 'Preparing the PDF took too long.'));
+        } else if (code === 'pdf_stage_unavailable') {
+          release('error', label('speechPdfStageUnavailable', 'The server could not prepare the PDF.'));
         } else if (request.ocr && code === 'ocr_unavailable') {
           release('unavailable', label('speechOcrUnavailable', 'Local OCR is unavailable.'));
         } else if (request.ocr && code === 'ocr_timeout') {
@@ -136,8 +143,6 @@
         }
       } else if (statusCode === 409) {
         release('error', label('speechStale', 'This document changed. Reload the reader.'));
-      } else if (statusCode === 413) {
-        release('error', label('speechTooLarge', 'This page exceeds the read-aloud limit.'));
       } else {
         fail(request);
       }

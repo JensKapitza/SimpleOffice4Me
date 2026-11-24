@@ -46,7 +46,8 @@ function fixture({
     speechOcrTimeout: 'OCR Zeitlimit', speechPdfTextUnavailable: 'PDF nicht lesbar',
     speechUnavailable: 'Nicht verfügbar', speechPauseLabel: 'Pause', speechResumeLabel: 'Weiter',
     speechPlayRequired: 'Bereit', speechError: 'Fehler', speechNoText: 'Kein Text', speechStale: 'Neu laden',
-    speechTooLarge: 'Zu groß',
+    speechTooLarge: 'Zu groß', speechPdfTooLarge: 'PDF teilen (64 MiB)',
+    speechPdfSourceTimeout: 'PDF Vorbereitung Zeitlimit', speechPdfStageUnavailable: 'Temporärer Speicher',
   };
   const reader = new Element();
   reader.dataset = {documentVersion: 'version-2'};
@@ -212,6 +213,23 @@ test('wrong MIME, invalid WAV and server refusal produce only localized status, 
     await reading;
     assert.equal(f.status.textContent, message);
     assert.equal(f.start.disabled, false);
+    assert.equal(f.audios.length, 0);
+  }
+});
+
+test('document cap guidance is distinct from OCR limits and staging errors', async () => {
+  for (const [status, code, expected] of [
+    [413, 'document_too_large', 'PDF teilen (64 MiB)'],
+    [413, 'ocr_raster_too_large', 'Zu groß'],
+    [413, 'too_much_text', 'Zu groß'],
+    [503, 'pdf_source_timeout', 'PDF Vorbereitung Zeitlimit'],
+    [503, 'pdf_stage_unavailable', 'Temporärer Speicher'],
+  ]) {
+    const f = fixture({ocrUrl: '/recognize'});
+    const reading = f.ocr.fire('click');
+    f.requests[0].resolve(response(JSON.stringify({error: code}), 'application/json', status));
+    await reading;
+    assert.equal(f.status.textContent, expected);
     assert.equal(f.audios.length, 0);
   }
 });

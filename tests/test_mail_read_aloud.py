@@ -191,10 +191,10 @@ class MailReadAloudTests(unittest.TestCase):
             "account": self.account, "mode": "archive", "mail": archive["sha512"],
         })
         with patch("app.mail_read_aloud.MAX_SPEECH_EML_BYTES", 2), \
-                patch("app.reader_speech_text._CappedBuffer") as copy_buffer:
+                patch("app.v2.adapters.document_store.DocumentStoreStorageAdapter.copy_verified_to") as copy_source:
             rejected = self._post(self.alice, player)
         self.assertEqual(413, rejected.status_code)
-        copy_buffer.assert_not_called()
+        copy_source.assert_not_called()
         self.assertEqual([], self.spoken)
 
     def test_eml_html_excludes_active_parts_external_resources_and_nested_attachments(self):
