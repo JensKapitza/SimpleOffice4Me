@@ -56,6 +56,7 @@ from .business_document_preferences import (
     company_bank_accounts,
     normalize_company_bank_accounts,
 )
+from .business_document_storage import write_generated_pdf
 from .contact_extensions import ContactCRMStore
 from .customer_credit import CustomerCreditLedger
 from .contact_store import ContactStore
@@ -139,13 +140,8 @@ def _store_generated_pdf(root: Path, contact_id: str, subject: str, pdf: bytes, 
     from .business_documents import attach_contact_document
 
     now = datetime.now(timezone.utc)
-    # contact_id is persisted caller input (form, MCP, vCard uid): prove
-    # containment before creating anything, or refuse loudly.
-    directory = resolve_for_write_under(
-        root, Path("generated") / kind / now.strftime("%Y") / str(contact_id))
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{now.strftime('%Y%m%d-%H%M%S')}-{_safe_filename(subject)}-{uuid.uuid4().hex[:8]}.pdf"
-    path.write_bytes(pdf)
+    filename = f"{now.strftime('%Y%m%d-%H%M%S')}-{_safe_filename(subject)}-{uuid.uuid4().hex[:8]}.pdf"
+    path = write_generated_pdf(root, kind, now.strftime("%Y"), contact_id, filename, pdf)
     store = DocumentStore(root)
     document = store.scan_and_get_document(path)
     document_id = document["document_id"]
