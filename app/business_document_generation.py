@@ -139,7 +139,10 @@ def _store_generated_pdf(root: Path, contact_id: str, subject: str, pdf: bytes, 
     from .business_documents import attach_contact_document
 
     now = datetime.now(timezone.utc)
-    directory = root / "generated" / kind / now.strftime("%Y") / contact_id
+    # contact_id is persisted caller input (form, MCP, vCard uid): prove
+    # containment before creating anything, or refuse loudly.
+    directory = resolve_for_write_under(
+        root, Path("generated") / kind / now.strftime("%Y") / str(contact_id))
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{now.strftime('%Y%m%d-%H%M%S')}-{_safe_filename(subject)}-{uuid.uuid4().hex[:8]}.pdf"
     path.write_bytes(pdf)
