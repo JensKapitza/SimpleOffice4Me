@@ -772,3 +772,37 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | `start.sh --proxy-public-host/--proxy-public-port` (validiert); Hilfe mit Global-Abschnitt, Beispielen, sudo-Verweis; Fehlermeldungen nennen Parameter zuerst (`--global`, `--proxy-public-host`), Env zweit; sudo-Hilfe mit Weiterleitungs-Hinweis. |
 | Tests und Soll-Ist-Vergleich | Soll: kein Env-Wissen nötig. Ist gemessen: 31/31 (Bind/Shell/Start), lan_proxy nur mit den 8 Sandbox-Baseline-Fehlern; ruff/compileall/shell-Syntax grün. |
 | Review und Abschluss | Auf PR #1181 gepusht (Rebase-Branch), kein Merge ohne Freigabe. |
+
+## 23. November 2026 · Security: Feature-Gate für Split-Mail-Blueprints
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Die ausgelagerten Blueprints `mail_keywords`/`mail_handover` fehlten in `FEATURE_BLUEPRINTS` und im Metering-Mapping: `enforce_feature_permission` ließ sie fail-open passieren (kein 403 ohne Mail-Feature möglich). |
+| Implementierung | Beide Blueprints auf Feature `mail` gemappt (Gate + Metering); sonst keine Verhaltensänderung. |
+| Tests und Soll-Ist-Vergleich | Soll: Nutzer ohne Mail-Feature 403, mit Feature Durchlass. Ist gemessen: 3/3 neu (ohne Fix 4 Fehler, mit Fix grün); 54/54 Nachbarn (Keywords/Handover/Case/Admin/Lizenz) grün; alle Gates grün. |
+| Review und Abschluss | PR gestellt, kein Merge ohne Freigabe. |
+
+## 23. November 2026 · Federation: Peer-Discovery per Ton
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Wunsch: schnelles Erkennen via Ton – eigene IPs ansagen, hörender Client kann einladen. Bestand: AcousticCodec (max. 128 Bytes, Ultraschall/hörbar, FEC), QR-Connect-Ablauf, Direkt-Discovery. Voll-Payload passt nicht in 128 Bytes → Ton trägt nur die Endpunkt-URL, Identität kommt per Netzabruf (gleicher TOFU-Ablauf). |
+| Implementierung | Neu `static/js/federation_sound.js` (Ansage pro Adresse, Lauschen ≤90 s, lokale Strict-Prüfung als Spiegel der Serverregel, kein Auto-Abruf, kein Beacon). Template: Ansage-Buttons in der QR-Schleife, Hör-Block im Direkt-Formular, Codec-Skripte eingebunden. Kein neuer Server-Endpunkt nötig. |
+| Tests und Soll-Ist-Vergleich | Soll: ansagen, hören, übernehmen; nichts Heimliches. Ist gemessen: 6/6 Node-Tests (Validierungsmatrix, Ansage-Ablauf, Lauschen gültig/ungültig, Stopp; Fehlschlag erkannt); 31/31 Protokoll+Admin-UI; `node --check` grün. |
+| Review und Abschluss | PR gestellt, kein Merge ohne Freigabe. Danach: Pairing-Code-Austausch und Chat wie bisher (Raum mit remote_peer_id). |
+## 23. November 2026 · Federation: Token-Transfer per QR-Code
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Wunsch: rotiertes Token per Ton/QR übertragen statt abtippen. Bewertung: QR zeigt denselben bereits angezeigten Wert (keine neue Offenlegung); Ton für ein Secret abgelehnt (Broadcast über Hörweite/Wände, aufzeichenbar – größer als Bildschirm-Sichtbarkeit). |
+| Implementierung | Rotate-Seite rendert zusätzlich eingeklappten QR-SVG (serverseitig, kein neuer Endpunkt, Token nie in URLs). Peer-Formular: Kamera-Scan-Button füllt Peer-Token nach Strict-Prüfung (`^[A-Za-z0-9_-]{32,128}$`); Muster von federation_qr_scan.js (BarcodeDetector/jsQR, Generationen-Guard). |
+| Tests und Soll-Ist-Vergleich | Soll: anzeigen, scannen, übernehmen; Müll abweisen. Ist gemessen: 3/3 Node (Matrix, Übernahme-Ablauf, Ungültig-Fall), 12/12 Token/Identity (inkl. QR-SVG-Assert), 30/30 Admin-UI; `node --check`, ruff, compileall grün. |
+| Review und Abschluss | PR gestellt, kein Merge ohne Freigabe. |
+## 23. November 2026 · Issue #738 (FinTS): Verifikation + Doku, bereit zum Schließen
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Alle 9 Checkboxen gegen Code/Tests geprüft: TAN/SCA, Salden, Fähigkeiten, Sync/Retry, Abgleich-Vorschläge, Mock-Bank-Tests, Read-only/SEPA-frei implementiert und grün (144 Tests). Lücken: Doku fehlte; Depot optional/unsupported. |
+| Implementierung | Neu `docs/FINTS_BANKING.md` (Banken, Limits, Sicherheitsmodell, Testhinweis). Keine Codeänderung nötig. |
+| Tests und Soll-Ist-Vergleich | Soll: #738-Kriterien. Ist: 144/144 FinTS-Tests grün; Geheimnis-Blocklisten und Einmal-Challenges im Code verankert; Doku aus Code zitiert und belegt. |
+| Review und Abschluss | PR mit `Closes #738` gestellt; Checkboxen + Nachweis im Issue dokumentiert. |

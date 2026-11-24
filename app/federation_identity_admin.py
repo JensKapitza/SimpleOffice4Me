@@ -9,6 +9,7 @@ from __future__ import annotations
 from flask import current_app, flash, g, make_response, redirect, render_template, request, url_for
 
 from . import federation_local_identity
+from .federation_qr_image import render_qr_svg
 from .federation_store import FederationStore
 from .translations import translate
 
@@ -58,6 +59,7 @@ def rotate_identity_token():
             "admin/federation_identity_token.html",
             peer_id=federation_local_identity.peer_id(),
             fresh_token=fresh,
+            fresh_token_qr=render_qr_svg(fresh),
         ))
         response.headers["Cache-Control"] = "no-store"
         response.headers["Referrer-Policy"] = "no-referrer"

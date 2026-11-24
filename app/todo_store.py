@@ -6,6 +6,7 @@ import json
 import re
 import shutil
 import uuid
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,49 @@ class TodoConflict(ValueError):
     def __init__(self, item: dict[str, Any] | None = None):
         super().__init__("task resource changed concurrently")
         self.item = item
+
+
+class TodoDueDateError(ValueError):
+    """The quick date change would alter the meaning of the task."""
+
+
+class TodoDueDateBeforeStart(TodoDueDateError):
+    """A VTODO due date must be after its start date."""
+
+
+def parse_task_day(value: str) -> date | None:
+    if len(value) != 10:
+        return None
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.isoformat() == value else None
+
+
+def supports_quick_due_change(task: dict[str, Any]) -> bool:
+    if task.get("status") not in {"needs-action", "in-process"}:
+        return False
+    if any(task.get(field) for field in ("rrule", "rdates", "exdates")):
+        return False
+    relations = task.get("related_to") or []
+    if isinstance(relations, str):
+        relations = [relations]
+    if any(str(relation).startswith("urn:simpleoffice:object:") for relation in relations):
+        return False  # The inventory rule owns a separate next-due date.
+    depth = 0
+    lines = task.get("extra_lines") or []
+    if isinstance(lines, str):
+        lines = [lines]
+    for line in lines:
+        key = str(line).split(":", 1)[0].split(";", 1)[0].upper()
+        if key == "BEGIN":
+            depth += 1
+        elif key == "END":
+            depth = max(0, depth - 1)
+        elif depth == 0 and key in {"RECURRENCE-ID", "DURATION"}:
+            return False
+    return all(not task.get(field) or parse_task_day(str(task[field])) for field in ("start", "due"))
 
 
 class TodoStore:
@@ -230,6 +274,37 @@ class TodoStore:
             self._bump(data, actor, self.resource(updated), False, updated["list_id"]); self._write(data)
         self.history.record("todo_updated", actor, "todo", item_id, {"before": before, "after": updated})
         return updated
+
+    def reschedule_due_date(self, item_id: str, day: date, actor: str, *, expected_etag: str) -> dict[str, Any]:
+        """Change just the date and sync metadata after a permission and version check."""
+        with exclusive_file_lock(self.lock):
+            data = self._read()
+            item = self._owned(data, item_id, actor)
+            self._list(data, item["list_id"], actor, "edit")
+            before = self._normalized(item, actor)
+            if self.etag(before) != expected_etag:
+                raise TodoConflict(before)
+            if not supports_quick_due_change(before):
+                raise TodoDueDateError("task does not support quick due-date changes")
+            due = day.isoformat()
+            if due == before["due"]:
+                return before
+            if before["start"] and day <= date.fromisoformat(before["start"]):
+                raise TodoDueDateBeforeStart("due date must be after DTSTART")
+            stamp = self._ical_now()
+            item.update({
+                "due": due,
+                "sequence": min(self._integer(before["sequence"], 0, 2**31 - 1) + 1, 2**31 - 1),
+                "ical_dtstamp": stamp,
+                "ical_last_modified": stamp,
+                "updated_at": utc_now(),
+                "updated_by": actor,
+            })
+            self._bump(data, actor, self.resource(item), False, item["list_id"])
+            self._write(data)
+            after = self._normalized(item, actor)
+        self.history.record("todo_updated", actor, "todo", item_id, {"before": before, "after": after})
+        return after
 
     def apply_offline_status(
         self,

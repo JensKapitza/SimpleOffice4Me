@@ -11,6 +11,10 @@
     <button type="button" class="btn btn-primary" data-bs-toggle="collapse" data-bs-target="#new-task" aria-expanded="false" aria-controls="new-task">{{ 'New task' if g.language == 'en' else 'Neue Aufgabe' }}</button>
   </div>
 
+  {% for category, message in get_flashed_messages(with_categories=true, category_filter=['due-date-warning', 'due-date-success']) %}
+  <div class="alert {{ 'alert-warning' if category == 'due-date-warning' else 'alert-success' }}" role="{{ 'alert' if category == 'due-date-warning' else 'status' }}">{{ message }}</div>
+  {% endfor %}
+
   <section class="collapse card mb-3" id="new-task">
     <div class="card-body">
       <form method="post" action="{{ url_for('tasks.create_task') }}" class="row g-2">
@@ -91,6 +95,21 @@
                 {% if task.project_id %}<span class="badge text-bg-light border">Projekt: {{ task.project_id }}</span>{% endif %}
                 {% if task.contact_id %}<span class="badge text-bg-light border">Kontakt: {{ task.contact_id }}</span>{% endif %}
               </div>
+
+              {% if due_date_etags.get(task.id) %}
+              <details class="small mb-2">
+                <summary>{{ 'Change due date' if g.language == 'en' else 'Fälligkeit ändern' }}</summary>
+                <form method="post" action="{{ url_for('tasks.reschedule_due_date', item_id=task.id, **board_filters) }}" class="d-flex flex-wrap gap-2 align-items-end mt-2">
+                  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="task_etag" value="{{ due_date_etags[task.id] }}">
+                  <div>
+                    <label for="due-date-{{ task.id }}" class="form-label mb-1">{{ 'Due date' if g.language == 'en' else 'Fälligkeitsdatum' }}</label>
+                    <input id="due-date-{{ task.id }}" name="due" type="date" class="form-control form-control-sm" value="{{ task.due }}" required>
+                  </div>
+                  <button type="submit" class="btn btn-sm btn-outline-primary">{{ 'Save' if g.language == 'en' else 'Speichern' }}</button>
+                </form>
+              </details>
+              {% endif %}
 
               <div class="d-flex flex-wrap gap-1 mb-2">
                 {% for target, target_de, target_en in columns %}{% if target != status %}

@@ -15,7 +15,8 @@
       <h2 class="h5">{{ 'New token (shown once)' if g.language == 'en' else 'Neues Token (einmalige Anzeige)' }}</h2>
       <p class="display-6 font-monospace text-break" aria-label="{{ 'New federation token' if g.language == 'en' else 'Neues Federation-Token' }}">{{ fresh_token }}</p>
       <p class="mb-2">{{ 'Copy the token now and store it on the counterpart as its peer token. Afterwards it cannot be shown again – only rotated.' if g.language == 'en' else 'Token jetzt kopieren und auf der Gegenstelle als Peer-Token hinterlegen. Danach kann es nicht mehr angezeigt, nur rotiert werden.' }}</p>
-      <p class="small text-secondary mb-0">{{ 'The old token is already invalid. Peers that still use it fail closed until they receive the new one.' if g.language == 'en' else 'Das alte Token ist bereits ungültig. Peers mit dem alten Token scheitern geschlossen, bis sie das neue erhalten.' }}</p>
+      <details class="mt-2"><summary>{{ 'Show as QR code for scanning on the counterpart' if g.language == 'en' else 'Als QR-Code zum Scannen auf der Gegenstelle anzeigen' }}</summary><div class="mt-2 text-center"><div class="d-inline-block border rounded p-2 bg-white" role="img" aria-label="{{ 'QR code of the new federation token' if g.language == 'en' else 'QR-Code des neuen Federation-Tokens' }}">{{ fresh_token_qr|safe }}</div><p class="small text-secondary mt-1 mb-0">{{ 'Only show this while transferring. Anyone seeing the screen can capture it.' if g.language == 'en' else 'Nur zur Übertragung einblenden. Wer den Bildschirm sieht, kann ihn abgreifen.' }}</p></div></details>
+      <p class="small text-secondary mb-0 mt-2">{{ 'The old token is already invalid. Peers that still use it fail closed until they receive the new one.' if g.language == 'en' else 'Das alte Token ist bereits ungültig. Peers mit dem alten Token scheitern geschlossen, bis sie das neue erhalten.' }}</p>
     </div>
   </section>
 </main>

@@ -16,9 +16,9 @@ class DesktopOcrDependenciesTests(unittest.TestCase):
         onnx = [req for req in requirements if req.name == "onnxruntime"]
         self.assertEqual(1, len(onnx))
         for platform, machine, expected in (
-            ("darwin", "arm64", "1.31.1"),
-            ("linux", "x86_64", "1.31.1"),
-            ("win32", "AMD64", "1.31.1"),
+            ("darwin", "arm64", "1.32.0"),
+            ("linux", "x86_64", "1.32.0"),
+            ("win32", "AMD64", "1.32.0"),
         ):
             with self.subTest(platform=platform, machine=machine):
                 environment = {"sys_platform": platform, "platform_machine": machine, "extra": "ocr"}
