@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import io
+import shutil
+import subprocess
 import tempfile
 import unittest
 import zipfile
@@ -475,6 +477,17 @@ class ReaderRoutesTests(unittest.TestCase):
     def test_document_feature_permission_blocks_reader(self):
         self.login(self.limited_id)
         self.assertEqual(403, self.client.get("/documents/reader").status_code)
+
+
+class EpubReaderFrontendTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for frontend tests")
+    def test_epub_navigation_keeps_display_and_locator_in_sync(self):
+        script = Path(__file__).with_name("document_reader_navigation.test.cjs")
+        result = subprocess.run(
+            [shutil.which("node"), "--test", str(script)],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
 
 class AndroidPdfReaderContractTests(unittest.TestCase):

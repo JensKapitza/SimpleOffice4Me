@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import re
 import unittest
+from datetime import date
 from pathlib import Path
+from unittest.mock import patch
 
 try:
     from tests.http_api_fixture import PublicHttpTestCase
@@ -16,6 +18,12 @@ TEMPLATE = ROOT / "templates" / "documents" / "calendar.html"
 STYLES = ROOT / "static" / "css" / "app.css"
 
 
+class FixedCalendarDate(date):
+    @classmethod
+    def today(cls):
+        return cls(2026, 1, 24)
+
+
 class CalendarQuickCreateTests(PublicHttpTestCase):
     def test_month_days_carry_iso_dates_and_quick_add(self):
         html = self.client.get("/documents/calendar").get_data(as_text=True)
@@ -24,9 +32,38 @@ class CalendarQuickCreateTests(PublicHttpTestCase):
         self.assertLessEqual(len(days), 31)
         self.assertGreaterEqual(html.count("data-calendar-quick-add="), 28)
 
-    def test_today_link_points_to_current_month_view(self):
-        html = self.client.get("/documents/calendar?month=2020-01").get_data(as_text=True)
-        self.assertIn('href="/documents/calendar"', html)
+    def test_today_link_loads_current_month_and_jumps_to_the_only_marked_day(self):
+        with patch("app.documents_routes_workflows.date", FixedCalendarDate):
+            old = self.client.get("/documents/calendar?month=2025-01").get_data(as_text=True)
+            current = self.client.get("/documents/calendar").get_data(as_text=True)
+        self.assertIn('href="/documents/calendar#calendar-today"', old)
+        self.assertNotIn('id="calendar-today"', old)
+        self.assertEqual(current.count('id="calendar-today"'), 1)
+        self.assertRegex(current, r'data-calendar-day="2026-01-24">\s*<div[^>]+>\s*<span id="calendar-today" aria-current="date" tabindex="-1">24 ')
+        self.assertIn('data-calendar-quick-add="2026-01-24"', current)
+
+    def test_invalid_month_falls_back_to_today_with_localized_navigation(self):
+        labels = (
+            ("en", "Today", "Previous month", "Next month"),
+            ("de", "Heute", "Vorheriger Monat", "Nächster Monat"),
+        )
+        for language, today_label, previous_label, next_label in labels:
+            with self.subTest(language=language):
+                switch = self.client.post(
+                    "/auth/language",
+                    data={"language": language},
+                    headers=self._csrf_headers(self.client, "/documents/calendar"),
+                )
+                self.assertEqual(302, switch.status_code)
+                self.assertEqual("/auth/login", switch.location)
+                with patch("app.documents_routes_workflows.date", FixedCalendarDate):
+                    response = self.client.get("/documents/calendar?month=unknown")
+                self.assertEqual(200, response.status_code)
+                html = response.get_data(as_text=True)
+                self.assertEqual(html.count('id="calendar-today" aria-current="date"'), 1)
+                self.assertIn(f'href="/documents/calendar#calendar-today">{today_label}</a>', html)
+                self.assertIn(f'href="/documents/calendar?month=2025-12" aria-label="{previous_label}"', html)
+                self.assertIn(f'href="/documents/calendar?month=2026-02" aria-label="{next_label}"', html)
 
     def test_quick_add_handler_prefills_booking_form(self):
         template = TEMPLATE.read_text(encoding="utf-8")
