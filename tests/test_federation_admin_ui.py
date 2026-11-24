@@ -115,6 +115,54 @@ class FederationAdminUiTests(FederationAdminUiFixture, unittest.TestCase):
         )
         self.assertIn("zuletzt erfolgreich", body)
 
+    def test_signed_network_check_labels_and_feedback_only_describe_outbound_route(self):
+        store = FederationStore(self.root)
+        store.save_peer("active-peer", "Active Peer", "https://active.example", "", enabled=True)
+        store.save_peer("disabled-peer", "Disabled Peer", "https://disabled.example", "", enabled=False)
+        expected = {
+            "de": (
+                "Ausgehend signiert prüfen",
+                "Ausgehende Prüfung erfolgreich: Peer authentifiziert, 17 ms.",
+                "Ausgehende Prüfung fehlgeschlagen:",
+                "Gegenrichtung auf der anderen Instanz prüfen.",
+            ),
+            "en": (
+                "Run signed outbound check",
+                "Outbound check succeeded: peer authenticated, 17 ms.",
+                "Outbound check failed:",
+                "Run the check on the other instance for the reverse direction.",
+            ),
+        }
+        for language, (label, success, failure, reverse) in expected.items():
+            with self.subTest(language=language), self.client.session_transaction() as session:
+                session["simpleoffice_language"] = language
+            path = "/admin/federation/peers/active-peer/diagnostics/probe"
+            with self.subTest(language=language):
+                page = self.client.get("/admin/federation?view=peers").get_data(as_text=True)
+                active = page.split(f'action="{path}">', 1)[1].split("</form>", 1)[0]
+                disabled = page.split('action="/admin/federation/peers/disabled-peer/diagnostics/probe">', 1)[1]
+                disabled = disabled.split("</form>", 1)[0]
+                self.assertIn(label, active)
+                self.assertNotIn("disabled", active)
+                self.assertIn(label, disabled)
+                self.assertIn("disabled", disabled)
+                self.assertNotIn("Gegenseitig prüfen", page)
+                self.assertNotIn("Check mutually", page)
+                with patch("app.federation_admin.run_network_diagnostic", side_effect=[
+                    {"status": "success", "latency_ms": 17},
+                    {"status": "failure", "category": "policy"},
+                ]) as probe:
+                    response = self.client.post(path, follow_redirects=True)
+                    probe.assert_called_once_with(str(self.root), "active-peer")
+                    body = response.get_data(as_text=True)
+                    self.assertIn(f"{success} {reverse}", body)
+                    probe.reset_mock()
+                    response = self.client.post(path, follow_redirects=True)
+                    probe.assert_called_once_with(str(self.root), "active-peer")
+                    body = response.get_data(as_text=True)
+                    self.assertIn(failure, body)
+                    self.assertNotIn(success, body)
+
     def test_peer_dashboard_marks_old_diagnostic_results_stale(self):
         store = FederationStore(self.root)
         store.save_peer("stale-peer", "Stale Peer", "https://stale.example", "", enabled=True)
