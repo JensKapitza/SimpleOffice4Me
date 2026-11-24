@@ -8,9 +8,19 @@ from typing import Any
 from flask import Blueprint, current_app, flash, g, redirect, render_template, request, url_for
 
 from .auth import login_required
+from .calendar_collections import CalendarCollections
+from .calendar_followups import readable_followup_source
+from .calendar_store import CalendarStore
 from .document_store import DocumentStore
 from .tasks_suggest import suggest_task_next
-from .todo_store import TodoStore
+from .todo_store import (
+    TodoConflict,
+    TodoDueDateBeforeStart,
+    TodoDueDateError,
+    TodoStore,
+    parse_task_day,
+    supports_quick_due_change,
+)
 
 
 bp = Blueprint("tasks", __name__, url_prefix="/tasks")
@@ -191,6 +201,20 @@ def _visible_rows(actor: str) -> list[dict[str, Any]]:
     return rows
 
 
+def _visible_calendar_sources(rows: list[dict[str, Any]], actor: str) -> dict[str, str]:
+    source_by_task = _store().calendar_followup_sources({row["id"] for row in rows})
+    if not source_by_task:
+        return {}
+    root = current_app.config["DOCUMENT_ROOT"]
+    calendar_ids = {calendar["calendar_id"] for calendar in CalendarCollections(root).calendars(actor)}
+    reference_ids = set(source_by_task.values())
+    available = {
+        event["event_id"] for event in CalendarStore(root).events(actor)
+        if event["event_id"] in reference_ids and readable_followup_source(event, calendar_ids)
+    }
+    return {task_id: event_id for task_id, event_id in source_by_task.items() if event_id in available}
+
+
 def _task_source_documents(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     """Resolve source IDs through request-scoped document visibility checks."""
     store = DocumentStore(current_app.config["DOCUMENT_ROOT"])
@@ -255,14 +279,23 @@ def _resubmit_view_match(view: str, row: dict[str, Any], today: str, week_end: s
     return True
 
 
+def _board_filters() -> dict[str, str]:
+    filters = {
+        key: request.args.get(key, "").strip()
+        for key in ("q", "list_id", "assigned")
+    }
+    view = request.args.get("view", "all")
+    filters["view"] = view if view in {item[0] for item in RESUBMIT_VIEWS} else "all"
+    return {key: value for key, value in filters.items() if value}
+
+
 @bp.get("/")
 @login_required
 def board():
     actor = _actor()
     rows = _visible_rows(actor)
-    view = request.args.get("view", "all")
-    if view not in {item[0] for item in RESUBMIT_VIEWS}:
-        view = "all"
+    filters = _board_filters()
+    view = filters["view"]
     today = date.today().isoformat()
     week_end = (date.today() + timedelta(days=7)).isoformat()
     view_counts = {
@@ -303,13 +336,23 @@ def board():
                 histories.setdefault(key, []).append(event)
     except (OSError, ValueError):
         histories = {}
+    store = _store()
+    lists = store.lists(actor)
+    editable_lists = {row["list_id"] for row in lists if store._can(row, actor, "edit")}
+    due_date_etags = {
+        row["id"]: store.etag(row)
+        for row in top_level
+        if row.get("list_id") in editable_lists and supports_quick_due_change(row)
+    }
     return render_template(
         "tasks/board.html",
         columns=BOARD_COLUMNS,
         grouped=grouped,
         children=by_parent,
         source_documents=source_documents,
-        lists=_store().lists(actor),
+        lists=lists,
+        board_filters=filters,
+        due_date_etags=due_date_etags,
         query=request.args.get("q", "").strip(),
         selected_list=request.args.get("list_id", "").strip(),
         assigned=request.args.get("assigned", "").strip(),
@@ -319,6 +362,7 @@ def board():
         selected_view=view,
         view_counts=view_counts,
         histories=histories,
+        calendar_sources=_visible_calendar_sources(top_level, actor),
     )
 
 
@@ -336,6 +380,37 @@ def create_task():
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("tasks.board"))
+
+
+@bp.post("/<item_id>/due-date")
+@login_required
+def reschedule_due_date(item_id: str):
+    def message(de: str, en: str) -> str:
+        return en if g.language == "en" else de
+
+    day = parse_task_day(request.form.get("due", ""))
+    if day is None:
+        flash(message("Bitte ein gültiges Fälligkeitsdatum wählen.", "Choose a valid due date."), "due-date-warning")
+        return redirect(url_for("tasks.board", **_board_filters()), code=303)
+
+    try:
+        _store().reschedule_due_date(
+            item_id, day, _actor(), expected_etag=request.form.get("task_etag", ""),
+        )
+        flash(message("Fälligkeit gespeichert.", "Due date saved."), "due-date-success")
+    except TodoConflict:
+        flash(message("Die Aufgabe wurde inzwischen geändert. Bitte erneut versuchen.",
+                      "The task changed in the meantime. Please try again."), "due-date-warning")
+    except TodoDueDateBeforeStart:
+        flash(message("Die Fälligkeit muss nach dem Startdatum liegen.",
+                      "The due date must be after the start date."), "due-date-warning")
+    except TodoDueDateError:
+        flash(message("Diese Aufgabe lässt sich hier nicht verschieben.",
+                      "This task cannot be rescheduled here."), "due-date-warning")
+    except ValueError:
+        flash(message("Die Aufgabe ist nicht verfügbar oder nicht bearbeitbar.",
+                      "The task is unavailable or cannot be edited."), "due-date-warning")
+    return redirect(url_for("tasks.board", **_board_filters()), code=303)
 
 
 @bp.post("/<item_id>/move")

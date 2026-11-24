@@ -138,7 +138,7 @@ class MailDocumentPrivacyTests(unittest.TestCase):
         if self.v2:
             (self.root / archived["path"]).unlink()
         url = f"/documents/mail/reader/case/{self.case_id}/attachment/{archived['sha512']}/2"
-        with patch("app.mail_reader_routes.scan_attachment_for_download", return_value={
+        with patch("app.mail_reader_case_routes.scan_attachment_for_download", return_value={
             "verdict": "clean", "scan_id": "synthetic-scan",
         }) as scan:
             response = self.clients["bob"].get(url)
@@ -149,14 +149,14 @@ class MailDocumentPrivacyTests(unittest.TestCase):
             self.addCleanup(response.close)
             self.assertEqual(200, response.status_code)
             self.assertEqual(b"mime attachment marker", response.data)
-        with patch("app.mail_reader_routes.scan_attachment_for_download", return_value={
+        with patch("app.mail_reader_case_routes.scan_attachment_for_download", return_value={
             "verdict": "infected", "scan_id": "synthetic-scan",
         }):
             response = self.clients["bob"].get(url)
             self.assertEqual(302, response.status_code)
             self.assertNotEqual(b"mime attachment marker", response.data)
         self.cases.remove_participant("alice", self.case_id, self.participant)
-        with patch("app.mail_reader_routes.scan_attachment_for_download") as scan:
+        with patch("app.mail_reader_case_routes.scan_attachment_for_download") as scan:
             response = self.clients["bob"].get(url)
             self.assertEqual(302, response.status_code)
             scan.assert_not_called()

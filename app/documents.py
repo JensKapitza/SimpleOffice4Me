@@ -17,6 +17,7 @@ from . import documents_routes_transfer  # noqa: F401  -- registers document tra
 from . import documents_routes_bulk  # noqa: F401  -- registers bulk document routes
 from . import documents_routes_quicksearch  # noqa: F401  -- registers quick-search workspace routes
 from . import documents_routes_desktop  # noqa: F401  -- registers desktop integration routes
+from . import documents_routes_calendar_followups  # noqa: F401  -- registers calendar follow-up routes
 
 _route_modules = (
     _routes_1, _routes_2, _routes_3, _routes_4, _routes_5, _routes_6,

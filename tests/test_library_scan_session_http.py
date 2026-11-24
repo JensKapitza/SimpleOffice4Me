@@ -49,6 +49,7 @@ class LibraryScanSessionHttpTest(unittest.TestCase):
 
         @self.app.before_request
         def authenticate_test_user():
+            g.language = session.get("simpleoffice_language", "de")
             username = session.get("username")
             g.user = {
                 "id": 1, "username": username, "is_admin": False, "is_disabled": False,
@@ -120,6 +121,30 @@ class LibraryScanSessionHttpTest(unittest.TestCase):
         self.assertTrue(response.json["not_found"])
         self.assertEqual(1, response.json["scan_session"]["missing"])
         self.assertEqual(1, len(ObjectStore(self.root).objects("A Book")))
+
+    def test_scan_errors_follow_the_selected_interface_language(self):
+        with self.client.session_transaction() as state:
+            state["simpleoffice_language"] = "en"
+
+        missing = self.assign({"session_id": "invalid"})
+        self.assertEqual(409, missing.status_code)
+        self.assertEqual(
+            "The scan session is inactive or belongs to another location.",
+            missing.json["error"],
+        )
+
+        scan_session = self.start()
+        not_found = self.assign(scan_session, code="9780000000000")
+        self.assertEqual(404, not_found.status_code)
+        self.assertEqual("This book is not in the inventory yet.", not_found.json["error"])
+
+    def test_scan_errors_remain_german_for_german_sessions(self):
+        response = self.assign({"session_id": "invalid"})
+        self.assertEqual(409, response.status_code)
+        self.assertEqual(
+            "Scan-Sitzung ist nicht aktiv oder gehört zu einem anderen Standort.",
+            response.json["error"],
+        )
 
     def test_paused_session_rejects_assignment_before_mutation(self):
         scan_session = self.start()

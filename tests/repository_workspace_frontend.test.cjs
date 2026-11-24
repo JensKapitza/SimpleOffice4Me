@@ -70,7 +70,7 @@ test("persisted checklist reader retains only bounded boolean identifiers", () =
 
 // Run the real browser controller against a minimal DOM and a controlled HTTP
 // boundary. No global state export or production-only test hooks are required.
-async function workspaceHarness() {
+async function workspaceHarness(language = "de") {
   const nodes = new Map(), stored = new Map();
   class Node {
     constructor(tag = "div") {
@@ -106,6 +106,7 @@ async function workspaceHarness() {
   }
   const root = new Node(); root.dataset.apiBase = "/repository-workspace/api";
   const document = {
+    documentElement: {lang: language},
     hidden: false, body: new Node(),
     querySelector: (selector) => selector === "[data-repository-workspace]" ? root : {content: "synthetic-csrf"},
     getElementById: (id) => get(id.replace(/^rw-/, "")),
@@ -141,7 +142,7 @@ async function workspaceHarness() {
   fire("bookmark");
   get("note-0").value = "Private note"; fire("note-0", "input");
   get("draft-title").value = "Private draft"; get("draft-cause").value = "Private question"; fire("draft-form", "submit");
-  return {get, fire, stored, privateSnapshot: () => response(snapshot({...publicAuth, authenticated: true, context_id: "account"})), setRefresh: (callback) => { onRefresh = callback; }};
+  return {get, fire, stored, workspaceModule: context.module.exports, privateSnapshot: () => response(snapshot({...publicAuth, authenticated: true, context_id: "account"})), setRefresh: (callback) => { onRefresh = callback; }};
 }
 
 function assertPrivateDataRemoved(harness) {
@@ -232,4 +233,19 @@ test("platform checklist markers use only static IDs and reset without persistin
   harness.fire("checklist-reset");
   assert.equal(harness.get("platform-windows-0").checked, false);
   assert.ok([...harness.stored.values()].every(value => value === "{}"));
+});
+
+test("English language applies to dynamic workspace UI and Markdown exports", async () => {
+  const workspace = await workspaceHarness("en");
+  assert.equal(workspace.get("auth-title").textContent, "Account view · Testkonto");
+  assert.equal(workspace.get("bookmark").textContent, "Saved to worklist");
+  assert.ok(workspace.get("board").textContent.includes("Blocked"));
+  assert.ok(!workspace.get("board").textContent.includes("Blockiert"));
+  const markdown = workspace.workspaceModule.itemMarkdown(entry("item", {
+    type: "issue", title: "Translation coverage", status: "open", area: "UI",
+    platforms: [], cause: "", blockers: [], next_steps: [], documentation: [], evidence: [],
+  }), "2026-11-23T10:00:00Z");
+  assert.ok(markdown.includes("### Cause / open question"));
+  assert.ok(markdown.includes("### Sources"));
+  assert.ok(!markdown.includes("### Ursache / offene Frage"));
 });

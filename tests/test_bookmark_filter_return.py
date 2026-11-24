@@ -74,8 +74,8 @@ class BookmarkFilterReturnTests(unittest.TestCase):
             "title": "Annual", "url": "https://example.org/reports", "q": "Quarterly",
         }, follow_redirects=True)
         self.assertEqual(200, response.status_code)
-        self.assertIn("Suchtreffer (0)", response.get_data(as_text=True))
-        self.assertIn("Keine passenden Lesezeichen gefunden.", response.get_data(as_text=True))
+        self.assertIn("Search results (0)", response.get_data(as_text=True))
+        self.assertIn("No matching bookmarks found.", response.get_data(as_text=True))
         self.assertIn('value="Annual"', self.client.get("/bookmarks/").get_data(as_text=True))
 
     def test_validation_errors_preserve_search_query(self):

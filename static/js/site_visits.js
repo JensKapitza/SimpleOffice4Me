@@ -1,11 +1,16 @@
 (() => {
+  const text = (german, english) => window.SimpleOfficeI18n?.text(german, english) ?? english;
   const root = document.querySelector('[data-site-visit]');
   if (!root) return;
   const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
   const visitId = location.pathname.split('/')[2];
   const capability = (name, yes, no) => {
     const badge = root.querySelector(`[data-cap="${name}"]`);
-    if (badge) { badge.textContent = yes ? `${name}: verfügbar` : `${name}: nicht verfügbar`; badge.className = `badge ${yes ? 'text-bg-success' : 'text-bg-light'}`; }
+    const labels = {
+      camera: text("Kamera", "Camera"), barcode: text("Barcode", "Barcode"),
+      location: text("Standort", "Location"), orientation: text("Kompass", "Compass"),
+    };
+    if (badge) { badge.textContent = `${labels[name] || name}: ${yes ? text("verfügbar", "available") : text("nicht verfügbar", "unavailable")}`; badge.className = `badge ${yes ? 'text-bg-success' : 'text-bg-light'}`; }
   };
   const camera = !!(navigator.mediaDevices?.getUserMedia);
   const scanner = 'BarcodeDetector' in window;
@@ -18,28 +23,28 @@
     document.body.append(form); form.submit();
   };
   root.querySelector('[data-location-button]')?.addEventListener('click', () => {
-    if (!navigator.geolocation) return alert('Standortermittlung wird von diesem Gerät nicht angeboten.');
+    if (!navigator.geolocation) return alert(text('Standortermittlung wird von diesem Gerät nicht angeboten.', 'Location services are not available on this device.'));
     navigator.geolocation.getCurrentPosition(({coords}) => {
       const label = root.querySelector('[data-location-result]'); if (label) label.textContent = `${coords.latitude.toFixed(6)}, ${coords.longitude.toFixed(6)} · Genauigkeit ${Math.round(coords.accuracy)} m`;
       const form = document.querySelector('form[action$="/update"]');
       if (!form) return;
       ['latitude', 'longitude'].forEach((key, i) => { const input = document.createElement('input'); input.type = 'hidden'; input.name = key; input.value = i ? coords.longitude : coords.latitude; form.append(input); }); form.requestSubmit();
-    }, error => alert(`Standort konnte nicht gelesen werden: ${error.message}`), {enableHighAccuracy: true, timeout: 10000, maximumAge: 30000});
+    }, () => alert(text('Standort konnte nicht gelesen werden. Standortberechtigung und Geräteeinstellungen prüfen.', 'Could not read the location. Check location permission and device settings.')), {enableHighAccuracy: true, timeout: 10000, maximumAge: 30000});
   });
   root.querySelector('[data-compass-button]')?.addEventListener('click', async () => {
     const output = root.querySelector('[data-compass-result]');
-    if (!('DeviceOrientationEvent' in window)) { if (output) output.textContent = 'Kompass wird nicht angeboten.'; return; }
+    if (!('DeviceOrientationEvent' in window)) { if (output) output.textContent = text('Kompass wird nicht angeboten.', 'Compass is not available.'); return; }
     try {
-      if (typeof DeviceOrientationEvent.requestPermission === 'function' && await DeviceOrientationEvent.requestPermission() !== 'granted') { if (output) output.textContent = 'Sensorfreigabe wurde nicht erteilt.'; return; }
+      if (typeof DeviceOrientationEvent.requestPermission === 'function' && await DeviceOrientationEvent.requestPermission() !== 'granted') { if (output) output.textContent = text('Sensorfreigabe wurde nicht erteilt.', 'Sensor permission was not granted.'); return; }
       const listener = event => {
         const heading = event.webkitCompassHeading ?? (event.alpha == null ? null : (360 - event.alpha) % 360);
-        if (output) output.textContent = heading == null ? 'Keine Kompassrichtung verfügbar.' : `Richtung ${Math.round(heading)}°`;
+        if (output) output.textContent = heading == null ? text('Keine Kompassrichtung verfügbar.', 'No compass heading available.') : text(`Richtung ${Math.round(heading)}°`, `Heading ${Math.round(heading)}°`);
         window.removeEventListener('deviceorientation', listener);
       };
       window.addEventListener('deviceorientation', listener, {once: true});
       window.setTimeout(() => window.removeEventListener('deviceorientation', listener), 5000);
-      if (output) output.textContent = 'Warte auf Sensor…';
-    } catch (error) { if (output) output.textContent = `Sensorfreigabe fehlgeschlagen: ${error.message}`; }
+      if (output) output.textContent = text('Warte auf Sensor…', 'Waiting for sensor…');
+    } catch (_) { if (output) output.textContent = text('Sensorfreigabe fehlgeschlagen.', 'Could not request sensor permission.'); }
   });
   root.querySelectorAll('[data-visit-upload]').forEach(input => input.addEventListener('change', () => {
     const file = input.files?.[0]; if (!file) return;
@@ -102,12 +107,12 @@
     const controls = document.createElement('div');
     controls.style.cssText = 'display:flex;gap:.5rem;flex-wrap:wrap;justify-content:center';
     const fileLabel = document.createElement('label');
-    fileLabel.className = 'btn btn-light btn-sm mb-0'; fileLabel.textContent = 'Foto wählen';
+    fileLabel.className = 'btn btn-light btn-sm mb-0'; fileLabel.textContent = text('Foto wählen', 'Choose photo');
     const fileInput = document.createElement('input');
     fileInput.hidden = true; fileInput.type = 'file'; fileInput.accept = 'image/*';
     fileLabel.append(fileInput);
     const close = document.createElement('button');
-    close.type = 'button'; close.textContent = 'Kamera schließen'; close.className = 'btn btn-light btn-sm';
+    close.type = 'button'; close.textContent = text('Kamera schließen', 'Close camera'); close.className = 'btn btn-light btn-sm';
     controls.append(fileLabel, close);
     overlay.append(video, status, controls);
     document.body.append(overlay);
@@ -146,16 +151,16 @@
     fileInput.addEventListener('change', async () => {
       const file = fileInput.files?.[0];
       if (!file) return;
-      showStatus('Foto wird lokal ausgewertet …');
+      showStatus(text('Foto wird lokal ausgewertet …', 'Reading photo locally …'));
       let bitmap = null;
       try {
         bitmap = await createImageBitmap(file);
         const value = await decodeSource(bitmap);
         if (generation !== scanGeneration) return;
         if (value) { applyValue(value); return; }
-        showStatus('Kein Code erkannt. Bitte ein schärferes Foto wählen oder die Seriennummer manuell eingeben.');
+        showStatus(text('Kein Code erkannt. Bitte ein schärferes Foto wählen oder die Seriennummer manuell eingeben.', 'No code found. Choose a sharper photo or enter the serial number manually.'));
       } catch (_) {
-        if (generation === scanGeneration) showStatus('Foto konnte nicht gelesen werden. Seriennummer bitte manuell eingeben.');
+        if (generation === scanGeneration) showStatus(text('Foto konnte nicht gelesen werden. Seriennummer bitte manuell eingeben.', 'Could not read the photo. Enter the serial number manually.'));
       } finally {
         bitmap?.close?.();
         fileInput.value = '';
@@ -163,12 +168,12 @@
     });
     if (!camera) {
       showStatus(detector || canDecodeQr
-        ? 'Keine Live-Kamera in diesem Browser (HTTPS oder Berechtigung prüfen). QR-Code stattdessen als Foto wählen oder Seriennummer manuell eingeben.'
-        : 'Barcode-Scan ist in diesem Browser nicht verfügbar. Seriennummer bitte manuell eingeben.');
+        ? text('Keine Live-Kamera in diesem Browser (HTTPS oder Berechtigung prüfen). QR-Code stattdessen als Foto wählen oder Seriennummer manuell eingeben.', 'Live camera is not available in this browser (check HTTPS and permissions). Choose a QR photo or enter the serial number manually.')
+        : text('Barcode-Scan ist in diesem Browser nicht verfügbar. Seriennummer bitte manuell eingeben.', 'Barcode scanning is not available in this browser. Enter the serial number manually.'));
       return;
     }
     if (!detector && !canDecodeQr) {
-      showStatus('Kein lokaler Decoder verfügbar. Seriennummer bitte manuell eingeben.');
+      showStatus(text('Kein lokaler Decoder verfügbar. Seriennummer bitte manuell eingeben.', 'No local decoder is available. Enter the serial number manually.'));
       return;
     }
     try {
@@ -184,7 +189,7 @@
       video.srcObject = scanStream;
       await video.play();
       if (generation !== scanGeneration) return;
-      showStatus(detector ? 'Code vor die Kamera halten.' : 'QR-Code vor die Kamera halten (andere Codes manuell eingeben oder als Foto wählen).');
+      showStatus(detector ? text('Code vor die Kamera halten.', 'Hold a code in front of the camera.') : text('QR-Code vor die Kamera halten (andere Codes manuell eingeben oder als Foto wählen).', 'Hold a QR code in front of the camera (enter other codes manually or choose a photo).'));
       const poll = async () => {
         if (generation !== scanGeneration || !video.isConnected) return;
         try {
@@ -202,12 +207,12 @@
       if (scanStream) { scanStream.getTracks().forEach(track => track.stop()); scanStream = null; }
       video.srcObject = null;
       showStatus(error?.name === 'NotAllowedError'
-        ? 'Kamerazugriff verweigert. Bitte die Kameraberechtigung im Browser freigeben – oder Seriennummer manuell eingeben.'
+        ? text('Kamerazugriff verweigert. Bitte die Kameraberechtigung im Browser freigeben – oder Seriennummer manuell eingeben.', 'Camera access was denied. Allow camera access in the browser or enter the serial number manually.')
         : error?.name === 'NotFoundError'
-        ? 'Keine Kamera gefunden. Foto wählen oder Seriennummer manuell eingeben.'
+        ? text('Keine Kamera gefunden. Foto wählen oder Seriennummer manuell eingeben.', 'No camera found. Choose a photo or enter the serial number manually.')
         : error?.name === 'NotReadableError'
-        ? 'Kamera ist belegt. Anderen Tab schließen – oder Foto wählen bzw. manuell eingeben.'
-        : 'Kamera konnte nicht geöffnet werden (HTTPS oder Browserberechtigung prüfen). Foto wählen oder manuell eingeben.');
+        ? text('Kamera ist belegt. Anderen Tab schließen – oder Foto wählen bzw. manuell eingeben.', 'Camera is busy. Close another tab, choose a photo, or enter the serial number manually.')
+        : text('Kamera konnte nicht geöffnet werden (HTTPS oder Browserberechtigung prüfen). Foto wählen oder manuell eingeben.', 'Could not open the camera (check HTTPS and browser permission). Choose a photo or enter the serial number manually.'));
     }
   });
 })();

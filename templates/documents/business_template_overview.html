@@ -7,17 +7,17 @@
 <main id="main-content" class="container-xl py-4 template-overview">
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
     <div>
-      <a class="small text-decoration-none" href="{{ url_for('.template_manager') }}">← Vorlagen</a>
-      <h1 class="h2 mt-2 mb-1">Vorlagenübersicht</h1>
-      <p class="text-secondary mb-0">Visuelle Dokumentvorlagen direkt in SimpleOffice erstellen und bearbeiten.</p>
+      <a class="small text-decoration-none" href="{{ url_for('.template_manager') }}">{{ tr('business_template.overview.back') }}</a>
+      <h1 class="h2 mt-2 mb-1">{{ tr('business_template.overview.title') }}</h1>
+      <p class="text-secondary mb-0">{{ tr('business_template.overview.lead') }}</p>
     </div>
     {% if is_admin %}
     <div class="d-flex flex-wrap gap-2">
       <button class="btn btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#import-template" aria-expanded="false" aria-controls="import-template">
-        <i class="fa-solid fa-file-import me-1"></i>Importieren
+        <i class="fa-solid fa-file-import me-1"></i>{{ tr('business_template.overview.import') }}
       </button>
       <button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#new-template" aria-expanded="false" aria-controls="new-template">
-        <i class="fa-solid fa-plus me-1"></i>Neue Vorlage erstellen
+        <i class="fa-solid fa-plus me-1"></i>{{ tr('business_template.overview.create') }}
       </button>
     </div>
     {% endif %}
@@ -27,15 +27,15 @@
 
   {% if is_admin %}
   <section id="import-template" class="collapse card mb-4">
-    <div class="card-header fw-semibold">SimpleOffice-Vorlage importieren</div>
+    <div class="card-header fw-semibold">{{ tr('business_template.overview.import_heading') }}</div>
     <div class="card-body">
       <form method="post" enctype="multipart/form-data" action="{{ url_for('.visual_template_import') }}" class="row g-3 align-items-end">
         <div class="col-md-8">
-          <label class="form-label" for="template-json">Vorlagendatei</label>
+          <label class="form-label" for="template-json">{{ tr('business_template.overview.file') }}</label>
           <input id="template-json" class="form-control" type="file" name="template_json" accept=".json,.simpleoffice-template.json,application/json" required>
-          <div class="form-text">Maximal 5 MB. Schema, Bildassets und sämtliche Layoutwerte werden serverseitig geprüft.</div>
+          <div class="form-text">{{ tr('business_template.overview.file_help') }}</div>
         </div>
-        <div class="col-md-4"><button class="btn btn-primary w-100" type="submit">Vorlage importieren</button></div>
+        <div class="col-md-4"><button class="btn btn-primary w-100" type="submit">{{ tr('business_template.overview.import_submit') }}</button></div>
       </form>
     </div>
   </section>
@@ -43,24 +43,24 @@
 
   {% if is_admin %}
   <section id="new-template" class="collapse card mb-4">
-    <div class="card-header fw-semibold">Aus Basis-Layout starten</div>
+    <div class="card-header fw-semibold">{{ tr('business_template.overview.base_heading') }}</div>
     <div class="card-body">
       <form method="post" action="{{ url_for('.visual_template_create') }}" class="row g-3">
         <div class="col-md-5">
-          <label class="form-label" for="template-name">Name</label>
-          <input id="template-name" class="form-control" name="name" maxlength="120" required placeholder="Rechnung Standard">
+          <label class="form-label" for="template-name">{{ tr('business_template.overview.name') }}</label>
+          <input id="template-name" class="form-control" name="name" maxlength="120" required placeholder="{{ tr('business_template.overview.name_placeholder') }}">
         </div>
         <div class="col-md-4">
-          <label class="form-label" for="document-type">Dokumenttyp</label>
+          <label class="form-label" for="document-type">{{ tr('business_template.overview.document_type') }}</label>
           <select id="document-type" class="form-select" name="document_type">
-            <option value="invoice">Rechnung</option>
-            <option value="quote">Angebot</option>
-            <option value="delivery_note">Lieferschein</option>
-            <option value="letter">Brief</option>
+            <option value="invoice">{{ tr('business_template.overview.invoice') }}</option>
+            <option value="quote">{{ tr('business_template.overview.quote') }}</option>
+            <option value="delivery_note">{{ tr('business_template.overview.delivery_note') }}</option>
+            <option value="letter">{{ tr('business_template.overview.letter') }}</option>
           </select>
         </div>
         <div class="col-md-3 d-flex align-items-end">
-          <button class="btn btn-primary w-100" type="submit">Basis-Layout anlegen</button>
+          <button class="btn btn-primary w-100" type="submit">{{ tr('business_template.overview.base_submit') }}</button>
         </div>
       </form>
     </div>
@@ -82,26 +82,26 @@
               <div>
                 <h2 class="h5 mb-1">{{ row.name }}</h2>
                 <div class="text-secondary small">
-                  {% if row.document_type == 'invoice' %}Rechnung{% elif row.document_type == 'quote' %}Angebot{% elif row.document_type == 'delivery_note' %}Lieferschein{% else %}Brief{% endif %}
+                  {% if row.document_type == 'invoice' %}{{ tr('business_template.overview.invoice') }}{% elif row.document_type == 'quote' %}{{ tr('business_template.overview.quote') }}{% elif row.document_type == 'delivery_note' %}{{ tr('business_template.overview.delivery_note') }}{% else %}{{ tr('business_template.overview.letter') }}{% endif %}
                 </div>
               </div>
               <div class="d-flex flex-column gap-1 align-items-end">
-                <span class="badge text-bg-primary">Visuell</span>
-                {% if row.active %}<span class="badge text-bg-success">Aktiv</span>{% endif %}
+                <span class="badge text-bg-primary">{{ tr('business_template.overview.visual') }}</span>
+                {% if row.active %}<span class="badge text-bg-success">{{ tr('business_template.overview.active') }}</span>{% endif %}
               </div>
             </div>
-            <p class="small text-secondary mt-3 mb-3">Schema {{ row.schema_version }} · Version {{ row.version }}<br>Geändert: {{ row.updated_at }}</p>
+            <p class="small text-secondary mt-3 mb-3">{{ tr('business_template.overview.schema_version') }} {{ row.schema_version }} · {{ tr('business_template.overview.version') }} {{ row.version }}<br>{{ tr('business_template.overview.changed') }} {{ row.updated_at }}</p>
             <div class="d-flex flex-wrap gap-2">
-              <a class="btn btn-sm btn-primary" href="{{ url_for('.visual_template_edit', template_id=row.template_id) }}">Bearbeiten</a>
-              <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('.visual_template_export', template_id=row.template_id) }}">Exportieren</a>
+              <a class="btn btn-sm btn-primary" href="{{ url_for('.visual_template_edit', template_id=row.template_id) }}">{{ tr('business_template.overview.edit') }}</a>
+              <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('.visual_template_export', template_id=row.template_id) }}">{{ tr('business_template.overview.export') }}</a>
               {% if is_admin %}
               {% if not row.active %}
               <form method="post" action="{{ url_for('.visual_template_activate', template_id=row.template_id) }}">
-                <button class="btn btn-sm btn-outline-success" type="submit">Aktivieren</button>
+                <button class="btn btn-sm btn-outline-success" type="submit">{{ tr('business_template.overview.activate') }}</button>
               </form>
               {% endif %}
               <form method="post" action="{{ url_for('.visual_template_duplicate', template_id=row.template_id) }}">
-                <button class="btn btn-sm btn-outline-secondary" type="submit">Duplizieren</button>
+                <button class="btn btn-sm btn-outline-secondary" type="submit">{{ tr('business_template.overview.duplicate') }}</button>
               </form>
               {% endif %}
             </div>
@@ -112,20 +112,20 @@
     {% else %}
     <div class="col-12">
       <div class="card"><div class="card-body py-5 text-center">
-        <h2 class="h5">Noch keine visuellen Vorlagen</h2>
-        <p class="text-secondary mb-0">Lege eine neue Vorlage aus dem Basis-Layout an. Bestehende 3-Seiten-PDF-/Office-Vorlagen bleiben parallel erhalten.</p>
+        <h2 class="h5">{{ tr('business_template.overview.empty_title') }}</h2>
+        <p class="text-secondary mb-0">{{ tr('business_template.overview.empty_text') }}</p>
       </div></div>
     </div>
     {% endfor %}
   </section>
 
   <section class="card mt-4">
-    <div class="card-header fw-semibold">Bereiche im Editor</div>
+    <div class="card-header fw-semibold">{{ tr('business_template.overview.regions') }}</div>
     <div class="card-body d-flex flex-wrap gap-3">
       <span class="template-region-key key-header">Header</span>
-      <span class="template-region-key key-content">Inhalt</span>
+      <span class="template-region-key key-content">{{ tr('business_template.overview.content') }}</span>
       <span class="template-region-key key-footer">Footer</span>
-      <span class="template-region-key key-margin">Randinfo</span>
+      <span class="template-region-key key-margin">{{ tr('business_template.overview.margin') }}</span>
     </div>
   </section>
 </main>

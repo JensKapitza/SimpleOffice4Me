@@ -1,4 +1,5 @@
 (() => {
+  const text = (german, english) => window.SimpleOfficeI18n?.text(german, english) ?? english;
   document.querySelectorAll('[data-company-autocomplete]').forEach((group) => {
     const input = group.querySelector('[data-company-name]');
     const hidden = group.querySelector('[data-company-id]');
@@ -16,7 +17,7 @@
     const choose = (item) => {
       input.value = item.company_name;
       hidden.value = item.contact_id;
-      status.textContent = `${item.display_name} als Firma ausgewählt.`;
+      status.textContent = text(`${item.display_name} als Firma ausgewählt.`, `${item.display_name} selected as the company.`);
       close();
     };
     const search = async () => {
@@ -26,12 +27,12 @@
         controller?.abort();
         controller = undefined;
         close();
-        status.textContent = query ? 'Bitte mindestens zwei Zeichen eingeben.' : '';
+        status.textContent = query ? text('Bitte mindestens zwei Zeichen eingeben.', 'Enter at least two characters.') : '';
         return;
       }
       controller?.abort();
       controller = new AbortController();
-      status.textContent = 'Lokale Kontakte werden gesucht …';
+      status.textContent = text('Lokale Kontakte werden gesucht …', 'Searching local contacts …');
       try {
         const url = new URL(endpoint, window.location.origin);
         url.searchParams.set('q', query);
@@ -54,11 +55,13 @@
           results.append(button);
         });
         results.hidden = payload.items.length === 0;
-        status.textContent = payload.items.length ? `${payload.items.length} Kontakt${payload.items.length === 1 ? '' : 'e'} gefunden.` : 'Keine passenden Kontakte gefunden.';
+        status.textContent = payload.items.length
+          ? text(`${payload.items.length} Kontakt${payload.items.length === 1 ? '' : 'e'} gefunden.`, `${payload.items.length} contact${payload.items.length === 1 ? '' : 's'} found.`)
+          : text('Keine passenden Kontakte gefunden.', 'No matching contacts found.');
       } catch (error) {
         if (error.name !== 'AbortError') {
           close();
-          status.textContent = 'Kontaktsuche ist derzeit nicht verfügbar.';
+          status.textContent = text('Kontaktsuche ist derzeit nicht verfügbar.', 'Contact search is currently unavailable.');
         }
       }
     };

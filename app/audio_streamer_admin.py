@@ -13,9 +13,14 @@ from .audio_output_discovery import discover_receiver_outputs, discover_micropho
 from .audio_streamer import manager, receiver_sdp
 from .auth import login_required
 from .audio_streamer_config import settings as stream_settings, DEFAULTS, default_settings
+from .translations import translate as _translate
 
 bp = Blueprint("audio_streamer_admin", __name__, url_prefix="/admin/mini-services/audio/streamer")
 _target_scan_lock = threading.Lock()
+
+
+def _tr(key: str) -> str:
+    return _translate(getattr(g, "language", "de"), key)
 
 
 def admin_required(view):
@@ -31,16 +36,16 @@ def admin_required(view):
 def payload() -> dict:
     value = request.get_json(silent=True)
     if not isinstance(value, dict):
-        raise ValueError("JSON-Objekt erwartet")
+        raise ValueError(_tr("audio_streamer.error.json_object"))
     return value
 
 
 def _configuration_error():
-    return jsonify({"error": "Ungültige Audio-Konfiguration."}), 400
+    return jsonify({"error": _tr("audio_streamer.error.configuration")}), 400
 
 
 def _runtime_error():
-    return jsonify({"error": "Audio-Dienst ist auf diesem System nicht verfügbar."}), 503
+    return jsonify({"error": _tr("audio_streamer.error.unavailable")}), 503
 
 
 @bp.get("")
@@ -74,7 +79,7 @@ def outputs():
     audit("audio_output_discovery", "audio_stream", "outputs", detail={"count": len(result)})
     response = {"outputs": result, "count": len(result), "state": "completed", "updated_at": time.time()}
     if platform.system() == "Windows":
-        response["message"] = "Systemstandard verfügbar; keine Hardwareprüfung. Das Ausgabegerät wird in Windows gewählt."
+        response["message"] = _tr("audio_streamer.outputs.windows_default")
     return jsonify(response)
 
 
@@ -84,10 +89,10 @@ def inputs():
     try:
         result = discover_microphone_inputs(request.args.get("backend", "auto"))
     except ValueError:
-        return jsonify(error="Capture-Backend muss auto, pulse, alsa oder dshow sein."), 400
+        return jsonify(error=_tr("audio_streamer.error.backend")), 400
     except (RuntimeError, OSError) as exc:
         audit("audio_input_discovery_failed", "audio_stream", "inputs", outcome="failure", detail={"error_type": type(exc).__name__})
-        return jsonify(error="Keine Mikrofone ermittelt. Audio-Sitzung, Geräte und Zugriffsrechte für PipeWire/PulseAudio, ALSA oder Windows/DirectShow prüfen.", code="input_discovery_failed"), 503
+        return jsonify(error=_tr("audio_streamer.error.no_inputs"), code="input_discovery_failed"), 503
     return jsonify({"inputs": result, "count": len(result), "state": "completed", "updated_at": time.time()})
 
 
@@ -155,18 +160,18 @@ def targets_scan():
     from .audio_target_discovery import targets_from_profiles
     from .federation_discovery_lan import discover_lan
     if not _target_scan_lock.acquire(blocking=False):
-        return jsonify(error="Empfängersuche läuft bereits. Kurz warten und erneut versuchen."), 409
+        return jsonify(error=_tr("audio_streamer.error.scan_running")), 409
     try:
         result = discover_lan(current_app.config["DOCUMENT_ROOT"])
         targets = targets_from_profiles(result["peers"])
         response = jsonify(state="completed", targets=targets, count=len(targets),
                            updated_at=time.time(), networks=result["networks"],
-                           scope="Aktive SimpleOffice-Desktop-Empfänger im lokalen IPv4-Netz")
+                           scope=_tr("audio_streamer.targets.scope"))
         response.headers["Cache-Control"] = "no-store"
         return response
     except (OSError, ValueError, sqlite3.Error) as exc:
         audit("audio_target_scan_failed", "audio_stream", "sender", outcome="failure", detail={"error_type": type(exc).__name__})
-        return jsonify(state="failed", updated_at=time.time(), error="Empfängersuche fehlgeschlagen. Privates IPv4-Netz und Federation-Port prüfen."), 503
+        return jsonify(state="failed", updated_at=time.time(), error=_tr("audio_streamer.error.scan_failed")), 503
     finally:
         _target_scan_lock.release()
 
@@ -223,11 +228,11 @@ def receiver_sdp_download():
     try:
         content = receiver_sdp(int(request.args.get("port") or 5004))
     except (ValueError, TypeError):
-        return jsonify({"error": "Ungültiger RTP-Port."}), 400
+        return jsonify({"error": _tr("audio_streamer.error.rtp_port")}), 400
     return content, 200, {"Content-Type": "application/sdp"}
 
 
 @bp.errorhandler(sqlite3.Error)
 def storage_error(exc):
     audit("audio_storage_failed", "service", "audio-streamer", outcome="failure", detail={"error_type": type(exc).__name__})
-    return jsonify(error="Audio-Einstellungen nicht verfügbar. Dateirechte und Datenbank prüfen; anschließend erneut versuchen."), 503
+    return jsonify(error=_tr("audio_streamer.error.storage")), 503

@@ -123,6 +123,30 @@ class RepositoryWorkspaceAuthTests(unittest.TestCase):
         self.assertEqual(302, protected.status_code)
         self.assertIn("/auth/login", protected.headers["Location"])
 
+    def test_repository_workspace_static_shell_follows_session_language(self):
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "en"
+        english = self.client.get("/repository-workspace/")
+        self.assertEqual(200, english.status_code)
+        english_html = english.get_data(as_text=True)
+        self.assertIn("Work hub", english_html)
+        self.assertIn("All priorities", english_html)
+        self.assertIn("Sources &amp; coverage", english_html)
+        self.assertIn("Export worklist", english_html)
+        self.assertIn("Personal checkmarks do not mean acceptance.", english_html)
+        self.assertIn("All statuses", english_html)
+        self.assertIn("Platform acceptance", english_html)
+        self.assertNotIn("Arbeitszentrale", english_html)
+        self.assertNotIn("Quellen &amp; Abdeckung", english_html)
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
+        german = self.client.get("/repository-workspace/")
+        self.assertEqual(200, german.status_code)
+        german_html = german.get_data(as_text=True)
+        self.assertIn("Arbeitszentrale", german_html)
+        self.assertIn("Alle Prioritäten", german_html)
+        self.assertIn("Quellen &amp; Abdeckung", german_html)
+
     def test_remote_https_allows_optional_device_flow(self):
         with patch.object(oauth, "post", return_value=dict(DEVICE)) as provider:
             response = self.post("/auth/start", base_url="https://localhost",

@@ -68,12 +68,14 @@
       <aside class="card shadow-sm quick-preview" data-quick-preview hidden aria-labelledby="quick-preview-title" aria-live="polite">
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-start gap-2">
-            <h2 class="h5 mb-0" data-quick-preview-title></h2>
+            <h2 id="quick-preview-title" class="h5 mb-0" data-quick-preview-title></h2>
             <button type="button" class="btn-close" data-quick-preview-close aria-label="{{ 'Close preview' if g.language == 'en' else 'Vorschau schließen' }}"></button>
           </div>
           <p class="mb-1"><span class="badge text-bg-light border" data-quick-preview-kind></span></p>
           <dl class="row small mb-2" data-quick-preview-rows></dl>
           <div class="d-flex flex-wrap gap-2" data-quick-preview-actions></div>
+          <p id="quick-preview-copy-feedback" class="small text-secondary mb-0" data-quick-preview-feedback></p>
+          <textarea class="form-control mt-2" data-quick-preview-manual rows="4" readonly hidden aria-describedby="quick-preview-copy-feedback" aria-label="{{ 'Preview text to copy' if g.language == 'en' else 'Vorschautext zum Kopieren' }}"></textarea>
         </div>
       </aside>
     </div>

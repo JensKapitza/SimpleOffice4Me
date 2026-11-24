@@ -174,38 +174,96 @@
     }
   }
 
+  let previewRequest = null;
+  const previewRows = preview?.querySelector('[data-quick-preview-rows]');
+  const previewActions = preview?.querySelector('[data-quick-preview-actions]');
+  const previewFeedback = preview?.querySelector('[data-quick-preview-feedback]');
+  const previewManual = preview?.querySelector('[data-quick-preview-manual]');
+
+  function resetPreviewContent() {
+    previewRows.replaceChildren();
+    previewActions.replaceChildren();
+    previewFeedback.textContent = '';
+    previewManual.hidden = true;
+    previewManual.value = '';
+  }
+
+  async function copyPreview(value, request) {
+    if (request !== previewRequest) return;
+    let copied = false;
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        await navigator.clipboard.writeText(value);
+        copied = true;
+      }
+    } catch {
+      // Clipboard access can be unavailable on HTTP LAN installs or denied by the browser.
+    }
+    if (request !== previewRequest) return;
+    if (copied) {
+      previewManual.hidden = true;
+      previewManual.value = '';
+      previewFeedback.textContent = text('Vorschau kopiert.', 'Preview copied.');
+    } else {
+      previewManual.value = value;
+      previewManual.hidden = false;
+      previewFeedback.textContent = text(
+        'Automatisches Kopieren nicht verfügbar. Du kannst den Text im Feld markieren und kopieren.',
+        'Automatic copying is unavailable. You can select and copy the text in the field.');
+      previewManual.focus();
+      previewManual.select();
+    }
+  }
+
   async function openPreview(match) {
     if (!preview) return;
+    if (previewRequest) previewRequest.abort();
+    const request = new AbortController();
+    previewRequest = request;
     preview.hidden = false;
     preview.querySelector('[data-quick-preview-title]').textContent = match.label;
     preview.querySelector('[data-quick-preview-kind]').textContent = kindLabel(match.kind);
-    const rows = preview.querySelector('[data-quick-preview-rows]');
-    const actions = preview.querySelector('[data-quick-preview-actions]');
-    rows.replaceChildren();
-    actions.replaceChildren();
-    rows.append(el('p', {class: 'text-secondary'}, text('Wird geladen …', 'Loading …')));
+    resetPreviewContent();
+    previewRows.append(el('p', {class: 'text-secondary'}, text('Wird geladen …', 'Loading …')));
     try {
       const params = new URLSearchParams({kind: match.kind, id: match.ref || ''});
-      const response = await fetch(`${previewApi}?${params.toString()}`, {headers: {Accept: 'application/json'}});
+      const response = await fetch(`${previewApi}?${params.toString()}`, {
+        headers: {Accept: 'application/json'}, signal: request.signal,
+      });
       if (!response.ok) throw new Error(`preview ${response.status}`);
       const data = await response.json();
-      rows.replaceChildren();
-      (data.rows || []).forEach(([label, value]) => {
-        if (!value) return;
-        rows.append(el('dt', {class: 'col-sm-4'}, label));
-        rows.append(el('dd', {class: 'col-sm-8 text-break'}, String(value)));
+      if (request !== previewRequest) return;
+      previewRows.replaceChildren();
+      const fields = (data.rows || []).filter(([, value]) => value);
+      fields.forEach(([label, value]) => {
+        previewRows.append(el('dt', {class: 'col-sm-4'}, label));
+        previewRows.append(el('dd', {class: 'col-sm-8 text-break'}, String(value)));
       });
       const open = el('a', {class: 'btn btn-primary', href: data.url || match.url}, text('Öffnen', 'Open'));
       open.addEventListener('click', () => recordRecent(match));
       const copyLink = el('button', {type: 'button', class: 'btn btn-outline-secondary'}, text('Link kopieren', 'Copy link'));
       copyLink.addEventListener('click', () => copyText(absoluteUrl(data.url || match.url), text('Link kopiert.', 'Link copied.')));
-      actions.append(open, copyLink);
+      previewActions.append(open, copyLink);
+      if (fields.length) {
+        const copy = el('button', {type: 'button', class: 'btn btn-outline-secondary'},
+          text('Vorschau kopieren', 'Copy preview'));
+        const value = [match.label, ...fields.map(([label, entry]) => `${label}: ${entry}`)].join('\n');
+        copy.addEventListener('click', () => copyPreview(value, request));
+        previewActions.append(copy);
+      }
     } catch {
-      rows.replaceChildren();
-      rows.append(el('p', {class: 'alert alert-warning mb-0'}, text('Vorschau nicht verfügbar.', 'Preview unavailable.')));
+      if (request !== previewRequest) return;
+      previewRows.replaceChildren();
+      previewRows.append(el('p', {class: 'alert alert-warning mb-0'}, text('Vorschau nicht verfügbar.', 'Preview unavailable.')));
     }
   }
-  function closePreview() { if (preview) preview.hidden = true; }
+  function closePreview() {
+    if (!preview) return;
+    if (previewRequest) previewRequest.abort();
+    previewRequest = null;
+    preview.hidden = true;
+    resetPreviewContent();
+  }
 
   function renderCollection(container, items, emptyText) {
     const section = container.closest('section');

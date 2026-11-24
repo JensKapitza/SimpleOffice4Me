@@ -470,9 +470,9 @@ class FrontendNavigationSmokeTests(unittest.TestCase):
         preview = self.client.get("/bookmarks/import-preview")
         self.assertEqual(200, preview.status_code)
         body = preview.get_data(as_text=True)
-        self.assertIn(">1</div><div>neu</div>", body)
-        self.assertIn(">1</div><div>Duplikate", body)
-        self.assertIn(">2</div><div>ungültige", body)
+        self.assertIn(">1</div><div>new</div>", body)
+        self.assertIn(">1</div><div>duplicates", body)
+        self.assertIn(">2</div><div>invalid", body)
         self.assertIn("&lt;img src=x onerror=alert(1)&gt;", body)
         self.assertNotIn("<img src=x onerror=alert(1)>", body)
         with app.app_context():
@@ -519,7 +519,7 @@ class FrontendNavigationSmokeTests(unittest.TestCase):
             "file": (BytesIO(exported.data), "roundtrip.html"),
         })
         roundtrip_preview = roundtrip.get("/bookmarks/import-preview")
-        self.assertIn(">2</div><div>neu</div>", roundtrip_preview.get_data(as_text=True))
+        self.assertIn(">2</div><div>new</div>", roundtrip_preview.get_data(as_text=True))
         self.assertEqual(302, roundtrip.post("/bookmarks/import-confirm").status_code)
         with app.app_context():
             db = database.get_db()
@@ -564,7 +564,7 @@ class FrontendNavigationSmokeTests(unittest.TestCase):
         self.assertEqual("/bookmarks/", response.headers["Location"])
         manager = self.client.get(response.headers["Location"])
         self.assertEqual(200, manager.status_code)
-        self.assertIn("keine aktive Importvorschau", manager.get_data(as_text=True))
+        self.assertIn("no active import preview", manager.get_data(as_text=True))
 
     def test_all_parameterless_template_linked_get_endpoints_render(self):
         """Smoke-test every directly callable GET page advertised anywhere in templates."""

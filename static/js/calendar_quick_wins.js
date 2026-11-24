@@ -1,10 +1,12 @@
 (() => {
   "use strict";
 
+  const text = (german, english) => window.SimpleOfficeI18n?.text(german, english) ?? english;
+
   function initCalendarQuickWins() {
     const main = document.querySelector("main.container-xl");
     const heading = main?.querySelector("h1");
-    if (!main || heading?.textContent.trim() !== "Kalender") return;
+    if (!main || !["Kalender", "Calendar"].includes(heading?.textContent.trim())) return;
 
     const topRow = heading.closest(".d-flex") || heading.parentElement;
     const reminders = document.getElementById("reminders");
@@ -38,12 +40,12 @@
       kindColumn.className = "col-md-4";
       const kindLabel = document.createElement("label");
       kindLabel.className = "form-label";
-      kindLabel.textContent = "Grundtyp";
+      kindLabel.textContent = text("Grundtyp", "Appointment type");
       const kindSelect = document.createElement("select");
       kindSelect.className = "form-select";
       kindSelect.dataset.appointmentContext = "";
       kindSelect.required = true;
-      [["", "Bitte wählen"], ["private", "Privat"], ["business", "Geschäftlich"]].forEach(([value, label]) => {
+      [["", text("Bitte wählen", "Choose one")], ["private", text("Privat", "Private")], ["business", text("Geschäftlich", "Business")]].forEach(([value, label]) => {
         const option = document.createElement("option");
         option.value = value;
         option.textContent = label;
@@ -54,17 +56,17 @@
       companyColumn.className = "col-md-8";
       const companyLabel = document.createElement("label");
       companyLabel.className = "form-label";
-      companyLabel.append(document.createTextNode("Firma "));
+      companyLabel.append(document.createTextNode(text("Firma ", "Company ")));
       const companyHint = document.createElement("span");
       companyHint.className = "text-secondary";
-      companyHint.textContent = "(bei geschäftlich, falls vorhanden)";
+      companyHint.textContent = text("(bei geschäftlich, falls vorhanden)", "(for business appointments, if available)");
       companyLabel.append(companyHint);
       const companyInput = document.createElement("input");
       companyInput.className = "form-control";
       companyInput.dataset.appointmentCompany = "";
       companyInput.maxLength = 160;
       companyInput.autocomplete = "organization";
-      companyInput.placeholder = "Firma / Organisation";
+      companyInput.placeholder = text("Firma / Organisation", "Company / organization");
       companyColumn.append(companyLabel, companyInput);
       row.append(kindColumn, companyColumn);
       title.closest(".col-md-6, .col-md, .mb-2, .mb-3")?.before(row) || title.before(row);
@@ -78,7 +80,7 @@
       const syncCompanyState = () => {
         company.disabled = kind.value !== "business";
         if (kind.value === "business" && !company.value.trim() && contact?.selectedOptions?.[0]?.value) {
-          company.placeholder = `z. B. ${contact.selectedOptions[0].textContent.trim()}`;
+          company.placeholder = text(`z. B. ${contact.selectedOptions[0].textContent.trim()}`, `e.g. ${contact.selectedOptions[0].textContent.trim()}`);
         }
       };
       kind.addEventListener("change", syncCompanyState);
@@ -87,7 +89,7 @@
       form.addEventListener("submit", (event) => {
         if (!kind.value) {
           event.preventDefault();
-          kind.setCustomValidity("Privat oder Geschäftlich muss ausgewählt werden.");
+          kind.setCustomValidity(text("Privat oder Geschäftlich muss ausgewählt werden.", "Choose private or business."));
           kind.reportValidity();
           return;
         }
@@ -98,19 +100,21 @@
 
     const reminderCount = Number(reminders?.querySelector(".card-header .badge")?.textContent.trim() || 0);
     const pendingInvitations = scheduling ? Array.from(scheduling.querySelectorAll(".badge")).filter((badge) => badge.textContent.trim() === "pending").length : 0;
-    const schedulingEnabled = schedulingAccess?.querySelector(".card-header .badge")?.textContent.trim() === "aktiv";
-    const googleReady = google?.querySelector(".card-header .badge")?.textContent.trim() === "Bereit";
+    const schedulingStatus = schedulingAccess?.querySelector(".card-header .badge")?.textContent.trim();
+    const googleStatus = google?.querySelector(".card-header .badge")?.textContent.trim();
+    const schedulingEnabled = ["aktiv", "active"].includes(schedulingStatus);
+    const googleReady = ["Bereit", "Ready"].includes(googleStatus);
     const cockpit = document.createElement("section");
     cockpit.className = "card mb-4"; cockpit.id = "calendar-cockpit";
     const cockpitHeader = document.createElement("div");
     cockpitHeader.className = "card-header d-flex flex-wrap justify-content-between align-items-center gap-2";
     const cockpitTitle = document.createElement("strong");
-    cockpitTitle.textContent = "Kalendercockpit";
+    cockpitTitle.textContent = text("Kalendercockpit", "Calendar overview");
     const viewButtons = document.createElement("div");
     viewButtons.className = "btn-group btn-group-sm";
     viewButtons.setAttribute("role", "group");
-    viewButtons.setAttribute("aria-label", "Kalenderansicht");
-    [["calendar-view-essential", "Kompakt"], ["calendar-view-all", "Alles anzeigen"]].forEach(([id, label]) => {
+    viewButtons.setAttribute("aria-label", text("Kalenderansicht", "Calendar view"));
+    [["calendar-view-essential", text("Kompakt", "Compact")], ["calendar-view-all", text("Alles anzeigen", "Show all")]].forEach(([id, label]) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "btn btn-outline-secondary";
@@ -123,7 +127,7 @@
     cockpitBody.className = "card-body";
     const metrics = document.createElement("div");
     metrics.className = "row g-2 text-center";
-    [[reminderCount, "Erinnerungen"], [pendingInvitations, "Offene Einladungen"], [schedulingEnabled ? "Ja" : "Nein", "Scheduling aktiv"], [googleReady ? "Bereit" : "Aus", "Google Sync"]].forEach(([value, label]) => {
+    [[reminderCount, text("Erinnerungen", "Reminders")], [pendingInvitations, text("Offene Einladungen", "Pending invitations")], [schedulingEnabled ? text("Ja", "Yes") : text("Nein", "No"), text("Scheduling aktiv", "Scheduling active")], [googleReady ? text("Bereit", "Ready") : text("Aus", "Off"), "Google Sync"]].forEach(([value, label]) => {
       const column = document.createElement("div");
       column.className = "col-6 col-lg-3";
       const box = document.createElement("div");
@@ -141,8 +145,8 @@
     cockpitBody.append(metrics);
     cockpit.append(cockpitHeader, cockpitBody);
     if (topRow) topRow.after(cockpit);
-    const targets = [["reminders", "Erinnerungen"], ["scheduling", "Einladungen"], ["scheduling-access", "Verfügbarkeit"], ["caldav", "CalDAV"], ["google-calendar-sync", "Google Sync"]].filter(([id]) => document.getElementById(id));
-    const navigation = document.createElement("nav"); navigation.className = "d-flex flex-wrap gap-2 mb-4"; navigation.setAttribute("aria-label", "Kalender-Schnellnavigation");
+    const targets = [["reminders", text("Erinnerungen", "Reminders")], ["scheduling", text("Einladungen", "Invitations")], ["scheduling-access", text("Verfügbarkeit", "Availability")], ["caldav", "CalDAV"], ["google-calendar-sync", "Google Sync"]].filter(([id]) => document.getElementById(id));
+    const navigation = document.createElement("nav"); navigation.className = "d-flex flex-wrap gap-2 mb-4"; navigation.setAttribute("aria-label", text("Kalender-Schnellnavigation", "Calendar quick navigation"));
     targets.forEach(([id, label]) => { const link = document.createElement("a"); link.className = "btn btn-sm btn-outline-primary"; link.href = `#${id}`; link.textContent = label; navigation.append(link); });
     cockpit.after(navigation);
     if (reminders) {
@@ -155,8 +159,8 @@
         const input = document.createElement("input");
         input.type = "search";
         input.className = "form-control";
-        input.placeholder = "Erinnerungen filtern …";
-        input.setAttribute("aria-label", "Erinnerungen filtern");
+        input.placeholder = text("Erinnerungen filtern …", "Filter reminders …");
+        input.setAttribute("aria-label", text("Erinnerungen filtern", "Filter reminders"));
         const count = document.createElement("span");
         count.className = "input-group-text";
         count.dataset.calendarReminderCount = "";
@@ -166,7 +170,7 @@
         input.addEventListener("input", () => { const query = input.value.trim().toLowerCase(); let visible = 0; items.forEach((item) => { const show = !query || item.textContent.toLowerCase().includes(query); item.classList.toggle("d-none", !show); if (show) visible += 1; }); count.textContent = `${visible}/${items.length}`; });
       }
     }
-    [schedulingAccess, caldav].filter(Boolean).forEach((section) => { section.querySelectorAll("code").forEach((code) => { const text = code.textContent.trim(); if (!text || code.nextElementSibling?.matches("[data-copy-calendar-value]")) return; const button = document.createElement("button"); button.type = "button"; button.className = "btn btn-sm btn-link py-0 px-1 align-baseline"; button.dataset.copyCalendarValue = "1"; button.title = "In die Zwischenablage kopieren"; button.setAttribute("aria-label", `${text} kopieren`); button.append(icon("fas fa-copy")); code.after(button); button.addEventListener("click", async () => { try { await navigator.clipboard.writeText(text); button.replaceChildren(icon("fas fa-check")); setTimeout(() => { button.replaceChildren(icon("fas fa-copy")); }, 1200); } catch (error) { console.warn("Kalenderadresse konnte nicht kopiert werden", error); } }); }); });
+    [schedulingAccess, caldav].filter(Boolean).forEach((section) => { section.querySelectorAll("code").forEach((valueNode) => { const value = valueNode.textContent.trim(); if (!value || valueNode.nextElementSibling?.matches("[data-copy-calendar-value]")) return; const button = document.createElement("button"); button.type = "button"; button.className = "btn btn-sm btn-link py-0 px-1 align-baseline"; button.dataset.copyCalendarValue = "1"; button.title = text("In die Zwischenablage kopieren", "Copy to clipboard"); button.setAttribute("aria-label", text(`${value} kopieren`, `Copy ${value}`)); button.append(icon("fas fa-copy")); valueNode.after(button); button.addEventListener("click", async () => { try { await navigator.clipboard.writeText(value); button.replaceChildren(icon("fas fa-check")); setTimeout(() => { button.replaceChildren(icon("fas fa-copy")); }, 1200); } catch (error) { console.warn("Calendar address could not be copied", error); } }); }); });
     const advancedSections = [google, schedulingAccess, caldav].filter(Boolean); const storageKey = "simpleoffice.calendar.compactView";
     const applyCompact = (compact) => { advancedSections.forEach((section) => section.classList.toggle("d-none", compact)); cockpit.querySelector("#calendar-view-essential")?.classList.toggle("active", compact); cockpit.querySelector("#calendar-view-all")?.classList.toggle("active", !compact); try { localStorage.setItem(storageKey, compact ? "1" : "0"); } catch (_) {} };
     let compact = false; try { compact = localStorage.getItem(storageKey) === "1"; } catch (_) {} applyCompact(compact);

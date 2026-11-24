@@ -23,6 +23,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class AudioStreamerTests(unittest.TestCase):
+    def test_admin_error_catalog_follows_request_language(self) -> None:
+        from flask import Flask, g
+        from app.audio_streamer_admin import _tr
+
+        app = Flask(__name__)
+        with app.test_request_context("/"):
+            g.language = "en"
+            self.assertEqual("Invalid RTP port.", _tr("audio_streamer.error.rtp_port"))
+            g.language = "de"
+            self.assertEqual("Ungültiger RTP-Port.", _tr("audio_streamer.error.rtp_port"))
+
     def test_destinations_are_validated_deduplicated_and_bounded(self) -> None:
         values = [
             {"host": "192.168.1.20", "port": 5004},
@@ -146,8 +157,8 @@ class AudioStreamerTests(unittest.TestCase):
         source = (ROOT / "app" / "audio_streamer_admin.py").read_text(encoding="utf-8")
         self.assertNotIn('"error": str(exc)', source)
         self.assertIn('"error_type": type(exc).__name__', source)
-        self.assertIn("Audio-Dienst ist auf diesem System nicht verfügbar.", source)
-        self.assertIn("Ungültiger RTP-Port.", source)
+        self.assertIn('"audio_streamer.error.unavailable"', source)
+        self.assertIn('"audio_streamer.error.rtp_port"', source)
 
     def test_page_uses_layout_body_and_main_landmark(self) -> None:
         source = (ROOT / "templates" / "admin" / "audio_streamer.html").read_text(encoding="utf-8")

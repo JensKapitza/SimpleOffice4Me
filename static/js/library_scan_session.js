@@ -1,6 +1,8 @@
 (() => {
   'use strict';
 
+  const tx = (german, english) => window.SimpleOfficeI18n?.text(german, english) ?? german;
+
   const textNode = (text, className = '') => {
     const node = document.createElement('div');
     node.className = className;
@@ -36,31 +38,31 @@
       input.disabled = !active;
       scanButton.disabled = !active;
       if (!session) {
-        status.textContent = 'Keine Scan-Sitzung aktiv.';
+        status.textContent = tx('Keine Scan-Sitzung aktiv.', 'No scan session is active.');
         history.replaceChildren();
         return;
       }
       if ([...location.options].some(option => option.value === session.location_id)) {
         location.value = session.location_id;
       }
-      const stateLabel = active ? 'läuft' : 'pausiert';
+      const stateLabel = active ? tx('läuft', 'running') : tx('pausiert', 'paused');
       status.textContent = [
-        `Sitzung ${stateLabel}: ${session.location_path || 'Standort'}`,
-        `${session.total || 0} Scans`,
-        `${session.assigned || 0} zugeordnet`,
-        `${session.duplicates || 0} Dubletten`,
-        `${session.missing || 0} offen`,
-        `${session.errors || 0} Fehler`,
+        `${tx('Sitzung', 'Session')} ${stateLabel}: ${session.location_path || tx('Standort', 'Location')}`,
+        `${session.total || 0} ${tx('Scans', 'scans')}`,
+        `${session.assigned || 0} ${tx('zugeordnet', 'assigned')}`,
+        `${session.duplicates || 0} ${tx('Dubletten', 'duplicates')}`,
+        `${session.missing || 0} ${tx('offen', 'open')}`,
+        `${session.errors || 0} ${tx('Fehler', 'errors')}`,
       ].join(' · ');
       history.replaceChildren();
       const labels = {
-        assigned: 'Zugeordnet',
-        duplicate: 'Bereits am Standort',
-        missing: 'Noch nicht im Inventar',
-        error: 'Fehler',
+        assigned: tx('Zugeordnet', 'Assigned'),
+        duplicate: tx('Bereits am Standort', 'Already at this location'),
+        missing: tx('Noch nicht im Inventar', 'Not in inventory yet'),
+        error: tx('Fehler', 'Error'),
       };
       for (const row of [...(session.recent || [])].reverse()) {
-        const label = labels[row.outcome] || 'Scan';
+        const label = labels[row.outcome] || tx('Scan', 'Scan');
         const identity = row.display_id ? ` #${row.display_id}` : '';
         const name = row.name ? ` ${row.name}` : '';
         history.append(textNode(`${label}:${identity}${name}`, 'list-group-item py-2'));
@@ -78,14 +80,14 @@
         headers: {'Accept': 'application/json'},
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || 'Scan-Sitzung konnte nicht aktualisiert werden.');
+      if (!response.ok) throw new Error(payload.error || tx('Scan-Sitzung konnte nicht aktualisiert werden.', 'Could not update the scan session.'));
       render(payload.session);
       return payload.session;
     };
 
     buttons.start.addEventListener('click', async () => {
       if (!location.value) {
-        status.textContent = 'Bitte zuerst ein Regal auswählen oder scannen.';
+        status.textContent = tx('Bitte zuerst ein Regal auswählen oder scannen.', 'Select or scan a shelf first.');
         return;
       }
       try {
@@ -105,7 +107,7 @@
       }
     });
     buttons.finish.addEventListener('click', async () => {
-      if (!window.confirm('Scan-Sitzung abschließen? Der Sitzungsfortschritt wird danach verworfen.')) return;
+      if (!window.confirm(tx('Scan-Sitzung abschließen? Der Sitzungsfortschritt wird danach verworfen.', 'Finish the scan session? Its progress will be discarded.'))) return;
       try {
         await action('finish');
       } catch (error) {
@@ -118,7 +120,7 @@
         try {
           const response = await fetch(options.url, {headers: {'Accept': 'application/json'}});
           const payload = await response.json().catch(() => ({}));
-          if (!response.ok) throw new Error(payload.error || 'Scan-Sitzung konnte nicht geladen werden.');
+          if (!response.ok) throw new Error(payload.error || tx('Scan-Sitzung konnte nicht geladen werden.', 'Could not load the scan session.'));
           render(payload.session);
         } catch (error) {
           status.textContent = error.message;
@@ -128,7 +130,7 @@
       },
       requireActive: () => {
         if (session?.status === 'active') return true;
-        status.textContent = session ? 'Die Scan-Sitzung ist pausiert.' : 'Bitte zuerst eine Scan-Sitzung starten.';
+        status.textContent = session ? tx('Die Scan-Sitzung ist pausiert.', 'The scan session is paused.') : tx('Bitte zuerst eine Scan-Sitzung starten.', 'Start a scan session first.');
         return false;
       },
       addRequestFields: form => {

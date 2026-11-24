@@ -1,6 +1,8 @@
 (() => {
   'use strict';
 
+  const text = (german, english) => window.SimpleOfficeI18n?.text(german, english) ?? english;
+
   const root = document.querySelector('[data-android-offline-app]');
   if (!root || root.dataset.enabled !== '1') return;
 
@@ -62,7 +64,7 @@
       7 * 24 * 60 * 60,
       'tasks'
     );
-    if (result !== 'ok') throw new Error(`Lokales Speichern fehlgeschlagen: ${result}`);
+    if (result !== 'ok') throw new Error(text(`Lokales Speichern fehlgeschlagen: ${result}`, `Could not save locally: ${result}`));
     await render();
   };
 
@@ -80,12 +82,12 @@
   const statusSelect = current => {
     const select = document.createElement('select');
     select.className = 'form-select form-select-sm';
-    select.setAttribute('aria-label', 'Aufgabenstatus');
+    select.setAttribute('aria-label', text('Aufgabenstatus', 'Task status'));
     [
-      ['needs-action', 'Offen'],
-      ['in-process', 'In Bearbeitung'],
-      ['completed', 'Erledigt'],
-      ['cancelled', 'Abgebrochen'],
+      ['needs-action', text('Offen', 'Open')],
+      ['in-process', text('In Bearbeitung', 'In progress')],
+      ['completed', text('Erledigt', 'Completed')],
+      ['cancelled', text('Abgebrochen', 'Cancelled')],
     ].forEach(([value, label]) => {
       const option = document.createElement('option');
       option.value = value;
@@ -103,7 +105,7 @@
     if (!tasks.length) {
       const empty = document.createElement('div');
       empty.className = 'list-group-item text-secondary';
-      empty.textContent = 'Keine Aufgaben offline gespeichert.';
+      empty.textContent = text('Keine Aufgaben offline gespeichert.', 'No tasks are saved for offline use.');
       cached.append(empty);
       return;
     }
@@ -126,13 +128,13 @@
       const remove = document.createElement('button');
       remove.type = 'button';
       remove.className = 'btn btn-sm btn-outline-danger';
-      remove.textContent = unresolved ? 'Änderung zuerst klären' : 'Entfernen';
+      remove.textContent = unresolved ? text('Änderung zuerst klären', 'Resolve the change first') : text('Entfernen', 'Remove');
       remove.disabled = unresolved;
       remove.addEventListener('click', async () => {
         if (unresolved) return;
         const result = bridge.remove(metadata.id, 'task');
         if (result !== 'ok') {
-          show(`Offline-Aufgabe konnte nicht entfernt werden: ${result}`, 'warning');
+          show(text(`Offline-Aufgabe konnte nicht entfernt werden: ${result}`, `Could not remove offline task: ${result}`), 'warning');
           return;
         }
         await render();
@@ -146,7 +148,7 @@
       const enqueue = document.createElement('button');
       enqueue.type = 'button';
       enqueue.className = 'btn btn-sm btn-outline-primary';
-      enqueue.textContent = 'Status offline vormerken';
+      enqueue.textContent = text('Status offline vormerken', 'Queue status change offline');
       enqueue.disabled = unresolved;
       enqueue.addEventListener('click', async () => {
         hideMessage();
@@ -157,17 +159,17 @@
           JSON.stringify({status: select.value})
         );
         if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(operation || '')) {
-          show(`Änderung konnte nicht vorgemerkt werden: ${operation || 'unbekannt'}`, 'warning');
+          show(text(`Änderung konnte nicht vorgemerkt werden: ${operation || 'unbekannt'}`, `Could not queue the change: ${operation || 'unknown'}`), 'warning');
           return;
         }
-        show('Statusänderung lokal vorgemerkt.', 'success');
+        show(text('Statusänderung lokal vorgemerkt.', 'Status change queued locally.'), 'success');
         await render();
       });
       controls.append(select, enqueue);
 
       const meta = document.createElement('div');
       meta.className = 'small text-secondary mt-2';
-      meta.textContent = `Workset ${metadata.workset || 'default'} · Version ${String(metadata.version || '').slice(0, 20)}…`;
+      meta.textContent = text(`Arbeitsbereich ${metadata.workset || 'default'} · Version ${String(metadata.version || '').slice(0, 20)}…`, `Workset ${metadata.workset || 'default'} · Version ${String(metadata.version || '').slice(0, 20)}…`);
       row.append(head, controls, meta);
       cached.append(row);
     });
@@ -176,11 +178,11 @@
   const refreshTaskFromServer = async id => {
     const task = await serverTask(id);
     const result = bridge.cache(task.id, 'task', task.version, JSON.stringify(task), 7 * 24 * 60 * 60, 'tasks');
-    if (result !== 'ok') throw new Error(`Serverstand konnte lokal nicht gespeichert werden: ${result}`);
+    if (result !== 'ok') throw new Error(text(`Serverstand konnte lokal nicht gespeichert werden: ${result}`, `Could not save server state locally: ${result}`));
   };
   const acknowledge = (operationId, status) => {
     const result = bridge.ack(operationId, status);
-    if (result !== 'ok') throw new Error(`Offline-Status konnte nicht gespeichert werden: ${result}`);
+    if (result !== 'ok') throw new Error(text(`Offline-Status konnte nicht gespeichert werden: ${result}`, `Could not save offline status: ${result}`));
   };
 
   const renderQueue = operations => {
@@ -189,7 +191,7 @@
     if (!operations.length) {
       const empty = document.createElement('div');
       empty.className = 'list-group-item text-secondary';
-      empty.textContent = 'Keine offenen Offline-Änderungen.';
+      empty.textContent = text('Keine offenen Offline-Änderungen.', 'No pending offline changes.');
       queue.append(empty);
       return;
     }
@@ -200,26 +202,26 @@
       const label = document.createElement('div');
       label.className = 'd-flex flex-wrap justify-content-between gap-2';
       const description = document.createElement('span');
-      description.textContent = `Aufgabe ${op.targetId} · Statusänderung`;
+      description.textContent = text(`Aufgabe ${op.targetId} · Statusänderung`, `Task ${op.targetId} · status change`);
       const badge = document.createElement('span');
       badge.className = `badge ${op.status === 'conflict' ? 'text-bg-warning' : op.status === 'rejected' ? 'text-bg-danger' : 'text-bg-secondary'}`;
-      badge.textContent = op.status || 'pending';
+      badge.textContent = ({pending: text('Ausstehend', 'Pending'), conflict: text('Konflikt', 'Conflict'), rejected: text('Abgelehnt', 'Rejected')})[op.status] || op.status || text('Ausstehend', 'Pending');
       label.append(description, badge);
       row.append(label);
 
       if (op.status === 'conflict') {
         const note = document.createElement('p');
         note.className = 'small mt-2 mb-2';
-        note.textContent = 'Der Serverstand wurde seit dem Offline-Speichern geändert. Es erfolgt kein automatisches Überschreiben.';
+        note.textContent = text('Der Serverstand wurde seit dem Offline-Speichern geändert. Es erfolgt kein automatisches Überschreiben.', 'The server data changed after this item was saved offline. Nothing will be overwritten automatically.');
         const accept = document.createElement('button');
         accept.type = 'button';
         accept.className = 'btn btn-sm btn-outline-primary';
-        accept.textContent = 'Serverstand übernehmen';
+        accept.textContent = text('Serverstand übernehmen', 'Use server version');
         accept.addEventListener('click', async () => {
           try {
             await refreshTaskFromServer(op.targetId);
             acknowledge(op.operationId, 'discarded');
-            show('Konflikt verworfen und aktueller Serverstand geladen.', 'success');
+            show(text('Konflikt verworfen und aktueller Serverstand geladen.', 'Conflict discarded and current server version loaded.'), 'success');
             await render();
           } catch (error) {
             show(error.message || String(error), 'warning');
@@ -230,7 +232,7 @@
         const discard = document.createElement('button');
         discard.type = 'button';
         discard.className = 'btn btn-sm btn-outline-danger mt-2';
-        discard.textContent = 'Verworfene Änderung entfernen';
+        discard.textContent = text('Verworfene Änderung entfernen', 'Remove rejected change');
         discard.addEventListener('click', async () => {
           try {
             acknowledge(op.operationId, 'discarded');
@@ -247,7 +249,7 @@
 
   const render = async () => {
     if (!bridge) {
-      if (nativeState) nativeState.textContent = 'Nicht verfügbar';
+      if (nativeState) nativeState.textContent = text('Nicht verfügbar', 'Unavailable');
       const unavailable = (target, message) => {
         if (!target) return;
         const row = document.createElement('div');
@@ -255,11 +257,11 @@
         row.textContent = message;
         target.replaceChildren(row);
       };
-      unavailable(cached, 'Offline-Arbeitsdaten sind nur in der Android-App verfügbar.');
-      unavailable(queue, 'Kein nativer Offline-Speicher verfügbar.');
+      unavailable(cached, text('Offline-Arbeitsdaten sind nur in der Android-App verfügbar.', 'Offline data is available only in the Android app.'));
+      unavailable(queue, text('Kein nativer Offline-Speicher verfügbar.', 'No native offline storage is available.'));
       return;
     }
-    if (nativeState) nativeState.textContent = 'Verfügbar';
+    if (nativeState) nativeState.textContent = text('Verfügbar', 'Available');
     const status = bridge.status();
     const items = bridge.items();
     const operations = bridge.outbox();
@@ -313,9 +315,9 @@
           acknowledge(result.operationId, 'rejected');
         }
       }
-      show('Offline-Änderungen wurden mit dem Server abgeglichen.', 'success');
+      show(text('Offline-Änderungen wurden mit dem Server abgeglichen.', 'Offline changes were synchronized with the server.'), 'success');
     } catch (error) {
-      show(`Synchronisation nicht möglich: ${error.message || error}`, 'warning');
+      show(text(`Synchronisation nicht möglich: ${error.message || error}`, `Could not synchronize: ${error.message || error}`), 'warning');
     }
     await render();
   };
@@ -323,13 +325,13 @@
   root.querySelectorAll('[data-offline-cache-task]').forEach(button => {
     button.addEventListener('click', async () => {
       if (!bridge) {
-        show('Offline-Speichern ist nur in der Android-App verfügbar.', 'warning');
+        show(text('Offline-Speichern ist nur in der Android-App verfügbar.', 'Offline saving is available only in the Android app.'), 'warning');
         return;
       }
       try {
         hideMessage();
         await cacheTask(button.dataset.offlineCacheTask);
-        show('Aufgabe wurde für die Offline-Nutzung gespeichert.', 'success');
+        show(text('Aufgabe wurde für die Offline-Nutzung gespeichert.', 'Task saved for offline use.'), 'success');
       } catch (error) {
         show(error.message || String(error), 'warning');
       }
@@ -343,17 +345,17 @@
     switchButton.disabled = !bridge;
     switchButton.addEventListener('click', () => {
       if (!bridge) return;
-      if (!window.confirm('Android-Konto wechseln? Lokale Offline-Daten und vorgemerkte Änderungen werden vorher gelöscht.')) return;
+      if (!window.confirm(text('Android-Konto wechseln? Lokale Offline-Daten und vorgemerkte Änderungen werden vorher gelöscht.', 'Switch Android account? Local offline data and queued changes will be deleted first.'))) return;
       const result = bridge.switchAccount();
-      if (result !== 'ok') show(`Kontowechsel nicht möglich: ${result}`, 'warning');
+      if (result !== 'ok') show(text(`Kontowechsel nicht möglich: ${result}`, `Could not switch account: ${result}`), 'warning');
     });
   }
   const clearButton = root.querySelector('[data-offline-clear]');
   if (clearButton) clearButton.addEventListener('click', async () => {
     if (!bridge) return;
-    if (!window.confirm('Alle lokalen Offline-Arbeitsdaten und vorgemerkten Änderungen löschen?')) return;
+    if (!window.confirm(text('Alle lokalen Offline-Arbeitsdaten und vorgemerkten Änderungen löschen?', 'Delete all local offline data and queued changes?'))) return;
     const result = bridge.clear();
-    show(result === 'ok' ? 'Lokale Offline-Daten wurden gelöscht.' : `Löschen fehlgeschlagen: ${result}`, result === 'ok' ? 'success' : 'warning');
+    show(result === 'ok' ? text('Lokale Offline-Daten wurden gelöscht.', 'Local offline data was deleted.') : text(`Löschen fehlgeschlagen: ${result}`, `Could not delete data: ${result}`), result === 'ok' ? 'success' : 'warning');
     await render();
   });
 

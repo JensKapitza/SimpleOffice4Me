@@ -6,6 +6,7 @@ import json
 import re
 import shutil
 import uuid
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +18,7 @@ from .revision_history import RevisionHistory
 RESOURCE = re.compile(r"^[A-Za-z0-9._-]{1,160}\.ics$")
 OFFLINE_OPERATION = re.compile(r"^[A-Za-z0-9._:-]{8,160}$")
 AUTOMATION_OPERATION = re.compile(r"^[0-9a-f]{64}$")
-SOURCE_DOCUMENT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
+LOCAL_SOURCE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
 STATUSES = {"needs-action", "in-process", "completed", "cancelled"}
 LIST_PERMISSIONS = {"read", "create", "edit", "complete", "delete", "manage"}
 
@@ -26,6 +27,49 @@ class TodoConflict(ValueError):
     def __init__(self, item: dict[str, Any] | None = None):
         super().__init__("task resource changed concurrently")
         self.item = item
+
+
+class TodoDueDateError(ValueError):
+    """The quick date change would alter the meaning of the task."""
+
+
+class TodoDueDateBeforeStart(TodoDueDateError):
+    """A VTODO due date must be after its start date."""
+
+
+def parse_task_day(value: str) -> date | None:
+    if len(value) != 10:
+        return None
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.isoformat() == value else None
+
+
+def supports_quick_due_change(task: dict[str, Any]) -> bool:
+    if task.get("status") not in {"needs-action", "in-process"}:
+        return False
+    if any(task.get(field) for field in ("rrule", "rdates", "exdates")):
+        return False
+    relations = task.get("related_to") or []
+    if isinstance(relations, str):
+        relations = [relations]
+    if any(str(relation).startswith("urn:simpleoffice:object:") for relation in relations):
+        return False  # The inventory rule owns a separate next-due date.
+    depth = 0
+    lines = task.get("extra_lines") or []
+    if isinstance(lines, str):
+        lines = [lines]
+    for line in lines:
+        key = str(line).split(":", 1)[0].split(";", 1)[0].upper()
+        if key == "BEGIN":
+            depth += 1
+        elif key == "END":
+            depth = max(0, depth - 1)
+        elif depth == 0 and key in {"RECURRENCE-ID", "DURATION"}:
+            return False
+    return all(not task.get(field) or parse_task_day(str(task[field])) for field in ("start", "due"))
 
 
 class TodoStore:
@@ -99,6 +143,7 @@ class TodoStore:
         smart_folder_id: str = "",
         source_document_id: str = "",
         automation_operation_id: str = "",
+        calendar_followup_event_id: str = "",
     ) -> dict[str, Any]:
         values = dict(values or {})
         if not title.strip() or not actor.strip(): raise ValueError("to-do title and user are required")
@@ -113,6 +158,12 @@ class TodoStore:
         values.pop("smart_folder_id", None)
         smart_folder_id = self._validated_smart_folder_id(smart_folder_id)
         list_id = str(values.get("list_id", "")).strip() or self.default_list_id(actor)
+        if calendar_followup_event_id and (
+            not LOCAL_SOURCE_ID.fullmatch(calendar_followup_event_id)
+            or list_id != self.default_list_id(actor)
+            or automation_operation_id
+        ):
+            raise ValueError("invalid calendar follow-up")
         automation_operation_id = str(automation_operation_id or "").strip()
         if automation_operation_id and not AUTOMATION_OPERATION.fullmatch(automation_operation_id):
             raise ValueError("invalid automation operation identifier")
@@ -131,6 +182,10 @@ class TodoStore:
             data = self._read()
             self._ensure_default(data, actor)
             task_list = self._list(data, list_id, actor, "create")
+            if calendar_followup_event_id:
+                open_followups = self._open_calendar_followups(data, actor)
+                if existing := open_followups.get(calendar_followup_event_id):
+                    return self._normalized(existing, actor)
             if receipt_key:
                 operations = data.setdefault("automation_operations", {})
                 receipt = operations.get(receipt_key)
@@ -146,6 +201,8 @@ class TodoStore:
             item["smart_folder_id"] = smart_folder_id
             item["created_by"] = actor; item["updated_by"] = actor
             data["items"].append(item)
+            if calendar_followup_event_id:
+                data["calendar_followup_sources"][item_id] = calendar_followup_event_id
             if receipt_key:
                 data.setdefault("automation_operations", {})[receipt_key] = {
                     "fingerprint": fingerprint,
@@ -156,6 +213,34 @@ class TodoStore:
             self._write(data)
         self.history.record("todo_created", actor, "todo", item_id, item)
         return item
+
+    def _open_calendar_followups(self, data: dict[str, Any], actor: str) -> dict[str, dict[str, Any]]:
+        result = {}
+        sources = data["calendar_followup_sources"]
+        list_id = self.default_list_id(actor)
+        for item in data["items"]:
+            event_id = sources.get(item.get("id"))
+            if (
+                isinstance(event_id, str) and event_id
+                and item.get("list_id") == list_id and item.get("owner") == actor
+                and not item.get("deleted") and not item.get("done")
+                and item.get("status") in {"needs-action", "in-process"}
+            ):
+                result.setdefault(event_id, item)
+        return result
+
+    def open_calendar_followup_ids(self, actor: str) -> dict[str, str]:
+        return {event_id: item["id"] for event_id, item in self._open_calendar_followups(self._read(), actor).items()}
+
+    def calendar_followup_sources(self, visible_task_ids: set[str]) -> dict[str, str]:
+        """Resolve local provenance only for task IDs already authorized by the caller."""
+        if not visible_task_ids:
+            return {}
+        sources = self._read()["calendar_followup_sources"]
+        return {
+            task_id: event_id for task_id in visible_task_ids
+            if isinstance(event_id := sources.get(task_id), str) and event_id
+        }
 
     def can_create(self, actor: str, values: dict[str, Any] | None = None) -> bool:
         """Check task-list create rights without changing task data."""
@@ -189,6 +274,37 @@ class TodoStore:
             self._bump(data, actor, self.resource(updated), False, updated["list_id"]); self._write(data)
         self.history.record("todo_updated", actor, "todo", item_id, {"before": before, "after": updated})
         return updated
+
+    def reschedule_due_date(self, item_id: str, day: date, actor: str, *, expected_etag: str) -> dict[str, Any]:
+        """Change just the date and sync metadata after a permission and version check."""
+        with exclusive_file_lock(self.lock):
+            data = self._read()
+            item = self._owned(data, item_id, actor)
+            self._list(data, item["list_id"], actor, "edit")
+            before = self._normalized(item, actor)
+            if self.etag(before) != expected_etag:
+                raise TodoConflict(before)
+            if not supports_quick_due_change(before):
+                raise TodoDueDateError("task does not support quick due-date changes")
+            due = day.isoformat()
+            if due == before["due"]:
+                return before
+            if before["start"] and day <= date.fromisoformat(before["start"]):
+                raise TodoDueDateBeforeStart("due date must be after DTSTART")
+            stamp = self._ical_now()
+            item.update({
+                "due": due,
+                "sequence": min(self._integer(before["sequence"], 0, 2**31 - 1) + 1, 2**31 - 1),
+                "ical_dtstamp": stamp,
+                "ical_last_modified": stamp,
+                "updated_at": utc_now(),
+                "updated_by": actor,
+            })
+            self._bump(data, actor, self.resource(item), False, item["list_id"])
+            self._write(data)
+            after = self._normalized(item, actor)
+        self.history.record("todo_updated", actor, "todo", item_id, {"before": before, "after": after})
+        return after
 
     def apply_offline_status(
         self,
@@ -488,7 +604,7 @@ class TodoStore:
         sequence = self._integer(values.get("sequence"), 0, 2**31 - 1)
         list_id = str(values.get("list_id", "")).strip() or self.default_list_id(actor)
         source_document_id = str(values.get("source_document_id", "")).strip()
-        if source_document_id and not SOURCE_DOCUMENT_ID.fullmatch(source_document_id):
+        if source_document_id and not LOCAL_SOURCE_ID.fullmatch(source_document_id):
             raise ValueError("invalid source document identifier")
         document_ids = self._strings(values.get("document_ids"), 500)
         if source_document_id:
@@ -582,4 +698,5 @@ class TodoStore:
         if not isinstance(data.get("lists"), list): data["lists"] = []
         if not isinstance(data.get("offline_operations"), dict): data["offline_operations"] = {}
         if not isinstance(data.get("automation_operations"), dict): data["automation_operations"] = {}
+        if not isinstance(data.get("calendar_followup_sources"), dict): data["calendar_followup_sources"] = {}
         return data
