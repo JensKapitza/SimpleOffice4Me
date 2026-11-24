@@ -831,3 +831,21 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | Neu `docs/FINTS_BANKING.md` (Banken, Limits, Sicherheitsmodell, Testhinweis). Keine Codeänderung nötig. |
 | Tests und Soll-Ist-Vergleich | Soll: #738-Kriterien. Ist: 144/144 FinTS-Tests grün; Geheimnis-Blocklisten und Einmal-Challenges im Code verankert; Doku aus Code zitiert und belegt. |
 | Review und Abschluss | PR mit `Closes #738` gestellt; Checkboxen + Nachweis im Issue dokumentiert. |
+
+## 24. November 2026 · Merge-Runde: 12 PRs gemergt, #1154-Triage mit Subagenten
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Alle-PR-Prüfung: 12 Merges (#1182/#1183/#1186/#1187/#1188/#1189/#1190/#1191/#1196/#1197/#1202/#1211), alle fremden Diffs reviewt ohne Befunde, nur Doku-Konflikte vereint. #1176/#1178 vom Eigentümer gemergt. Nächstes Issue #1154: CodeQL-API zugänglich, noch 48 statt 143 py/path-injection-Alerts (Stand Main). |
+| Implementierung | 4 Triage-Subagenten (read-only) auf Cluster WebDAV/Screen/Store/Business; je Alert Datenfluss→Safe-Helper oder Gap. |
+| Tests und Soll-Ist-Vergleich | Soll: #1154-Akzeptanz (je Alert Fix+Test oder begründete Ausnahme). Ist: Triage läuft, Synthese + Fixes + PRs folgen. |
+| Review und Abschluss | Offen: Synthese, Fix-PRs, Triage-Protokoll, Issue-Update. |
+
+## 24. November 2026 · Issue #1154: 48 path-injection-Alerts triagiert, 1 GAP gefixt
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | CodeQL-API: noch 48 statt 143 Alerts. 4 read-only Subagenten je Cluster (WebDAV/Screen/Store/Business), je Alert Datenfluss→Safe-Helper oder Gap. Integrator hat den einzigen GAP im Code verifiziert. |
+| Implementierung | Fix-PR: `resolve_for_write_under` in `_store_generated_pdf` + 3 Regressionstests. Doku-PR: Dispositions-Protokoll (1 GAP gefixt, 47 COVERED mit Helfer/Restrisiko/Testlücken). |
+| Tests und Soll-Ist-Vergleich | Soll: #1154-Akzeptanz (je Alert Fix+Test oder begründete Ausnahme). Ist: Fix-Tests 3/3 (rot ohne/grün mit), 62/62 Business-Nachbarn, ruff/compileall grün; CI beider PRs abgewartet. |
+| Review und Abschluss | Fix mergen, dann Doku-PR mit `Closes #1154` mergen, Issue-Nachweis kommentieren. |
