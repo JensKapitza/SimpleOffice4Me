@@ -91,9 +91,9 @@ class MobileWorkspaceBrowserTests(unittest.TestCase):
                 with page.expect_navigation(wait_until="domcontentloaded"):
                     bar.locator('a[data-mobile-link="/documents/calendar"]').tap()
                 self.assertIn("/documents/calendar", page.url)
-                self.assertEqual(
-                    "page", bar.locator('a[data-mobile-link="/documents/calendar"]').get_attribute("aria-current"),
-                )
+                current = bar.locator('a[data-mobile-link][aria-current="page"]')
+                self.assertEqual(1, current.count())
+                self.assertEqual("/documents/calendar", current.get_attribute("data-mobile-link"))
                 box = bar.locator("a[data-mobile-link]").first.bounding_box()
                 self.assertGreaterEqual(box["height"], 44)
             finally:
