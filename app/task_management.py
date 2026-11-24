@@ -194,6 +194,20 @@ def _visible_rows(actor: str) -> list[dict[str, Any]]:
     return rows
 
 
+def _visible_calendar_sources(rows: list[dict[str, Any]], actor: str) -> dict[str, str]:
+    source_by_task = _store().calendar_followup_sources({row["id"] for row in rows})
+    if not source_by_task:
+        return {}
+    root = current_app.config["DOCUMENT_ROOT"]
+    calendar_ids = {calendar["calendar_id"] for calendar in CalendarCollections(root).calendars(actor)}
+    reference_ids = set(source_by_task.values())
+    available = {
+        event["event_id"] for event in CalendarStore(root).events(actor)
+        if event["event_id"] in reference_ids and readable_followup_source(event, calendar_ids)
+    }
+    return {task_id: event_id for task_id, event_id in source_by_task.items() if event_id in available}
+
+
 def _task_source_documents(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     """Resolve source IDs through request-scoped document visibility checks."""
     store = DocumentStore(current_app.config["DOCUMENT_ROOT"])
@@ -258,20 +272,6 @@ def _resubmit_view_match(view: str, row: dict[str, Any], today: str, week_end: s
     return True
 
 
-def _visible_calendar_sources(rows: list[dict[str, Any]], actor: str) -> dict[str, str]:
-    source_by_task = _store().calendar_followup_sources({row["id"] for row in rows})
-    if not source_by_task:
-        return {}
-    root = current_app.config["DOCUMENT_ROOT"]
-    calendar_ids = {calendar["calendar_id"] for calendar in CalendarCollections(root).calendars(actor)}
-    reference_ids = set(source_by_task.values())
-    available = {
-        event["event_id"] for event in CalendarStore(root).events(actor)
-        if event["event_id"] in reference_ids and readable_followup_source(event, calendar_ids)
-    }
-    return {task_id: event_id for task_id, event_id in source_by_task.items() if event_id in available}
-
-
 @bp.get("/")
 @login_required
 def board():
@@ -326,7 +326,6 @@ def board():
         grouped=grouped,
         children=by_parent,
         source_documents=source_documents,
-        calendar_sources=_visible_calendar_sources(top_level, actor),
         lists=_store().lists(actor),
         query=request.args.get("q", "").strip(),
         selected_list=request.args.get("list_id", "").strip(),
@@ -337,6 +336,7 @@ def board():
         selected_view=view,
         view_counts=view_counts,
         histories=histories,
+        calendar_sources=_visible_calendar_sources(top_level, actor),
     )
 
 
