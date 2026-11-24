@@ -55,7 +55,7 @@ class MailReadAloudTests(unittest.TestCase):
             self.addCleanup(patcher.stop)
         model = base / "fixture.onnx"
         model.touch()
-        patcher = patch("app.private_read_aloud._configured_model", return_value=str(model))
+        patcher = patch("app.private_read_aloud.configured_piper_model", return_value=str(model))
         patcher.start()
         self.addCleanup(patcher.stop)
         self.spoken = []

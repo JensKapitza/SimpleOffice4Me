@@ -481,6 +481,9 @@ app.register_blueprint(v3_android_offline_routes.bp)
 from . import reader_routes
 app.register_blueprint(reader_routes.bp)
 
+from . import reader_runtime_check
+app.register_blueprint(reader_runtime_check.bp)
+
 from . import v3_entity_routes
 app.register_blueprint(v3_entity_routes.bp)
 
@@ -552,6 +555,7 @@ PRIVATE_READ_ALOUD_ENDPOINTS = frozenset({
 @app.before_request
 def verify_browser_request():
     fakturama_admin.limit_preview_upload()
+    reader_runtime_check.limit_request()
     if request.endpoint in PRIVATE_READ_ALOUD_ENDPOINTS and request.method == "POST":
         from .private_read_aloud import limit_read_aloud_request
 

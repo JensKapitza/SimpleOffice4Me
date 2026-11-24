@@ -1,0 +1,41 @@
+<section id="local-read-aloud" class="card mb-4" aria-labelledby="local-read-aloud-heading">
+  <div class="card-header"><h2 id="local-read-aloud-heading" class="h6 mb-0">{{ 'Local read-aloud and OCR' if g.language == 'en' else 'Lokales Vorlesen und OCR' }}</h2></div>
+  <div class="card-body">
+    <p>{{ 'Reader and email use the saved Piper voice. Install Piper on the SimpleOffice server and save a local .onnx model. The matching .onnx.json must be next to it. In Docker, use paths inside the container. No Kids activation is needed.' if g.language == 'en' else 'Reader und E-Mail verwenden die gespeicherte Piper-Stimme. Installiere Piper auf dem SimpleOffice-Server und speichere ein lokales .onnx-Modell. Die passende .onnx.json muss daneben liegen. In Docker gelten Pfade im Container. Eine Aktivierung im Kinderbereich ist nicht nötig.' }}</p>
+    <p><a href="{{ url_for('admin.documents_media_settings', _anchor='piper-model') }}">{{ 'Edit saved voice settings' if g.language == 'en' else 'Gespeicherte Stimme einrichten' }}</a>. {{ 'The optional English voice is used for the English interface; when left empty the default voice is used.' if g.language == 'en' else 'Die optionale englische Stimme gilt für die englische Oberfläche. Ist sie nicht gesetzt, wird die Standardstimme verwendet.' }}</p>
+    <p>{{ 'Normal PDF speech needs pdftotext. For scans, also install pdftoppm, pdfimages and Tesseract with German (deu) and/or English (eng). The archive OCR setting is not required.' if g.language == 'en' else 'Normales PDF-Vorlesen braucht pdftotext. Für Scans zusätzlich pdftoppm, pdfimages und Tesseract mit Deutsch (deu) und/oder Englisch (eng) installieren. Die Einstellung für Archiv-OCR ist nicht nötig.' }}</p>
+    <form method="post" action="{{ url_for('reader_runtime.check', _anchor='local-read-aloud') }}" class="mb-3">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-outline-primary">{{ 'Test local setup' if g.language == 'en' else 'Lokale Einrichtung prüfen' }}</button>
+      <p class="form-text mb-0">{{ 'Uses the saved voice for this interface language. It runs the tools and synthesizes a fixed sentence without playing sound, opening documents, or downloading anything.' if g.language == 'en' else 'Verwendet die gespeicherte Stimme für diese Oberflächensprache. Der Test startet die Werkzeuge und erzeugt einen festen Testsatz, ohne Ton abzuspielen, Dokumente zu öffnen oder etwas herunterzuladen.' }}</p>
+    </form>
+    {% if reader_runtime is defined %}
+      {% if reader_runtime.busy %}
+        <p class="alert alert-warning mb-0" role="status">{{ 'Another setup test is running. Try again in a moment.' if g.language == 'en' else 'Ein anderer Einrichtungstest läuft. Versuche es gleich erneut.' }}</p>
+      {% else %}
+        {% set status_labels = {
+          'missing': ('Not found in the server PATH' if g.language == 'en' else 'Nicht im PATH des Servers gefunden'),
+          'broken': ('Test failed; check the installation' if g.language == 'en' else 'Test fehlgeschlagen; prüfe die Installation'),
+          'timeout': ('Test timed out' if g.language == 'en' else 'Zeitlimit des Tests erreicht'),
+          'busy': ('Speech is busy; try again' if g.language == 'en' else 'Vorlesen ist belegt; versuche es erneut'),
+          'config_missing': ('Matching .onnx.json is missing or unreadable' if g.language == 'en' else 'Passende .onnx.json fehlt oder ist nicht lesbar'),
+          'model_unavailable': ('Save a usable local .onnx model' if g.language == 'en' else 'Speichere ein verwendbares lokales .onnx-Modell'),
+          'language_missing': ('Install deu and/or eng' if g.language == 'en' else 'Installiere deu und/oder eng')
+        } %}
+        <dl class="row mb-1" aria-label="{{ 'Local setup test results' if g.language == 'en' else 'Ergebnis der lokalen Einrichtungsprüfung' }}">
+          {% for tool, code in reader_runtime.tools.items() %}
+            <dt class="col-sm-3">{{ tool }}</dt>
+            <dd class="col-sm-9" data-runtime-tool="{{ tool }}" data-runtime-status="{{ code }}">
+              {% if code != 'ready' %}{{ status_labels[code] }}
+              {% elif tool == 'piper' %}{{ 'Test sentence generated' if g.language == 'en' else 'Testsatz erzeugt' }}
+              {% elif tool == 'tesseract' %}{{ 'Language packs found:' if g.language == 'en' else 'Sprachpakete gefunden:' }} {{ reader_runtime.languages | join(', ') }}
+              {% else %}{{ 'Command starts' if g.language == 'en' else 'Werkzeug startet' }}
+              {% endif %}
+            </dd>
+          {% endfor %}
+        </dl>
+        <p class="form-text mb-0">{{ 'Checks the server tools, not recognition quality on your PDFs or audio playback on this device.' if g.language == 'en' else 'Prüft die Werkzeuge auf dem Server, nicht die Erkennungsqualität deiner PDFs oder die Audiowiedergabe auf diesem Gerät.' }}</p>
+      {% endif %}
+    {% endif %}
+  </div>
+</section>

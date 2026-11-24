@@ -108,9 +108,9 @@ def audit_mutation_response(response):
     else:
         outcome = "failed"
 
-    # Migration previews can carry confidential source data. Record the
-    # request outcome without parsing or recording the upload envelope.
-    if endpoint != "fakturama_admin.preview" and request.mimetype in FORM_MIMETYPES:
+    # Record rejected migration/setup envelopes without re-parsing them
+    # after their route-specific request limits have already refused them.
+    if endpoint not in {"fakturama_admin.preview", "reader_runtime.check"} and request.mimetype in FORM_MIMETYPES:
         form_fields = sorted({str(key)[:80] for key in request.form.keys() if _safe_name(key)})[:100]
         file_fields = sorted({str(key)[:80] for key in request.files.keys() if _safe_name(key)})[:50]
     else:

@@ -61,7 +61,7 @@ class ReaderReadAloudTests(unittest.TestCase):
         self.login("admin")
         self.temp_dirs = []
         self.spoken = []
-        self.model_patch = patch("app.private_read_aloud._configured_model", return_value=str(model))
+        self.model_patch = patch("app.private_read_aloud.configured_piper_model", return_value=str(model))
         self.model_patch.start()
         self.addCleanup(self.model_patch.stop)
 
@@ -226,7 +226,7 @@ class ReaderReadAloudTests(unittest.TestCase):
         languages = subprocess.run(["tesseract", "--list-langs"], capture_output=True, text=True, timeout=4, check=True)
         line = "Überprüfung für Köln." if "deu" in languages.stdout.splitlines() else "SYNTHETIC OCR STARTS HERE"
         document = self.document("scan-only.pdf", self.scan_pdf(("scan", line)))
-        with patch("app.private_read_aloud._configured_model", return_value=real_model), \
+        with patch("app.private_read_aloud.configured_piper_model", return_value=real_model), \
                 patch(self.speech_patch, wraps=render_tts) as actual:
             response = self.post_ocr(document)
         self.assertEqual(line, actual.call_args.args[0])

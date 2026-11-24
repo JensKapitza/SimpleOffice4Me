@@ -15,13 +15,17 @@ MAX_OCR_RASTER_BYTES = 8 * 1024 * 1024
 _OCR_TIMEOUT_SECONDS = 24
 
 
-def _language_pack(tesseract: str, language: str, env: dict[str, str], remaining: float) -> str:
+def tesseract_languages(tesseract: str, env: dict[str, str], remaining: float) -> set[str]:
     output = bounded_tool_output(
         [tesseract, "--list-langs"], max_output=8192, timeout=min(remaining, 3),
         unavailable_code="ocr_unavailable", failure_code="ocr_unavailable", timeout_code="ocr_timeout",
         failure_status=503, env=env,
     )
-    installed = set(output.decode("utf-8", errors="replace").splitlines())
+    return set(output.decode("utf-8", errors="replace").splitlines())
+
+
+def _language_pack(tesseract: str, language: str, env: dict[str, str], remaining: float) -> str:
+    installed = tesseract_languages(tesseract, env, remaining)
     order = ("eng", "deu") if language.lower().startswith("en") else ("deu", "eng")
     matched = [pack for pack in order if pack in installed]
     if not matched:

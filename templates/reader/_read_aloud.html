@@ -33,5 +33,12 @@
     <button class="btn btn-sm btn-outline-secondary" type="button" data-speech-stop disabled>{{ 'Stop' if g.language == 'en' else 'Stopp' }}</button>
   </div>
   {% if speech_kind == 'pdf' %}<div class="form-text">{{ 'Reads the selected page. OCR recognizes text in a scan without changing the PDF.' if g.language == 'en' else 'Liest die ausgewählte Seite. OCR erkennt den Text einer gescannten Seite, ohne das PDF zu ändern.' }}</div>{% endif %}
+  <div class="form-text">
+    {% if g.user and g.user.is_admin %}
+    <a href="{{ url_for('admin.documents_media_settings', _anchor='local-read-aloud') }}">{{ 'Set up or test local read-aloud' if g.language == 'en' else 'Lokales Vorlesen einrichten oder prüfen' }}</a>
+    {% else %}
+    {{ 'If read-aloud is unavailable, contact your administrator.' if g.language == 'en' else 'Wenn Vorlesen nicht verfügbar ist, wende dich an die Administration.' }}
+    {% endif %}
+  </div>
   <div class="small mt-1" data-speech-status role="status" aria-live="polite"></div>
 </div>

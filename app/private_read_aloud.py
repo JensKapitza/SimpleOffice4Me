@@ -71,7 +71,7 @@ def read_aloud_request() -> tuple[int, str]:
     return page, version
 
 
-def _configured_model(language: str) -> str:
+def configured_piper_model(language: str) -> str:
     media = SettingsStore(current_app.config["DOCUMENT_ROOT"]).settings()["media"]
     model = media.get("piper_model_en", "") if language.lower().startswith("en") else ""
     configured = str(model or media.get("piper_model", "")).strip()
@@ -90,7 +90,7 @@ def private_audio_response(
     if not _slots.acquire(blocking=False):
         return read_aloud_error("read_aloud_busy", 503)
     try:
-        model = _configured_model(language)
+        model = configured_piper_model(language)
         text = " ".join(load_text().split())
         if not text:
             raise ReadAloudError("no_text", 422)
