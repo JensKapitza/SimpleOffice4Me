@@ -24,6 +24,14 @@ _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 _NETWORK_ERRORS = (urllib.error.URLError, TimeoutError, ConnectionError)
 
 
+class InventoryIndexAccessDenied(ValueError):
+    """The inventory request was refused and the local index was cleared."""
+
+    def __init__(self, removed: int):
+        super().__init__("Inventarfreigabe wurde entzogen; lokale Kopie gelöscht")
+        self.removed = removed
+
+
 def _peer(root: str | Path, peer_id: str) -> tuple[FederationStore, dict[str, Any], str]:
     store = FederationStore(root)
     peer = store.get_peer(peer_id)
@@ -110,8 +118,8 @@ def sync_peer_inventory_catalog(root: str | Path, peer_id: str, *, page_size: in
     Default deny: the local peer record must carry an explicit
     ``policy.inventory.receive`` flag, otherwise no network access
     happens at all. Unknown or oversized rows are skipped by ingest;
-    a schema mismatch or HTTP error fails the sync without touching
-    previously synced rows.
+    HTTP 403 clears the local inventory copy. Other failures are
+    recorded without that access-denial purge.
     """
     federation = FederationStore(root)
     peer = federation.get_peer(peer_id)
@@ -161,7 +169,7 @@ def sync_peer_inventory_catalog(root: str | Path, peer_id: str, *, page_size: in
             purged = catalog.purge_peer_inventory(peer_id)
             federation.record_event("inventory_catalog_access_revoked", peer_id=peer_id, detail={"removed": purged["removed"]})
             logger.warning("federation inventory catalog access revoked peer=%s", peer_id)
-            raise ValueError("Inventarfreigabe wurde entzogen; lokale Kopie gelöscht") from exc
+            raise InventoryIndexAccessDenied(purged["removed"]) from exc
         catalog.fail_inventory_index(peer_id, str(exc))
         federation.record_event("inventory_catalog_sync_failed", peer_id=peer_id, detail={"error": str(exc)[:500]})
         logger.exception("federation inventory catalog sync failed peer=%s", peer_id)

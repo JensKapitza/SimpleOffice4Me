@@ -19,6 +19,7 @@ from .federation_download_worker import (
     process_queue,
     sync_peer_catalog,
     sync_peer_inventory_catalog,
+    InventoryIndexAccessDenied,
 )
 from .federation_orchestrator import orchestrate_third_party
 from .federation_peer_checks import check_file_send, check_print, check_qr, check_tone
@@ -586,8 +587,13 @@ def sync_peer_inventory_index(peer_id: str):
     try:
         result = sync_peer_inventory_catalog(current_app.config["DOCUMENT_ROOT"], peer_id)
         flash(translate(g.language, "fed.inventory.synced").format(peer=peer_id, items=result['items']))
-    except Exception as exc:
-        flash(translate(g.language, "fed.inventory.failed").format(exc=exc))
+    except InventoryIndexAccessDenied as exc:
+        message = translate(g.language, "fed.inventory.denied")
+        if exc.removed:
+            message += " " + translate(g.language, "fed.inventory.removed")
+        flash(message)
+    except Exception:
+        flash(translate(g.language, "fed.inventory.failed"))
     return _redirect_dashboard(remote_peer=peer_id)
 
 
