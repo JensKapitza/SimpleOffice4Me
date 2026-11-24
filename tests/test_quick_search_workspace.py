@@ -1,6 +1,8 @@
 """Quick-search workspace page: live search markers, preview pane and collections."""
 from __future__ import annotations
 
+import shutil
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -21,6 +23,7 @@ class QuickSearchWorkspaceTests(PublicHttpTestCase):
         for marker in (
             "data-quick-workspace", "data-quick-api=", "data-quick-preview=",
             "data-quick-list", "data-quick-preview", "data-quick-recents",
+            "data-quick-preview-feedback", "data-quick-preview-manual",
             "data-quick-favorites", "quick_search_workspace.js", "css/quick_search.css",
         ):
             self.assertIn(marker, html)
@@ -39,6 +42,14 @@ class QuickSearchWorkspaceTests(PublicHttpTestCase):
         self.assertIn("setTimeout", script)
         self.assertIn("quicksearch.recent.v1", script)
         self.assertIn("quicksearch.fav.v1", script)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for frontend tests")
+    def test_preview_copy_frontend(self):
+        result = subprocess.run(
+            [shutil.which("node"), "--test", str(ROOT / "tests" / "quick_search_preview.test.cjs")],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_workspace_styles_keep_touch_targets_and_active_state(self):
         css = STYLES.read_text(encoding="utf-8")
