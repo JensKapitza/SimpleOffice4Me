@@ -101,6 +101,10 @@ class DocumentPreviewBrowserTests(unittest.TestCase):
                 self.assertEqual("1 / 2", page.locator("[data-text-preview-count]").inner_text())
                 page.locator("[data-text-preview-next]").click()
                 self.assertEqual("2 / 2", page.locator("[data-text-preview-count]").inner_text())
+                search.press("Enter")
+                self.assertEqual("1 / 2", page.locator("[data-text-preview-count]").inner_text())
+                search.press("Shift+Enter")
+                self.assertEqual("2 / 2", page.locator("[data-text-preview-count]").inner_text())
                 page.locator("[data-text-preview-copy]").click()
                 page.wait_for_function(
                     "() => document.querySelector('[data-text-preview-feedback]').textContent.length > 0",

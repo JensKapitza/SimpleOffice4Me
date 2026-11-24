@@ -3,9 +3,9 @@
    (extracted/OCR) text of PDFs, Office documents and images. #}
     <div data-text-preview data-msg-copied="{{ 'Copied.' if g.language == 'en' else 'Kopiert.' }}" data-msg-empty="{{ 'Nothing selected.' if g.language == 'en' else 'Keine Auswahl.' }}">
       <div class="input-group mb-2">
-        <input type="search" class="form-control" data-text-preview-search placeholder="{{ 'Search in preview' if g.language == 'en' else 'In Vorschau suchen' }}" aria-label="{{ 'Search in preview' if g.language == 'en' else 'In Vorschau suchen' }}">
-        <button type="button" class="btn btn-outline-secondary" data-text-preview-prev aria-label="{{ 'Previous match' if g.language == 'en' else 'Vorherige Fundstelle' }}">▲</button>
-        <button type="button" class="btn btn-outline-secondary" data-text-preview-next aria-label="{{ 'Next match' if g.language == 'en' else 'Nächste Fundstelle' }}">▼</button>
+        <input type="search" class="form-control" data-text-preview-search aria-keyshortcuts="Enter Shift+Enter" placeholder="{{ 'Search in preview' if g.language == 'en' else 'In Vorschau suchen' }}" aria-label="{{ 'Search in preview' if g.language == 'en' else 'In Vorschau suchen' }}">
+        <button type="button" class="btn btn-outline-secondary" data-text-preview-prev title="{{ 'Previous match (Shift+Enter)' if g.language == 'en' else 'Vorherige Fundstelle (Umschalt+Eingabe)' }}" aria-label="{{ 'Previous match' if g.language == 'en' else 'Vorherige Fundstelle' }}">▲</button>
+        <button type="button" class="btn btn-outline-secondary" data-text-preview-next title="{{ 'Next match (Enter)' if g.language == 'en' else 'Nächste Fundstelle (Eingabe)' }}" aria-label="{{ 'Next match' if g.language == 'en' else 'Nächste Fundstelle' }}">▼</button>
         <span class="input-group-text" data-text-preview-count role="status" aria-live="polite"></span>
       </div>
       <pre class="text-start bg-body-tertiary border rounded p-3 mb-0 text-break" style="max-height:55vh;overflow:auto;white-space:pre-wrap" data-text-preview-body tabindex="0">{{ preview.text }}</pre>
