@@ -576,12 +576,35 @@ class FederationAdminUiTests(unittest.TestCase):
             )
 
         self.assertEqual(200, response.status_code)
-        self.assertIn("Pairing-Status auf der Gegenstelle: beansprucht", response.get_data(as_text=True))
+        body = response.get_data(as_text=True)
+        self.assertIn("Pairing-Status auf der Gegenstelle: beansprucht", body)
+        self.assertIn("Geprüft: diese Instanz → Gegenstelle.", body)
+        self.assertIn("Rückrichtung nicht geprüft", body)
         status.assert_called_once()
         peer = FederationStore(self.root).get_peer("office-b")
         self.assertFalse(peer["enabled"])
         self.assertFalse(peer["has_token"])
         self.assertIsNone(FederationTrustStore(self.root).get_trust("office-b"))
+
+    def test_remote_status_distinguishes_missing_code_from_a_refused_identity_in_english(self):
+        self._remember_pairing_peer()
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "en"
+        path = "/admin/federation/peer-discovery/pairing/office-b/remote-status"
+        with patch(
+            "app.federation_peer_admin.remote_pairing_status",
+            side_effect=[
+                {"peer_id": "local-peer", "status": "missing"},
+                PairingClientError("internal-only diagnostic", reason="identity_rejected"),
+            ],
+        ):
+            missing = self.client.post(path, follow_redirects=True).get_data(as_text=True)
+            rejected = self.client.post(path, follow_redirects=True).get_data(as_text=True)
+        self.assertIn("Pairing status on the counterpart: missing.", missing)
+        self.assertIn("Reverse direction not checked", missing)
+        self.assertIn("did not accept this instance", rejected)
+        self.assertIn("check the clocks on both sides", rejected)
+        self.assertNotIn("internal-only diagnostic", rejected)
 
     def test_qr_import_opens_existing_connection_editor_without_enabling_peer(self):
         payload = encode_peer({
