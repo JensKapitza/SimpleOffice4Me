@@ -76,8 +76,8 @@ function page({clipboard, lang = 'de'} = {}) {
       await tick();
     },
     open(position) { return list.children[position].byAttribute('data-quick-preview-open').fire('click'); },
-    finish(id, rows, ok = true) {
-      requests.get(id).resolve({ok, json: async () => ({rows, url: `/record/${id}`})});
+    finish(id, rows, ok = true, extra = {}) {
+      requests.get(id).resolve({ok, json: async () => ({rows, url: `/record/${id}`, ...extra})});
       return tick();
     },
     action(label) { return part('actions').children.find(n => n.textContent === label); },
@@ -161,4 +161,27 @@ test('no preview-copy action for missing, inaccessible, or empty preview fields'
   await p.finish('second', [['Leer', '']]);
   assert.equal(p.action('Vorschau kopieren'), undefined);
   assert.ok(p.action('Öffnen'));
+});
+
+
+test('document preview links only to its current same-origin Reader without exposing a page claim', async () => {
+  const p = page({lang: 'en'});
+  const docs = [
+    {kind: 'document', ref: 'pdf', label: 'Scan', url: '/documents/pdf'},
+    {kind: 'document', ref: 'second', label: 'Other', url: '/documents/second'},
+    examples[1],
+  ];
+  await p.search(docs);
+  p.open(0);
+  p.open(1);
+  await p.finish('second', [], true, {reader_url: '/documents/reader/second'});
+  await p.finish('pdf', [], true, {reader_url: '/documents/reader/pdf'});
+  assert.equal(p.action('Open').attributes.href, '/record/second');
+  assert.equal(p.action('Open in Reader').attributes.href, 'https://office.example/documents/reader/second');
+  p.open(0);
+  await p.finish('pdf', [], true, {reader_url: '//different.example/reader'});
+  assert.equal(p.action('Open in Reader'), undefined);
+  p.open(2);
+  await p.finish('second', [], true, {reader_url: '/documents/reader/second'});
+  assert.equal(p.action('Open in Reader'), undefined);
 });
