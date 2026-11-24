@@ -103,7 +103,7 @@ def sync_peer_catalog(root: str | Path, peer_id: str, *, page_size: int = 500) -
         raise
 
 
-def _inventory_receive_opt_in(peer: dict[str, Any]) -> bool:
+def inventory_receive_opt_in(peer: dict[str, Any]) -> bool:
     """Local default-deny gate: only an explicit inventory-receive flag syncs."""
     policy = peer.get("policy")
     if not isinstance(policy, dict):
@@ -125,7 +125,7 @@ def sync_peer_inventory_catalog(root: str | Path, peer_id: str, *, page_size: in
     peer = federation.get_peer(peer_id)
     if not peer or not peer.get("enabled"):
         raise ValueError("Federation-Peer ist nicht aktiv")
-    if not _inventory_receive_opt_in(peer):
+    if not inventory_receive_opt_in(peer):
         FederationCatalog(root).purge_peer_inventory(peer_id)
         raise ValueError("Inventarabgleich für diesen Peer ist nicht freigegeben")
     _, _, token = _peer(root, peer_id)

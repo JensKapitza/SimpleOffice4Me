@@ -141,6 +141,70 @@ class FederationAdminUiTests(FederationAdminUiFixture, unittest.TestCase):
         self.assertNotIn("<script>report()</script>", body)
         self.assertIn("&lt;script&gt;probe()&lt;/script&gt;", body)
 
+    def test_inventory_fetch_explains_local_preconditions_without_inferring_remote_send(self):
+        store = FederationStore(self.root)
+        configs = {
+            "ready": (True, {"receive": True}),
+            "missing-token": (True, {"receive": True}),
+            "blocked": (True, {"receive": True}),
+            "inactive": (False, {"receive": True}),
+            "unconfigured": (True, {}),
+            "legacy": (True, {"receive": "true", "send": 1}),
+            "legacy-shape": (True, "receive"),
+        }
+        with app.app_context():
+            for peer_id, (enabled, flags) in configs.items():
+                token = "" if peer_id == "missing-token" else f"fixture-token-{peer_id}"
+                store.save_peer(
+                    peer_id, peer_id.title(), f"https://{peer_id}.example", token, {"inventory": flags}, enabled,
+                )
+        FederationModerationStore(self.root).ban("blocked", "fixture", actor="admin")
+        for lang, fetch, needs_receive, needs_token, needs_remote, banned, inactive in (
+            (
+                "de", "Inventarindex holen", "Inventar-Empfang konfigurieren",
+                "Lokales Peer-Token einrichten",
+                "Die Gegenstelle muss den Versand separat erlauben.",
+                "Dieser Peer ist gesperrt.", "Dieser Peer ist nicht aktiv.",
+            ),
+            (
+                "en", "Fetch inventory index", "Configure inventory receive",
+                "Set up the local peer token",
+                "The other instance must separately allow sending.",
+                "This peer is blocked.", "This peer is inactive.",
+            ),
+        ):
+            with self.subTest(language=lang):
+                with self.client.session_transaction() as session:
+                    session["simpleoffice_language"] = lang
+                rendered = self.client.get("/admin/federation?view=peers&edit_peer=legacy")
+                self.assertEqual(200, rendered.status_code)
+                html = rendered.get_data(as_text=True)
+                for peer_id in configs:
+                    with self.subTest(peer_id=peer_id):
+                        form = html.split(f'action="/admin/federation/peers/{peer_id}/sync-inventory-index">', 1)[1]
+                        form = form.split("</form>", 1)[0]
+                        button = re.search(r"<button[^>]*>", form).group(0)
+                        self.assertEqual(peer_id != "ready", bool(re.search(r"\bdisabled\b", button)))
+                        self.assertIn(fetch, form)
+                        self.assertIn('name="_csrf_token"', form)
+                        self.assertIn('aria-describedby="inventory-fetch-', button)
+                        self.assertEqual(peer_id == "ready", needs_remote in form)
+                        self.assertEqual(peer_id == "missing-token", needs_token in form)
+                        if peer_id == "missing-token":
+                            self.assertIn("edit_peer=missing-token#peer-token", form)
+                        self.assertEqual(peer_id == "blocked", banned in form)
+                        self.assertEqual(peer_id == "inactive", inactive in form)
+                        needs_config = peer_id in {"unconfigured", "legacy", "legacy-shape"}
+                        self.assertEqual(needs_config, needs_receive in form)
+                        if needs_config:
+                            self.assertIn(f"edit_peer={peer_id}#peer-inventory-policy", form)
+                for flag in ("send", "receive"):
+                    checkbox = re.search(rf'<input[^>]+name="inventory_{flag}"[^>]*>', html).group(0)
+                    self.assertNotIn("checked", checkbox)
+                ready = self.client.get("/admin/federation?view=peers&edit_peer=ready").get_data(as_text=True)
+                self.assertIn("checked", re.search(r'<input[^>]+name="inventory_receive"[^>]*>', ready).group(0))
+                self.assertNotIn("fixture-token-ready", ready)
+
     def test_peer_edit_keeps_configured_activation_visible_during_ban(self):
         FederationStore(self.root).save_peer("office-b", "Office B", "https://b.example", "", enabled=True)
         FederationModerationStore(self.root).ban("office-b", "abuse", actor="admin")
