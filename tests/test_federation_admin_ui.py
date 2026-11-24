@@ -698,31 +698,85 @@ class FederationAdminUiTests(unittest.TestCase):
             identity = FederationTrustStore(self.root).identity("office-b")
             self.assertEqual(forged["fingerprint"], identity["fingerprint"])
 
-    def test_direct_discovery_shows_untrusted_address_as_suggestion(self):
+    def test_direct_discovery_distinguishes_reached_address_from_saved_target(self):
         store = FederationStore(self.root)
-        store.save_peer(
-            "office-b", "Trusted Office B", "https://configured.example.test", "",
-            {"documents": {"send": True}}, True,
-        )
-        profile = {
-            "peer_id": "office-b",
-            "base_url": "https://unverified.example.test",
-            "compatibility": {"protocol": "unknown", "features": {}},
-        }
+        with app.app_context():
+            store.save_peer(
+                "office-b", "Trusted Office B", "https://configured.example.test", "fixture-token",
+                {"documents": {"send": True}}, True,
+            )
+        profile = {"peer_id": "office-b", "base_url": "https://advertised.example.test"}
+        for lang, reached, saved in (
+            ("de", "Discovery-Antwort von:", "Gespeichertes Verbindungsziel:"),
+            ("en", "Discovery response from:", "Saved connection target:"),
+        ):
+            with self.subTest(language=lang):
+                with self.client.session_transaction() as session:
+                    session["simpleoffice_language"] = lang
+                with patch(
+                    "app.federation_discovery_endpoint.fetch_discovery_profile",
+                    side_effect=[ConnectionRefusedError, profile],
+                ) as fetch:
+                    response = self.client.post(
+                        "/admin/federation/peer-discovery/discover/direct",
+                        data={"endpoint": "reachable.example.test/office"},
+                        follow_redirects=True,
+                    )
+                self.assertEqual(200, response.status_code)
+                self.assertEqual(
+                    ["https://reachable.example.test/office", "http://reachable.example.test/office"],
+                    [call.args[0] for call in fetch.call_args_list],
+                )
+                body = response.get_data(as_text=True)
+                self.assertIn(f"{reached} http://reachable.example.test/office", body)
+                self.assertIn(f"{saved} https://configured.example.test", body)
+                self.assertNotIn("advertised.example.test", body)
+                self.assertNotIn("fixture-token", body)
+                peer = store.get_peer("office-b")
+                self.assertEqual("https://configured.example.test", peer["base_url"])
+                self.assertTrue(peer["enabled"])
+                self.assertEqual({"documents": {"send": True}}, peer["policy"])
+                with app.app_context():
+                    self.assertEqual("fixture-token", store.peer_token("office-b"))
 
-        with patch("app.federation_discovery_service.fetch_discovery_profile_auto", return_value=profile):
+    def test_direct_discovery_has_no_mismatch_for_same_address_or_new_peer(self):
+        store = FederationStore(self.root)
+        store.save_peer("existing", "Existing", "https://same.example.test:443", "", enabled=True)
+        for peer_id in ("existing", "fresh"):
+            with self.subTest(peer_id=peer_id), patch(
+                "app.federation_discovery_endpoint.fetch_discovery_profile",
+                return_value={"peer_id": peer_id, "base_url": "https://advertised.example.test"},
+            ):
+                response = self.client.post(
+                    "/admin/federation/peer-discovery/discover/direct",
+                    data={"endpoint": "https://same.example.test"},
+                    follow_redirects=True,
+                )
+                self.assertEqual(200, response.status_code)
+                body = response.get_data(as_text=True)
+                self.assertIn(f"Peer-Profil für {peer_id} gefunden", body)
+                self.assertNotIn("Gespeichertes Verbindungsziel:", body)
+        self.assertTrue(store.get_peer("existing")["enabled"])
+        self.assertFalse(store.get_peer("fresh")["enabled"])
+
+    def test_direct_discovery_does_not_echo_or_replace_an_invalid_saved_target(self):
+        store = FederationStore(self.root)
+        legacy = "ftp://legacy.example.test/share"
+        store.save_peer("legacy", "Legacy", legacy, "", enabled=False)
+        with patch(
+            "app.federation_discovery_endpoint.fetch_discovery_profile",
+            return_value={"peer_id": "legacy", "base_url": "https://advertised.example.test"},
+        ):
             response = self.client.post(
                 "/admin/federation/peer-discovery/discover/direct",
-                data={"endpoint": "https://unverified.example.test"},
-                follow_redirects=True,
+                data={"endpoint": "https://reachable.example.test"},
             )
-
-        self.assertEqual(200, response.status_code)
-        self.assertIn("Erkannte Adresse (Vorschlag): https://unverified.example.test", response.get_data(as_text=True))
-        self.assertIn("Bestehende Verbindungsziele werden nicht automatisch geändert", response.get_data(as_text=True))
-        peer = store.get_peer("office-b")
-        self.assertEqual("https://configured.example.test", peer["base_url"])
-        self.assertTrue(peer["enabled"])
+        self.assertEqual(302, response.status_code)
+        with self.client.session_transaction() as session:
+            messages = [message for _, message in session["_flashes"]]
+        self.assertTrue(any("Bitte unter „Verbindung einrichten“ prüfen." in message for message in messages))
+        self.assertFalse(any(legacy in message for message in messages))
+        self.assertEqual(legacy, store.get_peer("legacy")["base_url"])
 
     def test_edit_peer_prefills_form(self):
         FederationStore(self.root).save_peer(
