@@ -141,34 +141,34 @@ def _store_generated_pdf(root: Path, contact_id: str, subject: str, pdf: bytes, 
 
     now = datetime.now(timezone.utc)
     filename = f"{now.strftime('%Y%m%d-%H%M%S')}-{_safe_filename(subject)}-{uuid.uuid4().hex[:8]}.pdf"
-    path = write_generated_pdf(root, kind, now.strftime("%Y"), contact_id, filename, pdf)
-    store = DocumentStore(root)
-    document = store.scan_and_get_document(path)
-    document_id = document["document_id"]
-    store.update_metadata(
-        document_id,
-        author=actor,
-        tags=[kind, "crm"],
-        attributes={
-            "contact_id": contact_id,
-            "business_document_kind": kind,
-            "business_template_id": template_id,
-            **{
-                str(key): str(value)
-                for key, value in (metadata or {}).items()
-                if value is not None and not isinstance(value, (dict, list))
+    with write_generated_pdf(root, kind, now.strftime("%Y"), str(contact_id), filename, pdf) as path:
+        store = DocumentStore(root)
+        document = store.scan_and_get_document(path)
+        document_id = document["document_id"]
+        store.update_metadata(
+            document_id,
+            author=actor,
+            tags=[kind, "crm"],
+            attributes={
+                "contact_id": contact_id,
+                "business_document_kind": kind,
+                "business_template_id": template_id,
+                **{
+                    str(key): str(value)
+                    for key, value in (metadata or {}).items()
+                    if value is not None and not isinstance(value, (dict, list))
+                },
             },
-        },
-    )
-    attach_contact_document(
-        root,
-        contact_id,
-        document_id,
-        actor,
-        relation=kind,
-        metadata={"subject": subject, "template_id": template_id, **(metadata or {})},
-    )
-    return store.get_document(document_id)
+        )
+        attach_contact_document(
+            root,
+            contact_id,
+            document_id,
+            actor,
+            relation=kind,
+            metadata={"subject": subject, "template_id": template_id, **(metadata or {})},
+        )
+        return store.get_document(document_id)
 
 
 def _template_directory(root: Path) -> Path:

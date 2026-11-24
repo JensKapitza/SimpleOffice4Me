@@ -11,13 +11,23 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from reportlab.pdfgen import canvas
 
 from app.business_document_generation import _store_generated_pdf
 from app.business_document_storage import write_generated_pdf
-from app.business_documents import contact_links
-from app.document_store import CONTROL_DIR
+from app.business_documents import attach_contact_document, contact_links
+from app.document_store import CONTROL_DIR, DocumentStore
+from app.file_lock import exclusive_file_lock
+
+
+def _test_pdf() -> bytes:
+    source = io.BytesIO()
+    pdf = canvas.Canvas(source)
+    pdf.drawString(20, 20, "Invoice")
+    pdf.save()
+    return source.getvalue()
 
 
 class ContactIdTraversalTests(unittest.TestCase):
@@ -86,6 +96,9 @@ class ContactIdTraversalTests(unittest.TestCase):
                 link.parent.mkdir(parents=True, exist_ok=True)
                 destination = Path(temp) / "outside-root" if linked_component == "generated" else root / CONTROL_DIR
                 destination.mkdir()
+                with exclusive_file_lock(root / CONTROL_DIR / ".document-content.lock"):
+                    pass
+                entries_before = list(destination.iterdir())
                 try:
                     link.symlink_to(destination, target_is_directory=True)
                 except (NotImplementedError, OSError):
@@ -95,27 +108,24 @@ class ContactIdTraversalTests(unittest.TestCase):
                         root, "contact-1", "Invoice", b"%PDF-1.4",
                         "tester", "invoice", "tpl-1",
                     )
-                self.assertEqual([], list(destination.iterdir()))
+                self.assertEqual(entries_before, list(destination.iterdir()))
 
     def test_generated_file_is_created_exclusively(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             args = (root, "invoice", "2026", "contact-1", "20260101-Invoice.pdf")
-            path = write_generated_pdf(*args, b"existing")
-            with self.assertRaises(FileExistsError):
-                write_generated_pdf(*args, b"replacement")
+            with write_generated_pdf(*args, b"existing") as path:
+                self.assertEqual(b"existing", path.read_bytes())
+            with self.assertRaises(FileExistsError), write_generated_pdf(*args, b"replacement"):
+                self.fail("an existing generated PDF was replaced")
             self.assertEqual(b"existing", path.read_bytes())
 
     def test_legacy_uid_keeps_contact_link_and_uses_one_component(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            source = io.BytesIO()
-            pdf = canvas.Canvas(source)
-            pdf.drawString(20, 20, "Invoice")
-            pdf.save()
             uid = "urn:uid:Kunde/Grüße"
             document = _store_generated_pdf(
-                root, uid, "Invoice", source.getvalue(), "tester", "invoice", "tpl-1",
+                root, uid, "Invoice", _test_pdf(), "tester", "invoice", "tpl-1",
             )
             relative = Path(document["last_path"])
             self.assertEqual(("generated", "invoice"), relative.parts[:2])
@@ -123,6 +133,50 @@ class ContactIdTraversalTests(unittest.TestCase):
             self.assertTrue((root / relative).is_file())
             self.assertEqual(uid, document["attributes"]["contact_id"])
             self.assertEqual(document["document_id"], contact_links(root, uid)[0]["document_id"])
+
+    def test_non_string_contact_id_retains_original_type_in_links(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            contact_id = 12345
+            document = _store_generated_pdf(
+                root, contact_id, "Invoice", _test_pdf(), "tester", "invoice", "tpl-1",
+            )
+            relative = Path(document["last_path"])
+            self.assertEqual(str(contact_id), relative.parent.name)
+            self.assertEqual(contact_id, document["attributes"]["contact_id"])
+            link = contact_links(root, contact_id)[0]
+            self.assertEqual(contact_id, link["contact_id"])
+            self.assertEqual(document["document_id"], link["document_id"])
+
+    def test_document_content_lock_covers_indexing_and_attachment(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            lock = root / CONTROL_DIR / ".document-content.lock"
+
+            def check_lock(operation):
+                def locked_operation(*args, **kwargs):
+                    with exclusive_file_lock(lock, blocking=False) as acquired:
+                        self.assertFalse(acquired)
+                    return operation(*args, **kwargs)
+                return locked_operation
+
+            with (
+                patch.object(
+                    DocumentStore, "scan_and_get_document", autospec=True,
+                    side_effect=check_lock(DocumentStore.scan_and_get_document),
+                ) as scan,
+                patch(
+                    "app.business_documents.attach_contact_document",
+                    side_effect=check_lock(attach_contact_document),
+                ) as attach,
+            ):
+                _store_generated_pdf(
+                    root, "contact-1", "Invoice", _test_pdf(), "tester", "invoice", "tpl-1",
+                )
+            scan.assert_called_once()
+            attach.assert_called_once()
+            with exclusive_file_lock(lock, blocking=False) as acquired:
+                self.assertTrue(acquired)
 
 
 if __name__ == "__main__":

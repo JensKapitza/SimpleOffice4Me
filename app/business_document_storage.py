@@ -6,11 +6,14 @@ import hashlib
 import os
 import re
 import stat
-from contextlib import ExitStack
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
 from pathlib import Path, PureWindowsPath
 
 from .business_document_common import INVOICE_DIR, LINK_FILE, TEMPLATE_DIR
 from .document_store import CONTROL_DIR
+from .file_lock import exclusive_file_lock
+from .safe_paths import resolve_for_write_under
 
 
 _CONTACT_COMPONENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._~-]{0,199}")
@@ -83,8 +86,12 @@ def _pin_windows_directory(path: Path, stack: ExitStack) -> None:
         raise ValueError("generated document directories must not be links")
 
 
-def write_generated_pdf(root: Path, kind: str, year: str, contact_id: str, filename: str, pdf: bytes) -> Path:
-    """Create a generated PDF exclusively below its kind, year and contact."""
+@contextmanager
+def write_generated_pdf(root: Path, kind: str, year: str, contact_id: str, filename: str, pdf: bytes) -> Iterator[Path]:
+    """Create a PDF and hold the DocumentStore lock until registration finishes.
+
+    Filesystem actors that bypass the application lock can still mutate paths.
+    """
     if kind not in _GENERATED_KINDS or not re.fullmatch(r"[0-9]{4}", year):
         raise ValueError("invalid generated document kind or year")
     if not re.fullmatch(r"[0-9][A-Za-z0-9._-]+\.pdf", filename):
@@ -92,7 +99,11 @@ def write_generated_pdf(root: Path, kind: str, year: str, contact_id: str, filen
     components = ("generated", kind, year, _generated_contact_component(contact_id))
     root = root.resolve(strict=True)
     target = root.joinpath(*components, filename)
-    with ExitStack() as directories:
+    relative_lock = Path(CONTROL_DIR) / ".document-content.lock"
+    lock_path = root / relative_lock
+    if resolve_for_write_under(root, relative_lock) != lock_path:
+        raise ValueError("document content lock must not be redirected")
+    with exclusive_file_lock(lock_path), ExitStack() as directories:
         if os.name == "nt":
             parent = root
             _pin_windows_directory(parent, directories)
@@ -124,7 +135,7 @@ def write_generated_pdf(root: Path, kind: str, year: str, contact_id: str, filen
             file_fd = os.open(filename, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666, dir_fd=parent_fd)
             with os.fdopen(file_fd, "wb") as handle:
                 handle.write(pdf)
-    return target
+        yield target
 
 
 def template_directory(root: Path) -> Path:
