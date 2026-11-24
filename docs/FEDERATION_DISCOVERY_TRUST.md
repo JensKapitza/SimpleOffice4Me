@@ -187,8 +187,9 @@ Browsers am Arbeitsplatz. Für B → A gilt das entsprechend.
    auf der Empfängerseite und die Systemzeit beider Instanzen prüfen.
    TLS-Prüfung und Netzwerkregeln nicht als Fehlerumgehung abschalten.
 4. **Bei bereits eingerichteten, aktiven Peers:** Unter **Federation → Peers**
-   **Gegenseitig prüfen** auf A und separat auf B starten. Der Knopf startet
-   pro Klick nur die ausgehende signierte Probe dieser Instanz. Die
+   die signierte Netzwerkprüfung auf A und separat auf B starten
+   (**Ausgehend signiert prüfen**, in älteren Versionen **Gegenseitig prüfen**).
+   Der Knopf startet nur die ausgehende Probe dieser Instanz. Die
    eingehende authentifizierte Anfrage belegt eine von der Gegenseite
    gestartete Probe. Sie ist kein automatisch gestarteter Rücktest.
    Frische Ergebnisse und die erste fehlgeschlagene Stufe (DNS, TCP, TLS, HTTP oder Auth) vergleichen.
