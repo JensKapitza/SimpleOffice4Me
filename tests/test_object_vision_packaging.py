@@ -29,7 +29,7 @@ class ObjectVisionPackagingTests(unittest.TestCase):
         self.assertEqual(1, len(playwright_pins), "Web export needs one explicit Playwright pin")
         self.assertIn(f'"{playwright_pins[0]}"', setup_source, "setup.py web extra must match pyproject.toml")
         self.assertIn("onnxruntime", ocr_extra.casefold())
-        self.assertIn("onnxruntime==1.31.1", ocr_extra)
+        self.assertIn("onnxruntime==1.32.0", ocr_extra)
 
     def test_desktop_builder_installs_and_bundles_ocr_extra(self):
         builder = (
