@@ -110,3 +110,41 @@ Extraktor-Pfade, WebDAV-Symlink-Reject direkt. Generische Abdeckung
 besteht (`test_safe_paths.py`, Symlink-/Traversal-Tests).
 
 Kein Alert wurde pauschal dismissed.
+
+## 6. Nachtrag 2026-11-24: #1154 Runde 2 (Rest-Flows, 5 Subagenten + Integrator)
+
+Erste Abfrage war per `head` trunkiert (160 statt 324 Alerts gezeigt);
+tatsächlich 142 py/path-injection. Runde 1 deckte 48, Runde 2 die
+restlichen Flüsse (inkl. Zweitflüsse an mehrfach gemeldeten Sinks).
+
+### GAP (2 Routen, 1 Fix)
+
+- `document_store_part_4.py:428` (`offload_old_versions`) und
+  `document_store_part_1.py:576` (`register_external_archive`):
+  Routen nur `@login_required`; jeder authentifizierte Nutzer konnte
+  Marker-JSON + Versionskopien in beliebige Server-Verzeichnisse
+  schreiben (`/tmp` belegt) und per `is_dir` Pfade orakeln. Fix:
+  Admin-Gate (403) auf beiden Routen – Register ist global
+  (alle Nutzer teilen die Liste), daher Admin-Funktion. Eine
+  Mount-Allowlist taugt nicht (`/` ist auch ein Mount).
+  Regressionstests `tests/test_documents_archive_admin.py`
+  (3/3 grün mit Fix; ohne Fix schreiben sie nachweislich nach /tmp).
+- Windows-Backslash-Hinweis aus der Triage geprüft und verworfen:
+  `Path()` ist plattformnativ, Check und OS-Auflösung sind konsistent;
+  zusätzlich beweist `resolve()+relative_to` die Containment.
+
+### COVERED Rest (je mit Helfer, Details in Subagenten-Protokollen)
+
+- WebDAV (alle Rest-Flüsse): Auth + Credential-/VFS-Gates, nur
+  Metadaten-Prädikate oder bound reads; SEARCH-Revalidierung unterm Lock.
+- DocumentStore: `_safe_managed_relative_path`/`resolve_file_under`,
+  Katalogschlüssel ohne FS-Zugriff, UUID-Sidecars, Lock-Serialisierung.
+- Boot/Katalog/Routen: `_safe_relative`-Allowlist, Admin+Hash-Pin,
+  Methoden-Allowlist + Owner-Checks, `send_file` nur nach Lookup.
+- TOCTOU-Reste überall nur gegen lokale Co-Writer (außerhalb Modell).
+
+### Testlücken (dokumentiert, keine Blocker)
+
+Op-Level-Negativtests für Move/Copy/Manifest-Traversal, xattr-Pfade,
+Manifest-Symlink-Input, CRLF-Dateinamen im iTIP-Download fehlen;
+Helper- und HTTP-Level-Tests bestehen.
