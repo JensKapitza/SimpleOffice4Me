@@ -7,16 +7,16 @@ from flask import Blueprint, current_app, render_template
 
 from .auth import login_required
 from .federation_store import FederationStore
+from .federation_diagnostic_view import STALE_AFTER_SECONDS
 
 bp = Blueprint("federation_status", __name__, url_prefix="/federation")
-STALE_AFTER_SECONDS = 300
 
 
 def _status(row: dict | None, now: int) -> dict[str, str]:
     if row is None:
         return {"label": "unbekannt"}
     stale = now - int(row["checked_at"]) > STALE_AFTER_SECONDS
-    label = "veraltet" if stale else "erreichbar" if row["status"] == "success" else "nicht erreichbar"
+    label = "veraltet" if stale else "erreichbar" if row["status"] == "success" else "Prüfung nicht bestätigt"
     return {"label": label}
 
 
@@ -38,7 +38,8 @@ def shared_diagnostics():
     now = int(time.time())
     for peer in peers:
         rows = records.get(peer["peer_id"], [])
-        by_direction = {row["direction"]: row for row in rows if row["source"] in {"local", peer["peer_id"]}}
+        sources = {"outbound": "local", "inbound": peer["peer_id"]}
+        by_direction = {row["direction"]: row for row in rows if row["source"] == sources.get(row["direction"])}
         visible.append({
             "label": str(peer.get("label") or "Federation-Peer")[:160],
             "outbound": _status(by_direction.get("outbound"), now),

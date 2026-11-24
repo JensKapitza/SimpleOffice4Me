@@ -522,6 +522,7 @@
                         </div>
                       {% endif %}
                       <br><small>{{ 'Server → configured peer address:' if g.language == 'en' else 'Server → konfigurierte Peer-Adresse:' }} {{ outbound.get('status_label', 'unbekannt') }} · {{ 'last attempt' if g.language == 'en' else 'letzter Versuch' }} {{ outbound.get('checked_at_label', 'noch nie') }} · {{ 'last successful' if g.language == 'en' else 'zuletzt erfolgreich' }} {{ outbound.get('last_success_label', 'noch nie') }}{% if outbound.get('latency_ms') %} · {{ outbound.latency_ms }} ms{% endif %}</small>
+                      {% if outbound.get('next_step') %}<br><small class="text-secondary" data-outbound-next-step>{{ outbound.next_step }}</small>{% endif %}
                       {% if outbound.get('stages_label') %}<br><small class="text-secondary">{{ outbound.stages_label|e }}</small>{% endif %}
                       {% if outbound.get('category') %}<br><small class="text-secondary">{{ 'Error category:' if g.language == 'en' else 'Fehlerkategorie:' }} {{ outbound.category|e }}</small>{% endif %}
                       {% if outbound.get('history') %}<details class="small"><summary>{{ 'Recent server checks' if g.language == 'en' else 'Letzte Serverprüfungen' }}</summary><ul class="mb-0">{% for attempt in outbound.history %}<li>{{ attempt.checked_at_label }} · {{ attempt.status_label }}{% if attempt.category %} · {{ attempt.category|e }}{% endif %}</li>{% endfor %}</ul></details>{% endif %}
