@@ -86,13 +86,15 @@ class ImportantWinsRegressionTests(unittest.TestCase):
         self.assertIn('android.hardware.camera.any', manifest)
         self.assertIn('android.hardware.nfc', manifest)
         self.assertIn('WebChromeClient', activity)
-        self.assertIn('PermissionRequest.RESOURCE_VIDEO_CAPTURE', activity)
-        self.assertIn('requestPermissions(new String[]{Manifest.permission.CAMERA}', activity)
+        self.assertRegex(
+            activity,
+            r"RESOURCE_VIDEO_CAPTURE\.equals\(resource\)\)\s*\{\s*return Manifest\.permission\.CAMERA;",
+        )
+        self.assertIn("MainActivity.this.requestPermissions(permissions, WEB_CAPTURE_PERMISSION_REQUEST)", activity)
         self.assertIn('addJavascriptInterface(new NativeBridge(), "SimpleOfficeAndroid")', activity)
         self.assertIn('NfcAdapter.FLAG_READER_NFC_A', activity)
         self.assertIn('onShowFileChooser', activity)
         self.assertIn('isTrustedLocalOrigin', activity)
-        self.assertIn('requestsOnlyVideo', activity)
         self.assertIn('nativeBridgeToken.equals(token)', activity)
 
     def test_android_has_native_barcode_fallback(self):

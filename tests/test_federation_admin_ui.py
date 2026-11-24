@@ -384,6 +384,21 @@ class FederationAdminUiTests(unittest.TestCase):
         self.assertIn("Relay aus", body)
         self.assertNotIn('name="rendezvous_relay_enabled" value="1" checked', body)
 
+    def test_peer_discovery_renders_sound_announce_and_listen(self):
+        with patch(
+            "app.federation_peer_admin._connect_addresses",
+            return_value=["192.0.2.10"],
+        ):
+            response = self.client.get("/admin/federation/peer-discovery")
+        body = response.get_data(as_text=True)
+        self.assertEqual(200, response.status_code)
+        self.assertIn("data-fed-sound-announce", body)
+        self.assertIn('data-endpoint="http://192.0.2.10:', body)
+        self.assertIn("data-fed-sound-listen", body)
+        self.assertIn('id="direct-endpoint"', body)
+        for script in ("js/acoustic_fec.js", "js/acoustic_codec.js", "js/federation_sound.js"):
+            self.assertIn(script, body)
+
     def test_peer_discovery_exposes_mail_case_mapping_controls(self):
         response = self.client.get("/admin/federation/peer-discovery")
         body = response.get_data(as_text=True)
