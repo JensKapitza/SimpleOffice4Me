@@ -404,10 +404,12 @@ def save_peer():
 @admin_required
 def save_chat_policy(peer_id: str):
     store = _store()
+    peer_card = None
     try:
         peer = store.get_peer(peer_id)
         if not peer:
             raise ValueError("Federation-Peer nicht gefunden")
+        peer_card = f"chat-peer-{peer['peer_id']}"
         policy = merge_chat_policy(peer.get("policy"), _chat_form_values())
         store.save_peer(
             peer["peer_id"],
@@ -418,10 +420,10 @@ def save_chat_policy(peer_id: str):
             bool(peer.get("configured_enabled", peer.get("enabled"))),
         )
         store.record_event("chat_policy_updated", peer_id=peer["peer_id"], detail={"actor": str(g.user["username"]), "chat": chat_policy_state(policy)})
-        flash(translate(g.language, "fed.chat.saved").format(peer=peer.get('label') or peer_id))
+        flash(translate(g.language, "fed.chat.saved").format(peer=peer.get("label") or peer_id), peer_card)
     except ValueError as exc:
-        flash(translate(g.language, "fed.chat.save.failed").format(exc=exc))
-    return _redirect_dashboard()
+        flash(translate(g.language, "fed.chat.save.failed").format(exc=exc), peer_card or "message")
+    return redirect(url_for("chat_policy_admin.index", _anchor=peer_card))
 
 
 @bp.post("/peers/<peer_id>/delete")

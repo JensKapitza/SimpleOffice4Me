@@ -6,19 +6,29 @@
     <div><h1 class="h2 mb-1">{{ 'Chat rules' if g.language == 'en' else 'Chat-Regeln' }}</h1><p class="text-secondary mb-0">{{ 'Define per federation partner what may be sent and accepted.' if g.language == 'en' else 'Lege pro Federation-Partner fest, was gesendet und angenommen werden darf.' }}</p></div>
     <a class="btn btn-outline-secondary" href="{{ url_for('federation_admin.dashboard') }}">{{ 'To federation' if g.language == 'en' else 'Zur Federation' }}</a>
   </div>
-  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  {% set flash_messages = get_flashed_messages(with_categories=true) %}
+  {% set listed_peers = peers | map(attribute='peer_id') | list %}
+  {% for category, message in flash_messages %}
+    {% if not category.startswith('chat-peer-') or category.removeprefix('chat-peer-') not in listed_peers %}
+      <div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>
+    {% endif %}
+  {% endfor %}
 
   <div class="alert alert-secondary small">
     {{ 'Features not activated are forbidden. Structured actions are checked on both servers; on rejection no payload data is transferred.' if g.language == 'en' else 'Nicht aktivierte Funktionen sind verboten. Strukturierte Aktionen werden auf beiden Servern geprüft; bei Ablehnung werden keine Nutzdaten übertragen.' }}
   </div>
 
   {% for peer in peers %}
-  <section class="card mb-4">
+  {% set peer_card = 'chat-peer-' ~ peer.peer_id %}
+  <section class="card mb-4" id="{{ peer_card }}">
     <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
       <span><strong>{{ peer.label or peer.peer_id }}</strong> <code class="ms-1">{{ peer.peer_id }}</code></span>
       <span class="badge {{ 'text-bg-success' if peer.enabled else 'text-bg-secondary' }}">{{ ('active' if peer.enabled else 'disabled') if g.language == 'en' else ('aktiv' if peer.enabled else 'deaktiviert') }}</span>
     </div>
     <div class="card-body">
+      {% for category, message in flash_messages if category == peer_card %}
+        <div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>
+      {% endfor %}
       <form method="post" action="{{ url_for('federation_admin.save_chat_policy', peer_id=peer.peer_id) }}">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="table-responsive">
