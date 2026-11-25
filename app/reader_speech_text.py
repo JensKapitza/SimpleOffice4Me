@@ -1,6 +1,7 @@
 """Bounded storage reads and local text extraction for Reader speech."""
 from __future__ import annotations
 
+from codecs import BOM_UTF16_BE, BOM_UTF16_LE, BOM_UTF32_BE, BOM_UTF32_LE
 from contextlib import contextmanager, nullcontext
 import hashlib
 import io
@@ -115,8 +116,13 @@ def staged_speech_pdf(storage: StoragePort, document: dict[str, Any], maximum: i
 
 
 def plain_text_sections(payload: bytes) -> list[str]:
+    # The UTF-32 LE marker starts with UTF-16 LE's marker. Reject both
+    # UTF-32 signatures before considering explicitly marked UTF-16.
+    if payload.startswith((BOM_UTF32_LE, BOM_UTF32_BE)):
+        raise ReadAloudError("invalid_text", 422)
+    codec = "utf-16" if payload.startswith((BOM_UTF16_LE, BOM_UTF16_BE)) else "utf-8-sig"
     try:
-        text = payload.decode("utf-8-sig")
+        text = payload.decode(codec, errors="strict")
     except UnicodeError as exc:
         raise ReadAloudError("invalid_text", 422) from exc
     if any(ord(char) < 32 and char not in "\t\r\n" for char in text) or "\x7f" in text:
