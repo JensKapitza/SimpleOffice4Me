@@ -13,6 +13,7 @@
   const feedback = root.querySelector('[data-mini-feedback]');
   const progress = root.querySelector('[data-mini-progress]');
   const next = root.querySelector('[data-mini-next]');
+  const gameButtons = [...picker.querySelectorAll('[data-mini-game]')];
   const pairs = [
     ['🐶','Hund','dog'], ['🐱','Katze','cat'], ['🐰','Hase','rabbit'], ['🐸','Frosch','frog'],
     ['🐻','Bär','bear'], ['🦊','Fuchs','fox'], ['🐼','Panda','panda'], ['🐵','Affe','monkey']
@@ -37,6 +38,7 @@
   let matchedPairs = 0;
   let firstCard = null;
   let lockBoard = false;
+  let mismatchTimer = null;
   let memoryAttempts = 0;
   let currentSpoken = '';
 
@@ -50,6 +52,7 @@
   }
 
   function begin(selected) {
+    cancelMemoryMismatch();
     game = selected;
     score = 0;
     questionIndex = 0;
@@ -63,6 +66,8 @@
     play.hidden = false;
     next.hidden = true;
     feedback.textContent = '';
+    prompt.removeAttribute('aria-label');
+    stage.removeAttribute('aria-label');
     title.textContent = gameTitle();
     title.focus();
     if (game === 'memory') startMemory();
@@ -98,17 +103,23 @@
     button.textContent = '❔';
     button.dataset.pair = String(card.pair);
     button.dataset.word = card.word;
-    button.setAttribute('aria-label', text(`Verdeckte Karte ${index + 1}`, `Hidden card ${index + 1}`));
-    button.addEventListener('click', () => flipMemoryCard(button, card));
+    const hiddenLabel = text(`Verdeckte Karte ${index + 1}`, `Hidden card ${index + 1}`);
+    button.setAttribute('aria-label', hiddenLabel);
+    button.addEventListener('click', () => flipMemoryCard(button, card, hiddenLabel));
     return button;
   }
 
-  function flipMemoryCard(button, card) {
+  function cancelMemoryMismatch() {
+    if (mismatchTimer !== null) window.clearTimeout(mismatchTimer);
+    mismatchTimer = null;
+  }
+
+  function flipMemoryCard(button, card, hiddenLabel) {
     if (lockBoard || button.disabled || button.classList.contains('is-flipped')) return;
     button.classList.add('is-flipped');
     button.textContent = card.emoji;
     button.setAttribute('aria-label', card.word);
-    if (!firstCard) { firstCard = {button, card}; return; }
+    if (!firstCard) { firstCard = {button, card, hiddenLabel}; return; }
     memoryAttempts += 1;
     if (firstCard.card.pair === card.pair) {
       matchedPairs += 1;
@@ -124,14 +135,15 @@
       return;
     }
     lockBoard = true;
-    const previous = firstCard.button;
+    const previous = firstCard;
     firstCard = null;
     feedback.textContent = text('Fast! Schau noch einmal.','Almost! Try another pair.');
-    window.setTimeout(() => {
-      [button, previous].forEach(cardButton => {
+    mismatchTimer = window.setTimeout(() => {
+      mismatchTimer = null;
+      [{button, hiddenLabel}, previous].forEach(({button: cardButton, hiddenLabel: label}) => {
         cardButton.classList.remove('is-flipped');
         cardButton.textContent = '❔';
-        cardButton.setAttribute('aria-label', text('Verdeckte Karte','Hidden card'));
+        cardButton.setAttribute('aria-label', label);
       });
       lockBoard = false;
     }, 750);
@@ -259,11 +271,12 @@
   }
 
   function showPicker() {
+    cancelMemoryMismatch();
     if (window.KidsPiperVoice) window.KidsPiperVoice.stop();
     result.hidden = true;
     play.hidden = true;
     picker.hidden = false;
-    root.querySelector('[data-game-picker] h2').focus();
+    gameButtons.find(button => button.dataset.miniGame === game)?.focus();
   }
 
   function uiLanguage() { return english ? 'en-US' : 'de-DE'; }
@@ -274,7 +287,7 @@
     if (window.KidsPiperVoice) window.KidsPiperVoice.speak(value, language, null);
   }
 
-  root.querySelectorAll('[data-mini-game]').forEach(button => button.addEventListener('click', () => begin(button.dataset.miniGame)));
+  gameButtons.forEach(button => button.addEventListener('click', () => begin(button.dataset.miniGame)));
   root.querySelector('[data-mini-repeat]').addEventListener('click', () => {
     speak(currentSpoken || text('Finde die drei Bildpaare.','Find the three picture pairs.'), uiLanguage());
   });
