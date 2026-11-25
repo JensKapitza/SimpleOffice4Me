@@ -17,10 +17,11 @@
   <p class="alert alert-warning" role="status">{{ 'The verified local hand model is not set up yet. A grown-up can follow docs/KIDS_HAND_GAME.md. You can still look at the signs below.' if en else 'Das geprüfte lokale Handmodell ist noch nicht eingerichtet. Erwachsene finden die Einrichtung in docs/KIDS_HAND_GAME.md. Die Zeichen kannst du dir unten schon ansehen.' }}</p>
   {% endif %}
   <div class="kids-hand-camera-actions">
-    <button class="btn btn-primary btn-lg" data-hand-camera type="button" {{ 'disabled' if not hand_game_ready }}>📷 {{ 'Turn camera on' if en else 'Kamera einschalten' }}</button>
+    <button class="btn btn-primary btn-lg" data-hand-camera type="button" disabled>📷 {{ 'Turn camera on' if en else 'Kamera einschalten' }}</button>
     <button class="btn btn-outline-danger btn-lg" data-hand-stop type="button" hidden>■ {{ 'Turn camera off' if en else 'Kamera ausschalten' }}</button>
     <label class="kids-mirror" data-hand-mirror-wrap hidden><input type="checkbox" data-hand-mirror checked> {{ 'Mirror preview' if en else 'Vorschau spiegeln' }}</label>
   </div>
+  <noscript><p class="alert alert-warning">{{ 'This local game needs JavaScript to start the camera.' if en else 'Dieses lokale Spiel braucht JavaScript, um die Kamera zu starten.' }}</p></noscript>
   <p role="status" aria-live="polite" data-hand-camera-status></p>
   <section class="kids-hand-play" aria-label="{{ 'Playing area' if en else 'Spielfeld' }}">
     <div class="kids-hand-frame" data-hand-preview hidden>

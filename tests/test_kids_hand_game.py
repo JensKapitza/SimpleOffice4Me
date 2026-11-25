@@ -50,7 +50,10 @@ class KidsHandGameTests(PublicHttpTestCase):
             path = Path(directory) / "hand_landmarker.task"
             path.write_bytes(content)
             with patch.dict(app.config, {"KIDS_HAND_GAME_ASSET_DIR": directory}):
-                self.assertIn('data-ready="yes"', self.client.get(GAME).get_data(as_text=True))
+                page = self.client.get(GAME).get_data(as_text=True)
+                self.assertIn('data-ready="yes"', page)
+                self.assertIn('data-hand-camera type="button" disabled', page,
+                              "A route with valid assets still waits for its JS event handlers")
                 result = self.client.get(MODEL)
                 self.assertEqual(result.data, content)
                 self.assertEqual(result.mimetype, "application/octet-stream")

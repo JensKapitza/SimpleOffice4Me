@@ -73,7 +73,7 @@ class KidsHandGameBrowserTests(PublicHttpTestCase):
             # Observe original browser media promises without ever substituting a
             # frame nor exposing it in logs. First click returns a scripted deny;
             # second uses genuine browser media permission with a fake device.
-            context.add_init_script("""() => {
+            context.add_init_script("""(() => {
               if (!navigator.mediaDevices) return;
               const media = navigator.mediaDevices;
               const original = media.getUserMedia.bind(media);
@@ -85,7 +85,7 @@ class KidsHandGameBrowserTests(PublicHttpTestCase):
                 window.handFixtureTracks = stream.getTracks();
                 return stream;
               };
-            }""")
+            })();""")
             page = context.new_page()
             outbound = []
             page.route("**/*", lambda route: route.continue_() if route.request.url.startswith(self.origin + "/")

@@ -289,6 +289,9 @@ function boot(root) {
         (link.target === '' || link.target === '_self')) camera.stop();
   });
   render();
+  // The server initially disables the control so an early tap cannot be lost
+  // while the module graph is still arriving. Enable only after handlers exist.
+  on.disabled = !ready;
 }
 
 const root = document.querySelector('[data-hand-game]');
