@@ -654,6 +654,18 @@
         </form>
       </div>
       <div class="card-body py-2">
+        <div id="download-queue-eligibility" class="small mb-2"
+             data-ready="{{ queue_readiness.ready }}" data-delayed="{{ queue_readiness.delayed }}">
+          <strong>{{ '%s can be attempted now'|format(queue_readiness.ready) if g.language == 'en' else '%s können jetzt versucht werden'|format(queue_readiness.ready) }}</strong>
+          · {{ '%s still in retry delay'|format(queue_readiness.delayed) if g.language == 'en' else '%s noch in der Wartezeit'|format(queue_readiness.delayed) }}.
+          {% if queue_readiness.not_before %}
+            {{ 'Next attempt possible after' if g.language == 'en' else 'Nächster Versuch möglich ab' }}
+            <time class="text-nowrap" datetime="{{ queue_readiness.not_before.isoformat() }}">{{ queue_readiness.not_before.strftime('%Y-%m-%d %H:%M:%S UTC') }}</time>.
+          {% endif %}
+          {% if queue_readiness.delayed and not queue_readiness.ready %}
+            <div class="text-secondary">{{ 'Check again after the delay, then process the queue. No automatic run is scheduled here.' if g.language == 'en' else 'Nach der Wartezeit erneut prüfen, dann die Queue abarbeiten. Keine automatische Ausführung eingeplant.' }}</div>
+          {% endif %}
+        </div>
         <details class="small text-secondary">
           <summary>{{ 'How is prioritised?' if g.language == 'en' else 'Wie wird priorisiert?' }}</summary>
           <div class="pt-2">{{ 'Effective priority = server + file + transfer. Processing the queue skips downloads whose retry delay has not elapsed.' if g.language == 'en' else 'Effektive Priorität = Server + Datei + Transfer. Beim Abarbeiten der Warteschlange werden Downloads mit laufender Wartezeit übersprungen.' }}</div>

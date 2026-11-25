@@ -879,8 +879,8 @@ def run_peer_to_peer(
             )
         body_text = page_a.locator("body").inner_text()
         if (
-            "Download-Pipeline:" not in body_text
-            or "fertig" not in body_text
+            "Queue-Lauf:" not in body_text
+            or "abgeschlossen" not in body_text
         ):
             raise RuntimeError(
                 "Download-Pipeline meldet keinen erfolgreichen Abschluss."

@@ -83,6 +83,15 @@ def _download_queue(catalog: FederationCatalog, *, show_retry_timing: bool, now:
     return rows
 
 
+def _queue_readiness(catalog: FederationCatalog, now: int) -> dict:
+    ready, delayed, first_retry = catalog.queue_readiness(now)
+    try:
+        not_before = datetime.fromtimestamp(first_retry, timezone.utc) if first_retry is not None else None
+    except (OverflowError, OSError, ValueError):
+        not_before = None
+    return {"ready": ready, "delayed": delayed, "not_before": not_before}
+
+
 def _inventory_sync_statuses(catalog: FederationCatalog, peers: list[dict]) -> dict:
     states = catalog.inventory_sync_statuses([peer["peer_id"] for peer in peers if peer["enabled"]])
     return {
@@ -278,6 +287,7 @@ def dashboard():
         remote_peer=remote_peer,
         download_queue=_download_queue(catalog, show_retry_timing=active_view == "transfers", now=now),
         catalog_events=catalog.events(100),
+        queue_readiness=_queue_readiness(catalog, now) if active_view == "transfers" else None,
         inventory_sync_statuses=_inventory_sync_statuses(catalog, peers) if active_view == "peers" else {},
         catalog_peer_states={peer["peer_id"]: catalog.peer_state(peer["peer_id"]) for peer in peers},
         diagnostic_states=diagnostic_states,
