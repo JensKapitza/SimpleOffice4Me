@@ -1,6 +1,7 @@
 """Bounded, local scan recognition for a single protected Reader PDF page."""
 from __future__ import annotations
 
+import io
 import shutil
 import struct
 import time
@@ -106,7 +107,24 @@ def supplement_native_text(native: str, recognized: str) -> str:
     return "\n".join([native.strip(), *additions]).strip()
 
 
-def recognize_pdf_page(source: Path, page: int, language: str) -> str:
+def _turn_raster(raster: bytes, clockwise: int) -> bytes:
+    from PIL import Image
+
+    operations = {90: Image.Transpose.ROTATE_270, 270: Image.Transpose.ROTATE_90}
+    try:
+        with Image.open(io.BytesIO(raster), formats=["PNG"]) as source, source.transpose(operations[clockwise]) as turned:
+            with io.BytesIO() as buffer:
+                turned.save(buffer, format="PNG")
+                result = buffer.getvalue()
+    except (OSError, ValueError) as exc:
+        raise ReadAloudError("ocr_render_failed", 422) from exc
+    if len(result) > MAX_OCR_RASTER_BYTES:
+        raise ReadAloudError("ocr_raster_too_large", 413)
+    _check_raster(result)
+    return result
+
+
+def recognize_pdf_page(source: Path, page: int, language: str, *, clockwise: int = 0) -> str:
     """Render and recognize one page without storing an OCR copy or changing the source."""
     poppler, tesseract = shutil.which("pdftoppm"), shutil.which("tesseract")
     if not poppler or not tesseract:
@@ -123,6 +141,8 @@ def recognize_pdf_page(source: Path, page: int, language: str) -> str:
         overflow_code="ocr_raster_too_large",
     )
     _check_raster(raster)
+    if clockwise:
+        raster = _turn_raster(raster, clockwise)
     raw = bounded_tool_output(
         [tesseract, "stdin", "stdout", "--dpi", "180", "-l", pack, "--psm", "3"],
         payload=raster, max_output=MAX_PDF_STDOUT_BYTES, timeout=deadline - time.monotonic(),

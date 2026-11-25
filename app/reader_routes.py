@@ -14,7 +14,9 @@ from .auth import login_required
 from .document_store import DocumentStore
 from .epub_reader import EpubBook, MAX_EPUB_BYTES
 from .pdf_limits import MAX_PDF_BYTES
-from .private_read_aloud import ReadAloudError, private_audio_response, read_aloud_error, read_aloud_request
+from .private_read_aloud import (
+    ReadAloudError, private_audio_response, read_aloud_error, read_aloud_ocr_request, read_aloud_request,
+)
 from .reader_page_ocr import pdf_page_has_images, recognize_pdf_page, supplement_native_text
 from .reader_speech_text import (
     MAX_READ_ALOUD_PDF_BYTES, MAX_READ_ALOUD_PDF_MIB, MAX_READ_ALOUD_TEXT_BYTES, copy_verified_reader_source, pdf_page_text,
@@ -357,7 +359,7 @@ def read_aloud(document_id: str):
 @bp.post("/<document_id>/read-aloud/ocr")
 @login_required
 def read_aloud_ocr(document_id: str):
-    """Recognize one image-only PDF page, only on an explicit user request."""
+    """Recognize the selected PDF scan only on an explicit user request."""
     return _read_aloud(document_id, allow_ocr=True)
 
 
@@ -367,7 +369,11 @@ def _read_aloud(document_id: str, *, allow_ocr: bool):
         document, suffix = _speech_document(document_id)
         if allow_ocr and suffix != ".pdf":
             raise ReadAloudError("document_unavailable", 404)
-        page, version = read_aloud_request()
+        if allow_ocr:
+            page, version, clockwise = read_aloud_ocr_request()
+        else:
+            page, version = read_aloud_request()
+            clockwise = 0
         if version != reader_version(document):
             raise ReadAloudError("document_changed", 409)
 
@@ -375,7 +381,7 @@ def _read_aloud(document_id: str, *, allow_ocr: bool):
             if suffix == ".pdf":
                 storage = storage_for(current_app.config["DOCUMENT_ROOT"], _actor())
                 with staged_speech_pdf(storage, document, MAX_READ_ALOUD_PDF_BYTES) as source:
-                    return _speech_pdf_page(source, page, g.language, allow_ocr=allow_ocr)
+                    return _speech_pdf_page(source, page, g.language, allow_ocr=allow_ocr, clockwise=clockwise)
             sections = plain_text_sections(_speech_source_for(document, MAX_READ_ALOUD_TEXT_BYTES))
             if page > len(sections):
                 raise ReadAloudError("invalid_page", 404)
@@ -391,12 +397,15 @@ def _read_aloud(document_id: str, *, allow_ocr: bool):
         return read_aloud_error(exc.code, exc.status)
 
 
-def _speech_pdf_page(source: Path, page: int, language: str, *, allow_ocr: bool) -> str:
+def _speech_pdf_page(
+    source: Path, page: int, language: str, *, allow_ocr: bool, clockwise: int = 0,
+) -> str:
     text = pdf_page_text(source, page)
     if not allow_ocr or (text.strip() and not pdf_page_has_images(source, page)):
         return text
     try:
-        recognized = recognize_pdf_page(source, page, language)
+        recognized = (recognize_pdf_page(source, page, language, clockwise=clockwise)
+                      if clockwise else recognize_pdf_page(source, page, language))
     except ReadAloudError as exc:
         if exc.code == "ocr_no_text" and text.strip():
             return text

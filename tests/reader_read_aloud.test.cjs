@@ -68,6 +68,11 @@ function fixture({
   const requests = [], audios = [], created = [], revoked = [];
   const fetch = (url, opts) => new Promise(resolve => requests.push({url, opts, resolve}));
 
+  if (ocrUrl !== undefined) {
+    controls.rotation = new Element();
+    controls.rotation.value = '0';
+  }
+
   class BrowserUrl extends URL {
     static createObjectURL(blob) {
       const id = 'blob:' + base + '/' + (created.length + 1);
@@ -106,6 +111,41 @@ function fixture({
     },
   };
 }
+
+test('explicit turn is sent only in the OCR locator and resets with the page', async () => {
+  const f = fixture({ocrUrl: ocrEndpoint});
+  f.rotation.value = '90';
+  assert.equal(f.rotation.disabled, false);
+  assert.equal(f.requests.length, 0, 'choosing rotation alone does not start OCR');
+  const native = f.start.fire('click');
+  assert.equal(f.requests[0].url, base + endpoint);
+  assert.equal(JSON.parse(f.requests[0].opts.body).ocr_clockwise, undefined);
+  f.requests.shift().resolve(response());
+  await native;
+  await f.stop.fire('click');
+  const pending = f.ocr.fire('click');
+  assert.equal(f.rotation.disabled, true);
+  const first = f.requests[0];
+  assert.equal(first.url, base + ocrEndpoint);
+  assert.deepEqual(JSON.parse(first.opts.body), {page: 4, document_version: 'version-2', ocr_clockwise: 90});
+  f.goTo(5);
+  assert.equal(first.opts.signal.aborted, true);
+  assert.equal(f.rotation.value, '0');
+  first.resolve(response());
+  await pending;
+  assert.equal(f.audios.length, 1, 'stale OCR never becomes a second audio');
+  const same = f.ocr.fire('click');
+  assert.equal(f.requests[1].url, base + ocrEndpoint);
+  assert.equal(JSON.parse(f.requests[1].opts.body).ocr_clockwise, undefined);
+  f.requests[1].resolve(response());
+  await same;
+  await f.stop.fire('click');
+  f.rotation.value = '270';
+  const left = f.ocr.fire('click');
+  assert.equal(JSON.parse(f.requests[2].opts.body).ocr_clockwise, 270);
+  f.requests[2].resolve(response());
+  await left;
+});
 
 test('explicit start sends same-origin no-store WAV request, pause/resume keeps audio, and stop frees playback', async () => {
   const f = fixture();

@@ -38,6 +38,7 @@
     const pause = root.querySelector('[data-speech-pause]');
     const stop = root.querySelector('[data-speech-stop]');
     const status = root.querySelector('[data-speech-status]');
+    const rotation = root.querySelector('[data-speech-rotation]');
     if (!start || !pause || !stop || !status) return;
 
     const position = reader?.querySelector('[data-reader-position]');
@@ -61,6 +62,13 @@
     let displayedPage = pageNumber();
     let jumpPage = null;
 
+    function speechLocator(request) {
+      const locator = {page: request.page, document_version: version};
+      const clockwise = request.ocr && rotation ? Number(rotation.value) : 0;
+      if (clockwise === 90 || clockwise === 270) locator.ocr_clockwise = clockwise;
+      return locator;
+    }
+
     function render(nextState, message = '') {
       state = nextState;
       const canStart = available && ['idle', 'error', 'unavailable'].includes(state);
@@ -74,6 +82,7 @@
       }
       pause.disabled = !['playing', 'paused'].includes(state);
       stop.disabled = !active;
+      if (rotation) rotation.disabled = !canStart || !ocrUrl;
       pause.textContent = state === 'paused'
         ? label('speechResumeLabel', 'Resume') : label('speechPauseLabel', 'Pause');
       status.textContent = message;
@@ -218,7 +227,7 @@
           cache: 'no-store',
           redirect: 'error',
           signal: request.controller.signal,
-          body: JSON.stringify({page: request.page, document_version: version}),
+          body: JSON.stringify(speechLocator(request)),
         });
         if (!isCurrent(request)) return;
         if (!response.ok) {
@@ -262,6 +271,7 @@
       const nextPage = event.detail?.page ?? pageNumber();
       if (displayedPage === nextPage) return;
       displayedPage = nextPage;
+      if (rotation) rotation.value = '0';
       release();
     });
     window.addEventListener('pagehide', () => { if (active) release(); });
