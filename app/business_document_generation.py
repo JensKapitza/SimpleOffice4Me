@@ -56,6 +56,7 @@ from .business_document_preferences import (
     company_bank_accounts,
     normalize_company_bank_accounts,
 )
+from .business_document_storage import write_generated_pdf
 from .contact_extensions import ContactCRMStore
 from .customer_credit import CustomerCreditLedger
 from .contact_store import ContactStore
@@ -139,37 +140,35 @@ def _store_generated_pdf(root: Path, contact_id: str, subject: str, pdf: bytes, 
     from .business_documents import attach_contact_document
 
     now = datetime.now(timezone.utc)
-    directory = root / "generated" / kind / now.strftime("%Y") / contact_id
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{now.strftime('%Y%m%d-%H%M%S')}-{_safe_filename(subject)}-{uuid.uuid4().hex[:8]}.pdf"
-    path.write_bytes(pdf)
-    store = DocumentStore(root)
-    document = store.scan_and_get_document(path)
-    document_id = document["document_id"]
-    store.update_metadata(
-        document_id,
-        author=actor,
-        tags=[kind, "crm"],
-        attributes={
-            "contact_id": contact_id,
-            "business_document_kind": kind,
-            "business_template_id": template_id,
-            **{
-                str(key): str(value)
-                for key, value in (metadata or {}).items()
-                if value is not None and not isinstance(value, (dict, list))
+    filename = f"{now.strftime('%Y%m%d-%H%M%S')}-{_safe_filename(subject)}-{uuid.uuid4().hex[:8]}.pdf"
+    with write_generated_pdf(root, kind, now.strftime("%Y"), str(contact_id), filename, pdf) as path:
+        store = DocumentStore(root)
+        document = store.scan_and_get_document(path)
+        document_id = document["document_id"]
+        store.update_metadata(
+            document_id,
+            author=actor,
+            tags=[kind, "crm"],
+            attributes={
+                "contact_id": contact_id,
+                "business_document_kind": kind,
+                "business_template_id": template_id,
+                **{
+                    str(key): str(value)
+                    for key, value in (metadata or {}).items()
+                    if value is not None and not isinstance(value, (dict, list))
+                },
             },
-        },
-    )
-    attach_contact_document(
-        root,
-        contact_id,
-        document_id,
-        actor,
-        relation=kind,
-        metadata={"subject": subject, "template_id": template_id, **(metadata or {})},
-    )
-    return store.get_document(document_id)
+        )
+        attach_contact_document(
+            root,
+            contact_id,
+            document_id,
+            actor,
+            relation=kind,
+            metadata={"subject": subject, "template_id": template_id, **(metadata or {})},
+        )
+        return store.get_document(document_id)
 
 
 def _template_directory(root: Path) -> Path:
