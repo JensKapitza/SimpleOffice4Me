@@ -20,7 +20,7 @@ from .v2.storage_runtime import storage_for
 
 MAX_SPEECH_EML_BYTES = 16 * 1024 * 1024
 _IGNORED_HTML_TAGS = {"head", "script", "style", "template", "noscript"}
-_BLOCK_HTML_TAGS = {"br", "p", "div", "li", "tr", "hr", "blockquote", "h1", "h2", "h3", "h4", "h5", "h6"}
+_BLOCK_HTML_TAGS = {"br", "p", "div", "li", "tr", "th", "td", "hr", "blockquote", "h1", "h2", "h3", "h4", "h5", "h6"}
 
 
 class _BodyText(HTMLParser):
