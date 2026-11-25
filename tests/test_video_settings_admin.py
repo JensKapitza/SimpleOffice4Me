@@ -66,6 +66,8 @@ class VideoSettingsAdminTests(unittest.TestCase):
 
     def test_save_requires_admin_and_csrf_then_persists_and_audits(self):
         path = "/documents/video-one/video/settings"
+        store = SettingsStore(self.root)
+        store.save({"media": {"piper_reader_choice": "thorsten-scratch"}}, "video-admin")
         with patch("app.documents_routes_video._video_document", return_value={"document_id": "video-one"}):
             missing_token = self.admin.post(path, data={"frame_count": "7"})
             non_admin = self.user.post(
@@ -78,6 +80,9 @@ class VideoSettingsAdminTests(unittest.TestCase):
                 data={"frame_count": "7"},
                 headers={"X-CSRF-Token": "a" * 40},
             )
+            self.assertEqual(302, saved.status_code)
+            self.assertEqual(7, store.settings()["media"]["video_preview_frames"])
+            self.assertEqual("thorsten-scratch", store.settings()["media"]["piper_reader_choice"])
             reset = self.admin.post(
                 path,
                 data={"reset": "1"},
@@ -86,12 +91,12 @@ class VideoSettingsAdminTests(unittest.TestCase):
 
         self.assertEqual(403, missing_token.status_code)
         self.assertEqual(403, non_admin.status_code)
-        self.assertEqual(302, saved.status_code)
         self.assertEqual(302, reset.status_code)
         self.assertEqual(
             DEFAULT_VIDEO_PREVIEW_FRAMES,
-            SettingsStore(self.root).settings()["media"]["video_preview_frames"],
+            store.settings()["media"]["video_preview_frames"],
         )
+        self.assertEqual("thorsten-scratch", store.settings()["media"]["piper_reader_choice"])
         with app.app_context():
             row = database.get_db().execute(
                 "SELECT actor_name,target_type,target_id,detail FROM security_event "
