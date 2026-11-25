@@ -18,7 +18,10 @@ document type to be selected first. The page links to three existing paths:
   document identity, upload timestamp, and optional EXIF metadata. If identical
   photo content is already visible in the selected inbox/archive destination,
   the importer returns the existing document instead of creating another copy;
-  the original filename and capture metadata are not overwritten.
+  the original filename and capture metadata are not overwritten. After an
+  authorized file replacement, the importer compares the current bytes,
+  not the original capture hash. Re-uploading the same current bytes keeps
+  the existing OCR state.
 - The photo-metadata pipeline supports JPEG, PNG, GIF, and WebP. HEIC remains a
   regular file-import fallback; the app does not claim photo-specific EXIF/OCR
   processing for it.

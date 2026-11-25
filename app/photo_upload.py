@@ -461,15 +461,21 @@ class PhotoBulkImporter:
         return None
 
     @staticmethod
-    def _photo_metadata_complete(metadata: dict[str, Any], digest: str) -> bool:
+    def _has_photo_import_record(metadata: dict[str, Any]) -> bool:
+        """Check original import provenance, not the current file version.
+
+        Callers have already matched the current bytes and checked visibility.
+        A WebDAV replacement does not invalidate completed capture metadata.
+        """
         attributes = metadata.get("attributes")
         if not isinstance(attributes, dict):
             return False
         upload = attributes.get("photo_upload")
         rich = attributes.get("photo_metadata")
+        upload_digest = upload.get("sha256") if isinstance(upload, dict) else None
         return (
-            isinstance(upload, dict)
-            and upload.get("sha256") == digest
+            isinstance(upload_digest, str)
+            and re.fullmatch(r"[0-9a-f]{64}", upload_digest) is not None
             and isinstance(rich, dict)
         )
 
@@ -606,7 +612,7 @@ class PhotoBulkImporter:
             ):
                 existing = self._existing_document_for_digest(digest, archive=archive)
                 if existing is not None:
-                    if self._photo_metadata_complete(existing, digest):
+                    if self._has_photo_import_record(existing):
                         self._record_photo_duplicate(existing, actor, digest)
                         return PhotoImportResult(existing, duplicate=True)
                     existing_path = resolve_file_under(
@@ -639,7 +645,7 @@ class PhotoBulkImporter:
                         if existing is not None:
                             self._scan_photo_file(target, run_ocr=run_ocr)
                             existing = self.store.get_document(target)
-                            if self._photo_metadata_complete(existing, digest):
+                            if self._has_photo_import_record(existing):
                                 self._record_photo_duplicate(existing, actor, digest)
                                 return PhotoImportResult(existing, duplicate=True)
                             return self._complete_photo_import(
