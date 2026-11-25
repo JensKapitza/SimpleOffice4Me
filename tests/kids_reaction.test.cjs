@@ -1,8 +1,8 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { ReactionGame, VirtualStations } = require("../static/js/kids_reaction_game.js");
+const { ReactionGame, VirtualStations, keyStation } = require("../static/js/kids_reaction_game.js");
 const { UsbStations, parsed, Lines } = require("../static/js/kids_reaction_usb.js");
-const { keyStation, serialEligible } = require("../static/js/kids_reaction_app.js");
+const { serialEligible } = require("../static/js/kids_reaction_app.js");
 
 const acknowledge = (g, target) => g.event({ type: "target", ...target });
 const hit = (g, target, ms = 300) => g.event({ type: "hit", ...target, ms });
@@ -211,7 +211,7 @@ test("shipped page app uses only the focused keyboard area and renders an explic
   doc.querySelector = () => page;
   doc.createElement = element;
   const environment = { document: doc, performance: { now: () => now }, setTimeout, clearTimeout,
-    addEventListener: () => {}, KidsReactionGame: { ReactionGame, VirtualStations }, KidsReactionUsb: { UsbStations } };
+    addEventListener: () => {}, KidsReactionGame: { ReactionGame, VirtualStations, keyStation }, KidsReactionUsb: { UsbStations } };
   // Inject the clock into the same class that the actual browser boot receives.
   environment.KidsReactionGame.VirtualStations = class extends VirtualStations {
     constructor(emit) { super(emit, () => now); }

@@ -1,12 +1,6 @@
 (function (root) {
   "use strict";
 
-  function keyStation(event, focus) {
-    if (event.target !== focus || event.repeat || event.altKey || event.ctrlKey || event.metaKey
-        || event.shiftKey || event.isComposing) return null;
-    return ["1", "2", "3"].includes(event.key) ? Number(event.key) : null;
-  }
-
   function serialEligible(view, page) {
     const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(view.location?.hostname);
     return Boolean(page.dataset.usb === "1" && loopback && view.isSecureContext && view.top === view
@@ -14,7 +8,7 @@
   }
 
   function boot(page) {
-    const { ReactionGame, VirtualStations } = root.KidsReactionGame;
+    const { ReactionGame, VirtualStations, keyStation } = root.KidsReactionGame;
     const { UsbStations, PORT_FILTERS } = root.KidsReactionUsb;
     const en = page.dataset.en === "1";
     const t = (german, english) => en ? english : german;
@@ -225,7 +219,7 @@
     render();
   }
 
-  if (typeof module === "object" && module.exports) module.exports = { keyStation, serialEligible };
+  if (typeof module === "object" && module.exports) module.exports = { serialEligible };
   else {
     const page = document.querySelector("[data-kids-reaction]");
     if (page) boot(page);

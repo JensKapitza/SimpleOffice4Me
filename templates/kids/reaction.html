@@ -10,6 +10,8 @@
   <h1>{{ 'Reaction course' if en else 'Reaktionsparcours' }}</h1>
   <p>{{ 'Choose the number that is shown. Start with untimed practice.' if en else 'Drücke die Zahl, die angezeigt wird. Beginne mit der Übung ohne Zeitlimit.' }}</p>
 
+  <p><a href="{{ url_for('kids_reaction.rooms') }}">{{ 'Play together on phones or computers' if en else 'Mit Handys oder PCs zusammenspielen' }}</a></p>
+
   <section class="card card-body mb-3">
     <h2 class="h4">{{ 'Set up the round' if en else 'Runde vorbereiten' }}</h2>
     <div class="d-flex gap-3 flex-wrap align-items-end">
