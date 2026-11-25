@@ -1,7 +1,10 @@
 """Application settings routes with separate profile and admin scopes."""
 from __future__ import annotations
 
-from flask import abort, current_app, flash, g, redirect, render_template, request, session, url_for
+import hashlib
+import hmac
+
+from flask import abort, current_app, flash, g, make_response, redirect, render_template, request, session, url_for
 
 from .access_control import audit, is_admin
 from .auth import login_required
@@ -36,7 +39,13 @@ def settings():
 @bp.get("/local-storage")
 @login_required
 def local_storage():
-    return render_template("documents/local_storage.html")
+    key = current_app.secret_key
+    if isinstance(key, str):
+        key = key.encode("utf-8")
+    owner = hmac.new(key, f"android-local-folder:{g.user['id']}".encode("utf-8"), hashlib.sha256).hexdigest()
+    response = make_response(render_template("documents/local_storage.html", android_folder_owner=owner))
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
 
 
 def _global_settings_from_form(current: dict) -> dict:

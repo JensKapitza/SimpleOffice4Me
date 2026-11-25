@@ -397,14 +397,7 @@ final class AndroidFolderImportTask implements Runnable {
     private void releaseOwnedGrants() {
         if (!grantsReleased.compareAndSet(false, true)) return;
         for (Uri uri : ownedGrantUris) {
-            try {
-                context.getContentResolver().releasePersistableUriPermission(
-                        uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            } catch (SecurityException ignored) {
-                // A provider may already have revoked this temporary import grant.
-            } finally {
-                AndroidFolderImportGrantStore.forget(context, uri);
-            }
+            AndroidFolderImportGrantStore.releaseOwnedReadGrant(context, uri);
         }
     }
 

@@ -212,6 +212,15 @@ Die Drive-Seite ist über **Drive** in der Hauptnavigation erreichbar. Aktionsbu
 
 In der APK werden **Google verbinden** und **Jetzt synchronisieren** nativ autorisiert. Normale Browser verwenden weiterhin den Web-OAuth- beziehungsweise gespeicherten Server-Token-Weg.
 
+APK-Statusmeldungen unterscheiden fehlende oder veraltete Play-Dienste,
+Netzwerkfehler, nicht gewährtes drive.file und eine von Google zurückgewiesene
+Android-OAuth-Konfiguration. Letzteres ist ein Hinweis, Paketkennung,
+APK-Signatur und aktivierte Drive-API zu prüfen, keine automatische Prüfung der
+Google-Cloud-Einstellungen. Nach bewusst aktiviertem Abgleich führt
+**Lokale Drive-Dateien durchsuchen** zur gewöhnlichen Dokumentensuche. Ein
+gespiegeltes Binärdokument lässt sich auch aus der Drive-Tabelle lokal öffnen;
+Cloud-Dokumente erscheinen weiterhin ohne lokale Kopie nur als Cloud-Eintrag.
+
 ## Aktuelle bewusste Grenzen
 
 - Kein automatisches hartes Löschen auf der Gegenseite.

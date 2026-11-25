@@ -72,6 +72,27 @@ final class AndroidFolderImportGrantStore {
         }
     }
 
+    static synchronized boolean ownsTemporaryReadGrant(Context context, Uri uri) {
+        return preferences(context).getStringSet(KEY, new HashSet<>()).contains(uri.toString());
+    }
+
+    static synchronized void releaseOwnedReadGrant(Context context, Uri uri) {
+        try {
+            if (!AndroidLocalFolderRegistry.retainsReadGrant(context, uri)) releaseReadGrant(context, uri);
+        } finally {
+            forget(context, uri);
+        }
+    }
+
+    private static void releaseReadGrant(Context context, Uri uri) {
+        try {
+            context.getContentResolver().releasePersistableUriPermission(
+                    uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        } catch (IllegalArgumentException | SecurityException ignored) {
+            // A provider may already have revoked this temporary access.
+        }
+    }
+
     static synchronized ResumeState restoreResume(Context context) {
         String saved = preferences(context).getString(RESUME_KEY, "");
         if (saved.isEmpty()) return null;
@@ -143,12 +164,8 @@ final class AndroidFolderImportGrantStore {
         while (iterator.hasNext()) {
             String value = iterator.next();
             if (retained.contains(Uri.parse(value))) continue;
-            try {
-                context.getContentResolver().releasePersistableUriPermission(
-                        Uri.parse(value), android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            } catch (IllegalArgumentException | SecurityException ignored) {
-                // The URI may be malformed or its grant may already have been revoked.
-            }
+            Uri uri = Uri.parse(value);
+            if (!AndroidLocalFolderRegistry.retainsReadGrant(context, uri)) releaseReadGrant(context, uri);
             iterator.remove();
         }
         SharedPreferences.Editor editor = preferences.edit();
