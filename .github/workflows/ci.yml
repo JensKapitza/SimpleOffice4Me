@@ -101,6 +101,8 @@ jobs:
           python -m unittest
           tests.test_contact_company_search_browser
           tests.test_capture_first_browser
+          tests.test_kids_shinobi
+          tests.test_kids_shinobi_browser
           tests.test_invoice_icons_browser
           tests.test_folder_import_browser
           tests.test_document_media_preview_browser

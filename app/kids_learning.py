@@ -127,6 +127,16 @@ def index():
     return render_template("kids/learning.html", language_vocabulary=language_vocabulary, kids_mode=True)
 
 
+@bp.get("/shinobi")
+@login_required
+def shinobi_mission():
+    """Visual working-memory game, independent of any webcam feature."""
+    return render_template(
+        "kids/shinobi.html", kids_mode=True,
+        hand_game_available="kids_learning.hand_game" in current_app.view_functions,
+    )
+
+
 @bp.get("/spielpause")
 @login_required
 def mini_games():

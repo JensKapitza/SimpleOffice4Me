@@ -19,6 +19,11 @@
   </section>
 
   <nav class="kids-symbol-grid" aria-label="{{ 'Kids activities' if g.language == 'en' else 'Kinderangebote' }}">
+    <a class="kids-symbol-card" href="{{ url_for('kids_learning.shinobi_mission') }}">
+      <span aria-hidden="true">🏮 → 🌿</span>
+      <strong>{{ 'Tavi’s Shinobi mission' if g.language == 'en' else 'Tavis Shinobi-Mission' }}</strong>
+      <small>{{ 'Follow the picture trail, at your own pace' if g.language == 'en' else 'Merke dir die Bilder und finde den Weg. Ohne Zeitdruck.' }}</small>
+    </a>
     <a class="kids-symbol-card" href="{{ url_for('kids_matching.matching') }}">
       <span aria-hidden="true">🧩</span>
       <strong>{{ 'Matching fun' if g.language == 'en' else 'Zuordnungsspiel' }}</strong>

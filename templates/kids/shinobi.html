@@ -1,0 +1,51 @@
+{% extends "layout.html" %}
+{% set en = g.language == 'en' %}
+{% set art = url_for('static', filename='img/kids_shinobi_icons.svg') %}
+{% set cards = {'lantern': ('Lantern', 'Laterne'), 'bridge': ('Bridge', 'Brücke'), 'leaf': ('Leaf', 'Blatt'), 'shell': ('Shell', 'Muschel')} %}
+{% macro icon(key) %}<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false"><use href="{{ art }}#{{ key }}"></use></svg>{% endmacro %}
+{% block header %}{% include "kids/_header.html" %}{% endblock %}
+{% block title %}{{ 'Tavi’s Shinobi mission' if en else 'Tavis Shinobi-Mission' }} · SimpleOffice{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/kids_shinobi.css', v=app_build.version) }}">{% endblock %}
+{% block body %}
+<main id="main-content" class="shinobi container py-3 py-lg-4" data-shinobi data-language="{{ 'en' if en else 'de' }}">
+  <header class="shinobi-intro">
+    <svg class="shinobi-tavi" viewBox="0 0 96 96" aria-hidden="true" focusable="false"><use href="{{ art }}#tavi"></use></svg>
+    <div>
+      <h1 class="h2 mb-2">{{ 'Tavi’s Shinobi mission' if en else 'Tavis Shinobi-Mission' }}</h1>
+      <p class="mb-1">{{ 'Tavi is a deaf Shinobi. Today, Tavi shows you the way with picture cards.' if en else 'Tavi ist ein gehörloser Shinobi. Heute zeigt dir Tavi mit Bildkarten den Weg.' }}</p>
+      <p class="mb-0">{{ 'Look at the pictures from left to right. Then pick them in the same order.' if en else 'Schau dir die Bilder von links nach rechts an. Wähle sie danach in derselben Reihenfolge.' }}</p>
+    </div>
+  </header>
+  <section class="shinobi-board mt-3" aria-labelledby="shinobi-round">
+    <div class="shinobi-heading">
+      <div>
+        <p class="small mb-1" data-shinobi-round-count>{{ 'Trail 1 of 3' if en else 'Weg 1 von 3' }}</p>
+        <h2 class="h4 mb-0" id="shinobi-round" data-shinobi-title>{{ 'Bring a light to the bridge' if en else 'Bring Licht zur Brücke' }}</h2>
+      </div>
+      <a class="btn btn-outline-secondary" href="{{ url_for('kids_matching.dashboard') }}"><span aria-hidden="true">←</span> {{ 'Kids home' if en else 'Zum Kindermenü' }}</a>
+    </div>
+    <p class="shinobi-instruction" data-shinobi-instruction>{{ '👀 Look at the picture trail.' if en else '👀 Schau dir den Bilderweg an.' }}</p>
+    <ol class="shinobi-trail" data-shinobi-trail aria-label="{{ 'Picture trail' if en else 'Bilderweg' }}">
+      {% for key in ['lantern', 'bridge'] %}<li>{{ icon(key) }}<span>{{ cards[key][0 if en else 1] }}</span></li>{% endfor %}
+    </ol>
+    <div class="shinobi-controls">
+      <button class="btn btn-primary btn-lg" type="button" data-shinobi-start disabled><span aria-hidden="true">▶</span> {{ 'My turn' if en else 'Jetzt bin ich dran' }}</button>
+      <button class="btn btn-outline-primary btn-lg" type="button" data-shinobi-look hidden><span aria-hidden="true">👀</span> {{ 'See the trail again' if en else 'Weg nochmal ansehen' }}</button>
+      <button class="btn btn-outline-secondary" type="button" data-shinobi-retry hidden><span aria-hidden="true">↺</span> {{ 'Restart this trail' if en else 'Diesen Weg neu starten' }}</button>
+      <button class="btn btn-success btn-lg" type="button" data-shinobi-next hidden></button>
+    </div>
+    <p class="shinobi-feedback" data-shinobi-feedback role="status" aria-live="polite" aria-atomic="true"></p>
+    <div class="shinobi-choices" role="group" aria-label="{{ 'Pick a picture' if en else 'Wähle ein Bild' }}" data-shinobi-choices hidden>
+      {% for key, names in cards.items() %}
+      <button type="button" class="shinobi-choice" data-shinobi-card="{{ key }}" disabled>{{ icon(key) }}<span>{{ names[0 if en else 1] }}</span></button>
+      {% endfor %}
+    </div>
+    <noscript><p>{{ 'Enable JavaScript to play the picture trail.' if en else 'Zum Spielen mit dem Bilderweg ist JavaScript nötig.' }}</p></noscript>
+  </section>
+  <p class="text-secondary mt-3 mb-2">{{ 'No timer, sound or camera. These pictures are part of the game, not sign language.' if en else 'Ohne Zeitlimit, Ton und Kamera. Die Bilder gehören zum Spiel und sind keine Gebärdensprache.' }}</p>
+  {% if hand_game_available %}
+  <a class="btn btn-outline-secondary" data-shinobi-hand-link href="{{ url_for('kids_learning.hand_game') }}">{{ 'Finger magic (separate webcam game)' if en else 'Fingerzauber (eigenes Spiel mit Kamera)' }}</a>
+  {% endif %}
+</main>
+<script src="{{ url_for('static', filename='js/kids_shinobi.js', v=app_build.version) }}" defer></script>
+{% endblock %}
