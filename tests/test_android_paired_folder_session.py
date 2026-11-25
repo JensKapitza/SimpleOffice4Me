@@ -7,8 +7,10 @@ from concurrent.futures import ThreadPoolExecutor
 from unittest import TestCase
 from uuid import uuid4
 
+from app import app
 from app.android_paired_folder_session import PairedFolderSession, folder_profile
 from app.device_source_grants import GrantDenied
+from tests.http_api_fixture import PublicHttpTestCase
 from tests.test_device_source_grants import PcKey
 
 
@@ -139,3 +141,12 @@ class PairedFolderSessionTests(TestCase):
         self.state.phone_enable(self.profile, generation)
         self.state.phone_stop(self.generation)
         self.assertFalse(self.state.phone_status(self.profile, generation)["paired"])
+
+
+class StockPairedFolderEntryTests(PublicHttpTestCase):
+    def test_desktop_or_container_app_does_not_register_or_show_pc_folder_access(self):
+        self.assertNotIn("android_paired_folder", app.blueprints)
+        direct = self.client.get("/documents/local-storage")
+        self.assertEqual(200, direct.status_code)
+        self.assertNotIn(b"/android/pc-folders", direct.data)
+        self.assertEqual(404, self.client.get("/android/pc-folders").status_code)

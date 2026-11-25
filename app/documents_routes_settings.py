@@ -37,13 +37,12 @@ def settings():
 @bp.get("/local-storage")
 @login_required
 def local_storage():
+    from .android_paired_folder import pc_folder_url
     from .android_paired_folder_session import folder_profile
 
     owner = folder_profile(current_app.secret_key, g.user["id"])
-    pc_lan_enabled = ("android_paired_folder" in current_app.blueprints
-                      and request.environ.get("simpleoffice.lan_https") is True)
     response = make_response(render_template(
-        "documents/local_storage.html", android_folder_owner=owner, pc_lan_enabled=pc_lan_enabled,
+        "documents/local_storage.html", android_folder_owner=owner, paired_folder_pc_url=pc_folder_url(),
     ))
     response.headers["Cache-Control"] = "private, no-store"
     return response

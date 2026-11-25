@@ -125,13 +125,19 @@ def verify(base: Path) -> None:
         target = link["href"]
         with pc.open(origin + target, timeout=8) as reply:
             assert reply.headers["Cache-Control"] == "private, no-store"
-            assert b"paired-folder-search" in reply.read()
+            page = BeautifulSoup(reply.read(), "html.parser")
+            form = page.select_one("#paired-folder-search")
+            assert form and form["method"] == "post" and form["action"] == target and form.has_attr("hidden")
+            # A form fallback must not encode searches into the requested URL.
+            assert not form.select_one("#paired-folder-query").has_attr("name")
         cookie = next(cookie for cookie in jar if cookie.name == app.config["SESSION_COOKIE_NAME"])
         assert cookie.secure and "HttpOnly" in cookie._rest
 
         direct = build_opener(ProxyHandler({}), HTTPCookieProcessor(CookieJar()))
         direct_origin = f"http://127.0.0.1:{server.server_port}"
         login(direct, direct_origin, credentials)
+        with direct.open(direct_origin + "/documents/local-storage", timeout=8) as reply:
+            assert not BeautifulSoup(reply.read(), "html.parser").select_one(f'a[href="{target}"]')
         try:
             direct.open(direct_origin + target, timeout=8)
             raise AssertionError("PC source page available without existing HTTPS LAN proxy")

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from flask import Blueprint, abort, current_app, g, jsonify, render_template, request, session
+from flask import Blueprint, abort, current_app, g, jsonify, render_template, request, session, url_for
 
 from .access_control import has_feature
 from .android_paired_folder_session import folder_profile, paired_folder_session, require
@@ -21,8 +21,17 @@ _FIELDS = {
 _MAX_BODY = 2048
 
 
+def _trusted_lan() -> bool:
+    return request.is_secure and request.environ.get("simpleoffice.lan_https") is True
+
+
+def pc_folder_url() -> str:
+    """Only the APK startup registers this blueprint; stock Flask has no link or route."""
+    return url_for("android_paired_folder.index") if bp.name in current_app.blueprints and _trusted_lan() else ""
+
+
 def _lan_only() -> None:
-    if not request.is_secure or request.environ.get("simpleoffice.lan_https") is not True:
+    if not _trusted_lan():
         abort(404)
     if not has_feature(g.user, "documents"):
         abort(403)
@@ -41,7 +50,7 @@ def index():
     _lan_only()
     if "android_pc_folder_browser" not in session:
         session["android_pc_folder_browser"] = uuid4().hex
-    return render_template("android/paired_folder_pc.html")
+    return render_template("android/paired_folder_pc.html", pc_url=url_for(".index"))
 
 
 def _hex(value, length: int) -> bytes:
