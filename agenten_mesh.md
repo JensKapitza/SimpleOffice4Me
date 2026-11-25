@@ -925,3 +925,12 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | Selbst gemergt: #1284/#1285/#1287/#1288/#1289. Peer mergte: #1290/#1291/#1292/#1294 (Reviews retrospektiv MERGE-READY bestätigt, keine HOLDs). |
 | Tests und Soll-Ist-Vergleich | Soll: Welle 5 komplett. Ist: 9/9 Reviews MERGE-READY ohne Blocker; je-PR CI-Grün + Merge-State verifiziert; #1302-Doku gemergt. |
 | Review und Abschluss | Offen: #1307/#1308/#1309 (CI läuft), rot+fremd #1299 (OSSAR/macOS), #1300 (Python-Gate+CodeQL+Scanner), #1301 (CodeQL+OSSAR), #1303 (nur CodeQL 2s, Infra-verdächtig) — nur benannt. |
+
+## 25. November 2026 · Merge-Runde 6: 4 Merges (#1307/#1308/#1309/#1310)
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | #1307/#1308 (Kids Webcam/Reaktion) + #1309 (Datenlogger) per Review-Subagenten geprüft; #1310 (eigene Doku) selbst reviewt. Peer mergte #1299/#1300/#1301 (nur non-blocking 3.15 rot). |
+| Implementierung | Gemergt: #1307 (Fingerzauber), #1308 (Reaktionsparcours+ESP32), #1309 (Datenlogger-Berichte), #1310 (Runde-5-Doku). #1310-Worklog-Konflikt vereint. |
+| Tests und Soll-Ist-Vergleich | Soll: Welle 6 komplett. Ist: #1307 5/5 Node + 3/3 Python lokal verifiziert; #1308 3/3 Flask + 9/9 Node + Firmware-Compile; #1309 Secrets/Validierung/AuthZ geprüft; je-PR CI 0 fail (nur non-blocking 3.15 teils pendent, Protection gab frei). |
+| Review und Abschluss | Offen: #1303 (nur CodeQL rot, fremd), neu #1311/#1312/#1313/#1315 (nächste Welle). |
