@@ -1,7 +1,22 @@
-{% extends "base.html" %}
+{% extends "layout.html" %}
 {% set en = g.language == 'en' %}
 {% block title %}{{ 'Navigation assistance' if en else 'Bedienhilfe' }} · SimpleOffice{% endblock %}
-{% block content %}
+{% block body %}
+<main id="main-content" class="container py-4">
+  <nav class="d-flex justify-content-between align-items-center border-bottom pb-3 mb-4"
+       aria-label="{{ 'Account navigation' if en else 'Kontonavigation' }}">
+    <strong>SimpleOffice</strong>
+    <div>
+      <span class="me-2">{{ g.user['username'] }}</span>
+      <form class="d-inline" method="post" action="{{ url_for('auth.logout') }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-link p-0" type="submit">{{ 'Sign out' if en else 'Abmelden' }}</button>
+      </form>
+    </div>
+  </nav>
+  {% for message in get_flashed_messages() %}
+    <div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>
+  {% endfor %}
 <section aria-labelledby="access-heading" data-access-proof data-language="{{ 'en' if en else 'de' }}">
   <h1 id="access-heading">{{ 'Navigation assistance' if en else 'Bedienhilfe' }}</h1>
   <p>{{ 'Use the links with a keyboard, mouse or touch. Gaze control with the Focus Seal and Click Seal is not yet available.' if en else 'Die Links funktionieren mit Tastatur, Maus und Touch. Blicksteuerung mit Fokus-Siegel und Klick-Siegel ist noch nicht verfügbar.' }}</p>
@@ -44,5 +59,6 @@
     <a data-access-target="calendar" class="btn btn-outline-primary" href="{{ url_for('documents.calendar') }}">{{ 'Calendar' if en else 'Kalender' }}</a>
   </nav>
 </section>
+</main>
 {% if hand_nav_ready %}<script type="module" src="{{ url_for('static', filename='js/access_hand_staging.mjs', v=app_build.version) }}"></script>{% endif %}
 {% endblock %}

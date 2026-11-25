@@ -32,6 +32,33 @@ class AccessNavigationProofTests(PublicHttpTestCase):
         for anchor in root.select("a[data-access-target]"):
             self.assertEqual(self.client.get(anchor["href"]).status_code, 200)
 
+    def test_translated_layout_preserves_skip_target_and_native_sign_out(self):
+        switch = self.client.post("/documents/settings/language", data={"language": "de"},
+                                  headers=self._csrf_headers(self.client, PROOF))
+        self.assertEqual(switch.status_code, 302)
+        page = self.client.get(PROOF)
+        german = BeautifulSoup(page.text, "html.parser")
+        self.assertEqual(german.html["lang"], "de")
+        self.assertEqual(german.select_one("main nav")["aria-label"], "Kontonavigation")
+        self.assertIn("Blicksteuerung aus", german.select_one("[data-access-status]").get_text())
+        switch = self.client.post("/documents/settings/language", data={"language": "en"},
+                                  headers=self._csrf_headers(self.client, PROOF))
+        self.assertEqual(switch.status_code, 302)
+        page = self.client.get(PROOF)
+        self.assertEqual(page.status_code, 200)
+        english = BeautifulSoup(page.text, "html.parser")
+        self.assertEqual(english.html["lang"], "en")
+        self.assertEqual(len(english.select("main#main-content")), 1)
+        self.assertIsNotNone(english.select_one("a.skip-link[href='#main-content']"))
+        self.assertEqual(english.select_one("main nav")["aria-label"], "Account navigation")
+        self.assertIn("Gaze control off", english.select_one("[data-access-status]").get_text())
+        self.assertEqual(len(english.select("script[src='/static/js/i18n.js']")), 1)
+        logout = english.select_one("main form[action='/auth/logout']")
+        self.assertEqual(logout.select_one("button").get_text(strip=True), "Sign out")
+        token = logout.select_one("input[name='_csrf_token']")["value"]
+        self.assertEqual(self.client.post(logout["action"], data={"_csrf_token": token}).status_code, 302)
+        self.assertEqual(self.client.get(PROOF).status_code, 302)
+
     def test_no_anonymous_camera_and_no_mutation(self):
         anonymous = app.test_client().get(PROOF)
         self.assertEqual(anonymous.status_code, 302)
