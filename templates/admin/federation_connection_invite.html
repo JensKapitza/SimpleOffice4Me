@@ -1,6 +1,7 @@
-{% extends "base.html" %}
+{% extends "layout.html" %}
 {% block title %}{{ 'One-scan peer setup' if g.language == 'en' else 'Peer mit einem Scan verbinden' }}{% endblock %}
-{% block content %}
+{% block body %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
 <div class="container py-3" style="max-width:760px">
   <a class="btn btn-outline-secondary btn-sm mb-3" href="{{ url_for('federation_peer_admin.dashboard') }}#connect-qr">{{ 'Back to peers' if g.language == 'en' else 'Zurück zu Peers' }}</a>
   <div class="card card-body text-center">

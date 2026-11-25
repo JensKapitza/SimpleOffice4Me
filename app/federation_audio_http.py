@@ -23,6 +23,10 @@ def _authorized() -> bool:
     supplied = header[7:].strip() if header.startswith("Bearer ") else ""
     if expected and supplied and hmac.compare_digest(expected, supplied):
         return True
+    # Keep the existing test-client contract: test requests without configured
+    # federation credentials are authorized before production peer proofs.
+    if current_app.testing and not expected:
+        return True
     if request.endpoint == "federation_audio_http.test_tone":
         try:
             from .federation_peer_auth import authenticate
@@ -31,7 +35,7 @@ def _authorized() -> bool:
             return peer_id not in FederationStore(root).banned_peer_ids()
         except (TypeError, ValueError):
             return False
-    return bool(current_app.testing and not expected)
+    return False
 
 
 @bp.before_request

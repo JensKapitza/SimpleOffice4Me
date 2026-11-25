@@ -345,7 +345,7 @@
             {% if edit_peer %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('federation_admin.dashboard', view='peers') }}">{{ 'Cancel' if g.language == 'en' else 'Abbrechen' }}</a>{% endif %}
           </div>
           <div class="card-body">
-            <div class="alert alert-info small" role="note">
+            <div class="alert alert-info small" role="status" aria-live="polite">
               <strong>{{ 'Connection setup' if g.language == 'en' else 'Verbindung einrichten' }}</strong>
               <ol class="mb-1 mt-1 ps-3">
                 <li>{{ 'Use the other instance’s address and peer ID.' if g.language == 'en' else 'Adresse und Peer-ID der anderen Instanz eintragen.' }}</li>
