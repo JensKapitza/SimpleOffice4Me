@@ -6,6 +6,8 @@ Piper model and caches them on disk. No customer data, no live AI calls.
 """
 from __future__ import annotations
 
+import shutil
+import subprocess
 import tempfile
 import unittest
 import wave
@@ -190,6 +192,15 @@ class KidsMazePiperTests(PublicHttpTestCase):
                 html = (ROOT / "templates" / "kids" / name).read_text(encoding="utf-8")
                 self.assertIn("kids_piper_voice.js", html)
                 self.assertIn("data-tts-url", html)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for frontend tests")
+    def test_maze_audio_warning_recovers_only_after_current_playback(self):
+        script = Path(__file__).with_name("kids_language_audio.test.cjs")
+        result = subprocess.run(
+            [shutil.which("node"), "--test", str(script)],
+            capture_output=True, text=True, check=False, timeout=30,
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_learning_page_serves_piper_wiring(self):
         html = self.client.get("/kids/lernen/").get_data(as_text=True)

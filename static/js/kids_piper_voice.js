@@ -78,6 +78,10 @@
         resolve(false);
       };
       const cancelled = () => { if (run !== sequence) finish(false); };
+      player.addEventListener('playing', () => {
+        // Retry only clears the previous warning once this announcement starts playing.
+        if (!settled && run === sequence && statusElement) statusElement.textContent = '';
+      }, {once: true});
       player.addEventListener('ended', () => finish(true), {once: true});
       player.addEventListener('error', unavailable, {once: true});
       player.addEventListener('pause', cancelled, {once: true});

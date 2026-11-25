@@ -137,3 +137,47 @@ test('only the explicit maze instruction path marks the real local Piper URL', a
   assert.equal(urls[1].searchParams.get('purpose'), null);
   assert.equal(urls[1].searchParams.get('text'), 'Apfel');
 });
+
+test('only a playing current maze instruction clears a previous read-aloud warning', async () => {
+  const status = {textContent: ''};
+  const players = [];
+  class FakeAudio extends EventTarget {
+    constructor(url) { super(); this.url = url; players.push(this); }
+    play() { return Promise.resolve(); }
+    pause() { this.dispatchEvent(new Event('pause')); }
+  }
+  const window = {Audio: FakeAudio};
+  const context = {window, Audio: FakeAudio, URLSearchParams, document: {querySelector: () => null}};
+  vm.runInNewContext(piperSource, context);
+  vm.runInNewContext(source, context);
+  const audio = window.KidsLanguageAudio({text: de => de, speechStatus: status});
+  const listen = () => audio.speak('Gehe nach links.', 'de-DE', 'instructions');
+  const media = (index, event) => players[index].dispatchEvent(new Event(event));
+
+  const first = listen();
+  await tick();
+  media(0, 'error');
+  assert.equal(await first, false);
+  const warning = status.textContent;
+  assert.match(warning, /Vorlesen gerade nicht möglich/);
+
+  void listen();
+  await tick();
+  assert.equal(status.textContent, warning, 'requesting a retry does not mean playback succeeded');
+  const latest = listen();
+  await tick();
+  media(1, 'playing');
+  assert.equal(status.textContent, warning, 'a superseded player cannot clear a current warning');
+  media(2, 'playing');
+  assert.equal(status.textContent, '');
+  media(1, 'error');
+  assert.equal(status.textContent, '', 'a late error from a superseded player cannot resurrect the warning');
+  media(2, 'ended');
+  assert.equal(await latest, true);
+
+  const failsAgain = listen();
+  await tick();
+  media(3, 'error');
+  assert.equal(await failsAgain, false);
+  assert.equal(status.textContent, warning);
+});
