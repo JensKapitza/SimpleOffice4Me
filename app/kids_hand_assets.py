@@ -36,7 +36,7 @@ def verify_bytes(name: str, content: bytes) -> bool:
 def _verified(path: Path, identity: tuple[int, int, int, int], size: int, digest: str) -> bytes | None:
     with path.open("rb") as stream:
         stat = os.fstat(stream.fileno())
-        if identity != (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns):
+        if identity != (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns):
             return None
         data = stream.read(size + 1)
     return data if len(data) == size and hashlib.sha256(data).hexdigest() == digest else None

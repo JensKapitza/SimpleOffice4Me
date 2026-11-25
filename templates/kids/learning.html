@@ -10,6 +10,7 @@
     <p class="text-secondary mb-0">{{ 'Short, friendly quiz rounds. No timers and no pressure. Questions and scores stay on this device.' if g.language == 'en' else 'Kurze, freundliche Quizrunden. Ohne Zeitdruck und ohne Noten. Fragen und Punkte bleiben auf diesem Gerät.' }}</p>
     <button class="btn btn-outline-primary mt-3" type="button" data-share-game>🔳 {{ 'Share this game by QR' if g.language == 'en' else 'Spiel per QR-Code öffnen' }}</button>
   </header>
+  <p class="small"><a href="{{ url_for('optional_setup.index', _anchor='kids-voice') }}">{{ 'For grown-ups: speech status and setup' if g.language == 'en' else 'Für Erwachsene: Stimmenstatus und Einrichtung' }}</a></p>
   <p class="small text-warning-emphasis mb-2" data-speech-status role="status" aria-live="polite"></p>
 
   <section class="kids-learning-setup" data-setup aria-labelledby="kids-learning-level-heading">

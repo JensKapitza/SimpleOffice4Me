@@ -1,0 +1,21 @@
+{%- set en = g.language == 'en' -%}
+{%- set status_labels = {
+  'engine-found': ('Engine found, not run', 'Engine gefunden, nicht gestartet'),
+  'engine-missing': ('Piper engine missing', 'Piper-Engine fehlt'),
+  'missing': ('Not set up', 'Nicht eingerichtet'),
+  'configured': ('Configured, not playback-tested', 'Konfiguriert, nicht abgespielt'),
+  'config-missing': ('Voice configuration is missing', 'Stimmenkonfiguration fehlt'),
+  'invalid': ('Configured voice file is unavailable', 'Eingerichtete Stimmdatei fehlt oder ist ungültig'),
+  'reader-thorsten': ('Thorsten Scratch selected, not played', 'Thorsten Scratch ausgewählt, nicht abgespielt'),
+  'reader-thorsten-invalid': ('Selected model files are no longer verified', 'Ausgewählte Stimmdateien nicht mehr verifiziert'),
+  'fallback': ('Uses the default voice', 'Nutzt die Standardstimme'),
+  'shared-fallback': ('Uses the original shared default', 'Nutzt die bisherige gemeinsame Standardstimme'),
+  'shared': ('Uses the configured default voice', 'Nutzt die eingerichtete Standardstimme'),
+  'manual': ('Manual setup or folder check needed', 'Manuelle Einrichtung oder Ordnerprüfung nötig'),
+  'installed-disabled': ('Verified local copy, disabled', 'Lokale Kopie geprüft, deaktiviert'),
+  'queued': ('Queued', 'Vorgemerkt'),
+  'downloading': ('Downloading and verifying', 'Wird geladen und geprüft'),
+  'ready': ('Files verified', 'Dateien verifiziert'),
+  'failed': ('Setup failed', 'Einrichtung fehlgeschlagen')
+} -%}
+<span class="badge text-bg-{{ 'success' if status in ('ready', 'configured', 'shared', 'fallback', 'shared-fallback', 'engine-found', 'reader-thorsten') else 'info' if status in ('queued', 'downloading') else 'warning' if status in ('failed', 'invalid', 'manual', 'config-missing', 'reader-thorsten-invalid') else 'secondary' }}" data-optional-status="{{ status }}">{{ status_labels[status][0 if en else 1] }}</span>

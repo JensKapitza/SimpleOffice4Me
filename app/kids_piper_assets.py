@@ -57,6 +57,10 @@ _ASSETS = (
 )
 
 
+def asset_manifest() -> tuple[Asset, ...]:
+    return _ASSETS
+
+
 class _VoiceRedirects(HTTPRedirectHandler):
     max_redirections = 3
 
@@ -94,15 +98,22 @@ def _verified(directory: Path) -> bool:
     return directory.resolve() == directory and all(_matches(directory / asset.name, asset) for asset in _ASSETS)
 
 
-def enabled_model(document_root: str | Path) -> str:
+def installed_model(document_root: str | Path) -> str:
     directory = _voice_dir(document_root)
-    marker = directory / "enabled"
     try:
-        if not stat.S_ISREG(marker.lstat().st_mode) or not _verified(directory):
-            return ""
+        return str(directory / _MODEL_NAME) if _verified(directory) else ""
     except (OSError, RuntimeError):
         return ""
-    return str(directory / _MODEL_NAME)
+
+
+def enabled_model(document_root: str | Path) -> str:
+    marker = _voice_dir(document_root) / "enabled"
+    try:
+        if not stat.S_ISREG(marker.lstat().st_mode):
+            return ""
+    except OSError:
+        return ""
+    return installed_model(document_root)
 
 
 def _remove_staging(directory: Path, pattern: str) -> None:
@@ -157,8 +168,8 @@ def _download(asset: Asset, target: Path, deadline: float) -> None:
     target.chmod(0o600)
 
 
-def set_enabled(document_root: str | Path, enable: bool) -> str:
-    """Return enabled/disabled/busy/unavailable/failed; only admins call this."""
+def set_enabled(document_root: str | Path, enable: bool, *, allow_download: bool = True) -> str:
+    """Only admins call this; activating existing files may disallow downloads."""
     if enable and not shutil.which("piper"):
         return "unavailable"
     directory = _voice_dir(document_root)
@@ -176,6 +187,8 @@ def set_enabled(document_root: str | Path, enable: bool) -> str:
             _remove_staging(directory, "piper-download-*")
             if not _verified(directory):
                 marker.unlink(missing_ok=True)
+                if not allow_download:
+                    return "failed"
                 with tempfile.TemporaryDirectory(prefix="piper-download-", dir=directory) as staging:
                     stage = Path(staging)
                     deadline = time.monotonic() + _DOWNLOAD_TIMEOUT
