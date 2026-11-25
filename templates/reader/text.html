@@ -10,9 +10,10 @@
     {% include 'reader/_read_aloud.html' %}
   {% endwith %}
   <nav class="d-flex flex-wrap align-items-center gap-2 my-3" aria-label="{{ 'Text sections' if g.language == 'en' else 'Textabschnitte' }}">
-    {% if section > 1 %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('reader.open_text', document_id=document.document_id, section=section-1) }}">{{ 'Previous' if g.language == 'en' else 'Zurück' }}</a>{% endif %}
+    {% if section > 1 %}<a class="btn btn-sm btn-outline-secondary" rel="prev" href="{{ url_for('reader.open_text', document_id=document.document_id, section=section-1) }}">{{ 'Previous' if g.language == 'en' else 'Zurück' }}</a>{% endif %}
     <span>{{ 'Section' if g.language == 'en' else 'Abschnitt' }} {{ section }} / {{ section_count }}</span>
-    {% if section < section_count %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('reader.open_text', document_id=document.document_id, section=section+1) }}">{{ 'Next' if g.language == 'en' else 'Weiter' }}</a>{% endif %}
+    {% if section < section_count %}<a class="btn btn-sm btn-outline-secondary" rel="next" href="{{ url_for('reader.open_text', document_id=document.document_id, section=section+1) }}">{{ 'Next' if g.language == 'en' else 'Weiter' }}</a>{% endif %}
+    {% if section + 1 < section_count %}<a class="btn btn-sm btn-outline-secondary" data-text-last-section href="{{ url_for('reader.open_text', document_id=document.document_id, section=section_count) }}">{{ 'Last section' if g.language == 'en' else 'Letzter Abschnitt' }}</a>{% endif %}
   </nav>
   <pre class="text-break bg-body-secondary border rounded p-3" style="white-space: pre-wrap">{{ text }}</pre>
 </main>

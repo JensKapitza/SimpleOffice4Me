@@ -13,12 +13,15 @@ import time
 from pathlib import Path
 from typing import Any, BinaryIO, Iterator
 
-from .private_read_aloud import MAX_SPEECH_CHARS, ReadAloudError
+from .private_read_aloud import ReadAloudError
 from .v2.contracts import LogicalObjectId, StoragePort
 
 MAX_READ_ALOUD_PDF_MIB = 64
 MAX_READ_ALOUD_PDF_BYTES = MAX_READ_ALOUD_PDF_MIB * 1024 * 1024
 MAX_READ_ALOUD_TEXT_BYTES = 256 * 1024
+# Text length alone is not an audio-duration guarantee. Keep each interactive TXT turn
+# well below the general 5,000-character ceiling to avoid oversized WAV responses.
+MAX_READ_ALOUD_TEXT_SECTION_CHARS = 1200
 MAX_PDF_STDOUT_BYTES = 256 * 1024
 _PDF_TIMEOUT_SECONDS = 6
 _PDF_STAGE_SECONDS = 10
@@ -122,9 +125,9 @@ def plain_text_sections(payload: bytes) -> list[str]:
     sections = []
     start = 0
     while start < len(text):
-        end = min(start + MAX_SPEECH_CHARS, len(text))
+        end = min(start + MAX_READ_ALOUD_TEXT_SECTION_CHARS, len(text))
         if end < len(text):
-            boundary = max(text.rfind(char, start + MAX_SPEECH_CHARS // 2, end) for char in ("\n", " ", "\t"))
+            boundary = max(text.rfind(char, start + MAX_READ_ALOUD_TEXT_SECTION_CHARS // 2, end) for char in ("\n", " ", "\t"))
             if boundary >= 0:
                 end = boundary + 1
         sections.append(text[start:end])

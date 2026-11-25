@@ -22,7 +22,7 @@ from app import app
 from app import db as database
 from app.audio_output_engine import render_tts
 from app.document_store import DocumentStore
-from app.reader_speech_text import MAX_READ_ALOUD_PDF_BYTES
+from app.reader_speech_text import MAX_READ_ALOUD_PDF_BYTES, MAX_READ_ALOUD_TEXT_SECTION_CHARS
 from app.reading_store import reader_version
 from app.v2.contracts import ErrorCode, LogicalObjectId, OperationResult, StorageLocation, StoredObject
 from app.v2.cutover import activate_v2, prepare_shadow
@@ -119,7 +119,7 @@ class ReaderReadAloudTests(unittest.TestCase):
         self.assertTrue(all(not path.exists() for path in self.temp_dirs))
 
     def test_text_reader_uses_actual_selected_section_and_deleted_temporary_audio(self):
-        document = self.document("notes.txt", b"a" * 5000 + b"\nSecond section <em>literal</em>")
+        document = self.document("notes.txt", b"a" * MAX_READ_ALOUD_TEXT_SECTION_CHARS + b"\nSecond section <em>literal</em>")
         detail = self.client.get(f"/documents/{document['document_id']}")
         text_url = f"/documents/reader/{document['document_id']}/text"
         self.assertIn(text_url, detail.get_data(as_text=True))
@@ -610,6 +610,39 @@ class ReaderReadAloudTests(unittest.TestCase):
         self.assertEqual(503, failed.status_code)
         self.assertEqual("private, no-store", failed.headers["Cache-Control"])
         self.assertNotIn(b"This is an ordinary test.", failed.data)
+
+    def test_long_txt_reaches_last_bounded_section_by_next_or_direct_link(self):
+        line = "Jeden Morgen geht Jörg am Ufer entlang.\n"
+        normalized = line * 128 + "Letzter Satz am Ufer."
+        source = ("\ufeff" + normalized.replace("\n", "\r\n")).encode()
+        document = self.document("long-notes.txt", source)
+        initial = f"/documents/reader/{document['document_id']}/text"
+
+        def get_page(url):
+            result = self.client.get(url)
+            self.assertEqual(200, result.status_code)
+            return BeautifulSoup(result.data, "html.parser")
+
+        page = get_page(initial)
+        last_url = page.select_one("[data-text-last-section]")["href"]
+        parts = []
+        while True:
+            parts.append(page.select_one("main pre").get_text())
+            current = page.select_one("a[rel=next]")
+            if current is None:
+                break
+            page = get_page(current["href"])
+        self.assertGreater(len(parts), 2)
+        self.assertEqual(normalized, "".join(parts))
+        self.assertLessEqual(max(map(len, parts)), MAX_READ_ALOUD_TEXT_SECTION_CHARS)
+        last_page = get_page(last_url)
+        self.assertEqual(parts[-1], last_page.select_one("main pre").get_text())
+        self.assertEqual(str(len(parts)), last_page.select_one("[data-reader-position]")["value"])
+        version = last_page.select_one("[data-document-reader]")["data-document-version"]
+        with patch(self.speech_patch, side_effect=self.render_wave):
+            self.assert_private_audio(self.post(document, page=len(parts), version=version))
+        self.assertEqual([" ".join(parts[-1].split())], self.spoken)
+        self.assertEqual(source, (self.root / document["last_path"]).read_bytes())
 
 
 class ReaderSpeechJavascriptTests(unittest.TestCase):
