@@ -47,9 +47,12 @@ found using `text:` in advanced document search. If Tesseract or its local
 language packs are unavailable, retry after restoring them. The app tells
 apart no readable text and a failed run. A failed retry on identical bytes
 keeps the previously recognized text; changed image bytes require OCR again
-and do not inherit the old full text. Existing tags are retained because
-older OCR tags are not distinguished from user-entered tags. The retry
-does not modify or send the original file.
+and do not inherit the old full text. New OCR words are searchable from
+the current file version in Quick Search and are not saved as tags. Existing
+tags are retained: earlier versions did not distinguish OCR-generated words
+from tags entered by a person. If a legacy tag still produces an unwanted
+Quick Search hit, remove that tag in the document detail. The retry does not
+modify or send the original file.
 
 Camera availability, permission prompts, HEIC support, iOS file selection, and
 physical-device retry behavior still require Android WebView and iOS device
