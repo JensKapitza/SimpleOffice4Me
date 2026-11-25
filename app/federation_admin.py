@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+from uuid import UUID
 from datetime import datetime, timezone
 
 from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
@@ -65,8 +66,21 @@ def _diagnostic_time(timestamp: int | None) -> str:
         return "unbekannt"
 
 
-def _download_queue(catalog: FederationCatalog, *, show_retry_timing: bool, now: int) -> list[dict]:
+def _download_reference(value: str) -> str:
+    if len(value) != 36:
+        return ""
+    try:
+        return value if str(UUID(value)) == value else ""
+    except ValueError:
+        return ""
+
+
+def _download_queue(
+    catalog: FederationCatalog, *, show_retry_timing: bool, now: int, focused: dict | None = None,
+) -> list[dict]:
     rows = catalog.queue(500)
+    if show_retry_timing and focused and not any(row["request_id"] == focused["request_id"] for row in rows):
+        rows.append(focused)  # one bounded exact match outside the regular window
     if not show_retry_timing:
         return rows
     for row in rows:
@@ -200,6 +214,8 @@ def dashboard():
     active_view = request.args.get("view", "overview").strip()
     if active_view not in _DASHBOARD_VIEWS:
         active_view = "overview"
+    focus_id = _download_reference(request.args.get("download", "")) if active_view in {"files", "transfers"} else ""
+    focused_download = catalog.get_request(focus_id) if focus_id else None
     edit_peer_id = request.args.get("edit_peer", "").strip()[:128]
     selected = None
     if selected_id:
@@ -296,7 +312,10 @@ def dashboard():
         remote_files=catalog.remote_files(remote_peer, remote_query, 500),
         remote_query=remote_query,
         remote_peer=remote_peer,
-        download_queue=_download_queue(catalog, show_retry_timing=active_view == "transfers", now=now),
+        download_queue=_download_queue(
+            catalog, show_retry_timing=active_view == "transfers", now=now, focused=focused_download,
+        ),
+        focused_download=focused_download,
         catalog_events=catalog.events(100),
         queue_readiness=_queue_readiness(catalog, now) if active_view == "transfers" else None,
         inventory_sync_statuses=_inventory_sync_statuses(catalog, peers) if active_view == "peers" else {},
@@ -662,6 +681,7 @@ def remote_action():
     peer_id = request.form.get("peer_id", "").strip()
     remote_document_id = request.form.get("remote_document_id", "").strip()
     action = request.form.get("action", "").strip()
+    download_id = ""
     try:
         if action == "priority":
             _catalog().set_file_priority(peer_id, remote_document_id, int(request.form.get("priority", "0")))
@@ -673,14 +693,15 @@ def remote_action():
                 requested_by=str(g.user["username"]),
                 transfer_priority=int(request.form.get("priority", "0")),
             )
-            flash(translate(g.language, "fed.download.noted").format(request=row['request_id']))
+            download_id = row["request_id"]
+            flash(translate(g.language, "fed.download.noted").format(request=download_id))
         else:
             raise ValueError("Unbekannte Remote-Aktion")
     except (TypeError, ValueError) as exc:
         flash(translate(g.language, "fed.remote.failed").format(exc=exc))
     remote_peer_filter = request.form.get("remote_peer_filter", peer_id).strip()[:128]
     remote_query = request.form.get("remote_q", "").strip()[:200]
-    return _redirect_dashboard(remote_peer=remote_peer_filter, remote_q=remote_query)
+    return _redirect_dashboard(remote_peer=remote_peer_filter, remote_q=remote_query, download=download_id)
 
 
 @bp.post("/queue/<request_id>/priority")
@@ -706,6 +727,14 @@ def run_download_queue():
             done=len(result['completed']), waiting=len(result['deferred']), failed=len(result['failed'])))
     except (TypeError, ValueError) as exc:
         flash(translate(g.language, "fed.pipeline.failed").format(exc=exc))
+    focus_id = _download_reference(request.form.get("download", ""))
+    if focus_id and request.form.get("_return_view") == "transfers":
+        return _redirect_dashboard(
+            download=focus_id,
+            remote_peer=request.form.get("remote_peer", "").strip()[:128],
+            remote_q=request.form.get("remote_q", "").strip()[:200],
+            _anchor=f"download-{focus_id}",
+        )
     return _redirect_dashboard()
 
 
