@@ -7,7 +7,7 @@ This project is the Android counterpart of the Electron desktop wrapper. Electro
 - Android Java activity starts Chaquopy.
 - Existing `app/`, `templates/` and `static/` are copied into APK assets during the Gradle build.
 - At runtime these assets are copied into the application's private files directory.
-- Flask starts only on `127.0.0.1:8765`.
+- The WebView uses `127.0.0.1:8765`; Flask also listens on the device interfaces for LAN federation.
 - The WebView opens only the local application; external HTTP(S) links are handed to Android.
 - SQLite, secrets and application data remain in Android private app storage.
 - Cleartext HTTP is permitted only for localhost/127.0.0.1.
@@ -148,7 +148,20 @@ CI verifies that the APK contains only the requested native ABI and checks the s
 
 ## Current Android-specific limits
 
-Background indexer, OSM indexer, data logger and MCP are disabled in the embedded Android runtime. External desktop tools such as LibreOffice, Ghostscript and ClamAV are not bundled. The Android build has its own dependency pins because binary Python packages must have Android-compatible wheels.
+Background indexer, OSM indexer, data logger and MCP are disabled in the embedded
+Android runtime. External tools such as LibreOffice, Ghostscript, ClamAV,
+Poppler, Tesseract, and Piper with its voice model are not bundled. Android's
+built-in PDF renderer can display PDF pages without those tools. For photo
+capture, the WebView opens Android's file chooser; if it offers no camera,
+take the photo in the Android Camera app first and then select or share it.
+
+To use the OCR or speech tools on a separately hosted SimpleOffice server,
+open that server's HTTPS address in the browser or install its PWA. The native
+APK uses its own backend and private data on the phone. See
+[SimpleOffice4Me on Android](../../docs/ANDROID.md) for the two workflows.
+
+The Android build has its own dependency pins because binary Python packages
+must have Android-compatible wheels.
 
 ## Launcher-Logo im fertigen APK prüfen
 

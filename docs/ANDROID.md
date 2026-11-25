@@ -1,11 +1,11 @@
 # SimpleOffice4Me unter Android
 
-SimpleOffice4Me ist eine serverbasierte Flask-Anwendung. Der kleinste wartbare
-Android-Weg ist deshalb die installierbare Progressive Web App (PWA): Sie erhält
-ein eigenes Symbol und öffnet sich ohne Browserleiste, bleibt aber direkt mit der
-selbst gehosteten SimpleOffice-Instanz verbunden.
+Auf Android gibt es zwei unterschiedliche Installationen. Öffne die **PWA oder
+den Browser**, um mit den Daten auf deinem vorhandenen SimpleOffice-Server zu
+arbeiten. Die **native APK** bringt ihre eigene Flask-Instanz mit und verwendet
+einen getrennten Datenbestand auf dem Handy.
 
-## Installation
+## PWA für den vorhandenen Server installieren
 
 1. SimpleOffice über eine feste **HTTPS-Adresse** bereitstellen. Ein gültiges
    Zertifikat ist für Service Worker und App-Installation erforderlich; eine
@@ -18,20 +18,45 @@ selbst gehosteten SimpleOffice-Instanz verbunden.
 Browser verwenden, aber nicht zuverlässig als PWA installieren. `localhost` ist
 nur auf dem Gerät selbst eine Ausnahme.
 
-## Offline- und Datenschutzgrenze
+## Offline- und Datenschutzgrenze der PWA
 
 Der Service Worker speichert ausschließlich statische Oberfläche, Offline-Seite
 und App-Symbole. Kontakte, Personal-, Kalender- und Dokumentdaten werden nicht im
 PWA-Cache abgelegt. Ohne Verbindung zum eigenen Server zeigt die App daher nur
 den Offline-Hinweis.
 
-## Wann ein APK sinnvoll ist
+## Native APK für die eigene Handy-Instanz
 
-Ein APK wäre hier nur eine WebView-/TWA-Hülle und benötigt vor dem Bau eine feste
-HTTPS-Serveradresse, eine Paket-ID und einen verwalteten Signierschlüssel. Es
-bringt keine echte Server-unabhängige Offline-Funktion. Falls Verteilung per MDM
-oder Sideloading erforderlich ist, kann auf Basis der PWA gezielt eine signierte
-TWA für genau diese Serveradresse ergänzt werden.
+Die APK startet den mitgelieferten Python-/Flask-Server. Ihre WebView öffnet
+`http://127.0.0.1:8765`. Für die LAN-Föderation lauscht der Server auch an den
+Netzwerkschnittstellen des Handys. Externe HTTPS-Links übergibt die APK an
+Android. Dadurch wird kein fremder Server in die APK eingebunden. Weitere
+Informationen zu Installation, Signatur und Updates stehen in der
+[APK-Anleitung](../android/apk/README.md).
+
+## Foto, OCR und Reader: Wo die Arbeit läuft
+
+| Einstieg | Foto hinzufügen | Wo lokale Werkzeuge laufen |
+|---|---|---|
+| HTTPS-Server im Browser oder als PWA | Foto im Webformular auswählen. Je nach Gerät kann Android auch direkt die Kamera anbieten. | Dort, wo SimpleOffice läuft. Bei Docker zählen Programme und Modellpfade **im Container**. |
+| Native APK | Vorhandenes Bild aus der Android-Dateiauswahl übernehmen oder aus der Galerie über **Teilen → SimpleOffice4Me** an die Dokumentenablage übergeben. Der Import muss noch bestätigt werden. | Im Python-/Flask-Prozess der APK auf dem Handy. Werkzeuge auf einem anderen Server werden hier nicht verwendet. |
+
+Wenn die Dateiauswahl der APK keine Kamera anbietet, nimm das Foto zuerst mit
+der Android-Kamera auf und wähle es anschließend aus. Die APK verwendet den
+Android-Dateidialog; die Kameraoption hängt vom Gerät und der gewählten App ab.
+
+PDF-Seiten kann die APK mit Androids PDF-Renderer anzeigen. Das sagt noch nichts
+über die Verfügbarkeit von Texterkennung, PDF-Umwandlung oder Piper aus.
+Poppler, Tesseract und Piper samt Sprachmodell werden von der Standard-APK
+nicht mitgeliefert. Für die Foto-OCR braucht das gewählte Backend eine verfügbare
+lokale OCR-Engine, für PDF-OCR außerdem die benötigten PDF-Werkzeuge und für
+Piper zusätzlich ein lokal konfiguriertes Sprachmodell. Ein separat
+installierter Termux-Server ist ebenfalls eine andere Instanz.
+
+Wer die OCR- und Audio-Einrichtung seines Servers nutzen will, öffnet dessen
+Adresse am Handy als PWA. Siehe
+[Systemwerkzeuge für Vorschauen und OCR](SYSTEMWERKZEUGE_VORSCHAU.md) und
+[Audio-Ausgabe und lokales Piper](AUDIO_OUTPUT.md).
 
 ## Server direkt auf dem Android-Gerät
 
