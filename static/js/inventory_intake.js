@@ -4,7 +4,6 @@
   const input = document.querySelector('#intake-photo');
   const pending = document.querySelector('#intake-pending');
   if (!form || !input || !pending || !window.URL?.createObjectURL) return;
-  const image = pending.querySelector('img');
   const picture = pending.querySelector('[data-intake-pending-photo]');
   const status = pending.querySelector('[role="status"]');
   let preview = '';
@@ -15,12 +14,19 @@
     pending.hidden = !photo;
     picture.hidden = !photo;
     if (!photo) {
-      image.removeAttribute('src');
+      picture.replaceChildren();
       preview = '';
       return;
     }
     preview = URL.createObjectURL(photo);
+    const image = document.createElement('img');
     image.src = preview;
+    image.alt = 'Vorschau des neuen Fotos';
+    image.className = 'object-fit-cover rounded';
+    image.loading = 'eager';
+    image.decoding = 'async';
+    image.fetchPriority = 'high';
+    picture.replaceChildren(image);
     status.textContent = 'Neues Foto · Noch nicht gespeichert';
     if (photo.size <= 12 * 1024 * 1024 && form.requestSubmit) form.requestSubmit();
   });

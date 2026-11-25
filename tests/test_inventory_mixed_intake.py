@@ -51,6 +51,8 @@ class MixedIntakeTests(unittest.TestCase):
     def test_capture_private_without_analysis_and_ordered_on_reload(self):
         page = self.get_page()
         self.assertEqual(len(page.select("article")), 0)
+        self.assertIsNone(page.select_one("#intake-pending img"))
+        self.assertIsNotNone(page.select_one("#intake-pending [data-intake-pending-photo][hidden]"))
         with mock.patch("app.object_vision._run_tesseract") as ocr,                 mock.patch("app.inventory_catalog.lookup_catalog") as external:
             first = self.photo(barcode="9780140328721")
             second = self.photo()

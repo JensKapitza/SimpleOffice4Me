@@ -74,6 +74,14 @@ class BookScanRouteTests(unittest.TestCase):
         rendered = BeautifulSoup(reply.data, "html.parser")
         self.assertIsNotNone(rendered.select_one("section[data-book-scanner] form [data-scan-download]"))
         self.assertIsNotNone(rendered.select_one("script[src$='library_book_scanner.js']"))
+        files = rendered.select("input[data-pick-pages]")
+        self.assertEqual(2, len(files))
+        for picker in files:
+            label = rendered.select_one(f'label[for="{picker["id"]}"]')
+            self.assertIsNotNone(label)
+            self.assertIs(label.parent, picker.parent)
+            self.assertFalse(label.find("div"))
+            self.assertIsNone(picker.find_parent("label"))
         other = app.test_client()
         self.client.post("/auth/register", data={
             "_csrf_token": self.token(self.client, "/auth/register"), "username": "other",

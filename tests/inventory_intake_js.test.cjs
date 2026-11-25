@@ -11,13 +11,12 @@ function harness() {
     const handlers = {};
     return {handlers, addEventListener: (name, callback) => { handlers[name] = callback; }, ...base};
   }
-  const image = node({removeAttribute() {}});
   const status = node();
   const submit = node();
-  const picture = node({hidden: true});
+  const picture = node({hidden: true, children: [], replaceChildren(...children) { this.children = children; }});
   const form = node({action: '/inventory/capture/intake', querySelector: () => submit, requestSubmit() {}});
   const input = node({files: [{size: 12, type: 'image/png'}]});
-  const pending = node({hidden: true, querySelector: key => key === 'img' ? image : key.includes('pending-photo') ? picture : status});
+  const pending = node({hidden: true, querySelector: key => key.includes('pending-photo') ? picture : status});
   const map = {'#intake-capture': form, '#intake-photo': input, '#intake-pending': pending};
   const location = {reloads: 0, reload() { this.reloads++; }};
   const calls = [];
@@ -29,16 +28,19 @@ function harness() {
     },
   });
   const ctx = {window, URL: url, FormData: class {constructor(actual) { assert.equal(actual, form); }},
-    document: {querySelector: key => map[key], querySelectorAll: () => []}};
+    document: {querySelector: key => map[key], querySelectorAll: () => [], createElement: tag => node({tag})}};
   runInNewContext(code, ctx);
-  return {input, form, pending, picture, image, status, calls, location, ack: data => request(data)};
+  return {input, form, pending, picture, status, calls, location, ack: data => request(data)};
 }
 
 test('immediate local square preview; stored state only after server acknowledgment', async () => {
   const ui = harness();
   ui.input.handlers.change();
   assert.equal(ui.pending.hidden, false);
-  assert.equal(ui.image.src, 'blob:synthetic-photo');
+  assert.equal(ui.picture.children.length, 1);
+  assert.equal(ui.picture.children[0].tag, 'img');
+  assert.equal(ui.picture.children[0].src, 'blob:synthetic-photo');
+  assert.equal(ui.picture.children[0].alt, 'Vorschau des neuen Fotos');
   assert.match(ui.status.textContent, /Noch nicht gespeichert/);
   assert.equal(ui.calls.length, 0);
   const saving = ui.form.handlers.submit({preventDefault() {}});
@@ -71,9 +73,19 @@ test('barcode-only capture waits with text, never fabricates image', async () =>
   const saving = ui.form.handlers.submit({preventDefault() {}});
   assert.equal(ui.pending.hidden, false);
   assert.equal(ui.picture.hidden, true);
-  assert.equal(ui.image.src, undefined);
+  assert.equal(ui.picture.children.length, 0);
   assert.equal(ui.calls.length, 1);
   ui.ack({ok: true, json: async () => ({ok: true, draft: {id: 'b'.repeat(32)}})});
   await saving;
   assert.equal(ui.location.hash, 'draft-' + 'b'.repeat(32));
+});
+
+test('clearing a selected photo removes the image instead of leaving it without src', () => {
+  const ui = harness();
+  ui.input.handlers.change();
+  assert.equal(ui.picture.children.length, 1);
+  ui.input.files = [];
+  ui.input.handlers.change();
+  assert.equal(ui.pending.hidden, true);
+  assert.equal(ui.picture.children.length, 0);
 });

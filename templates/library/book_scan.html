@@ -14,14 +14,14 @@
     <fieldset disabled data-scan-controls>
       <legend class="h5">{{ 'Pages' if en else 'Seiten' }}</legend>
       <div class="row g-3 mb-3">
-        <label class="col-sm-6">
-          {{ 'Select image files' if en else 'Bilddateien auswählen' }}
-          <input class="form-control" type="file" accept="image/jpeg,image/png" multiple data-pick-pages>
-        </label>
-        <label class="col-sm-6">
-          {{ 'Take a page photo' if en else 'Seite fotografieren' }}
-          <input class="form-control" type="file" accept="image/jpeg,image/png" capture="environment" data-pick-pages>
-        </label>
+        <div class="col-sm-6">
+          <label class="form-label" for="book-scan-files">{{ 'Select image files' if en else 'Bilddateien auswählen' }}</label>
+          <input id="book-scan-files" class="form-control" type="file" accept="image/jpeg,image/png" multiple data-pick-pages>
+        </div>
+        <div class="col-sm-6">
+          <label class="form-label" for="book-scan-camera">{{ 'Take a page photo' if en else 'Seite fotografieren' }}</label>
+          <input id="book-scan-camera" class="form-control" type="file" accept="image/jpeg,image/png" capture="environment" data-pick-pages>
+        </div>
       </div>
       <p class="small text-secondary">{{ 'Up to 24 pages, 32 MiB and 64 megapixels total per batch. The selection is lost if the tab is closed.' if en else 'Bis zu 24 Seiten, 32 MiB und insgesamt 64 Megapixel je Durchgang. Beim Schließen des Tabs geht die Auswahl verloren.' }}</p>
       <ol class="list-group list-group-numbered mb-3" data-scan-pages></ol>
