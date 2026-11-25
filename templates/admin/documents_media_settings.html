@@ -21,6 +21,7 @@
   </nav>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
+  {% include "admin/_kids_piper_voice.html" %}
   <section class="card mb-4">
     <div class="card-header"><strong>{{ 'Preview resource limits' if g.language == 'en' else 'Vorschau-Ressourcengrenzen' }}</strong></div>
     <div class="card-body">
@@ -165,7 +166,7 @@
           <input class="form-control" id="piper-model" type="text" name="piper_model"
                  value="{{ media.piper_model }}" maxlength="1000"
                  placeholder="{{ '/var/lib/piper/de_DE-voice-medium.onnx' if g.language == 'en' else '/var/lib/piper/de_DE-voice-medium.onnx' }}">
-          <div class="form-text">{{ 'Empty means speech synthesis is disabled. Path to the .onnx model file for the local Piper CLI.' if g.language == 'en' else 'Leer bedeutet: Sprachausgabe ist deaktiviert. Pfad zur .onnx-Modelldatei für die lokale Piper-CLI.' }}</div>
+          <div class="form-text">{{ 'Path to a .onnx model for the local Piper CLI. If empty, the optional Kids voice can still read German maze instructions when enabled.' if g.language == 'en' else 'Pfad zur .onnx-Modelldatei für die lokale Piper-CLI. Ist das Feld leer, kann die optionale Kinderstimme bei Aktivierung weiterhin deutsche Labyrinth-Anleitungen vorlesen.' }}</div>
         </div>
         <div class="col-12">
           <label class="form-label" for="piper-model-en">{{ 'English Piper voice model (path, optional)' if g.language == 'en' else 'Englisches Piper-Stimmenmodell (Pfad, optional)' }}</label>

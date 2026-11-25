@@ -125,14 +125,40 @@ auf 45 Sekunden begrenzt und abbrechbar; Wiedergabe auf 300 Sekunden.
 
 - **Keine lokalen Ausgänge:** Benutzersitzung und `pactl` prüfen, erneut scannen.
 - **Piper/Modell fehlt:** vorhandenes Modell konfigurieren; zunächst einen
-  Signalton testen. Kein automatischer Modell-Download.
+  Signalton testen. Der Audio-Ausgabe-Mini-Service lädt keine Modelle nach.
 - **Kids-Vorlesen (`GET /kids/lernen/sprache`, Anmeldung erforderlich):** kurze
   Lern- und Spieltexte (1–500 Zeichen, `lang` `de-DE`/`en-US`) rendert die
   lokale Piper-CLI und legt sie per Texthash auf dem Server ab (Cache
   `audio/kids-tts`, wiederverwendete `render_tts`-Engine). Wiederholte Maze-
-  und Quizansagen brauchen keine Neuberechnung; der Browser cached zusätzlich
-  per unveränderlicher URL. Ohne Modell/CLI antwortet der Endpunkt `503` mit
+  und Quizansagen brauchen keine Neuberechnung. Bestehende Sprachrouten nutzen
+  den privaten Browser-Cache, Anleitungen mit wechselbarer Kinderstimme nicht. Ohne Modell/CLI antwortet der Endpunkt `503` mit
   Handlungsanweisung statt Ersatzstimme.
+- **Optionale deutsche Labyrinth-Stimme:** Unter **Admin → Dokumente & Medien**
+  lädt **Deutsche Kinderstimme laden und aktivieren** einmalig Modell und
+  Konfiguration vom [gepinnten Herausgeber-Stand][piper-scratch] (ca. 64 MB) und
+  prüft beide Dateien anhand von Größe und SHA-256. Ohne Klick findet kein
+  Download statt. Wenn der Proxy währenddessen abbricht, die Einstellungsseite
+  nach der Wartezeit neu laden; laufende Downloads werden nicht dupliziert.
+  Die Dateien liegen privat unter
+  `.simpleoffice-meta/kids-voices/<Modellrevision>` des Dokumentenstamms. Bei
+  Deaktivierung bleiben sie zur späteren Offline-Reaktivierung dort. Die Stimme
+  liest ausschließlich deutsche Labyrinth-Anleitungen, falls kein deutsches
+  Admin-Modell hinterlegt ist. Aussprache, Lautübungen und Englisch behalten den
+  bisherigen Pfad. Die Modellkarte dokumentiert experimentelle Aussprache.
+  Pro Instanz wird gleichzeitig nur eine Ansage berechnet; der separate Cache
+  behält höchstens 32 WAV-Dateien und 16 MiB.
+- **Lizenzen und Plattformen:** Modellgewichte und Aufnahmen: Thorsten Müller /
+  Thorsten-Voice, [CC0 1.0][cc0]. Die Stimme wurde ohne fremden Checkpoint aus
+  den eigenen [CC0-Aufnahmen von 2022.10][thorsten-dataset] trainiert. Sie ist
+  nicht die Lessac-basierte ältere Piper-Stimme. Piper ([GPL-3.0-or-later][piper-license])
+  wird separat installiert, von der App nicht gebündelt oder nachinstalliert.
+  Der Server muss `piper` im `PATH` haben. Geprüft auf Linux mit `piper-tts 1.8.0`.
+  Windows und macOS erfordern eine funktionierende lokale CLI; Docker erfordert
+  Piper im Container und ein persistentes Dokumentenvolume. Diese Plattformen
+  und ein alleinstehendes Android-APK wurden nicht getestet. Ein Android-Client
+  kann Audio von einem entsprechend eingerichteten Server abspielen. Keine
+  Lerntexte gehen an Hugging Face oder einen Online-Synthesedienst.
+
 - **Externer Knoten:** Ohne explizite RTP-Bindung scheitert der Auftrag verständlich.
   Transport speichern und auf dem Ziel den Audio-Streamer-Empfänger starten.
   Bei ausbleibendem Ton Ports, Empfängerstatus und Lautsprecher prüfen; erfolgreicher
@@ -148,6 +174,11 @@ und 16 lokale Ausgänge pro Auftrag. Gruppenzyklen und mehrdeutige IDs scheitern
 vor dem Start von Playern. Kalender-Polling dedupliziert dieselbe Termininstanz.
 Der Cache erzeugter Sprachdateien ist auf 64 Dateien bzw. 128 MiB begrenzt;
 andere Assets werden beim Aufräumen nicht gelöscht.
+
+[piper-scratch]: https://huggingface.co/Thorsten-Voice/Piper-Scratch/blob/d3a970797980dbc61b50bba8852a1728426d46bc/README.md
+[thorsten-dataset]: https://www.thorsten-voice.de/ueber-das-projekt/aufnahmen/
+[cc0]: https://creativecommons.org/publicdomain/zero/1.0/
+[piper-license]: https://github.com/OHF-Voice/piper1-gpl/blob/main/docs/LICENSING.md
 
 ## API
 

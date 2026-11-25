@@ -1,5 +1,6 @@
 """Locally served learning games for children in the Kids area."""
 import base64
+import io
 import ipaddress
 import json
 from pathlib import Path
@@ -7,6 +8,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from flask import Blueprint, abort, current_app, jsonify, render_template, request, send_file, url_for
 
+from . import kids_piper_assets
 from .auth import login_required
 from .federation_qr_image import render_qr_svg
 from .settings_store import SettingsStore
@@ -28,7 +30,8 @@ _PIPER_MISSING_MESSAGE = (
 
 @bp.after_request
 def _private_response(response):
-    if request.endpoint == "kids_learning.sprache" and response.status_code == 200:
+    if (request.endpoint == "kids_learning.sprache" and response.status_code == 200
+            and request.args.get("purpose") != "instructions"):
         # Rendered speech is addressed by its (text, language) hash, so a
         # successful render is immutable and safe to cache on the device.
         response.headers["Cache-Control"] = "private, max-age=31536000, immutable"
@@ -42,7 +45,7 @@ def _private_response(response):
 def _kids_tts_model(language: str) -> str:
     """Pick the configured Piper model for a read-aloud language.
 
-    German is the default voice (Thorsten, medium). English uses its own
+    German uses the administrator-configured model if any. English uses its own
     optional model and falls back to the default voice when unset, so the
     endpoint never reaches out to an external network TTS service.
     """
@@ -80,10 +83,23 @@ def sprache():
         return jsonify(error="Vorlesetext muss 1 bis 500 Zeichen enthalten."), 400
     if any(ord(char) < 32 or ord(char) == 127 for char in text):
         return jsonify(error="Vorlesetext enthält ungültige Zeichen."), 400
+    purpose = request.args.get("purpose", "")
+    if purpose not in {"", "instructions"}:
+        return jsonify(error="Unbekannter Einsatzzweck."), 400
     model = _kids_tts_model(language)
-    if not model:
+    root = current_app.config["DOCUMENT_ROOT"]
+    managed = ""
+    if not model and language == "de-DE" and purpose == "instructions" and kids_piper_assets.is_maze_instruction(text):
+        managed = kids_piper_assets.enabled_model(root)
+    if not model and not managed:
         return jsonify(error=_PIPER_MISSING_MESSAGE, code="piper_unavailable"), 503
     try:
+        if managed:
+            wav = kids_piper_assets.render_instruction(root, text, managed)
+            if wav is None:
+                return jsonify(error="Eine Ansage läuft bereits. Bitte erneut versuchen.", code="piper_busy"), 503
+            return send_file(io.BytesIO(wav), mimetype="audio/wav")
+
         from .audio_output_engine import render_tts
 
         audio_path = render_tts(

@@ -1,0 +1,30 @@
+<section class="card mb-4" id="kids-voice">
+  <div class="card-header"><strong>{{ 'Kids read-aloud voice (German)' if g.language == 'en' else 'Kinder-Vorlesestimme (Deutsch)' }}</strong></div>
+  <div class="card-body">
+    <p>{{ 'Thorsten-Voice Piper-Scratch is experimental. It only reads German maze instructions when no German Piper voice has been configured. Pronunciation examples and English audio are unchanged.' if g.language == 'en' else 'Thorsten-Voice Piper-Scratch ist experimentell. Die Stimme liest deutsche Labyrinth-Anleitungen vor, wenn keine deutsche Piper-Stimme eingerichtet ist. Aussprachebeispiele und englische Audios bleiben unverändert.' }}</p>
+    <p>{{ 'On activation the server downloads and verifies approximately 64 MB from Hugging Face. This can take up to about 90 seconds. Afterwards, speech works offline on the server. No learning text is sent to Hugging Face. Piper must already be installed on the server.' if g.language == 'en' else 'Beim Aktivieren lädt der Server rund 64 MB von Hugging Face herunter und prüft die Dateien. Das kann bis zu etwa 90 Sekunden dauern. Danach läuft die Sprachausgabe offline auf dem Server. Lerntexte werden nicht an Hugging Face gesendet. Piper muss auf dem Server bereits installiert sein.' }}</p>
+    <p class="small">{{ 'Try it in Kids → Learning games → Search and letters → Find the way → Easy → Listen mode.' if g.language == 'en' else 'Zum Ausprobieren: Kinder → Lernspiele → Suchbild & Buchstaben → Finde den Weg → Leicht → Hörmodus.' }}</p>
+    <p class="small">
+      <a href="{{ kids_piper_card }}" rel="noreferrer">Thorsten Müller / Thorsten-Voice Piper-Scratch</a>
+      · <a href="https://creativecommons.org/publicdomain/zero/1.0/" rel="noreferrer">CC0 1.0</a> ({{ 'model and recordings' if g.language == 'en' else 'Modell und Aufnahmen' }})
+      · <a href="https://github.com/OHF-Voice/piper1-gpl/blob/main/docs/LICENSING.md" rel="noreferrer">GPL-3.0-or-later</a> ({{ 'Piper engine, separately installed' if g.language == 'en' else 'separat installierte Piper-Engine' }})
+    </p>
+    {% set result = request.args.get('kids_voice') %}
+    {% set messages = {
+      'enabled': ('Voice enabled.', 'Stimme aktiviert.'),
+      'disabled': ('Voice disabled. Previously downloaded files are kept for reuse.', 'Stimme deaktiviert. Bereits geladene Dateien bleiben zur Wiederverwendung gespeichert.'),
+      'busy': ('Setup is already in progress. Reload the page in a moment.', 'Die Einrichtung läuft bereits. Lade die Seite in Kürze neu.'),
+      'unavailable': ('The server cannot find the Piper CLI. Install it intentionally and try again.', 'Der Server findet die Piper-CLI nicht. Installiere sie bewusst und versuche es erneut.'),
+      'failed': ('The voice could not be downloaded or verified. No unchecked model was enabled. Please try again.', 'Die Stimme konnte nicht geladen oder geprüft werden. Kein ungeprüftes Modell wurde aktiviert. Bitte versuche es erneut.')
+    } %}
+    {% if result in messages %}<p class="alert {{ 'alert-info' if result in ('enabled', 'disabled') else 'alert-warning' }}" role="status">{{ messages[result][0 if g.language == 'en' else 1] }}</p>{% endif %}
+    <form method="post" action="{{ url_for('admin.set_kids_piper_voice') }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      {% if kids_piper_enabled %}
+      <button class="btn btn-outline-secondary" type="submit" name="action" value="disable">{{ 'Disable German Kids voice' if g.language == 'en' else 'Deutsche Kinderstimme deaktivieren' }}</button>
+      {% else %}
+      <button class="btn btn-outline-primary" type="submit" name="action" value="enable">{{ 'Download and enable German Kids voice' if g.language == 'en' else 'Deutsche Kinderstimme laden und aktivieren' }}</button>
+      {% endif %}
+    </form>
+  </div>
+</section>

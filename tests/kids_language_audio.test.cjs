@@ -5,6 +5,7 @@ const vm = require('node:vm');
 const path = require('node:path');
 
 const source = fs.readFileSync(path.join(__dirname, '../static/js/kids_language_audio.js'), 'utf8');
+const piperSource = fs.readFileSync(path.join(__dirname, '../static/js/kids_piper_voice.js'), 'utf8');
 
 function fixture() {
   const events = [];
@@ -113,4 +114,26 @@ test('spoken question without clip uses piper directly', async () => {
   const done = await f.audio.speak('Gehe nach oben.', 'de-DE');
   assert.equal(done, true);
   assert.deepEqual(f.piperSpoken, [['Gehe nach oben.', 'de-DE']]);
+});
+
+test('only the explicit maze instruction path marks the real local Piper URL', async () => {
+  const urls = [];
+  class FakeAudio {
+    constructor(url) { urls.push(new URL(url, 'http://localhost')); }
+    addEventListener(type, callback) { if (type === 'ended') this.finish = callback; }
+    play() { this.finish(); return Promise.resolve(); }
+  }
+  const window = {Audio: FakeAudio};
+  const context = {window, Audio: FakeAudio, URLSearchParams, document: {querySelector: () => null}};
+  vm.runInNewContext(piperSource, context);
+  vm.runInNewContext(source, context);
+  const audio = window.KidsLanguageAudio({text: de => de, speechStatus: null});
+  assert.equal(await audio.speak('Gehe nach links.', 'de-DE', 'instructions'), true);
+  assert.equal(await audio.playSolution({solutionWord: 'Apfel', speechLang: 'de-DE'}), true);
+  assert.equal(urls[0].origin, 'http://localhost');
+  assert.equal(urls[0].pathname, '/kids/lernen/sprache');
+  assert.equal(urls[0].searchParams.get('purpose'), 'instructions');
+  assert.equal(urls[0].searchParams.get('text'), 'Gehe nach links.');
+  assert.equal(urls[1].searchParams.get('purpose'), null);
+  assert.equal(urls[1].searchParams.get('text'), 'Apfel');
 });

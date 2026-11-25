@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 from flask import Blueprint, Response, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
 
+from . import kids_piper_assets
 from .access_control import FEATURES, activity_for, audit, is_admin, permissions_for, safe_delta, utc_now
 from .auth import login_required
 from .contact_owner_admin import assign_ownerless_contacts, ownerless_contacts
@@ -604,12 +605,30 @@ def resolve_error(error_id: int):
 @bp.get("/settings/documents-media")
 @admin_required
 def documents_media_settings():
-    media = SettingsStore(current_app.config["DOCUMENT_ROOT"]).settings()["media"]
+    root = current_app.config["DOCUMENT_ROOT"]
+    media = SettingsStore(root).settings()["media"]
     return render_template(
         "admin/documents_media_settings.html",
         media=media,
         max_chat_attachment_bytes=MAX_CHAT_ATTACHMENT_BYTES,
+        kids_piper_enabled=bool(kids_piper_assets.enabled_model(root)),
+        kids_piper_card=kids_piper_assets.MODEL_CARD,
     )
+
+
+@bp.post("/settings/documents-media/kids-voice")
+@admin_required
+def set_kids_piper_voice():
+    action = request.form.get("action")
+    if action not in {"enable", "disable"}:
+        abort(400)
+    status = kids_piper_assets.set_enabled(current_app.config["DOCUMENT_ROOT"], action == "enable")
+    audit(
+        "kids_piper_voice_configured", "settings", "kids_voice",
+        outcome="success" if status in {"enabled", "disabled"} else "failure",
+        detail={"action": action, "status": status},
+    )
+    return redirect(url_for("admin.documents_media_settings", kids_voice=status, _anchor="kids-voice"), code=303)
 
 
 @bp.get("/settings/network")
