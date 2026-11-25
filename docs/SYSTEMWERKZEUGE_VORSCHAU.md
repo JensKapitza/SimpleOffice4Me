@@ -11,6 +11,8 @@ fehlende Programme; sie installiert oder startet nichts automatisch.
 | Signaturen | `freshclam` | `clamav` |
 | Bilder/Collagen | `magick` oder kompatibles `convert` | `imagemagick` |
 | erste PDF-Seite | `pdftoppm` | `poppler-utils` |
+| PDF-Textebene | `pdftotext` | `poppler-utils` |
+| Bilder auf PDF-Seiten mit vorhandener Textebene erkennen (Reader-OCR) | `pdfimages` | `poppler-utils` |
 | PDF-S/W-Export | `gs` | `ghostscript` |
 | OCR-Textebene | `tesseract` | `tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng` |
 | Audio/Video | `ffmpeg` | `ffmpeg` |
@@ -33,6 +35,17 @@ ghostscript tesseract ffmpeg` sowie `brew install --cask libreoffice`. Unter Win
 der offizielle ClamAV-Installer sowie `winget install ImageMagick.Q16`,
 `winget install Gyan.FFmpeg` und `winget install
 TheDocumentFoundation.LibreOffice` zur Verfügung.
+
+**Reader-OCR vorbereiten:** Mit `./start.sh --check-system` bzw.
+`start.bat --check-system` alle drei Poppler-Befehle und die Tesseract-Sprachen
+prüfen. `pdftotext` und `pdftoppm` allein reichen nicht für gemischte PDF-Seiten,
+auf denen vorhandener Text um gescannte Inhalte ergänzt werden soll. Fehlt
+`pdfimages`, die vollständige Poppler-Installation in den `PATH` des
+SimpleOffice-Servers aufnehmen. Beim Zugriff per Browser/PWA ist das der
+Server bzw. Container, nicht das Handy. Bei Desktop-Installationen die
+tatsächlich gestartete Instanz unter **Einstellungen → Dokumente & Medien**
+im Abschnitt **Lokales Vorlesen und OCR** mit **Lokale Einrichtung prüfen**
+testen, wenn ihr `PATH` von der Shell abweicht.
 
 Aktuelle Originalanleitungen: [ClamAV](https://docs.clamav.net/manual/Installing.html),
 [ImageMagick](https://imagemagick.org/script/download.php),
