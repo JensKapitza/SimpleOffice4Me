@@ -4,8 +4,9 @@
 
 SimpleOffice kann einen ausdrücklich ausgewählten Google-Kalender inkrementell
 in einen lokalen, beschreibbaren Kalender übernehmen. Der Abgleich ist
-standardmäßig deaktiviert und wird ausschließlich über **Nur prüfen** oder
-**Jetzt abgleichen** auf der Kalenderseite gestartet. SimpleOffice schreibt
+standardmäßig manuell (**Nur prüfen** / **Jetzt abgleichen**). Auf derselben
+Kalenderseite kann der betroffene Benutzer den automatischen Import
+ausdrücklich für das eingerichtete Konto und Ziel aktivieren. SimpleOffice schreibt
 niemals zu Google zurück und überträgt keine lokalen Termine, Freigaben oder
 Kontakte an Google.
 
@@ -84,6 +85,39 @@ Audit-Nutzdaten oder HTML ausgegeben.
 5. **Sync-Zustand zurücksetzen** löscht nur Token und letzten Status. Bereits
    importierte Termine bleiben bestehen; der nächste Lauf ist ein Vollabgleich.
 
+## Automatischer Betrieb
+
+Unter **Google Kalender sicher abgleichen** zeigt **Automatischer Import von
+Google** den Zustand, den letzten automatischen Versuch und den nächsten
+geplanten Versuch. **Automatischen Import aktivieren** gilt nur für das eigene
+SimpleOffice-Konto und die aktuelle OAuth-/Kalenderkonfiguration. Es wird nichts
+an Google gesendet außer der OAuth-Token-Anfrage und dem lesenden Abruf.
+Ein laufender Server prüft fällige Konten alle 30 Sekunden; nach Erfolg oder
+manuellem Abgleich folgt der nächste Versuch frühestens 15 Minuten später.
+Maximal vier fällige Konten je Durchgang werden verarbeitet. Bei Fehlern wird
+nach 15, 30, 60 Minuten usw. (höchstens sechs Stunden) erneut versucht.
+Neustarts behalten den Termin; ein harter Abbruch verzögert den nächsten
+Versuch um maximal fünf Minuten ab Beginn des abgebrochenen Versuchs.
+
+Bei Konflikten hält der Hintergrunddienst für dieses Konto an, bis die
+Konflikte über die bestehenden Aktionen behandelt wurden. Ohne Schreibrecht,
+bei gesperrtem Konto oder bei anderer Konto-ID wird kein Import durchgeführt.
+Eine Änderung von OAuth-Zugangsdaten, Quell- oder Zielkalender erfordert neue
+Zustimmung und einen Vollabruf ohne den vorherigen Cursor. Der Import
+aktualisiert nur Ereignisse derselben Quelle und desselben Ziels. Beim Wechsel
+des Ziels bleiben die alten Termine bestehen; wenn die neue Quelle dieselben
+Termine enthält, werden sie im neuen Ziel importiert. Bei der nicht eindeutigen
+Google-ID `primary` kann ein ausgetauschter Refresh-Token eine andere
+Identität darstellen; die alte Kopie bleibt deshalb unangetastet. Eine explizite
+Google-Kalender-ID bewahrt die Ereigniszuordnung bei reiner Token-Rotation.
+
+Der normale SimpleOffice-Start (Waitress, auch im Docker-Container) und der
+eingebettete Desktop-Start verwalten den Worker mit der Serverlaufzeit. Für
+eigene WSGI-Deployments mit gleicher Daten-/Instanzkonfiguration den separaten
+Prozess `flask --app app google-calendar-worker` betreiben. Mit `--once` lässt
+sich ein einzelner begrenzter Durchgang ausführen. Es gibt keinen Scheduler in
+einer HTTP-Anfrage und keinen externen Cron-Zwang bei den Standardstartwegen.
+
 ## Rechte, Freigaben und Audit
 
 Vor Vorschau, Übernahme und Konfliktentscheidung wird das Schreibrecht am
@@ -124,8 +158,10 @@ einer verständlichen Meldung. Ein fehlgeschlagener Lauf speichert keinen neuen
 Google-Sync-Token. Dadurch wird ein Teilabruf nicht fälschlich als vollständig
 markiert.
 
-Die Synchronisation ist pro Benutzer durch eine Prozess- und Dateisperre
-serialisiert. Google-ETag, letzter Google-Zeitpunkt, lokaler Änderungszeitpunkt
+Manuelle Vorschau, Übernahme, Konfliktauflösung und Hintergrundarbeit
+teilen eine exklusive Dateisperre pro Konto. Bei einer bereits laufenden
+Synchronisation kann der manuelle Versuch später wiederholt werden. Nur ein
+Worker je Dokumentablage verarbeitet fällige Konten gleichzeitig. Google-ETag, letzter Google-Zeitpunkt, lokaler Änderungszeitpunkt
 und letzter erfolgreicher Sync-Zeitpunkt bestimmen Konflikte. Ohne explizite
 Entscheidung gibt es kein Last-write-wins. Beim Beibehalten der lokalen Version
 wird nur die geprüfte Remote-Version bestätigt; es erfolgt kein Upload zu
@@ -133,16 +169,22 @@ Google.
 
 ## Migration, Rückwärtskompatibilität und Deaktivierung
 
-Es gibt keine Datenmigration. Ohne Umgebungsvariable bleiben Anwendung und
-Kalenderverhalten unverändert. Die additive Statusdatei liegt unter
-`.simpleoffice/google-calendar-sync.json`; sie enthält nur Sync-Token und
-Ergebniszähler. Ein Software-Rollback lässt importierte Termine als normale
+Es gibt keine Datenmigration. Vorhandene Konten laufen nicht automatisch
+los. Beim nächsten Abruf ohne passenden Konfigurationsfingerabdruck erfolgt ein
+Vollabgleich. Die additive Statusdatei liegt unter
+`.simpleoffice-meta/google-calendar-sync.json`; sie enthält den Google-Cursor,
+Status-/Zeitwerte und nicht umkehrbare Konfigurationsabgleiche, keine
+OAuth-Geheimnisse. Bei der Aktualisierung zuerst die alte Serverinstanz beenden,
+damit kein Prozess mit der früheren Sperrlogik weiterläuft. Ein Software-Rollback lässt importierte Termine als normale
 lokale Termine bestehen. Vor einem Rollback kann der Zielkalender als ICS
 exportiert werden.
 
-Zum Deaktivieren die Umgebungsvariable entfernen und den Dienst neu starten.
-Optional vorher **Sync-Zustand zurücksetzen** wählen. Das entfernt weder lokale
-Termine noch Google-Daten oder Aufbewahrungsinformationen.
+**Automatischen Import deaktivieren** hält nur den Hintergrundimport an;
+manueller Abgleich und Cursor bleiben möglich. **Sync-Zustand zurücksetzen**
+entfernt den Cursor, aber keine Termine und keine Hintergrundzustimmung; die
+nächste manuelle oder automatische Ausführung liest vollständig. Zum völligen
+Trennen den Kontoblock aus der geschützten Marketplace-Konfiguration entfernen.
+Es werden weder lokale Termine noch Google-Daten gelöscht.
 
 ## Tests und bekannte Grenzen
 
@@ -153,7 +195,7 @@ Schreibrechte, Konflikte, beide Konfliktentscheidungen, Tokenfortschritt,
 Geheimnisschutz, Statusfehler und Audit ab.
 
 Bewusst nicht implementiert sind Schreibzugriffe auf Google, Push-Webhooks,
-automatische Hintergrundläufe, mehrere Google-Quellkalender pro Benutzer,
+mehrere Google-Quellkalender pro Benutzer,
 Dateianhänge sowie das Zusammenführen einzelner geänderter Felder. Google-
 Serienausnahmen werden als eigenständige Quellereignisse übernommen; die
 vollständige Rückabbildung in `RECURRENCE-ID`-Overrides bleibt eine bekannte
