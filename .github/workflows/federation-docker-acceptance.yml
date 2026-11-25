@@ -1,0 +1,83 @@
+name: Federation Docker acceptance
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: &acceptance_paths
+      - '.github/workflows/federation-docker-acceptance.yml'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'deploy/docker/entrypoint.sh'
+      - 'pyproject.toml'
+      - 'app/__init__.py'
+      - 'app/*federation*.py'
+      - 'app/lan_proxy*.py'
+      - 'app/auth.py'
+      - 'app/access_control.py'
+      - 'app/admin_server_settings.py'
+      - 'app/documents_routes*.py'
+      - 'app/document_store*.py'
+      - 'app/v2/**'
+      - 'templates/admin/**'
+      - 'templates/documents/**'
+      - 'tools/launcher.py'
+      - 'tools/*federation*.py'
+      - 'tests/test_federation_docker_smoke.py'
+  pull_request:
+    paths: *acceptance_paths
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  TEST_IMAGE: simpleoffice4me:federation-deployment
+
+jobs:
+  integration:
+    name: Two normal peers over HTTPS
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Initialize redacted evidence
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/federation-deployment"
+          printf 'workflow_sha=%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/federation-deployment/run.txt"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - name: Prepare evidence and HTML form client
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/federation-deployment" "$RUNNER_TEMP/federation-html-deps"
+          python -m pip install --target "$RUNNER_TEMP/federation-html-deps" 'beautifulsoup4==4.15.0'
+      - name: Build the normal app image (no publishing)
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker info --format '{{.ServerVersion}}'
+          docker build --progress=plain --tag "$TEST_IMAGE" . \
+            |& tee "$RUNNER_TEMP/federation-deployment/build.log"
+      - name: Verify paired Docker peers, both directions, restart and recovery
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m tools.smoke_federation_docker \
+            --image "$TEST_IMAGE" \
+            --html-deps "$RUNNER_TEMP/federation-html-deps" \
+            --artifacts "$RUNNER_TEMP/federation-deployment"
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: federation-deployment-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/federation-deployment/
+          if-no-files-found: warn
+          retention-days: 14

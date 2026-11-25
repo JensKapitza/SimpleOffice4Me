@@ -103,13 +103,13 @@ class Browser:
         self.client = build_opener(ProxyHandler({}), HTTPSHandler(context=context),
                                    HTTPCookieProcessor(CookieJar()), SameOriginRedirect(origin))
 
-    def request(self, path, *, fields=None, data=None, headers=None):
+    def request(self, path, *, fields=None, data=None, headers=None, timeout=30):
         target = urlsplit(path)
         require(path.startswith("/") and not path.startswith("//") and not target.netloc and not target.scheme,
                 "The synthetic client only uses same-origin paths")
         if fields is not None:
             data = urlencode(fields).encode()
-        with self.client.open(Request(self.origin + path, data=data, headers=headers or {}), timeout=30) as response:
+        with self.client.open(Request(self.origin + path, data=data, headers=headers or {}), timeout=timeout) as response:
             return response.read()
 
     def page(self, path, **kwargs):
@@ -120,9 +120,9 @@ class Browser:
     def csrf(self, path):
         return self.page(path).select_one('meta[name="csrf-token"]')["content"]
 
-    def submit(self, form, values):
+    def submit(self, form, values, **kwargs):
         fields = {field["name"]: field.get("value", "") for field in form.select("input[name]")}
-        return self.page(form["action"], fields={**fields, **values})
+        return self.page(form["action"], fields={**fields, **values}, **kwargs)
 
     def login(self, user, password):
         self.page("/auth/login", fields={"username": user, "password": password,

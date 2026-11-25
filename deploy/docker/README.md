@@ -180,3 +180,60 @@ That reset permanently deletes the two test volumes. Do not use it if the data
 needs to be retained. This network validates isolated multi-instance startup
 and discovery; it does not by itself prove trusted pairing, data exchange, or
 LAN broadcast discovery.
+
+### Deployment acceptance: two app containers, real TLS and directional recovery
+
+This is **additional** to the seeded HTTP/relay testnet above. It starts the
+regular image and launcher twice on a new internal Linux Docker bridge.
+Both peers have their own named app volumes and independent persistent
+identity. Both trust the disposable TLS CA for the test, each certificate
+has the literal endpoint IP SAN, and the ordinary LAN HTTPS proxy forwards
+to each app's loopback-only web service. There are no published ports,
+mounted Docker sockets, seeded peer trust or changes to normal federation
+policy.
+
+Prerequisites: real Linux Docker Engine, OpenSSL and a supported local Python.
+From the repository root:
+
+```sh
+scratch="$(mktemp -d)"
+python -m pip install --target "$scratch/html" 'beautifulsoup4==4.15.0'
+docker build --tag simpleoffice4me:federation-deployment .
+python -m tools.smoke_federation_docker \
+  --image simpleoffice4me:federation-deployment \
+  --html-deps "$scratch/html" \
+  --artifacts "$scratch/evidence"
+```
+
+The form parser is fixture-only and not installed in the application image.
+The runner registers the first admin normally on each host, exchanges and
+confirms both QR pairings using ordinary admin forms, sets matching document
+grants, then uploads two independent synthetic files (4 MiB plus 97 bytes
+each, above the 4 MiB maximum block size) and pulls one in each direction
+through the catalog and queue. The synchronous queue form alone gets a
+bounded 100-second fixture client wait for cold manifest generation.
+Production timeouts are unchanged. It verifies the
+visible local document link, SHA-256, every byte and the block/download
+record. After restarting both containers, identities, job links and bytes
+must still match.
+
+For the asymmetric check, both HTTPS endpoints initially work. Both peers
+queue fresh downloads, then A's inbound LAN listener alone is stopped with
+its ordinary local admin control. A can still pull from B; B's fixed
+destination at A is unavailable and its same queued item must report the
+visible retry delay. After starting A's listener and waiting until the
+actual displayed time, B's one explicit retry must complete. Same-container
+HTTP is only used for A's local admin while its public TLS listener is
+stopped; cross-peer transfers always use verified TLS. No retry timer is
+bypassed. This does not simulate a route firewall, external Wi-Fi/NAT,
+arbitrary devices, interrupted partial blocks or production workloads.
+
+The runner removes only the fixture containers, its volumes and internal
+network. It retains a timestamped stage timeline, bounded redacted per-peer
+event logs, scoped queue/attempt/status counters, and verified result
+metadata. Neither raw request logs, authorization, cookies, key files,
+peer databases nor document bytes are exported. In CI, the evidence
+directory is uploaded even on failure; a missing Docker capability is a
+failed acceptance run, not a simulated pass. Read the first failed stage
+and the corresponding peer status before deciding whether the issue is
+Docker startup, HTTPS, pairing/permissions or queue behavior.
