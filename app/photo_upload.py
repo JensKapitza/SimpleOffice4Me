@@ -387,6 +387,25 @@ class PhotoImportResult:
     duplicate: bool = False
 
 
+def _photo_ocr_status(document: dict[str, Any]) -> str:
+    """Report the stored outcome for these bytes without rerunning recognition."""
+    analysis = document.get("image_analysis")
+    digest = document.get("sha256")
+    if not isinstance(analysis, dict) or not digest or analysis.get("source_sha256") != digest:
+        return "unknown"
+    status = analysis.get("ocr_status")
+    if status == "completed":
+        text = document.get("ocr_text")
+        if not isinstance(text, str):
+            return "unknown"
+        return "recognized" if text.strip() else "empty"
+    if status == "deferred_bulk_upload":
+        return "deferred"
+    if status == "unavailable":
+        return "unavailable"
+    return "unknown"
+
+
 class PhotoBulkImporter:
     """Import one queue item without triggering a complete archive rescan."""
 
@@ -723,6 +742,7 @@ def upload_photo():
     return jsonify({
         "ok": True, "document_id": imported.document["document_id"],
         "duplicate": imported.duplicate,
+        "ocr_status": _photo_ocr_status(imported.document),
         "path": imported.document.get("last_path", ""),
         "tags": imported.document.get("tags", []),
         "received_at": imported.document.get("attributes", {}).get("photo_upload", {}).get("received_at", ""),
