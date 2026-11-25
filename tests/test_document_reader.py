@@ -262,6 +262,47 @@ class ReaderRoutesTests(unittest.TestCase):
         self.assertEqual(200, metadata.status_code)
         self.assertIn("Manueller Titel", metadata.get_data(as_text=True))
 
+    def test_personal_book_and_shelf_html_are_private_and_not_stored(self):
+        from bs4 import BeautifulSoup
+        from reportlab.pdfgen.canvas import Canvas
+
+        data = io.BytesIO()
+        pdf = Canvas(data)
+        for word in ("First", "Second"):
+            pdf.drawString(50, 650, word)
+            pdf.showPage()
+        pdf.save()
+        data.seek(0)
+        pdf_book = DocumentStore(self.documents).import_upload(data, "Private-state.pdf", "admin")
+        chosen = ((self.document, {"chapter": "c1", "chapter_index": 0, "offset": 0}),
+                  (pdf_book, {"page": 2}))
+        for document, locator in chosen:
+            book_id = document["document_id"]
+            version = reader_version(document)
+            self.assertEqual(200, self.client.post(
+                f"/documents/reader/api/{book_id}/progress",
+                json={"locator": locator, "percent": 67, "document_version": version},
+                headers=self.headers,
+            ).status_code)
+            self.assertEqual(201, self.client.post(
+                f"/documents/reader/api/{book_id}/annotations",
+                json={"locator": locator, "text": "synthetic-personal-note", "document_version": version},
+                headers=self.headers,
+            ).status_code)
+            with self.subTest(book=book_id):
+                page = self.client.get(f"/documents/reader/{book_id}")
+                self.addCleanup(page.close)
+                self.assertEqual(200, page.status_code)
+                body = BeautifulSoup(page.data, "html.parser")
+                self.assertEqual("67", body.select_one("#reader-root")["data-saved-percent"])
+                self.assertIn("synthetic-personal-note", body.get_text())
+                self.assertEqual("private, no-store", page.headers.get("Cache-Control"))
+        shelf = self.client.get("/documents/reader", query_string={"status": "reading"})
+        self.addCleanup(shelf.close)
+        self.assertEqual(200, shelf.status_code)
+        self.assertIn(b"Private-state", shelf.data)
+        self.assertEqual("private, no-store", shelf.headers.get("Cache-Control"))
+
     def test_reader_uses_epub3_nav_and_epub2_ncx_labels_for_real_chapters(self):
         store = DocumentStore(self.documents)
         for toc_format, labels in (

@@ -22,6 +22,14 @@ FORMATS = {".pdf": "pdf", ".epub": "epub"}
 MAX_BOOKS = 250
 
 
+@bp.after_request
+def _keep_reader_html_private(response):
+    """Exclude personalized book and shelf HTML from HTTP caches."""
+    if request.endpoint in {"reader.shelf", "reader.open_book"} and response.mimetype == "text/html":
+        response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
 class ReaderDocumentRejected(ValueError):
     """A document cannot be safely displayed by the built-in reader."""
 
