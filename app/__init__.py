@@ -772,11 +772,12 @@ def safe_calendar_html(value):
     return sanitize_calendar_html(str(value or ""))
 
 
-# Only routes that render a live camera scanner receive camera permission.
+# Only routes that render a live camera feature receive camera permission.
 # File-photo inputs and manual entry do not require a camera grant.
 CAMERA_SCANNER_ENDPOINTS = frozenset({
     "inventory.index",
     "library.index",
+    "kids_learning.hand_game",
     "federation_peer_admin.dashboard",
     "shopping.index",
     "site_visits.detail",
@@ -819,6 +820,11 @@ def add_header(response):
         response.headers["Content-Security-Policy"] = "sandbox"
     else:
         policy = "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; object-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'"
+        if request.endpoint == "kids_learning.hand_game":
+            # Local, pinned WASM only; no eval, cross-origin inference or iframe camera.
+            policy = policy.replace("script-src 'self' 'unsafe-inline'", "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'")
+            policy = policy.replace("frame-ancestors 'self'", "frame-ancestors 'none'")
+            policy += "; media-src 'self' blob:"
         # Private read-aloud uses only same-origin audio responses and transient object URLs.
         if request.endpoint in {"reader.open_book", "reader.open_text", "mail_reader.index", "contact_audit.eml_preview"}:
             policy += "; media-src 'self' blob:"

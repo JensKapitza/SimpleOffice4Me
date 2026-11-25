@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import math
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
-from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, Response, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
 
 from .access_control import is_admin
 from .auth import login_required
@@ -22,16 +22,26 @@ from .datalogger_collectors import (
     MAX_SENSOR_SECRET_CHARS,
     validate_sensor_allowed_hosts,
 )
+from .datalogger_reporting import EXPORT_ROWS, csv_content, date_window, summarize, summary_pdf
 from .db import get_db
 from .settings_store import SettingsStore
+from .system_management import platform_kind
 
 bp = Blueprint("datalogger", __name__, url_prefix="/datalogger")
 
 LINUX_METRICS = {
-    "load1", "load5", "load15", "memory_used_percent", "disk_used_percent", "temperature_c"
+    "load1", "load5", "load15", "memory_used_percent", "disk_used_percent", "temperature_c",
+    "uptime_seconds", "disk_free_bytes", "disk_total_bytes",
 }
 FILE_METRICS = {"count", "total_bytes", "mtime"}
 PAGE_SIZES = {50, 100, 250}
+SERVER_PRESETS = {
+    'uptime_seconds': ('Laufzeit seit Systemstart', 's', 'Linux /proc/uptime. Container können die Laufzeit des Hosts anzeigen.'),
+    'disk_free_bytes': ('Freier Speicher für Dokumente', 'B', 'Freie Kapazität im Dateisystem der Dokumentwurzel.'),
+    'disk_total_bytes': ('Gesamtspeicher für Dokumente', 'B', 'Gesamtkapazität im Dateisystem der Dokumentwurzel.'),
+    'memory_used_percent': ('Arbeitsspeicher belegt', '%', 'Linux /proc/meminfo. Der Wert kann den Host statt eines Containerlimits beschreiben.'),
+    'load1': ('Systemlast der letzten Minute', '', 'Linux-Lastmittelwert. Das ist keine CPU-Prozentzahl.'),
+}
 
 
 def _store(): return DataLoggerStore(current_app.config["DOCUMENT_ROOT"])
@@ -81,8 +91,24 @@ def index():
     return render_template(
         "datalogger/index.html", channels=channels, series=series,
         can_manage_settings=is_admin(),
+        server_presets=SERVER_PRESETS if is_admin() and platform_kind() == 'linux' else {},
         stale_hints=suggest_stale_channels(series),
     )
+
+
+@bp.post('/server-presets/<metric>')
+@login_required
+def server_preset(metric):
+    if not is_admin():
+        abort(403)
+    if metric not in SERVER_PRESETS or platform_kind() != 'linux':
+        abort(404)
+    name, unit, description = SERVER_PRESETS[metric]
+    config = {'metric': metric}
+    if metric in {'disk_free_bytes', 'disk_total_bytes'}:
+        config['path'] = str(current_app.config['DOCUMENT_ROOT'])
+    channel_id = _store().provision_server_preset(g.user['username'], metric, name, unit, description, config)
+    return redirect(url_for('datalogger.channel', channel_id=channel_id))
 
 
 @bp.get("/settings")
@@ -169,6 +195,7 @@ def create_channel():
 @login_required
 def channel(channel_id):
     channel = _read_channel(channel_id); store = _store()
+    start_day, end_day, window = _report_period()
     try:
         page = max(1, int(request.args.get("page", 1)))
     except (TypeError, ValueError):
@@ -179,17 +206,86 @@ def channel(channel_id):
         per_page = 100
     if per_page not in PAGE_SIZES:
         per_page = 100
-    total = store.sample_count(channel_id)
+    total = store.sample_count(channel_id, utc_window=window)
     pages = max(1, math.ceil(total / per_page))
     page = min(page, pages)
-    samples = [dict(row) for row in store.samples(channel_id, per_page, offset=(page - 1) * per_page)]
-    chart_samples = [dict(row) for row in store.samples(channel_id, 200)]
+    samples = [dict(row) for row in store.samples(channel_id, per_page, offset=(page - 1) * per_page, utc_window=window)]
+    chart_samples = [dict(row) for row in store.samples(channel_id, 200, utc_window=window)]
+    latest = next(iter(store.samples(channel_id, 1)), None)
+    errors = _report_errors(store, channel_id, window, limit=20)
+    for error in errors:
+        day = date.fromisoformat(error['measured_at'][:10])
+        error['before'] = (day - timedelta(days=1)).isoformat()
+        error['after'] = (day + timedelta(days=1)).isoformat()
     return render_template(
         "datalogger/channel.html", channel=channel, samples=samples, chart_samples=chart_samples,
         sources=store.sources(channel_id), can_edit=store.can_edit(channel, g.user["username"], is_admin()), users=_users(),
         page=page, pages=pages, per_page=per_page, total_samples=total,
         linux_metrics=sorted(LINUX_METRICS), file_metrics=sorted(FILE_METRICS),
+        start_day=start_day, end_day=end_day, latest=latest, errors=errors,
     )
+
+
+def _report_period():
+    today = datetime.now(timezone.utc).date()
+    start = request.args.get('start_day', (today - timedelta(days=6)).isoformat())
+    end = request.args.get('end_day', today.isoformat())
+    try:
+        if not start or not end:
+            raise ValueError('Bitte Anfang und Ende des Zeitraums angeben.')
+        return start, end, date_window(start, end)
+    except ValueError as exc:
+        abort(400, str(exc))
+
+
+def _report_errors(store, channel_id, window, *, limit=EXPORT_ROWS):
+    sources = {source['source_id']: source for source in store.sources(channel_id)}
+    errors = []
+    for entry in store.collection_errors(channel_id, window, limit=limit):
+        source = sources.get(entry['source_id'])
+        errors.append(dict(measured_at=entry['occurred_at'], source_name=source['name'] if source else 'Ehemalige Quelle',
+                           source_kind=source['kind'] if source else '', value=None, quality='error', error_code=entry['code']))
+    return errors
+
+
+@bp.get('/channels/<channel_id>/report.<kind>')
+@login_required
+def report(channel_id, kind):
+    channel = _read_channel(channel_id)
+    if kind not in {'csv', 'txt', 'pdf'}:
+        abort(404)
+    start, end, window = _report_period()
+    store = _store()
+    if store.sample_count(channel_id, utc_window=window) > EXPORT_ROWS:
+        abort(400, 'Zu viele Messwerte. Für einen vollständigen Export den Zeitraum verkürzen.')
+    rows = store.samples(channel_id, EXPORT_ROWS, utc_window=window)
+    errors = _report_errors(store, channel_id, window)
+    if len(rows) + len(errors) > EXPORT_ROWS or len(errors) == EXPORT_ROWS:
+        abort(400, 'Zu viele Messwerte oder Ereignisse. Bitte den Zeitraum verkürzen.')
+    if kind == 'csv':
+        payload, content_type = csv_content(channel, rows + errors), 'text/csv; charset=utf-8'
+    else:
+        summary = summarize(rows)
+        lines = [f"Datenlogger · {channel['name']}", f'Zeitraum: {start} bis {end} (UTC)',
+                 f"Einheit: {channel['unit'] or 'nicht angegeben'}",
+                 f"Messwerte: {summary['rows']}; gültig: {summary['valid']}; anderer Status: {summary['not_ok']}"]
+        if summary['valid']:
+            lines.append(f"Minimum: {summary['min']:.6g}; Maximum: {summary['max']:.6g}; Mittelwert: {summary['mean']:.6g}")
+        else:
+            lines.append('Keine gültigen Messwerte im gewählten Zeitraum.')
+        lines.append(f'Protokollierte Erfassungsfehler: {len(errors)}')
+        lines.extend(f"{entry['measured_at']} · {entry['source_name']} · {entry['error_code']}" for entry in errors[:20])
+        if len(errors) > 20:
+            lines.append('Weitere protokollierte Fehler stehen im CSV-Export.')
+        lines.append('Nicht aufgezeichnete Messungen sind keine Nullwerte. Eine vollständige Abdeckung wird hier nicht vorausgesetzt.')
+        if kind == 'pdf':
+            payload, content_type = summary_pdf(lines), 'application/pdf'
+        else:
+            payload, content_type = '\n'.join(lines) + '\n', 'text/plain; charset=utf-8'
+    response = Response(payload, content_type=content_type)
+    response.headers['Content-Disposition'] = f'attachment; filename="messbericht.{kind}"'
+    response.headers['Cache-Control'] = 'private, no-store'
+    return response
 
 
 @bp.post("/channels/<channel_id>")
@@ -239,6 +335,19 @@ def toggle_source(source_id):
 @login_required
 def data(channel_id):
     channel = _read_channel(channel_id)
-    rows = _store().samples(channel_id, request.args.get("limit", 5000), request.args.get("start"), request.args.get("end"))
-    response = jsonify({"channel": {"id": channel_id, "name": channel["name"], "unit": channel["unit"]}, "samples": [dict(row) for row in rows]})
+    extra = {}
+    if 'start_day' in request.args or 'end_day' in request.args:
+        _, _, window = _report_period()
+        store = _store()
+        if store.sample_count(channel_id, utc_window=window) > EXPORT_ROWS:
+            abort(400, 'Zu viele Messwerte. Für einen vollständigen Export den Zeitraum verkürzen.')
+        rows = store.samples(channel_id, EXPORT_ROWS, utc_window=window)
+        errors = _report_errors(store, channel_id, window)
+        if len(rows) + len(errors) > EXPORT_ROWS or len(errors) == EXPORT_ROWS:
+            abort(400, 'Zu viele Messwerte oder Ereignisse. Bitte den Zeitraum verkürzen.')
+        rows = [{key: value for key, value in row.items() if key != 'metadata'} for row in rows]
+        extra = {'collection_errors': errors, 'period_utc': dict(start=window[0], end_exclusive=window[1])}
+    else:
+        rows = _store().samples(channel_id, request.args.get("limit", 5000), request.args.get("start"), request.args.get("end"))
+    response = jsonify({"channel": {"id": channel_id, "name": channel["name"], "unit": channel["unit"]}, "samples": [dict(row) for row in rows], **extra})
     response.headers["Cache-Control"] = "private, no-store"; return response

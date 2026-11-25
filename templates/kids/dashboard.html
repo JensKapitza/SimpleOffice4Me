@@ -39,6 +39,11 @@
       <strong>{{ 'Quick play break' if g.language == 'en' else 'Kurze Spielpause' }}</strong>
       <small>{{ 'Animal pairs, counting and picture puzzles' if g.language == 'en' else 'Tierpaare, Zählen und Bilderrätsel' }}</small>
     </a>
+    <a class="kids-symbol-card" href="{{ url_for('kids_learning.hand_game') }}">
+      <span aria-hidden="true">✋💎</span>
+      <strong>{{ 'Finger magic' if g.language == 'en' else 'Fingerzauber' }}</strong>
+      <small>{{ 'Practice hand shapes or take turns in a webcam duel' if g.language == 'en' else 'Handformen üben oder am PC ein Fingerduell spielen' }}</small>
+    </a>
     <a class="kids-symbol-card" href="{{ url_for('kids_learning.index') }}">
       <span aria-hidden="true">🎲</span>
       <strong>{{ 'Learning games' if g.language == 'en' else 'Lernspiele' }}</strong>

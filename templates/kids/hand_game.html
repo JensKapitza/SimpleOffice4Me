@@ -1,0 +1,67 @@
+{% extends "layout.html" %}
+{% set en = g.language == 'en' %}
+{% block header %}{% include "kids/_header.html" %}{% endblock %}
+{% block title %}{{ 'Finger magic' if en else 'Fingerzauber' }} · SimpleOffice{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/kids_hand_game.css', v=app_build.version) }}">{% endblock %}
+{% block body %}
+<main id="main-content" class="kids-hand container py-3 py-lg-4" data-hand-game
+      data-language="{{ 'en' if en else 'de' }}" data-ready="{{ 'yes' if hand_game_ready else 'no' }}"
+      data-runtime="{{ url_for('kids_learning.hand_game_asset', name='vision_bundle.mjs') }}">
+  <header class="kids-hand-intro mb-3">
+    <p class="kids-hand-tag">{{ 'PC webcam game' if en else 'Spiel für die PC-Webcam' }}</p>
+    <h1>{{ 'Finger magic' if en else 'Fingerzauber' }} <span aria-hidden="true">✋💎</span></h1>
+    <p>{{ 'Make a shape with one hand and collect lights! These are invented magic signs, not sign language.' if en else 'Forme mit einer Hand das Zeichen und sammle Lichter! Das sind erfundene Zauberzeichen, keine Gebärdensprache.' }}</p>
+  </header>
+  <p class="kids-hand-privacy">🔒 {{ 'The camera stays off until you tap. No recording, no microphone. The browser checks your hand on this device.' if en else 'Die Kamera bleibt bis zum Klick aus. Keine Aufnahme, kein Mikrofon. Der Browser erkennt deine Hand auf diesem Gerät.' }}</p>
+  {% if not hand_game_ready %}
+  <p class="alert alert-warning" role="status">{{ 'The verified local hand model is not set up yet. A grown-up can follow docs/KIDS_HAND_GAME.md. You can still look at the signs below.' if en else 'Das geprüfte lokale Handmodell ist noch nicht eingerichtet. Erwachsene finden die Einrichtung in docs/KIDS_HAND_GAME.md. Die Zeichen kannst du dir unten schon ansehen.' }}</p>
+  {% endif %}
+  <div class="kids-hand-camera-actions">
+    <button class="btn btn-primary btn-lg" data-hand-camera type="button" disabled>📷 {{ 'Turn camera on' if en else 'Kamera einschalten' }}</button>
+    <button class="btn btn-outline-danger btn-lg" data-hand-stop type="button" hidden>■ {{ 'Turn camera off' if en else 'Kamera ausschalten' }}</button>
+    <label class="kids-mirror" data-hand-mirror-wrap hidden><input type="checkbox" data-hand-mirror checked> {{ 'Mirror preview' if en else 'Vorschau spiegeln' }}</label>
+  </div>
+  <noscript><p class="alert alert-warning">{{ 'This local game needs JavaScript to start the camera.' if en else 'Dieses lokale Spiel braucht JavaScript, um die Kamera zu starten.' }}</p></noscript>
+  <p role="status" aria-live="polite" data-hand-camera-status></p>
+  <section class="kids-hand-play" aria-label="{{ 'Playing area' if en else 'Spielfeld' }}">
+    <div class="kids-hand-frame" data-hand-preview hidden>
+      <video data-hand-video muted playsinline aria-label="{{ 'Local camera preview' if en else 'Lokale Kameravorschau' }}"></video>
+      <canvas data-hand-overlay aria-hidden="true"></canvas>
+      <p class="kids-hand-badge" data-hand-signal></p>
+    </div>
+    <div class="kids-hand-target" data-hand-target>
+      <p class="mb-1" data-hand-phase>{{ 'No-pressure practice' if en else 'Üben ohne Zeitdruck' }}</p>
+      <span class="kids-hand-icon" data-hand-icon aria-hidden="true">💎</span>
+      <span class="kids-hand-pose" data-hand-pose aria-hidden="true">✌️</span>
+      <h2 class="h3 my-1" data-hand-title>{{ 'Crystal' if en else 'Kristall' }}</h2>
+      <p data-hand-description>{{ 'Stretch your index and middle fingers. Curl the others.' if en else 'Zeige Zeige- und Mittelfinger. Die anderen Finger einklappen.' }}</p>
+      <button type="button" class="btn btn-outline-primary" data-hand-next>{{ 'Choose next practice sign' if en else 'Nächstes Übungszeichen' }}</button>
+      <div class="kids-hand-round" data-hand-round hidden>
+        <p class="mb-1" data-hand-clock aria-live="off"></p>
+        <ol class="kids-hand-steps" data-hand-steps aria-label="{{ 'Sign order' if en else 'Reihenfolge der Zeichen' }}"></ol>
+      </div>
+      <p class="kids-hand-feedback mb-0" data-hand-feedback role="status" aria-live="polite"></p>
+    </div>
+  </section>
+  <section class="kids-hand-duel mt-3" aria-labelledby="kids-hand-duel-heading">
+    <h2 class="h4" id="kids-hand-duel-heading">{{ 'Two-player duel' if en else 'Fingerduell zu zweit' }}</h2>
+    <p>{{ 'One at a time, same signs, 30 seconds each. One hand in view.' if en else 'Nacheinander, dieselben Zeichen, je 30 Sekunden. Immer nur eine Hand im Bild.' }}</p>
+    <div class="kids-hand-camera-actions">
+      <button type="button" class="btn btn-outline-primary btn-lg" data-hand-duel disabled>⭐ {{ 'Set up a duel' if en else 'Duell vorbereiten' }}</button>
+      <button type="button" class="btn btn-primary btn-lg" data-hand-round-start hidden></button>
+      <button type="button" class="btn btn-outline-secondary" data-hand-back-practice hidden>{{ 'Back to practice' if en else 'Zurück zum Üben' }}</button>
+    </div>
+    <div data-hand-results hidden aria-live="polite"><p data-hand-summary class="fw-bold"></p><ol data-hand-score-list></ol></div>
+  </section>
+  <section class="kids-hand-guide mt-3" aria-labelledby="kids-hand-guide-heading">
+    <h2 class="h4" id="kids-hand-guide-heading">{{ 'Your magic signs' if en else 'Deine Zauberzeichen' }}</h2>
+    <div class="kids-hand-guide-list">
+      <div><span aria-hidden="true">💎 ✌️</span><b>{{ 'Crystal' if en else 'Kristall' }}</b><small>{{ 'Two fingers' if en else 'Zwei Finger' }}</small></div>
+      <div><span aria-hidden="true">⭐ ✋</span><b>{{ 'Star' if en else 'Stern' }}</b><small>{{ 'Open hand' if en else 'Offene Hand' }}</small></div>
+      <div><span aria-hidden="true">🛡️ ✊</span><b>{{ 'Shield' if en else 'Schild' }}</b><small>{{ 'Closed hand' if en else 'Geschlossene Hand' }}</small></div>
+      <div><span aria-hidden="true">✨ ☝️</span><b>{{ 'Spark' if en else 'Funke' }}</b><small>{{ 'One finger' if en else 'Ein Finger' }}</small></div>
+    </div>
+  </section>
+</main>
+<script type="module" src="{{ url_for('static', filename='js/kids_hand_game.mjs', v=app_build.version) }}"></script>
+{% endblock %}

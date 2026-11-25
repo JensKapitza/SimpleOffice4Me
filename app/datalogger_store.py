@@ -199,6 +199,21 @@ class DataLoggerStore:
             self._event(db, actor, "source_created", "source", source_id, detail={"channel_id": channel_id, "kind": kind, "interval_seconds": interval})
         return source_id
 
+    def provision_server_preset(self, actor, metric, name, unit, description, config):
+        """Atomically add a private preset or open its existing channel."""
+        identity = uuid.uuid5(uuid.NAMESPACE_URL, f'simpleoffice:datalogger:server:v1:{actor}:{metric}')
+        channel_id, source_id = str(identity), str(uuid.uuid5(identity, 'source'))
+        now = utc_now()
+        with self.connect() as db:
+            created = db.execute("INSERT OR IGNORE INTO metric_channel VALUES(?,?,?,?,?,?,?,?,?,?)",
+                                 (channel_id, name, description, unit, '#0d6efd', actor, '[]', '[]', now, now))
+            if created.rowcount:
+                db.execute("""INSERT INTO metric_source(source_id,channel_id,name,kind,config,interval_seconds,enabled,next_run_at,created_at,updated_at)
+                              VALUES(?,?,?,?,?,60,1,?,?,?)""",
+                           (source_id, channel_id, 'Dieser Server', 'linux', json.dumps(config, sort_keys=True), now, now, now))
+                self._event(db, actor, 'server_preset_created', 'channel', channel_id, detail={'metric': metric})
+        return channel_id
+
     def sources(self, channel_id):
         with self.connect() as db:
             return db.execute("SELECT * FROM metric_source WHERE channel_id=? ORDER BY name", (channel_id,)).fetchall()
@@ -236,8 +251,11 @@ class DataLoggerStore:
             return "channel_id=? AND measured_at<=?", (end,)
         return "channel_id=?", ()
 
-    def sample_count(self, channel_id, start=None, end=None):
-        if start and end:
+    def sample_count(self, channel_id, start=None, end=None, *, utc_window=None):
+        if utc_window:
+            query = "SELECT COUNT(*) FROM metric_sample WHERE channel_id=? AND julianday(measured_at)>=julianday(?) AND julianday(measured_at)<julianday(?)"
+            args = (channel_id, *utc_window)
+        elif start and end:
             query = "SELECT COUNT(*) FROM metric_sample WHERE channel_id=? AND measured_at>=? AND measured_at<=?"
             args = (channel_id, start, end)
         elif start:
@@ -252,7 +270,7 @@ class DataLoggerStore:
         with self.connect() as db:
             return int(db.execute(query, args).fetchone()[0])
 
-    def samples(self, channel_id, limit=1000, start=None, end=None, offset=0):
+    def samples(self, channel_id, limit=1000, start=None, end=None, offset=0, *, utc_window=None):
         limit = max(1, min(int(limit), 10000))
         offset = max(0, int(offset))
         base = """SELECT sample.measured_at,sample.value,sample.quality,sample.source_id,
@@ -261,7 +279,10 @@ class DataLoggerStore:
                   FROM metric_sample AS sample
                   LEFT JOIN metric_source AS source ON source.source_id=sample.source_id
         """
-        if start and end:
+        if utc_window:
+            query = base + " WHERE sample.channel_id=? AND julianday(sample.measured_at)>=julianday(?) AND julianday(sample.measured_at)<julianday(?) ORDER BY julianday(sample.measured_at) DESC, sample.rowid DESC LIMIT ? OFFSET ?"
+            args = (channel_id, *utc_window, limit, offset)
+        elif start and end:
             query = base + " WHERE sample.channel_id=? AND sample.measured_at>=? AND sample.measured_at<=? ORDER BY sample.measured_at DESC LIMIT ? OFFSET ?"
             args = (channel_id, start, end, limit, offset)
         elif start:
@@ -299,7 +320,19 @@ class DataLoggerStore:
     def finish_source(self, source_id, status, error_code=""):
         from datetime import timedelta
         with self.connect() as db:
-            row = db.execute("SELECT interval_seconds FROM metric_source WHERE source_id=?", (source_id,)).fetchone()
+            row = db.execute("SELECT channel_id,interval_seconds FROM metric_source WHERE source_id=?", (source_id,)).fetchone()
             if not row: return
             now = datetime.now(timezone.utc).replace(microsecond=0)
             db.execute("UPDATE metric_source SET last_run_at=?,next_run_at=?,last_status=?,last_error_code=?,updated_at=? WHERE source_id=?", (now.isoformat(), (now + timedelta(seconds=row["interval_seconds"])).isoformat(), status, error_code[:80], now.isoformat(), source_id))
+            if status == 'error':
+                self._event(db, 'worker', 'collection_error', 'channel', row['channel_id'],
+                            outcome='error', detail={'source_id': source_id, 'code': error_code[:80]})
+
+    def collection_errors(self, channel_id, utc_window, *, limit=50):
+        with self.connect() as db:
+            rows = db.execute("""SELECT occurred_at, detail FROM metric_event
+                                WHERE target_type='channel' AND target_id=? AND action='collection_error'
+                                  AND occurred_at>=? AND occurred_at<?
+                                ORDER BY occurred_at DESC, event_id DESC LIMIT ?""",
+                              (channel_id, *utc_window, min(max(limit, 1), 10000))).fetchall()
+        return [{'occurred_at': row['occurred_at'], **json.loads(row['detail'])} for row in rows]
