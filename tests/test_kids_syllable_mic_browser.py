@@ -22,9 +22,16 @@ from tests.test_kids_syllable_mic import GAME
 SYNTHETIC_INPUT = r"""(() => {
   if (!navigator.mediaDevices) return;
   const state = window.micFixture = {requests: [], played: [], streams: [], deny: false, deferred: false};
+  // Signal actual fixture events through DOM selectors: the real page CSP
+  // disallows the nested eval used by Playwright's wait_for_function.
+  const mark = (event) => document.documentElement.setAttribute('data-mic-fixture-' + event, '');
+  const clear = (event) => document.documentElement.removeAttribute('data-mic-fixture-' + event);
   const rawPlay = HTMLMediaElement.prototype.play;
   HTMLMediaElement.prototype.play = function (...args) {
-    if (state.current) state.played.push(state.current.track.readyState);
+    if (state.current) {
+      state.played.push(state.current.track.readyState);
+      mark('played');
+    }
     return rawPlay.apply(this, args);
   };
   navigator.mediaDevices.getUserMedia = async (constraints) => {
@@ -38,7 +45,17 @@ SYNTHETIC_INPUT = r"""(() => {
     state.current = {context, destination, track};
     state.streams.push(track);
     await context.resume();
-    if (state.deferred) await new Promise(r => {state.release = r;});
+    if (state.deferred) await new Promise(resolve => {
+      state.release = () => {
+        const check = () => {
+          if (track.readyState === 'ended') mark('late-track-ended');
+          else requestAnimationFrame(check);
+        };
+        requestAnimationFrame(check);
+        resolve();
+      };
+      mark('grant-pending');
+    });
     return destination.stream;
   };
   state.feed = (sounds, ms) => {
@@ -65,8 +82,8 @@ SYNTHETIC_INPUT = r"""(() => {
       pcm[i] = v;
     }
     const source = context.createBufferSource();
-    state.signalFinished = false;
-    source.addEventListener('ended', () => { state.signalFinished = true; }, {once: true});
+    clear('signal-finished');
+    source.addEventListener('ended', () => mark('signal-finished'), {once: true});
     source.buffer = buffer;
     source.connect(destination);
     source.start(context.currentTime + .05);
@@ -102,9 +119,14 @@ class SyllableMicrophoneBrowserTests(PublicHttpTestCase):
         page.route("**/*", lambda r: r.continue_() if r.request.url.startswith(self.origin + "/")
                    else (outside.append(r.request.url), r.abort()))
         page.goto(self.origin + "/kids/", wait_until="domcontentloaded")
-        page.locator(f'main a[href="{GAME}"]').click()
+        with page.expect_response(self.origin + GAME) as game_response:
+            page.locator(f'main a[href="{GAME}"]').click()
         expect(page).to_have_url(self.origin + GAME)
-        page.wait_for_function("window.KidsSyllables && window.KidsSyllableMic")
+        policy = game_response.value.headers.get("content-security-policy", "")
+        self.assertIn("script-src ", policy)
+        self.assertNotIn("'unsafe-eval'", policy)
+        page.wait_for_load_state("domcontentloaded")
+        self.assertTrue(page.evaluate("() => !!(window.KidsSyllables && window.KidsSyllableMic && window.micFixture)"))
         # Reorder shipped dictionary rows only for a deterministic three-syllable
         # task. Use the public level click and original prompts/answer UI.
         page.evaluate("""() => {
@@ -136,7 +158,7 @@ class SyllableMicrophoneBrowserTests(PublicHttpTestCase):
                 page.locator(".kids-syll-example").click()
                 expect(status).to_contain_text("Nach dem Ton")
                 self.assertEqual(page.evaluate("micFixture.current.track.readyState"), "ended")
-                page.wait_for_function("micFixture.played.length > 0")
+                expect(page.locator("html[data-mic-fixture-played]")).to_be_attached()
                 self.assertTrue(page.evaluate("micFixture.played.every(state => state === 'ended')"))
                 self.assertEqual(page.evaluate("micFixture.requests.length"), 1)
                 expect(count).to_have_text("3")
@@ -169,7 +191,7 @@ class SyllableMicrophoneBrowserTests(PublicHttpTestCase):
                 clap.click()
                 expect(status).to_contain_text("Jetzt bist du dran")
                 page.evaluate("micFixture.feed([[220,50,'clap'],[305,45,'clap'],[710,510,'noise']], 1500)")
-                page.wait_for_function("micFixture.signalFinished")
+                expect(page.locator("html[data-mic-fixture-signal-finished]")).to_be_attached()
                 expect(count).to_have_text("1")
                 page.evaluate("micFixture.feed([[220,52,'clap'],[660,52,'clap']], 1100)")
                 expect(count).to_have_text("3")
@@ -177,10 +199,12 @@ class SyllableMicrophoneBrowserTests(PublicHttpTestCase):
                 self.assertEqual(page.evaluate("micFixture.current.track.readyState"), "ended")
                 page.evaluate("micFixture.deferred = true")
                 voice.click()
-                page.wait_for_function("typeof micFixture.release === 'function'")
+                expect(page.locator("html[data-mic-fixture-grant-pending]")).to_be_attached()
+                self.assertEqual(page.evaluate("micFixture.current.track.readyState"), "live")
                 page.locator("[data-syll-back]").click()
                 page.evaluate("micFixture.release()")
-                page.wait_for_function("micFixture.current.track.readyState === 'ended'")
+                expect(page.locator("html[data-mic-fixture-late-track-ended]")).to_be_attached()
+                self.assertEqual(page.evaluate("micFixture.current.track.readyState"), "ended")
                 expect(page.locator("[data-syll-mic]")).to_be_hidden()
                 expect(page.locator('[data-syll-level="rhyme"]')).to_be_visible()
                 self.assertEqual(outside, [])
