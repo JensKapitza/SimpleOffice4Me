@@ -23,7 +23,7 @@ from .mail_case_attachments import MailCaseAttachmentStore
 from .mail_attachment_download import latest_scan_for_sha256, scan_attachment_for_download
 from .mail_client import MAX_MESSAGE_BYTES, MailStore, SmtpDeliveryStateUnknown, SmtpSubmission, _mail_ui_features
 from .mail_reader import MAX_PREVIEW_TEXT, MailReader
-from .mail_read_aloud import archive_mail_text, live_mail_text, requested_mail_version
+from .mail_read_aloud import archive_mail_text, live_mail_text, requested_mail_selection, requested_mail_version
 from .mail_signatures import get_signature_or_default
 from .mail_webclient import ImapWebClient, MailAccountPolicy, MailReadOnlyError, contact_recipients
 from .private_read_aloud import ReadAloudError, private_audio_response, read_aloud_error
@@ -323,7 +323,7 @@ def index():
                 )
             if archive_id:
                 try:
-                    archive_preview = load_local_eml_by_id(store, _actor(), selected["id"], archive_id)
+                    archive_preview = load_local_eml_by_id(store, _actor(), selected["id"], archive_id, speech_sections=True)
                     _add_attachment_scan_state(archive_preview)
                     _audit_archive_view(store, selected["id"], archive_preview)
                     reference = _mail_reference(archive_preview["sha512"])
@@ -437,11 +437,11 @@ def archive_read_aloud(archive_id: str):
     if not has_feature(g.user, "mail"):
         return read_aloud_error("source_unavailable", 404)
     try:
-        version = requested_mail_version(128)
+        part, version = requested_mail_selection(128, parts=request.args.get("parts") == "1")
     except ReadAloudError as exc:
         return read_aloud_error(exc.code, exc.status)
     return private_audio_response(
-        lambda: archive_mail_text(_store(), _actor(), request.args.get("account", ""), archive_id, version),
+        lambda: archive_mail_text(_store(), _actor(), request.args.get("account", ""), archive_id, version, part=part),
         language=g.language, recheck_source=True,
     )
 

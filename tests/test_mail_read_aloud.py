@@ -374,3 +374,121 @@ class MailReadAloudTests(unittest.TestCase):
         })
         self.assertEqual(413, self._post(self.alice, player).status_code)
         self.assertEqual([], self.spoken)
+
+    def test_numbered_local_parts_stay_in_one_egress_free_preview(self):
+        from app.mail_reader_routes import _audit_archive_view
+
+        for target in ("eml", "owned archive"):
+            with self.subTest(target=target):
+                self.spoken.clear()
+                body = (
+                    "First authorized paragraph. "
+                    + " ".join(f"Serial section marker {idx:03d}." for idx in range(205))
+                    + " Final authorized paragraph."
+                )
+                message = EmailMessage()
+                message["Subject"] = "Long synthetic message"
+                if target == "eml":
+                    message.set_content("<p>" + body + "</p><script>NOT BODY SCRIPT</script>", subtype="html")
+                else:
+                    message.set_content(body)
+                message.add_attachment("NOT BODY ATTACHMENT", filename="attached.txt")
+                message.add_attachment("NOT BODY INLINE", filename="inline.txt", disposition="inline")
+                if target == "eml":
+                    item = DocumentStore(self.root).import_upload(io.BytesIO(message.as_bytes()), "fixture.eml", "alice")
+                    preview_url = f"/documents/{item['document_id']}/eml-preview"
+                    args = {"view": "html"}
+                else:
+                    item = self.mail.archive_outbound("alice", self.account, message.as_bytes(), "sent", {})
+                    preview_url = "/documents/mail/reader"
+                    args = {"account": self.account, "mode": "archive", "mail": item["sha512"]}
+
+                app.config["TEST_CSRF_PROTECTION"] = True
+                with patch("app.mail_reader_routes._audit_archive_view", wraps=_audit_archive_view) as audit, \
+                     patch("app.mail_webclient.ImapWebClient._connect") as imap:
+                    preview = self.alice.get(preview_url, query_string=args)
+                    self.assertEqual(200, preview.status_code)
+                    dom = BeautifulSoup(preview.data, "html.parser")
+                    picker = dom.select_one("select[data-mail-speech-section]")
+                    self.assertIsNotNone(picker)
+                    self.assertTrue(picker.has_attr("disabled"), "Selector is activated only by its local script.")
+                    values = [int(option["value"]) for option in picker.select("option")]
+                    self.assertGreater(len(values), 4)
+                    self.assertEqual(list(range(1, len(values) + 1)), values)
+                    self.assertTrue(picker.select_one("option").has_attr("selected"))
+                    self.assertFalse(self.spoken)
+                    self.assertEqual(1 if target == "owned archive" else 0, audit.call_count)
+                    token = dom.select_one('meta[name="csrf-token"]')["content"]
+                    control = dom.select_one("[data-reader-read-aloud]")
+                    self.assertIsNone(control.find_parent("iframe"))
+                    route = control["data-speech-url"]
+                    version = control.find_parent(attrs={"data-document-reader": True})["data-document-version"]
+                    self.assertIn("parts=1", route)
+                    self.assertNotIn("paragraph", route)
+
+                    def post(page, hash_value=version, *, csrf=True, extra=None):
+                        return self.alice.post(
+                            route, json={"page": page, "document_version": hash_value, **(extra or {})},
+                            headers={"X-CSRF-Token": token} if csrf else {},
+                        )
+
+                    self.assertEqual(403, post(2, csrf=False).status_code)
+                    self.assertEqual(400, post(2, extra={"text": "not accepted"}).status_code)
+                    self.assertEqual(409, post(2, "f" * len(version)).status_code)
+                    bob_page = BeautifulSoup(self.bob.get("/documents/").data, "html.parser")
+                    bob_csrf = bob_page.select_one('meta[name="csrf-token"]')["content"]
+                    if target == "eml":
+                        DocumentStore(self.root).update_metadata(item["document_id"], author="alice", attributes={
+                            "chat_attachment": {"visibility": "chat", "allowed_local_users": ["alice"]},
+                        })
+                    self.assertEqual(404, self.bob.post(
+                        route, headers={"X-CSRF-Token": bob_csrf},
+                        json={"page": 2, "document_version": version},
+                    ).status_code)
+                    self.assertEqual(404, post(values[-1] + 1).status_code)
+                    self.assertEqual(413, post(1).status_code, "Entire message retains the normal limit")
+                    self.assertFalse(self.spoken)
+                    # No preview navigation when selecting: use one existing page's capability.
+                    for value in values[1:]:
+                        self._assert_wav(post(value))
+                    self.assertEqual(1 if target == "owned archive" else 0, audit.call_count)
+                    imap.assert_not_called()
+                self.assertEqual(body, " ".join(self.spoken))
+                self.assertTrue(self.spoken[0].startswith("First authorized paragraph."))
+                self.assertTrue(self.spoken[-1].endswith("Final authorized paragraph."))
+                self.assertNotIn("NOT BODY", " ".join(self.spoken))
+                self.assertTrue(all(0 < len(part) <= 1000 for part in self.spoken))
+                self.assertFalse(list(self.root.rglob("*.wav")))
+                self.assertFalse(list(self.root.rglob("*.txt")))
+                app.config["TEST_CSRF_PROTECTION"] = False
+
+    def test_numbered_sections_also_available_below_whole_message_text_limit(self):
+        body = "Ordinary text suitable for shorter sections. " * 40
+        message = EmailMessage()
+        message.set_content(body)
+        item = DocumentStore(self.root).import_upload(io.BytesIO(message.as_bytes()), "ordinary.eml", "alice")
+        player = self._control(self.alice, f"/documents/{item['document_id']}/eml-preview")
+        self.assertIn("parts=1", player[0])
+        self._assert_wav(self._post(self.alice, player))
+        self.assertEqual([" ".join(body.split())], self.spoken)
+
+    def test_section_limit_does_not_silently_drop_final_text(self):
+        from app.mail_read_aloud import MAX_MAIL_SECTIONS_CHARS, _mail_body_text, _mail_sections, _parsed_mail
+        from app.private_read_aloud import ReadAloudError
+
+        for subtype in ("plain", "html"):
+            with self.subTest(subtype=subtype):
+                limit = MAX_MAIL_SECTIONS_CHARS
+                literal = "x" * (limit - len("Ende"))
+                exact = literal + "Ende"
+                message = EmailMessage()
+                message.set_content(exact if subtype == "plain" else f"<p>{exact}</p>", subtype=subtype)
+                parsed = _parsed_mail(message.as_bytes())
+                sections = _mail_sections(_mail_body_text(parsed, limit))
+                self.assertEqual(exact, "".join(sections))
+                self.assertTrue(all(0 < len(section) <= 1000 for section in sections))
+                more = exact + " Later" if subtype == "plain" else f"<p>{exact}</p><div>Later</div>"
+                message.set_content(more, subtype=subtype)
+                with self.assertRaises(ReadAloudError) as error:
+                    _mail_body_text(_parsed_mail(message.as_bytes()), limit)
+                self.assertEqual(("too_large", 413), (error.exception.code, error.exception.status))

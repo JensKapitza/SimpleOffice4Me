@@ -19,6 +19,9 @@ from .v2.storage_runtime import storage_for
 
 
 MAX_SPEECH_EML_BYTES = 16 * 1024 * 1024
+MAX_MAIL_SECTIONS_CHARS = 24_000
+MAIL_SECTION_CHARS = 1000
+MAX_MAIL_SECTIONS = 48
 _IGNORED_HTML_TAGS = {"head", "script", "style", "template", "noscript"}
 _BLOCK_HTML_TAGS = {"br", "p", "div", "li", "tr", "th", "td", "hr", "blockquote", "h1", "h2", "h3", "h4", "h5", "h6"}
 
@@ -26,10 +29,12 @@ _BLOCK_HTML_TAGS = {"br", "p", "div", "li", "tr", "th", "td", "hr", "blockquote"
 class _BodyText(HTMLParser):
     """Flatten message HTML without loading resources or including script/style text."""
 
-    def __init__(self) -> None:
+    def __init__(self, maximum: int) -> None:
         super().__init__(convert_charrefs=True)
         self._ignored: list[str] = []
         self._length = 0
+        self.limit = maximum + 2
+        self.clipped = False
         self._parts: list[str] = []
 
     def handle_starttag(self, tag, attrs):
@@ -47,8 +52,11 @@ class _BodyText(HTMLParser):
     def handle_data(self, data):
         # Keep an extra character past a possible trailing separator, so a
         # later meaningful character cannot turn overflow into silent clipping.
-        limit = MAX_SPEECH_CHARS + 2
-        if self._ignored or self._length >= limit:
+        limit = self.limit
+        if self._ignored:
+            return
+        if self._length >= limit:
+            self.clipped = self.clipped or bool(data.strip())
             return
         text = " ".join(data.split())
         if not text and data and self._parts and not self._parts[-1].endswith(" "):
@@ -58,7 +66,9 @@ class _BodyText(HTMLParser):
         if text.strip() and data[-1:].isspace():
             text += " "
         if text:
-            bounded = text[:limit - self._length]
+            bound = limit - self._length
+            bounded = text[:bound]
+            self.clipped = self.clipped or bool(text[bound:].strip())
             self._parts.append(bounded)
             self._length += len(bounded)
 
@@ -84,13 +94,20 @@ def _body_parts(message: EmailMessage):
             yield part
 
 
-def mail_body_for_read_aloud(raw: bytes) -> str:
+def _parsed_mail(raw: bytes) -> EmailMessage:
     if len(raw) > MAX_SPEECH_EML_BYTES:
         raise ReadAloudError("too_large", 413)
     try:
-        message = BytesParser(policy=policy.default).parsebytes(raw)
+        return BytesParser(policy=policy.default).parsebytes(raw)
+    except (LookupError, RecursionError, UnicodeError, ValueError, TypeError, IndexError):
+        raise ReadAloudError("source_unavailable", 404) from None
+
+
+def _mail_body_text(message: EmailMessage, maximum: int) -> str:
+    try:
         plain: list[str] = []
         html: list[str] = []
+        html_clipped = False
         for part in _body_parts(message):
             try:
                 text = part.get_content()
@@ -101,9 +118,10 @@ def mail_body_for_read_aloud(raw: bytes) -> str:
             if part.get_content_type() == "text/plain":
                 plain.append(text.strip())
             else:
-                parser = _BodyText()
+                parser = _BodyText(maximum)
                 parser.feed(text)
                 parser.close()
+                html_clipped = html_clipped or parser.clipped
                 if body := parser.text():
                     html.append(body)
         text = " ".join("\n\n".join(plain or html).split())
@@ -111,16 +129,63 @@ def mail_body_for_read_aloud(raw: bytes) -> str:
         raise ReadAloudError("source_unavailable", 404) from None
     if not text:
         raise ReadAloudError("no_text", 422)
-    if len(text) > MAX_SPEECH_CHARS:
+    if len(text) > maximum or (not plain and html_clipped):
         raise ReadAloudError("too_large", 413)
     return text.encode("utf-8", "replace").decode("utf-8")
 
 
-def requested_mail_version(length: int) -> str:
+def mail_body_for_read_aloud(raw: bytes) -> str:
+    return _mail_body_text(_parsed_mail(raw), MAX_SPEECH_CHARS)
+
+
+def _mail_sections(text: str) -> list[str]:
+    result = []
+    start = 0
+    while start < len(text):
+        end = min(start + MAIL_SECTION_CHARS, len(text))
+        if end < len(text):
+            split = text.rfind(" ", start + MAIL_SECTION_CHARS // 2, end + 1)
+            if split > start:
+                end = min(split + 1, start + MAIL_SECTION_CHARS)
+        result.append(text[start:end])
+        start = end
+    if len(result) > MAX_MAIL_SECTIONS:
+        raise ReadAloudError("too_large", 413)
+    return result
+
+
+def preview_mail_speech_section_count(message: EmailMessage, raw_bytes: int) -> int:
+    """Compute count from a preview's already authorized MIME object, not another GET/read."""
+    if not 0 < raw_bytes <= MAX_SPEECH_EML_BYTES:
+        return 0
+    try:
+        text = _mail_body_text(message, MAX_MAIL_SECTIONS_CHARS)
+        return len(_mail_sections(text)) if len(text) > MAIL_SECTION_CHARS else 0
+    except ReadAloudError:
+        return 0
+
+
+def _mail_speech_text(raw: bytes, part: int | None) -> str:
+    if part is None:
+        return mail_body_for_read_aloud(raw)
+    text = _mail_body_text(_parsed_mail(raw), MAX_MAIL_SECTIONS_CHARS)
+    if len(text) <= MAIL_SECTION_CHARS:
+        raise ReadAloudError("invalid_page", 404)
+    sections = _mail_sections(text)
+    if not 1 <= part <= len(sections):
+        raise ReadAloudError("invalid_page", 404)
+    return sections[part - 1].strip()
+
+
+def requested_mail_selection(length: int, *, parts: bool = False) -> tuple[int | None, str]:
     page, version = read_aloud_request()
-    if page != 1 or not re.fullmatch(rf"[0-9a-f]{{{length}}}", version):
+    if not 1 <= page <= (MAX_MAIL_SECTIONS + 1 if parts else 1) or not re.fullmatch(rf"[0-9a-f]{{{length}}}", version):
         raise ReadAloudError("invalid_request", 400)
-    return version
+    return (page - 1 if parts and page > 1 else None), version
+
+
+def requested_mail_version(length: int) -> str:
+    return requested_mail_selection(length)[1]
 
 
 def live_mail_text(store: MailStore, actor: str, account_id: str, folder: str, uid: str, version: str) -> str:
@@ -139,7 +204,7 @@ def live_mail_text(store: MailStore, actor: str, account_id: str, folder: str, u
     return mail_body_for_read_aloud(raw)
 
 
-def archive_mail_text(store: MailStore, owner: str, account_id: str, archive_id: str, version: str) -> str:
+def _archive_mail_source(store: MailStore, owner: str, account_id: str, archive_id: str, version: str) -> bytes:
     try:
         path = archive_path_by_id(store, owner, account_id, archive_id)
         document = archive_document(store, owner, account_id, path, scan_unregistered=False)
@@ -152,10 +217,16 @@ def archive_mail_text(store: MailStore, owner: str, account_id: str, archive_id:
         raise ReadAloudError("source_unavailable", 404) from None
     if hashlib.sha512(raw).hexdigest() != archive_id.casefold() or archive_id.casefold() != version:
         raise ReadAloudError("document_changed", 409)
-    return mail_body_for_read_aloud(raw)
+    return raw
 
 
-def document_eml_text(root: Path, actor: str, document_id: str, version: str) -> str:
+def archive_mail_text(
+    store: MailStore, owner: str, account_id: str, archive_id: str, version: str, *, part: int | None = None,
+) -> str:
+    return _mail_speech_text(_archive_mail_source(store, owner, account_id, archive_id, version), part)
+
+
+def _document_eml_source(root: Path, actor: str, document_id: str, version: str) -> bytes:
     try:
         document = DocumentStore(root).get_document(document_id)
         path = Path(str(document.get("last_path") or ""))
@@ -170,4 +241,8 @@ def document_eml_text(root: Path, actor: str, document_id: str, version: str) ->
         raise ReadAloudError("source_unavailable", 404) from None
     if hashlib.sha256(raw).hexdigest() != version:
         raise ReadAloudError("document_changed", 409)
-    return mail_body_for_read_aloud(raw)
+    return raw
+
+
+def document_eml_text(root: Path, actor: str, document_id: str, version: str, *, part: int | None = None) -> str:
+    return _mail_speech_text(_document_eml_source(root, actor, document_id, version), part)
