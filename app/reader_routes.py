@@ -94,6 +94,18 @@ def _verified_bytes(document: dict[str, Any], *, maximum: int) -> bytes:
         return spool.read(maximum + 1)
 
 
+def _current_book_index_text(document: dict[str, Any]) -> str:
+    """Match the saved body only if its extraction belongs to the current bytes."""
+    digest = document.get("sha256")
+    extraction = document.get("text_extraction")
+    if (not isinstance(digest, str) or not digest or not isinstance(extraction, dict)
+            or extraction.get("source_sha256") != digest
+            or extraction.get("status") not in ("completed", "partial")):
+        return ""
+    text = document.get("extracted_text")
+    return text[:2_000_000] if isinstance(text, str) else ""
+
+
 def _catalog(query: str = "") -> list[dict[str, Any]]:
     store = _documents()
     rows: list[dict[str, Any]] = []
@@ -144,7 +156,7 @@ def _catalog(query: str = "") -> list[dict[str, Any]]:
         }
         if query:
             # Match indexed text without returning document content to the template.
-            content = str(document.get("extracted_text") or document.get("ocr_text") or "")[:2_000_000]
+            content = _current_book_index_text(document)
             searchable = " ".join((row["title"], row["author"], row["path"], annotation_text, content))
             if query not in searchable.casefold():
                 continue
