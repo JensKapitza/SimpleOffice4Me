@@ -279,3 +279,118 @@ class MixedIntakeTests(unittest.TestCase):
         state = CaptureInboxStore(self.documents).get(draft["id"], "anna")["intake"]
         self.assertEqual(state["catalog"]["status"], "review")
         self.assertEqual(state["proposal"], {})
+
+
+    def review_sources(self, draft, *, different=False):
+        from tests.test_inventory_catalog import books, google_volume, open_record
+
+        responses, _ = books(open_record(edition_name="First printing", physical_format="Paperback"),
+                             google_volume(publishedDate="1999-01-12" if different else "1988-11-01"))
+        with mock.patch("app.inventory_catalog.lookup_catalog",
+                        side_effect=lambda *a, **kw: lookup_catalog(*a, **kw, book_fetch=responses)):
+            return self.post(f'/{draft["id"]}/catalog', revision=str(draft["revision"]), catalog_consent="1")
+
+    def observe_label(self, draft, text):
+        with mock.patch("app.object_vision._run_tesseract", return_value={"status": "completed", "text": text}):
+            reply = self.post(f'/{draft["id"]}/ocr', revision=str(draft["revision"]))
+        self.assertEqual(200, reply.status_code, reply.data)
+        return reply.json["draft"]
+
+    def test_same_edition_complementary_pick_keeps_actual_source_ids_until_explicit_save(self):
+        from tests.test_inventory_catalog import ISBN
+
+        draft = self.photo(barcode=ISBN, title="A Book: Ä Edition", kind="book")
+        draft = self.observe_label(draft, "A possible different title line")  # Unlabelled is only a hint.
+        review = self.review_sources(draft)
+        self.assertEqual(200, review.status_code, review.data)
+        reviewed = review.json["draft"]
+        self.assertEqual("confirmed", reviewed["catalog"]["status"])
+        self.assertEqual({"manual", "ocr", "external_catalog"}, {r["kind"] for r in reviewed["evidence"]})
+        self.assertTrue(any(row.get("unlabelled") for row in reviewed["evidence"]))
+        base = f'/{reviewed["id"]}'
+        refs = {}
+        for field, provider in (("edition", "openlibrary"), ("published_date", "google_books")):
+            refs[field] = next(row["source_id"] for row in reviewed["evidence"]
+                               if row["field"] == field and row.get("provider") == provider)
+        with mock.patch("app.inventory_intake_routes.local_proposal",
+                        side_effect=lambda state, _: proposal_from_ids(state, refs)):
+            proposal = self.post(base + "/proposal", revision=str(reviewed["revision"]))
+        self.assertEqual(200, proposal.status_code, proposal.data)
+        current = proposal.json["draft"]
+        self.assertEqual({"manual", "ocr", "external_catalog", "local_ai"}, {r["kind"] for r in current["evidence"]})
+        rows = current["proposal"]["fields"]
+        self.assertEqual({r["field"]: r["supports"] for r in rows}, {k: [v] for k, v in refs.items()})
+        self.assertEqual({}, current["selected"])
+        self.assertEqual("A Book: Ä Edition", current["manual"]["title"])
+        self.assertEqual([], ObjectStore(self.documents).objects())
+        for row in rows:
+            r = self.post(base + "/choose", revision=str(current["revision"]), source_id=row["source_id"])
+            self.assertEqual(200, r.status_code, r.data)
+            current = r.json["draft"]
+        self.assertEqual([], ObjectStore(self.documents).objects())
+        stale = self.post(base + "/confirm", revision=str(reviewed["revision"]))
+        self.assertEqual(409, stale.status_code)
+        saved = self.post(base + "/confirm", revision=str(current["revision"]), publisher="", edition="", published_date="")
+        self.assertEqual(200, saved.status_code, saved.data)
+        self.assertEqual("First printing", saved.json["draft"]["confirmed"]["fields"]["edition"])
+        self.assertEqual("1988-11-01", saved.json["draft"]["confirmed"]["fields"]["published_date"])
+        self.assertEqual(1, len(ObjectStore(self.documents).objects()))
+
+    def test_labelled_ocr_conflict_controls_review_in_both_orders(self):
+        from tests.test_inventory_catalog import ISBN
+
+        for order in ("ocr-first", "catalog-first"):
+            with self.subTest(order=order):
+                draft = self.photo(barcode=ISBN, kind="book")
+                if order == "ocr-first":
+                    draft = self.observe_label(draft, "Verlag: Other Imprint")
+                review = self.review_sources(draft)
+                self.assertEqual(200, review.status_code, review.data)
+                current = review.json["draft"]
+                if order == "catalog-first":
+                    self.assertEqual("confirmed", current["catalog"]["status"])
+                    current = self.observe_label(current, "Verlag: Other Imprint")
+                self.assertEqual("question", current["state"])
+                self.assertEqual("labelled_ocr_differs", current["catalog"]["reason"])
+                self.assertIsNone(current["catalog"]["recommended"])
+                self.assertEqual(2, len(current["catalog"]["candidates"]))
+                self.assertEqual("Other Imprint", current["ocr"]["fields"][0]["value"])
+                self.assertIn("widerspricht dem Katalog", self.get_page().get_text(" ", strip=True))
+                external = next(row for row in current["evidence"] if row["kind"] == "external_catalog")
+                with mock.patch("app.inventory_intake_routes.local_proposal",
+                                side_effect=lambda state, _: proposal_from_ids(state, {external["field"]: external["source_id"]})):
+                    blocked = self.post(f'/{current["id"]}/proposal', revision=str(current["revision"]))
+                self.assertEqual(422, blocked.status_code)
+        self.assertEqual([], ObjectStore(self.documents).objects())
+
+    def test_conflicting_editions_not_proposed_and_late_conflict_does_not_save_mixed_selection(self):
+        from tests.test_inventory_catalog import ISBN
+
+        draft = self.photo(barcode=ISBN, kind="book", title="A Book: Ä Edition")
+        wrong = self.review_sources(draft, different=True).json["draft"]
+        self.assertEqual("conflicting_edition", wrong["catalog"]["reason"])
+        wrong_ref = next(r for r in wrong["evidence"] if r["kind"] == "external_catalog" and r["field"] == "published_date")
+        with mock.patch("app.inventory_intake_routes.local_proposal", side_effect=lambda state, _:
+                        proposal_from_ids(state, {"published_date": wrong_ref["source_id"]})):
+            self.assertEqual(422, self.post(f'/{wrong["id"]}/proposal', revision=str(wrong["revision"])).status_code)
+        current = self.review_sources(wrong).json["draft"]
+        route = f'/{current["id"]}'
+        for field, provider in (("edition", "openlibrary"), ("published_date", "google_books")):
+            row = next(r for r in current["evidence"] if r["field"] == field and r.get("provider") == provider)
+            chosen = self.post(route + "/choose", revision=str(current["revision"]), source_id=row["source_id"])
+            self.assertEqual(200, chosen.status_code, chosen.data)
+            current = chosen.json["draft"]
+        current = self.observe_label(current, "Jahr: 1997")
+        self.assertEqual({"edition", "published_date"}, set(current["selected"]))
+        self.assertFalse(current["compatible_selection"])
+        refused = self.post(route + "/confirm", revision=str(current["revision"]))
+        self.assertEqual(409, refused.status_code, refused.data)
+        self.assertEqual([], ObjectStore(self.documents).objects())
+        clear = self.post(route + "/choose", revision=str(current["revision"]), clear_field="published_date")
+        self.assertEqual(200, clear.status_code, clear.data)
+        self.assertTrue(clear.json["draft"]["compatible_selection"])
+        edit = self.post(route + "/edit", revision=str(clear.json["draft"]["revision"]), published_date="1997")
+        self.assertEqual(200, edit.status_code, edit.data)
+        self.assertTrue(edit.json["draft"]["catalog"]["stale"])
+        self.assertEqual("1997", edit.json["draft"]["manual"]["published_date"])
+        self.assertEqual([], ObjectStore(self.documents).objects())

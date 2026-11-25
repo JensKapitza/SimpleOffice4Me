@@ -107,15 +107,29 @@
             <button type="submit" class="btn btn-outline-secondary" {% if not draft.manual.get('barcode') %}disabled{% endif %}>Katalog abgleichen</button>
             {% if not draft.manual.get('barcode') %}<div class="form-text">Zuerst den Barcode im Entwurf speichern.</div>{% endif %}
           </form>
+          {% if draft.selected %}
+          <form method="post" action="{{ url_for('inventory.choose_intake', entry_id=uid) }}" class="mt-3">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="revision" value="{{ draft.revision }}">
+            {% if not draft.compatible_selection %}
+              <p>Die ausgewählten Quellen passen nicht mehr zusammen. Entferne eine Auswahl, bevor du bestätigst.</p>
+            {% endif %}
+            {% for field, row in draft.selected.items() %}
+              <button type="submit" name="clear_field" value="{{ field }}" class="btn btn-sm btn-outline-secondary">Auswahl „{{ row.value }}“ entfernen</button>
+            {% endfor %}
+          </form>
+          {% endif %}
           {% if draft.catalog %}
           <div class="mt-2 border rounded p-2">
             {% if draft.catalog.stale %}
-              Barcode, Titel oder Art geändert. Bitte für diese Eingaben erneut abgleichen.
+              Angaben zu Bestand, Ausgabe oder Variante geändert. Bitte für diese Eingaben erneut abgleichen.
             {% else %}
               {% set reasons = {
                 'independent_edition_match':'Titel und Ausgabe sind unabhängig abgeglichen. Vorschläge bitte ausdrücklich auswählen.',
                 'observed_title_differs':'Weicht der Titel auf dem Buch von den Katalogen ab? Bitte Titel und Ausgabe prüfen.',
                 'conflicting_edition':'Welche Ausgabe steht auf dem Buch? Die Kataloge unterscheiden sich.',
+                'edition_proof_refresh':'Älterer oder unvollständiger Abgleich. Bitte erneut prüfen, bevor Quellen kombiniert werden.',
+                'labelled_ocr_differs':'Ein beschriftetes Feld auf dem Foto widerspricht dem Katalog. Bitte prüfe beide Quellen.',
                 'edition_unconfirmed':'Welche Ausgabe liegt vor? Bitte Verlag, Jahr und ISBN vergleichen.',
                 'single_source':'Nur eine Quelle gefunden. Titel und genaue Ausgabe bitte prüfen.',
                 'verify_variant':'Welche Variante und Größe stehen auf der Verpackung?',

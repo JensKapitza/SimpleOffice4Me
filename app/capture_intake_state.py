@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .inventory_catalog import edition_field_key, normalize_catalog_code, proven_edition_ids
+
 FIELD_LIMITS = {
     "title": 300, "kind": 16, "barcode": 120, "manufacturer": 240,
     "size": 80, "unit": 30, "variant": 160, "publisher": 300, "published_date": 80,
@@ -42,16 +44,16 @@ def new_draft(sequence: int, manual: dict[str, str]) -> dict[str, Any]:
 def edit_draft(state: dict, changes: dict[str, str]) -> None:
     previous = state["manual"]
     updated = {**previous, **manual_fields(changes)}
-    if updated == previous:
+    changed = {key for key in changes if updated.get(key, "") != previous.get(key, "")}
+    if not changed:
         return
     state["manual"] = updated
-    for key in changes:
-        if updated.get(key, "") != previous.get(key, ""):
-            state["selected"].pop(key, None)
+    for key in changed:
+        state["selected"].pop(key, None)
     state["revision"] += 1
-    # A provider recommendation was scoped to the observed title/identifier.
+    # Recommendations are scoped to a specific identity/edition or variant.
     # Preserve the separate photo evidence but make the next lookup explicit.
-    if any(updated.get(k) != previous.get(k) for k in ("title", "barcode", "kind")):
+    if changed & {"title", "barcode", "kind", "publisher", "published_date", "edition", "variant", "size", "unit"}:
         if state["catalog"]:
             state["catalog"]["stale"] = True
         state["selected"] = {
@@ -64,10 +66,61 @@ def edit_draft(state: dict, changes: dict[str, str]) -> None:
     state["proposal"] = {}
 
 
+
+_EDITION_OBSERVATIONS = {"title", "publisher", "published_date", "edition"}
+
+
+def catalog_view(state: dict) -> dict:
+    """Reconcile current evidence without discarding either source or trusting arrival order."""
+    catalog = state["catalog"]
+    if catalog.get("status") != "confirmed" or catalog.get("stale"):
+        return catalog
+    proven = proven_edition_ids(catalog)
+    try:
+        bound = normalize_catalog_code(state["manual"].get("barcode"))
+        matches = bound.kind == "book" and bound.value == catalog.get("identifier")
+    except ValueError:
+        matches = False
+    if not proven or not matches:
+        return {**catalog, "status": "review", "reason": "edition_proof_refresh", "recommended": None}
+    if state["ocr"].get("status") == "completed":
+        rows = [row for row in catalog["candidates"] if row["candidate_id"] in proven]
+        for observation in state["ocr"].get("fields", []):
+            field = observation.get("field")
+            if field not in _EDITION_OBSERVATIONS or observation.get("unlabelled"):
+                continue
+            observed = edition_field_key(field, observation.get("value"))
+            known = {edition_field_key(field, row.get(field)) for row in rows} - {""}
+            if observed and known and observed not in known:
+                return {**catalog, "status": "review", "reason": "labelled_ocr_differs", "recommended": None}
+    return catalog
+
+
+def _compatible_edition_ids(ids: set[str], proven: frozenset[str]) -> bool:
+    return len(ids) < 2 or ids <= proven
+
+
+def compatible_selection(state: dict) -> bool:
+    proven = proven_edition_ids(catalog_view(state))
+    rows = [row for row in state["selected"].values() if row.get("candidate_id")]
+    if any(row["kind"] == "local_ai" and row["candidate_id"] not in proven for row in rows):
+        return False
+    return _compatible_edition_ids({row["candidate_id"] for row in rows}, proven)
+
+
+def current_proposal(state: dict) -> dict:
+    proposal = state["proposal"]
+    if not proposal:
+        return proposal
+    proven = proven_edition_ids(catalog_view(state))
+    return {**proposal, "fields": [row for row in proposal.get("fields", [])
+                                  if not row.get("candidate_id") or row["candidate_id"] in proven]}
+
 def status(state: dict) -> str:
     if state["confirmed"]:
         return "confirmed"
-    if state["catalog"].get("stale") or state["catalog"].get("status") in {"review", "unavailable", "not_found"}:
+    catalog = catalog_view(state)
+    if catalog.get("stale") or catalog.get("status") in {"review", "unavailable", "not_found"}:
         return "question"
     if state["ocr"].get("status") in {"failed", "unavailable", "empty"}:
         return "question"
@@ -88,20 +141,23 @@ def evidence_rows(state: dict) -> list[dict]:
             if key in SUGGESTIBLE:
                 rows.append({**source, "value": item[key]})
     rows.extend(state["ocr"].get("fields", []))
-    rows.extend(state["proposal"].get("fields", []))
+    rows.extend(current_proposal(state).get("fields", []))
     return rows
 
 
 def selectable_fields(state: dict) -> list[dict]:
     """Do not combine distinct public editions or local AI proposals by field."""
     rows = evidence_rows(state)
-    chosen = {value["candidate_id"] for value in state["selected"].values()
-              if value.get("candidate_id")}
+    selected = state["selected"]
+    proven = proven_edition_ids(catalog_view(state))
     return [
         {**row, "conflict": len({item["value"].casefold() for item in rows
                                 if item["field"] == row["field"]}) > 1,
-         "selectable": not chosen or not row.get("candidate_id")
-                       or row["candidate_id"] in chosen}
+         "selectable": not row.get("candidate_id") or _compatible_edition_ids({
+             row["candidate_id"],
+             *(value["candidate_id"] for field, value in selected.items()
+               if field != row["field"] and value.get("candidate_id")),
+         }, proven)}
         for row in rows
     ]
 

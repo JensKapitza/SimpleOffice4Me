@@ -31,6 +31,7 @@ _cache_lock = Lock()
 _cache: OrderedDict[tuple[str, str, str], tuple[float, list[dict[str, Any]]]] = OrderedDict()
 Fetch = Callable[[str, str], dict[str, Any] | None]
 _CODE = re.compile(r"[0-9Xx -]{8,32}", re.ASCII)
+_EDITION_LIMITS = {"subtitle": 250, "publisher": 250, "published_date": 60, "edition": 120, "format": 60}
 _YEAR = re.compile(r"\b(?:1[0-9]{3}|20[0-9]{2})\b")
 
 
@@ -98,6 +99,10 @@ def _book_candidate(provider: str, code: str, fields: dict) -> dict[str, Any]:
     }
     if not result.get("title"):
         return {}
+    if any(isinstance(raw := fields.get(name), str)
+           and (len(raw) > cap * 4 or len(_line(raw, cap + 1)) > cap)
+           for name, cap in _EDITION_LIMITS.items()):
+        result["edition_fields_truncated"] = True
     return {**result, "identifier": code, "isbn": code, "provider": provider,
             "metadata_source": PROVIDER_NAMES[provider], "exact": True}
 
@@ -106,7 +111,8 @@ def _parse_openlibrary(payload: dict, code: str) -> list[dict]:
     data = payload.get(f"ISBN:{code}")
     if not isinstance(data, dict) or not isinstance(ids := data.get("identifiers"), dict):
         return []
-    isbn_values = [raw for name in ("isbn_10", "isbn_13") for raw in _rows(ids.get(name))]
+    identifier_lists = [ids.get(name) for name in ("isbn_10", "isbn_13")]
+    isbn_values = [raw for values in identifier_lists for raw in _rows(values)]
     # A dictionary key echo alone is not evidence; ISBN fields must agree on one edition.
     if _identifiers(isbn_values, "book") != {code}:
         return []
@@ -116,16 +122,27 @@ def _parse_openlibrary(payload: dict, code: str) -> list[dict]:
         "published_date": data.get("publish_date"), "edition": data.get("edition_name"),
         "format": data.get("physical_format"),
     })
+    publishers = data.get("publishers")
+    if candidate and (
+        any(isinstance(values, list) and len(values) > MAX_RESULTS for values in (*identifier_lists, publishers))
+        or any(isinstance(row, dict) and isinstance(raw := row.get("name"), str)
+               and (len(raw) > 480 or len(_line(raw, 121)) > 120) for row in _rows(publishers))
+    ):
+        candidate["edition_fields_truncated"] = True
     return [candidate] if candidate else []
 
 
 def _parse_google(payload: dict, code: str) -> list[dict]:
     candidates = []
+    clipped = False
     for row in _rows(payload.get("items")):
         data = row.get("volumeInfo") if isinstance(row, dict) else None
         if not isinstance(data, dict):
             continue
-        identifiers = [item.get("identifier") for item in _rows(data.get("industryIdentifiers"))
+        raw_ids = data.get("industryIdentifiers")
+        if isinstance(raw_ids, list) and len(raw_ids) > MAX_RESULTS:
+            clipped = True
+        identifiers = [item.get("identifier") for item in _rows(raw_ids)
                        if isinstance(item, dict) and item.get("type") in {"ISBN_10", "ISBN_13"}]
         if _identifiers(identifiers, "book") != {code}:
             continue
@@ -136,6 +153,9 @@ def _parse_google(payload: dict, code: str) -> list[dict]:
         })
         if candidate:
             candidates.append(candidate)
+    if clipped:
+        for candidate in candidates:
+            candidate["edition_fields_truncated"] = True
     return candidates
 
 
@@ -179,12 +199,13 @@ def _conflicting(left: dict, right: dict) -> bool:
         lvalue, rvalue = _key(left.get(field)), _key(right.get(field))
         if lvalue and rvalue and lvalue != rvalue:
             return True
-    lyear, ryear = (_YEAR.search(row.get("published_date", "")) for row in (left, right))
-    return bool(lyear and ryear and lyear[0] != ryear[0])
+    lyears, ryears = (set(_YEAR.findall(row.get("published_date", ""))) for row in (left, right))
+    return len(lyears) > 1 or len(ryears) > 1 or bool(lyears and ryears and lyears != ryears)
 
 
 def _same_edition(left: dict, right: dict) -> bool:
-    if _conflicting(left, right):
+    if (_conflicting(left, right) or left.get("edition_fields_truncated")
+            or right.get("edition_fields_truncated")):
         return False
     # Unqualified common titles or only ISBN echoes do not corroborate a recommendation.
     lyear, ryear = (_YEAR.search(row.get("published_date", "")) for row in (left, right))
@@ -239,7 +260,8 @@ def _book_rows(provider: str, payload: dict | None, code: str) -> list[dict] | N
         raise ValueError("Ungültige Google-Books-Antwort")
     rows = _parse_google(payload, code)
     total = payload.get("totalItems")
-    if isinstance(total, int) and total > len(_rows(payload.get("items"))):
+    items = payload.get("items", [])
+    if (isinstance(items, list) and len(items) > MAX_RESULTS) or (type(total) is int and total > len(_rows(items))):
         for row in rows:
             row["partial_provider_results"] = True
     return rows
@@ -259,7 +281,7 @@ def _state(identifier: Identifier, candidates: list[dict], providers: dict[str, 
         if len(variants) > 1 or any(row.get("variant_match") == "differs" for row in candidates):
             return "review", "conflicting_variant", None
         return "review", ("verify_variant" if variants else "missing_variant_details"), None
-    if any(row.get("partial_provider_results") for row in candidates):
+    if any(row.get("partial_provider_results") or row.get("edition_fields_truncated") for row in candidates):
         return "review", "provider_results_truncated", None
     if any(_conflicting(left, right) for i, left in enumerate(candidates) for right in candidates[i + 1:]):
         return "review", "conflicting_edition", None
@@ -268,10 +290,63 @@ def _state(identifier: Identifier, candidates: list[dict], providers: dict[str, 
     if pair:
         recommended = dict(pair[0])
         recommended["corroborated_by"] = [row["provider"] for row in pair]
+        recommended["corroborating_candidate_ids"] = [row["candidate_id"] for row in pair]
         return "confirmed", "independent_edition_match", recommended
     reason = "edition_unconfirmed" if len({row["provider"] for row in candidates}) > 1 else "single_source"
     return "review", reason, None
 
+
+
+def proven_edition_ids(catalog: dict) -> frozenset[str]:
+    """Revalidate the exact bounded two-source attestation in persisted drafts."""
+    if catalog.get("kind") != "book" or catalog.get("status") != "confirmed" or catalog.get("stale"):
+        return frozenset()
+    rec = catalog.get("recommended")
+    rows = catalog.get("candidates")
+    providers = catalog.get("providers")
+    if not isinstance(rec, dict) or not isinstance(rows, list) or not isinstance(providers, dict):
+        return frozenset()
+    ids = rec.get("corroborating_candidate_ids")
+    if (not isinstance(ids, list) or len(ids) != 2 or not all(isinstance(i, str) for i in ids)
+            or len(set(ids)) != 2 or rec.get("candidate_id") not in ids or not 2 <= len(rows) <= 2 * MAX_RESULTS):
+        return frozenset()
+    try:
+        identity = normalize_catalog_code(catalog.get("identifier"))
+    except ValueError:
+        return frozenset()
+    if identity.kind != "book":
+        return frozenset()
+    indexed = {}
+    for row in rows:
+        if (not isinstance(row, dict) or row.get("exact") is not True
+                or row.get("isbn") != identity.value or row.get("identifier") != identity.value
+                or row.get("provider") not in BOOK_PROVIDERS
+                or row.get("partial_provider_results") or row.get("edition_fields_truncated")
+                or not isinstance(row.get("title"), str) or not row["title"]
+                or any(field in row and not isinstance(row[field], str) for field in _EDITION_LIMITS)):
+            return frozenset()
+        tagged = _with_evidence(row)
+        key = tagged["candidate_id"]
+        if key != row.get("candidate_id") or tagged["field_evidence"] != row.get("field_evidence") or key in indexed:
+            return frozenset()
+        indexed[key] = row
+    if any(i not in indexed for i in ids):
+        return frozenset()
+    left, right = (indexed[i] for i in ids)
+    pair_providers = [left["provider"], right["provider"]]
+    if (len(set(pair_providers)) != 2 or rec.get("corroborated_by") != pair_providers
+            or any(providers.get(provider) != "matched" for provider in pair_providers)
+            or not _same_edition(left, right)
+            or any(_conflicting(a, b) for i, a in enumerate(rows) for b in rows[i + 1:])):
+        return frozenset()
+    return frozenset(ids)
+
+
+def edition_field_key(field: str, value: Any) -> str:
+    if field == "published_date" and isinstance(value, str):
+        years = set(_YEAR.findall(value))
+        return next(iter(years)) if len(years) == 1 else ""
+    return _key(value)
 
 def _variant_match(row: dict, observed: dict[str, str]) -> str:
     actual = {key: _key(row.get(key)) for key in ("variant", "size", "unit")}

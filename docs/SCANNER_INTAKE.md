@@ -26,7 +26,7 @@ keinen externen Internetdienst.
   Rohdokumente oder Geheimnisse. Das Modell darf nur vorhandene Belege
   auswählen, nichts erfinden oder nicht abgeglichene Buchausgaben verbinden.
 
-Widersprechende Werte bleiben sichtbar. Bei Bedarf eine Quelle wählen oder
+Nur zwei konkret gegengeprüfte Katalogtreffer derselben Ausgabe können sich feldweise ergänzen. Ältere oder unvollständige Abgleiche müssen dafür erneut geprüft werden. Ein beschrifteter OCR-Widerspruch setzt die Katalogkarte auf Rückfrage, auch wenn der Katalog zuerst geladen wurde. Beide Quellen bleiben sichtbar; unbeschriftete OCR-Zeilen bleiben Hinweise. Bei Bedarf eine Quelle wählen oder
 manuell entscheiden. Erst **Bestätigen und lokal speichern** legt das
 Inventarobjekt an, ohne es für die Föderation freizugeben. Die Erfassung als
 Inventargegenstand und der gesonderte PDF-Buchscan mit ausdrücklicher
@@ -67,10 +67,12 @@ Mit Python 3.13 und `pip install -e '.[test]'`:
 python -m unittest -q tests.test_inventory_mixed_intake tests.test_inventory_catalog
 node --test tests/inventory_intake_js.test.cjs
 python -m tools.smoke_book_scans --loopback --evidence scanner-acceptance.json
+python -m tools.smoke_scanner_catalog
 ```
 
-Das letzte Kommando benötigt OpenSSL, Poppler und Tesseract (Englisch).
-Die Testschrift ist in Pillow integriert; ein Systemfont ist nicht nötig. Es startet drei isolierte reale HTTPS-Testinstanzen. Alle
-Fotos sind synthetisch; die Katalog- und KI-Tests verwenden Fixtures und
+Die beiden HTTPS-Prüfungen benötigen OpenSSL, Poppler und Tesseract (Englisch).
+Die Testschrift ist in Pillow integriert; ein Systemfont ist nicht nötig. Der PDF-Test startet drei isolierte Instanzen, der Katalogtest eine. Alle Fotos sind synthetisch; die Katalog- und KI-Tests verwenden Fixtures und
 führen keine Live-KI aus. Externe API-Zugangsdaten und ein physisches
 Kameragerät sind nicht Teil der Prüfung.
+
+`python -m tools.smoke_scanner_catalog` prüft dieselben Editionen über Anmeldung, echte HTTPS-Verbindung und echte lokale OCR. Provider- und Modellantworten stammen ausschließlich aus Fixtures. Erwartet: ergänzende Quellen nur für die belegte ISBN-Ausgabe, widersprechende OCR unabhängig von der Reihenfolge, kein Inventareintrag vor ausdrücklicher Bestätigung.

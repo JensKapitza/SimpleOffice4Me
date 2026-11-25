@@ -45,6 +45,7 @@ on:
       - 'tests/test_s3_overlay_coverage.py'
       - 'tools/launcher.py'
       - 'tools/smoke_book_scans.py'
+      - 'tools/smoke_scanner_catalog.py'
       - 'tools/*federation*.py'
   pull_request:
     paths: *scanner_paths
@@ -100,6 +101,8 @@ jobs:
           set -euo pipefail
           python -m tools.smoke_book_scans --loopback --evidence "$RUNNER_TEMP/book-scan-scope/result.json"
           test -s "$RUNNER_TEMP/book-scan-scope/result.json"
+          python -m tools.smoke_scanner_catalog | tee "$RUNNER_TEMP/book-scan-scope/catalog-result.log"
+          test -s "$RUNNER_TEMP/book-scan-scope/catalog-result.log"
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

@@ -14,7 +14,7 @@ from werkzeug.datastructures import FileStorage
 from .auth import login_required
 from .capture_inbox_store import CaptureInboxConflict, CaptureInboxIndexError, CaptureInboxStore
 from .capture_intake_state import (
-    FIELD_LIMITS, IntakeRevisionConflict, edit_draft, intake_storage_supported,
+    FIELD_LIMITS, IntakeRevisionConflict, catalog_view, compatible_selection, current_proposal, edit_draft, intake_storage_supported,
     manual_fields, selectable_fields, select_evidence, status,
 )
 from .file_lock import exclusive_file_lock
@@ -50,8 +50,9 @@ def _public(entry):
     return {
         "id": entry_id, "created_at": entry["created_at"], "state": status(state),
         "revision": state["revision"], "sequence": state["sequence"],
-        "manual": state["manual"], "ocr": state["ocr"], "catalog": state["catalog"],
-        "proposal": state["proposal"], "confirmed": state["confirmed"],
+        "manual": state["manual"], "ocr": state["ocr"], "catalog": catalog_view(state),
+        "compatible_selection": compatible_selection(state),
+        "proposal": current_proposal(state), "confirmed": state["confirmed"],
         "selected": state["selected"], "evidence": selectable_fields(state),
         "preview_url": url_for("inventory.capture_preview", entry_id=entry_id) if has_photo else None,
     }
@@ -207,6 +208,8 @@ def _save_confirmed(entry, state, fields):
     from .inventory import isbn_from_barcode
 
     edit_draft(state, fields)
+    if not compatible_selection(state):
+        raise IntakeRevisionConflict("Quellen widersprechen sich. Bitte zuerst die betroffenen Auswahlen entfernen.")
     manual = {**state["manual"], **{key: row["value"] for key, row in state["selected"].items()}}
     if not manual.get("title") or manual.get("kind") not in {"book", "object"}:
         raise ValueError("Titel und Art sind erforderlich.")
@@ -308,6 +311,15 @@ def catalog_intake(entry_id):
 @login_required
 def choose_intake(entry_id):
     try:
+        clear = request.form.get("clear_field", "")
+        if clear:
+            def remove(state):
+                if clear not in FIELD_LIMITS or clear not in state["selected"]:
+                    raise ValueError("Keine Auswahl für dieses Feld.")
+                del state["selected"][clear]
+                state["revision"] += 1
+
+            return _result(_update(entry_id, _revision(), remove))
         source = request.form.get("source_id", "")
         if not source or len(source) > 180:
             raise ValueError("Quellenkennung ist ungültig.")

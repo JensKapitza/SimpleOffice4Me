@@ -11,7 +11,8 @@ import time
 import urllib.request
 from urllib.parse import urlsplit
 
-from .capture_intake_state import FIELD_LIMITS, evidence_rows
+from .capture_intake_state import FIELD_LIMITS, catalog_view, evidence_rows
+from .inventory_catalog import proven_edition_ids
 
 _LABELS = {
     "titel": "title", "title": "title", "marke": "manufacturer", "brand": "manufacturer",
@@ -45,11 +46,19 @@ def ocr_fields(text: str) -> list[dict]:
     return results
 
 
+def proposal_evidence(state: dict) -> list[dict]:
+    """Exactly the bounded references supplied to the local model."""
+    proven = proven_edition_ids(catalog_view(state))
+    return [row for row in evidence_rows({**state, "proposal": {}})
+            if row["kind"] != "external_catalog" or row.get("candidate_id") in proven][:48]
+
+
 def proposal_from_ids(state: dict, picks: object) -> list[dict]:
     """Validate AI references against the current exact evidence, not model text."""
     if not isinstance(picks, dict) or len(picks) > 8:
         raise ValueError("Ungültige Quellenantwort.")
-    rows = {row["source_id"]: row for row in evidence_rows({**state, "proposal": {}})}
+    rows = {row["source_id"]: row for row in proposal_evidence(state)}
+    catalog = catalog_view(state)
     chosen = {}
     for field, key in picks.items():
         if not isinstance(key, str) or key not in rows or rows[key]["field"] != field:
@@ -59,18 +68,14 @@ def proposal_from_ids(state: dict, picks: object) -> list[dict]:
             # OCR text order alone does not identify the cover title.
             known = {row["value"].casefold() for row in rows.values()
                      if row["field"] == field and row["kind"] == "manual"}
-            recommendation = state["catalog"].get("recommended") or {}
-            if state["catalog"].get("status") == "confirmed" and not state["catalog"].get("stale"):
+            recommendation = catalog.get("recommended") or {}
+            if catalog.get("status") == "confirmed" and not catalog.get("stale"):
                 if recommendation.get(field):
                     known.add(recommendation[field].casefold())
             if target["value"].casefold() not in known:
                 raise ValueError("Unbelegte OCR-Titelzeile.")
         chosen[field] = target
     external = [row for row in chosen.values() if row["kind"] == "external_catalog"]
-    recommendation = state["catalog"].get("recommended") or {}
-    if external and (state["catalog"].get("status") != "confirmed"
-                     or {r["candidate_id"] for r in external} != {recommendation.get("candidate_id")}):
-        raise ValueError("Die Ausgaben oder Varianten sind nicht unabhängig abgeglichen.")
     edition_rows = [row for field, row in chosen.items() if field in _BOOK_EDITION_FIELDS]
     if len(edition_rows) > 1 and len({row["kind"] for row in edition_rows}) > 1:
         raise ValueError("Ausgabenfelder aus uneinheitlichen Belegen.")
@@ -141,13 +146,12 @@ def local_proposal(state: dict, config) -> list[dict] | None:
     from .contextflow.vision import local_urlopen, ollama_chat_body, parse_chat_stream
 
     target = local_target(config)
-    evidence = evidence_rows({**state, "proposal": {}})
+    evidence = proposal_evidence(state)
     if not target or not evidence:
         return None
     url, model = target
     if not _attests_local_ollama(url, model, local_urlopen):
         return None
-    evidence = evidence[:48]
     prompt = [
         {"field": row["field"], "value": row["value"], "reference": row["source_id"], "source": row["label"]}
         for row in evidence

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import io
 import os
 import unittest
@@ -80,6 +81,12 @@ class CatalogEvidenceTests(unittest.TestCase):
         recommendation = result["recommended"]
         self.assertEqual(set(recommendation["corroborated_by"]), set(catalog.BOOK_PROVIDERS))
         self.assertIn(recommendation["candidate_id"], [x["candidate_id"] for x in result["candidates"]])
+        expected = {x["candidate_id"] for x in result["candidates"]}
+        self.assertEqual(expected, set(recommendation["corroborating_candidate_ids"]))
+        self.assertEqual(expected, catalog.proven_edition_ids(result))
+        legacy = deepcopy(result)
+        legacy["recommended"].pop("corroborating_candidate_ids")
+        self.assertFalse(catalog.proven_edition_ids(legacy))
         first, second = result["candidates"]
         self.assertNotEqual(first["field_evidence"]["isbn"]["source_id"], second["field_evidence"]["isbn"]["source_id"])
         self.assertEqual(first["field_evidence"]["title"]["field"], "title")
@@ -90,6 +97,26 @@ class CatalogEvidenceTests(unittest.TestCase):
             self.assertNotIn("description", row)
             self.assertNotIn("retail_price", row)
         self.assertEqual(result, catalog.lookup_catalog(ISBN, observed_title="A Book: Ä Edition", book_fetch=fetch))
+
+    def test_clipped_or_changed_edition_identity_cannot_attest_a_pair(self):
+        raw_ids = [{"type": "ISBN_13", "identifier": ISBN}] * catalog.MAX_RESULTS
+        raw_ids.append({"type": "ISBN_13", "identifier": OTHER_ISBN})
+        for fetch in (
+            books(open_record(edition_name="S" * 121))[0],
+            books(open_record(), google_volume(industryIdentifiers=raw_ids))[0],
+            books(open_record(), *[google_volume()] * (catalog.MAX_RESULTS + 1), total=1)[0],
+        ):
+            with self.subTest(fetch=fetch):
+                result = catalog.lookup_catalog(ISBN, book_fetch=fetch)
+                self.assertEqual("provider_results_truncated", result["reason"])
+                self.assertFalse(catalog.proven_edition_ids(result))
+        fetch, _ = books()
+        result = catalog.lookup_catalog(ISBN, book_fetch=fetch)
+        for column, value in (("format", "new print"), ("isbn", OTHER_ISBN), ("published_date", [])):
+            with self.subTest(column=column):
+                changed = deepcopy(result)
+                changed["candidates"][0][column] = value
+                self.assertFalse(catalog.proven_edition_ids(changed))
 
     def test_no_echo_no_weak_google_suggestion_or_wrong_edition_borrowing(self):
         fetch, _ = books(open_record(identifiers={}), google_volume(OTHER_ISBN),
@@ -123,6 +150,7 @@ class CatalogEvidenceTests(unittest.TestCase):
             (google_volume(publisher=None), 1, "edition_unconfirmed"),
             (google_volume(), 11, "provider_results_truncated"),
             (google_volume(publishedDate="1999"), 1, "conflicting_edition"),
+            (google_volume(publishedDate="1988 or 1999"), 1, "conflicting_edition"),
         ]
         for row, total, expected in fixtures:
             with self.subTest(expected=expected):
