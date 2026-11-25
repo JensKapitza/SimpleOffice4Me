@@ -35,3 +35,8 @@
   .kids-syll-level-card,.kids-syll-answer,.kids-syll-clap { transition:none; }
   .kids-syll-level-card:hover,.kids-syll-level-card:focus-visible,.kids-syll-answer:hover { transform:none; }
 }
+
+.kids-syll-mic [hidden] { display: none !important; }
+.kids-syll-mic summary { cursor: pointer; padding-block: .45rem; }
+.kids-syll-mic button[aria-pressed="true"] { color: var(--bs-primary-text-emphasis); background: var(--bs-primary-bg-subtle); font-weight: 700; }
+.kids-syll-mic [data-syll-mic-count], .kids-syll-mic [data-syll-mic-target] { font-size: 1.32em; }
