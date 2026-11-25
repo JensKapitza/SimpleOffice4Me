@@ -1,0 +1,80 @@
+{% extends "layout.html" %}
+{% block header %}{% include "kids/_header.html" %}{% endblock %}
+{% block title %}{{ 'Reaction course' if g.language == 'en' else 'Reaktionsparcours' }} · SimpleOffice{% endblock %}
+{% block styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/kids_reaction.css', v=app_build.version) }}">
+{% endblock %}
+{% block body %}
+{% set en = g.language == 'en' %}
+<main id="main-content" class="container py-3 kids-reaction-page" data-kids-reaction data-en="{{ 1 if en else 0 }}" data-usb="{{ 1 if usb_allowed else 0 }}">
+  <h1>{{ 'Reaction course' if en else 'Reaktionsparcours' }}</h1>
+  <p>{{ 'Choose the number that is shown. Start with untimed practice.' if en else 'Drücke die Zahl, die angezeigt wird. Beginne mit der Übung ohne Zeitlimit.' }}</p>
+
+  <section class="card card-body mb-3">
+    <h2 class="h4">{{ 'Set up the round' if en else 'Runde vorbereiten' }}</h2>
+    <div class="d-flex gap-3 flex-wrap align-items-end">
+      <div>
+        <label for="reaction-mode" class="form-label">{{ 'Mode' if en else 'Spielart' }}</label>
+        <select id="reaction-mode" class="form-select" data-mode>
+          <option value="practice">{{ 'Practice without a time limit' if en else 'Übung ohne Zeitlimit' }}</option>
+          <option value="duel">{{ 'Two-player duel' if en else 'Duell zu zweit' }}</option>
+          <option value="ordered">{{ 'Play the sequence' if en else 'Reihenfolge spielen' }}</option>
+        </select>
+      </div>
+      <button type="button" class="btn btn-primary" data-start>{{ 'Start' if en else 'Starten' }}</button>
+      <button type="button" class="btn btn-outline-secondary" data-continue hidden></button>
+      <button type="button" class="btn btn-outline-secondary" data-stop disabled>{{ 'Stop' if en else 'Stopp' }}</button>
+    </div>
+    <div class="small mt-2" data-sequence></div>
+    <div class="small mt-1" data-progress></div>
+    <p class="mt-3 mb-0" data-play-state role="status" aria-live="polite">{{ 'Ready for a virtual round.' if en else 'Bereit für eine virtuelle Runde.' }}</p>
+  </section>
+
+  <section class="card card-body mb-3" aria-label="{{ 'Current target' if en else 'Aktuelles Ziel' }}">
+    <p class="reaction-target fs-3 mb-1" data-target>{{ 'No active station' if en else 'Keine aktive Station' }}</p>
+    <p class="mb-2" data-window></p>
+    <div class="reaction-stations" tabindex="0" role="group" data-keyboard aria-label="{{ 'Virtual stations, keys 1, 2 or 3' if en else 'Virtuelle Stationen, Tasten 1, 2 oder 3' }}" aria-describedby="reaction-key-help">
+      {% for id in (1, 2, 3) %}
+      <button type="button" class="btn btn-outline-primary reaction-station" data-station="{{ id }}" aria-label="{{ 'Station ' ~ id }}" disabled>
+        <span aria-hidden="true">{{ id }}</span>
+      </button>
+      {% endfor %}
+    </div>
+    <p id="reaction-key-help" class="small mt-2 mb-0">{{ 'In virtual mode, tap a station or focus the stations area and press 1, 2 or 3. Holding a key does not count again.' if en else 'Tippe im virtuellen Modus auf eine Station oder fokussiere den Stationsbereich und drücke 1, 2 oder 3. Gedrückthalten zählt nicht erneut.' }}</p>
+    <p class="mt-2 mb-0 fw-semibold" data-reward role="status" aria-live="polite"></p>
+  </section>
+
+  <section class="card card-body mb-3">
+    <h2 class="h4">{{ 'Result' if en else 'Ergebnis' }}</h2>
+    <p data-score></p>
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <caption>{{ 'Times for the current attempt, in target order' if en else 'Zeiten des aktuellen Versuchs in Zielreihenfolge' }}</caption>
+        <thead><tr>
+          <th scope="col">{{ 'Player' if en else 'Spieler' }}</th>
+          <th scope="col">{{ 'Station' if en else 'Station' }}</th>
+          <th scope="col">{{ 'Result' if en else 'Ergebnis' }}</th>
+          <th scope="col">{{ 'Target time' if en else 'Zielzeit' }}</th>
+        </tr></thead>
+        <tbody data-results></tbody>
+      </table>
+    </div>
+    <p data-compare class="mb-0"></p>
+  </section>
+
+  <details class="card card-body">
+    <summary class="fw-semibold">{{ 'ESP32 USB setup with an adult' if en else 'ESP32-USB-Aufbau mit Erwachsenen' }}</summary>
+    <p class="mt-2 mb-1">{{ 'Use an adult-supervised, fixed low-voltage USB setup. Secure wires away from feet and stay in a clear area. Walk; do not run. Virtual play needs no equipment.' if en else 'Nur mit Aufsicht und festem Niedervolt-USB-Aufbau spielen. Kabel abseits der Füße befestigen, Wege frei lassen und gehen statt rennen. Virtuelles Spielen braucht keine Geräte.' }}</p>
+    <p class="mb-2">{{ 'USB works only on the local browser with supported Web Serial. The port is chosen explicitly and is never opened automatically.' if en else 'USB funktioniert nur im lokalen Browser mit Web Serial. Der Port wird ausdrücklich ausgewählt und nicht automatisch wieder geöffnet.' }}</p>
+    <div class="d-flex flex-wrap gap-2">
+      <button type="button" class="btn btn-outline-primary" data-connect disabled>{{ 'Choose USB board' if en else 'USB-Board auswählen' }}</button>
+      <button type="button" class="btn btn-outline-secondary" data-disconnect disabled>{{ 'Close USB' if en else 'USB trennen' }}</button>
+    </div>
+    <p class="mt-2 mb-0" data-connection role="status" aria-live="polite">{{ 'Mode: Virtual (browser time). None of these results leave the device.' if en else 'Modus: Virtuell (Browserzeit). Keine Ergebnisse verlassen das Gerät.' }}</p>
+  </details>
+  <noscript><p class="mt-3">{{ 'JavaScript is required for this game.' if en else 'Für das Spiel ist JavaScript erforderlich.' }}</p></noscript>
+</main>
+<script defer src="{{ url_for('static', filename='js/kids_reaction_game.js', v=app_build.version) }}"></script>
+<script defer src="{{ url_for('static', filename='js/kids_reaction_usb.js', v=app_build.version) }}"></script>
+<script defer src="{{ url_for('static', filename='js/kids_reaction_app.js', v=app_build.version) }}"></script>
+{% endblock %}
