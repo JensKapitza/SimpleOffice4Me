@@ -3,6 +3,13 @@
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
 <main id="main-content" class="container-fluid py-3">
+  {% for category, message in get_flashed_messages(with_categories=true) %}
+    {% if category == 'reader-export-error' %}
+      <div class="alert alert-warning" data-reader-feedback role="alert">{{ message }}</div>
+    {% else %}
+      <div class="alert alert-info" data-reader-feedback role="status" aria-live="polite">{{ message }}</div>
+    {% endif %}
+  {% endfor %}
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <div><a href="{{ url_for('reader.shelf') }}" class="small text-decoration-none">← Bücherregal</a><h1 class="h3 mb-0">{{ book.title }}</h1>{% if book.author %}<div class="text-secondary">{{ book.author }}</div>{% endif %}</div>
     <div class="d-flex flex-wrap gap-2"><span class="badge text-bg-secondary align-self-center">{{ book.format|upper }}</span>{% if book.format == 'pdf' %}<form method="post" action="{{ url_for('reader.grayscale_pdf', document_id=document.document_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-secondary" type="submit" title="Erstellt eine Schwarz-Weiß-Kopie mit unsichtbarer OCR-Textebene">S/W-PDF mit OCR</button></form>{% endif %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.detail', document_id=document.document_id) }}">Dokument</a><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.image_preview', document_id=document.document_id) }}" target="_blank" rel="noopener noreferrer">Original öffnen</a><button class="btn btn-sm btn-outline-secondary" type="button" onclick="window.print()">Drucken</button></div>
