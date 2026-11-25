@@ -70,16 +70,24 @@ Die gleiche Steuerung ist in der Vorschau von E-Mails verfügbar: im Postfach na
 
 ### Reproduzierbarer lokaler Smoke-Test
 
-Aus der Repository-Wurzel unter Linux mit eingerichteter SimpleOffice-Python-Umgebung ausführen. Für eine neue Umgebung zunächst `python3 -m venv .venv` und `.venv/bin/python -m pip install -e .` ausführen. Poppler (`pdftotext`, `pdftoppm`, `pdfimages`), Tesseract mit `deu` oder `eng` und die lokale Piper-CLI müssen schon installiert und im `PATH` sein. Ein selbst bereitgestelltes, entsprechend lizenziertes Modell mit seiner `.onnx.json`-Datei genügt; der Test lädt nichts nach.
+Aus der Repository-Wurzel unter Linux mit eingerichteter SimpleOffice-Python-Umgebung ausführen. Für eine neue Umgebung zunächst `python3 -m venv .venv` und `.venv/bin/python -m pip install -e '.[test]'` ausführen. Das Extra `test` installiert Beautiful Soup für den HTTP-Test. Falls unter Debian/Ubuntu `venv` mangels `ensurepip` nicht startet, wird das zur Python-Version passende `venv`-Paket benötigt. Poppler (`pdftotext`, `pdftoppm`, `pdfimages`), Tesseract mit `deu` oder `eng` und die lokale Piper-CLI müssen schon installiert und im `PATH` sein. Ein selbst bereitgestelltes, entsprechend lizenziertes Modell mit seiner `.onnx.json`-Datei genügt; der Test lädt nichts nach.
 
 ```sh
+.venv/bin/python -c 'from bs4 import BeautifulSoup'
 SIMPLEOFFICE_TEST_PIPER_MODEL=/pfad/zur/lokalen/stimme.onnx .venv/bin/python tools/smoke_reader_loopback.py
 node --test tests/reader_read_aloud.test.cjs
 ```
 
-Der erste Befehl nutzt echtes HTTP zu Waitress ausschließlich auf `127.0.0.1` und einen temporären App-Datenbestand mit eigener Anmeldung. Er erzeugt ein dreiseitiges PDF mit nativer Textebene auf Seite 1 und 3 und einer rein bildbasierten Seite 2 mit „RECHNUNG MAGNETKOMPASS“. Nach Upload und Reader-Aufruf erwartet er ein nicht stummes WAV für Seite 1, dann beim normalen Vorlesen für Seite 2 HTTP 422 (`no_text`). Erst über den separaten OCR-Einstieg erwartet er für Seite 2 ein nicht stummes WAV. Seite 3 bleibt normal lesbar. Zusätzlich prüft er fehlenden CSRF-Token (403), eine alte Dokumentversion (409), unveränderte Originalbytes und dass keine PDF-Kopie oder WAV-Datei zurückbleibt. Keine bestehenden Dokumente, Einstellungen oder Zugangsdaten verwenden. Docker, native App, Browser-Audioausgabe und Erkennungsgenauigkeit werden damit nicht geprüft.
+Alternativ ohne Netz, wenn `uv`, CPython 3.13 und ein vollständiger lokaler `uv`-Paketcache bereits vorhanden sind (bei abweichendem Cache-Pfad `UV_CACHE_DIR` setzen):
 
-Ohne Modellkonfiguration oder benötigte Werkzeuge/Sprachpakete meldet der Smoke-Test ausdrücklich `SKIP` und endet mit Status 77. Ein angegebener, ungültiger Modellpfad oder eine fehlgeschlagene Prüfung ist dagegen ein Fehler. Der zweite Befehl prüft separat das ausgelieferte Player-JavaScript mit einem simulierten DOM: Die PDF-Folge stoppt auf der Seite ohne Textebene und startet OCR nicht selbst. Er prüft keine reale Wiedergabe über Lautsprecher.
+```sh
+uv --offline venv --python "$(command -v python3.13)" .venv
+uv --offline pip install --python .venv/bin/python --link-mode copy -e '.[test]'
+```
+
+Der Python-Smoke-Test nutzt echtes HTTP zu Waitress ausschließlich auf `127.0.0.1` und einen temporären App-Datenbestand mit eigener Anmeldung. Er erzeugt ein dreiseitiges PDF mit nativer Textebene auf Seite 1 und 3 und einer rein bildbasierten Seite 2 mit „RECHNUNG MAGNETKOMPASS“. Nach Upload und Reader-Aufruf erwartet er ein nicht stummes WAV für Seite 1, dann beim normalen Vorlesen für Seite 2 HTTP 422 (`no_text`). Erst über den separaten OCR-Einstieg erwartet er für Seite 2 ein nicht stummes WAV. Seite 3 bleibt normal lesbar. Zusätzlich prüft er fehlenden CSRF-Token (403), eine alte Dokumentversion (409), unveränderte Originalbytes und dass keine PDF-Kopie oder WAV-Datei zurückbleibt. Keine bestehenden Dokumente, Einstellungen oder Zugangsdaten verwenden. Docker, native App, Browser-Audioausgabe und Erkennungsgenauigkeit werden damit nicht geprüft.
+
+Ohne Modellkonfiguration oder benötigte Werkzeuge/Sprachpakete meldet der Smoke-Test ausdrücklich `SKIP` und endet mit Status 77. Ein angegebener, ungültiger Modellpfad oder eine fehlgeschlagene Prüfung ist dagegen ein Fehler. Der Node-Befehl prüft separat das ausgelieferte Player-JavaScript mit einem simulierten DOM: Die PDF-Folge stoppt auf der Seite ohne Textebene und startet OCR nicht selbst. Er prüft keine reale Wiedergabe über Lautsprecher.
 
 ## EPUB
 
