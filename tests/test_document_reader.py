@@ -417,6 +417,7 @@ class ReaderRoutesTests(unittest.TestCase):
         store = DocumentStore(self.documents)
         document = store.get_document(self.document["document_id"])
         document["extracted_text"] = "OCR-Marker Rechnungsnummer SO4M-7821"
+        document["text_extraction"] = {"source_sha256": document["sha256"], "status": "completed"}
         store._save_document(document)
 
         result = self.client.get("/documents/reader?q=SO4M-7821")
@@ -426,6 +427,77 @@ class ReaderRoutesTests(unittest.TestCase):
         self.assertNotIn("OCR-Marker Rechnungsnummer", body)
         no_match = self.client.get("/documents/reader?q=kein-treffer").get_data(as_text=True)
         self.assertIn("Keine sichtbaren PDF- oder EPUB-Dokumente gefunden.", no_match)
+
+    def test_shelf_does_not_match_old_or_unconfirmed_body_after_book_replacement(self):
+        store = DocumentStore(self.documents)
+        initial = store.get_document(self.document["document_id"])
+        identifier = initial["document_id"]
+        old_version = initial["sha256"]
+        replaced = store.replace_content(
+            identifier, epub_bytes(chapter_xml="<html><body>Replacement chapter</body></html>"),
+            "admin", expected_sha256=old_version,
+        )
+        self.assertNotEqual(old_version, replaced["sha256"])
+        replaced["attributes"]["reader_title"] = "Synthetic current shelf title"
+        note = self.client.post(f"/documents/reader/api/{identifier}/annotations", headers=self.headers, json={
+            "locator": {"chapter": "c1", "chapter_index": 0, "offset": 0},
+            "text": "Current private annotation fixture",
+            "document_version": reader_version(replaced),
+        })
+        self.assertEqual(201, note.status_code)
+        href = f'href="/documents/reader/{identifier}"'.encode()
+        for source, status, extracted, old_image in (
+            (old_version, "completed", "LegacyOldBodyOnly", ""),
+            (replaced["sha256"], "deferred", "LegacyOldBodyOnly", ""),
+            (replaced["sha256"], "completed", "", "LegacyOldBodyOnly"),
+            (None, "partial", "LegacyOldBodyOnly", ""),
+        ):
+            with self.subTest(source=source, status=status, old_image=bool(old_image)):
+                replaced.update(extracted_text=extracted, ocr_text=old_image,
+                                text_extraction={"source_sha256": source, "status": status})
+                store._save_document(replaced)
+                search = self.client.get("/documents/reader", query_string={"q": "LegacyOldBodyOnly"})
+                self.assertEqual(200, search.status_code)
+                self.assertNotIn(href, search.data)
+        for query in ("Synthetic current shelf title", "Current private annotation fixture", "Testbuch.epub"):
+            with self.subTest(query=query):
+                self.assertIn(href, self.client.get("/documents/reader", query_string={"q": query}).data)
+        # A subsequent completed or partial current projection remains searchable.
+        replaced["extracted_text"] = "CurrentStoredBodyFixture"
+        for status in ("completed", "partial"):
+            with self.subTest(status=status):
+                replaced["text_extraction"] = {"source_sha256": replaced["sha256"], "status": status}
+                store._save_document(replaced)
+                self.assertIn(href, self.client.get("/documents/reader",
+                                                   query_string={"q": "CurrentStoredBodyFixture"}).data)
+
+    @unittest.skipUnless(shutil.which("tesseract") and shutil.which("pdftoppm"), "Needs local OCR tools")
+    def test_shelf_still_finds_current_ocr_from_a_real_raster_pdf(self):
+        from PIL import Image, ImageDraw, ImageFont
+        from reportlab.lib.utils import ImageReader
+        from reportlab.pdfgen.canvas import Canvas
+
+        try:
+            font = ImageFont.truetype("DejaVuSans.ttf", 76)
+        except OSError:
+            self.skipTest("DejaVu Sans is required for the synthetic scan")
+        picture = Image.new("RGB", (1450, 800), "white")
+        ImageDraw.Draw(picture).text((90, 280), "SHELF OCR BEACON", font=font, fill="black")
+        target = io.BytesIO()
+        pdf = Canvas(target)
+        pdf.drawImage(ImageReader(picture), 40, 190, width=510, height=310)
+        pdf.save()
+        target.seek(0)
+        store = DocumentStore(self.documents)
+        photo = store.import_upload(target, "synthetic-scan.pdf", "admin")
+        current = store.get_document(photo["document_id"])
+        self.assertEqual(current["sha256"], current["text_extraction"]["source_sha256"])
+        self.assertIn("OCR BEACON", current["extracted_text"].upper())
+        with patch.object(DocumentStore, "_pdf_image_ocr", side_effect=AssertionError("shelf cannot run OCR")):
+            response = self.client.get("/documents/reader", query_string={"q": "OCR BEACON"})
+        self.assertEqual(200, response.status_code)
+        self.assertIn(f'href="/documents/reader/{photo["document_id"]}"'.encode(), response.data)
+        self.assertNotIn(b"SHELF OCR BEACON", response.data)
 
     def test_invalid_epub_returns_reader_error_not_server_error(self):
         broken = DocumentStore(self.documents).import_upload(
