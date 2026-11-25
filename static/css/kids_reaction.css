@@ -1,0 +1,7 @@
+.kids-reaction-page { max-width: 52rem; }
+.reaction-stations { display: inline-grid; grid-template-columns: repeat(3, minmax(3.5rem, 1fr)); gap: .75rem; max-width: 100%; }
+.reaction-station { min-height: 4rem; font-size: clamp(1.5rem, 5vw, 2.5rem); font-weight: 700; }
+.reaction-station.is-target { outline: 3px solid currentColor; outline-offset: 2px; }
+.reaction-stations:focus-visible { outline: 3px solid var(--bs-primary); outline-offset: 5px; }
+.reaction-target { min-height: 1.5em; }
+.kids-reaction-page [hidden] { display: none !important; }

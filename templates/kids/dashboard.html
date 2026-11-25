@@ -54,6 +54,11 @@
       <strong>{{ 'Coloring wall' if g.language == 'en' else 'Ausmalwand' }}</strong>
       <small>{{ 'Color pictures or draw freely' if g.language == 'en' else 'Bilder ausmalen oder frei zeichnen' }}</small>
     </a>
+    <a class="kids-symbol-card" href="{{ url_for('kids_reaction.index') }}">
+      <span aria-hidden="true">🚦</span>
+      <strong>{{ 'Reaction course' if g.language == 'en' else 'Reaktionsparcours' }}</strong>
+      <small>{{ 'Press numbered stations on screen or with an ESP32' if g.language == 'en' else 'Drücke nummerierte Stationen am Bildschirm oder mit einem ESP32' }}</small>
+    </a>
     <a class="kids-symbol-card" href="{{ url_for('electrical_learning.index', audience='kids') }}">
       <span aria-hidden="true">🔌</span>
       <strong>{{ 'Electricity safety' if g.language == 'en' else 'Strom sicher erkennen' }}</strong>

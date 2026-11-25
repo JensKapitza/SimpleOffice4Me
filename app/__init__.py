@@ -364,6 +364,9 @@ from . import kids_matching
 app.register_blueprint(kids_matching.bp)
 from . import kids_numbers
 app.register_blueprint(kids_numbers.bp)
+
+from . import kids_reaction
+app.register_blueprint(kids_reaction.bp)
 from . import electrical_learning
 app.register_blueprint(electrical_learning.bp)
 
