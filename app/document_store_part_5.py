@@ -9,7 +9,7 @@ from .sqlite_utils import connect as sqlite_connect
 
 from .document_store_core import *  # noqa: F401,F403
 from .file_lock import exclusive_file_lock
-from .ocr_preprocessing import OCR_RENDER_EDGE
+from .ocr_preprocessing import OCR_RENDER_EDGE, jpeg_ocr_input
 
 MAX_EML_INDEX_BYTES = 25 * 1024 * 1024
 MAX_MANUAL_ANALYSIS_BYTES = 128 * 1024 * 1024
@@ -464,9 +464,10 @@ class _DocumentStorePart5:
             raise RuntimeError("Tesseract OCR is not installed")
         environment = ocr_subprocess_environment()
         try:
-            result = subprocess.run([executable, str(path), "stdout", "-l", "deu+eng"], capture_output=True, text=True, timeout=timeout, check=False, env=environment)
-            if result.returncode != 0 and "deu" in result.stderr.lower():
-                result = subprocess.run([executable, str(path), "stdout", "-l", "eng"], capture_output=True, text=True, timeout=timeout, check=False, env=environment)
+            with jpeg_ocr_input(path) as source:
+                result = subprocess.run([executable, str(source), "stdout", "-l", "deu+eng"], capture_output=True, text=True, timeout=timeout, check=False, env=environment)
+                if result.returncode != 0 and "deu" in result.stderr.lower():
+                    result = subprocess.run([executable, str(source), "stdout", "-l", "eng"], capture_output=True, text=True, timeout=timeout, check=False, env=environment)
         except subprocess.TimeoutExpired as exc:
             raise RuntimeError(f"OCR timed out after {timeout} seconds") from exc
         if result.returncode != 0:

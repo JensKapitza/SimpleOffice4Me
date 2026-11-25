@@ -33,3 +33,15 @@ Camera availability, permission prompts, HEIC support, iOS file selection, and
 physical-device retry behavior still require Android WebView and iOS device
 acceptance. If a browser ignores the capture hint, the standard system file
 chooser remains available.
+
+
+### JPEG-Ausrichtung bei der Texterkennung
+
+Bei JPEG-Fotos mit EXIF-Dreh- oder Spiegelhinweis richtet die lokale OCR ihre
+Arbeitskopie aus. Die gespeicherte Aufnahme samt EXIF und Prüfsumme bleibt
+unverändert. Die temporäre Graustufen-PNG enthält keine übernommenen Metadaten
+und wird nach dem OCR-Versuch entfernt. Der JPEG-Decoder kann größere Fotos
+vorab verkleinern; die Arbeitskopie ist auf 24 Millionen Pixel begrenzt.
+Die Korrektur gilt für JPEGs bis 64 MiB. Für größere Dateien und andere
+Formate bleibt der bisherige OCR-Pfad unverändert. Ohne EXIF-Hinweis wird
+keine Drehung geraten.
