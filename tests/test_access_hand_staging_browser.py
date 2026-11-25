@@ -59,7 +59,10 @@ class HandStagingBrowserTests(PublicHttpTestCase):
         self.server.server_close()
 
     def _open(self, playwright, name):
-        browser = playwright.chromium.launch(headless=True, args=[
+        # Select full Chromium in new headless mode. The separate headless
+        # shell inherits a media delegate that can reject capture before it
+        # returns a track, even after a permission grant.
+        browser = playwright.chromium.launch(channel="chromium", headless=True, args=[
             "--use-fake-device-for-media-stream",
             f"--use-file-for-fake-video-capture={(self.fixture_dir / name).resolve()}",
             "--enable-unsafe-swiftshader",

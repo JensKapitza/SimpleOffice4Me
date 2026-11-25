@@ -123,7 +123,7 @@ an application download. Then:
 
 ```sh
 python -m pip install -e '.[test,web-export]'
-python -m playwright install --with-deps chromium
+python -m playwright install --with-deps --no-shell chromium
 python tools/provision_kids_hand_game.py --package "$fixture/package.tgz" \
   --model "$fixture/model.task" --destination "$fixture/assets"
 python -m tools.make_kids_hand_test_video "$fixture/pointing.jpg" "$fixture"
@@ -158,3 +158,15 @@ video element before delayed playback, tests that call order, separates model,
 permission/preview and inference failure statuses, and records the browser
 phase and track state on the unchanged genuine fixture gate. This is not a
 claim of a successful browser run or a proven root cause for the first run.
+
+The follow-up run did isolate the observed failure: native
+`getUserMedia` returned `NotSupportedError` after a successful model load
+and before it yielded any track. Playwright's default headless is the
+separate shell. Its upstream
+[view delegate](https://github.com/chromium/chromium/blob/main/headless/lib/browser/headless_web_contents_impl.cc)
+inherits the base
+[media-access method](https://github.com/chromium/chromium/blob/main/content/public/browser/web_contents_delegate.cc),
+which returns `NOT_SUPPORTED`. The hosted test now uses the documented
+[full Chromium in headless mode](https://playwright.dev/python/docs/browsers#chromium-new-headless-mode).
+This is a test-launcher correction, not a change to camera permissions or the
+model. A fresh hosted pass is required to establish genuine app acceptance.

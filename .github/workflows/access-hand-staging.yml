@@ -45,7 +45,7 @@ jobs:
       - name: Install application and Chromium test tooling
         run: |
           python -m pip install --editable '.[web-export,test]'
-          python -m playwright install --with-deps chromium
+          python -m playwright install --with-deps --no-shell chromium
       - name: Stage existing pinned runtime and public hand test frame (CI only)
         shell: bash
         run: |
