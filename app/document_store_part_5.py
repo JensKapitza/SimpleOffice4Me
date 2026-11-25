@@ -404,7 +404,8 @@ class _DocumentStorePart5:
             metadata["ocr_text"] = ocr_text
             analysis["ocr_status"] = "completed"
             analysis["ocr_characters"] = len(ocr_text)
-            generated_tags.update(self._ocr_tags(ocr_text))
+            # The search index already reads OCR for this digest. Copying words
+            # into saved tags would make them survive later byte replacements.
         except (OSError, RuntimeError):
             if self._current_image_ocr(metadata):
                 # The same verified bytes already have a good result. Keep it,
@@ -484,13 +485,6 @@ class _DocumentStorePart5:
     def _tag_token(value: str) -> str:
         token = re.sub(r"[^a-z0-9]+", "-", value.casefold()).strip("-")
         return token[:64] or "unbekannt"
-
-    @classmethod
-    def _ocr_tags(cls, text: str) -> set[str]:
-        ignored = {"aber", "alle", "auch", "dass", "der", "die", "das", "den", "dem", "des", "eine", "einer", "einem", "einen", "für", "mit", "nach", "oder", "und", "von", "zum", "zur", "this", "that", "with", "from", "your"}
-        words = [cls._tag_token(word) for word in re.findall(r"[A-Za-zÄÖÜäöüß0-9]{4,}", text)]
-        unique = list(dict.fromkeys(word for word in words if word not in ignored and word != "unbekannt" and not word.isdigit() and len(word) >= 4))
-        return set(unique[:12])
 
     @staticmethod
     def _image_ocr(path: Path, timeout: int = 90) -> str:
