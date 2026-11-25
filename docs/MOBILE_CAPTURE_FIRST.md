@@ -6,7 +6,13 @@ document type to be selected first. The page links to three existing paths:
 
 - **Kamera aufnehmen** uses the existing single-photo upload and the browser's
   `capture="environment"` hint. Browser or operating-system support determines
-  whether this opens a camera directly or offers a file-source chooser.
+  whether this opens a camera directly or offers a file-source chooser. Select
+  **OCR sofort ausführen und Fotodetails öffnen** to request local OCR and go
+  straight to that photo's detail view. The option is off by default, so ordinary
+  snapshots still return to the gallery. An identical photo reuses its existing
+  details and OCR status. When OCR found text, expand **Erkannter Text** in the
+  photo details; the words are also available through **Schnellsuche**. The photo
+  remains a photo, not a PDF/EPUB/TXT Reader document.
 - **Mehrere Fotos importieren** uses the existing sequential photo uploader.
   Each file receives an individual request, progress result, SHA-256-backed
   document identity, upload timestamp, and optional EXIF metadata. If identical

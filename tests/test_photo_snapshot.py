@@ -1,4 +1,6 @@
 import io
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -51,6 +53,14 @@ class PhotoSnapshotTest(unittest.TestCase):
         self.assertIn('name="client_relative_path" value="camera/direct"', template)
         self.assertIn('name="client_timezone"', template)
         self.assertIn('name="client_last_modified_at"', template)
+
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js not installed")
+    def test_snapshot_ocr_and_details_frontend(self):
+        script = Path(__file__).with_name("photo_snapshot_frontend.test.cjs")
+        result = subprocess.run(["node", "--test", str(script)], check=False,
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":
