@@ -8,7 +8,7 @@ from flask import Blueprint, Response, current_app, flash, g, jsonify, make_resp
 from .federation_admin import admin_required
 from .federation_attestations import FederationAttestationStore
 from .federation_compatibility import requirements
-from .federation_discovery_feedback import direct_discovery_feedback
+from .federation_discovery_feedback import direct_discovery_feedback, receive_deadline
 from .federation_discovery_lan import discover_lan, local_lan_addresses, scan_ports
 from .federation_discovery_publish import publish
 from .federation_discovery_service import discover_country, discover_direct, discover_email
@@ -353,7 +353,8 @@ def dashboard():
         own_qr = ""
     from .federation_setup_hints import suggest_federation_setup
 
-    return render_template(
+    receive = _receive_state().status()
+    response = make_response(render_template(
         "admin/federation_peer_discovery.html",
         peers=peers,
         setup_hints=suggest_federation_setup(peers),
@@ -363,7 +364,8 @@ def dashboard():
         network=federation_network.status(),
         commander=resource_commander_credentials.status(),
         lan_connect_profiles=_lan_connect_profiles(),
-        lan_receive=_receive_state().status(),
+        lan_receive=receive,
+        lan_receive_deadline=receive_deadline(receive["expires_at"]),
         compatibility_requirements=requirements(),
         mail_case_mappings=MailCaseFederationIdentityStore(_root()).list(),
         mail_case_local_users=[
@@ -371,7 +373,9 @@ def dashboard():
                 "SELECT username,display_name FROM user WHERE is_disabled=0 ORDER BY username COLLATE NOCASE"
             ).fetchall()
         ],
-    )
+    ))
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
 
 
 @bp.post("/pairing/<peer_id>/issue")
@@ -465,11 +469,11 @@ def check_remote_pairing_status(peer_id):
 @admin_required
 def start_receive():
     try:
-        state = _receive_state().start()
-        flash(translate(g.language, "fedpeer.wlan.noted").format(expires=state['expires_at']))
+        _receive_state().start()
+        flash(translate(g.language, "fedpeer.wlan.noted"))
     except Exception:
         flash(translate(g.language, "fedpeer.wlan.failed"))
-    return redirect(url_for("federation_peer_admin.dashboard"))
+    return redirect(url_for("federation_peer_admin.dashboard", _anchor="lan-receive"))
 
 
 @bp.post("/receive/stop")
@@ -480,7 +484,7 @@ def stop_receive():
         flash(translate(g.language, "fedpeer.wlan.stopped"))
     except Exception:
         flash(translate(g.language, "fedpeer.wlan.stop.failed"))
-    return redirect(url_for("federation_peer_admin.dashboard"))
+    return redirect(url_for("federation_peer_admin.dashboard", _anchor="lan-receive"))
 
 
 @bp.get("/qr.svg")
