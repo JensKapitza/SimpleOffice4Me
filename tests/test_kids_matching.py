@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -92,6 +94,16 @@ class KidsMatchingHttpTests(PublicHttpTestCase):
         self.assertIn("css/kids_shared.css", html)
         self.assertIn("css/kids_matching.css", html)
 
+    def test_sound_picture_clue_has_a_visual_control_after_login(self):
+        for lang, label in (("de", "Bild-Tipp"), ("en", "Picture clue")):
+            with self.subTest(lang=lang):
+                response = self.client.post(
+                    "/auth/language", data={"language": lang}, headers=self._csrf_headers(self.client, "/kids"),
+                )
+                self.assertEqual(302, response.status_code)
+                html = self.client.get("/kids/zuordnen").get_data(as_text=True)
+                self.assertIn(f'data-picture-hint aria-pressed="false" hidden><span aria-hidden="true">👁️</span> {label}', html)
+
     def test_kids_responses_stay_private(self):
         for path in ("/kids", "/kids/zuordnen"):
             with self.subTest(path=path):
@@ -154,6 +166,17 @@ class KidsMatchingHttpTests(PublicHttpTestCase):
         self.assertIn("KidsPiperVoice", shared)
         self.assertNotIn("speechSynthesis", shared)
         self.assertNotIn("SpeechSynthesisUtterance", shared)
+
+
+class KidsMatchingPictureHintTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for frontend tests")
+    def test_visual_clue_is_optional_and_does_not_leak_between_tasks(self):
+        script = Path(__file__).with_name("kids_matching_picture_hint.test.cjs")
+        result = subprocess.run(
+            [shutil.which("node"), "--test", str(script)],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

@@ -41,7 +41,10 @@
           <p class="small text-secondary mb-1" data-progress></p>
           <h2 class="h3 mb-0" data-title id="kids-matching-title" tabindex="-1"></h2>
         </div>
-        <button class="btn btn-outline-primary btn-lg kids-touch" type="button" data-repeat aria-label="{{ 'Hear again' if g.language == 'en' else 'Nochmal hören' }}">🔊</button>
+        <div class="d-flex flex-wrap gap-2">
+          <button class="btn btn-outline-primary btn-lg kids-touch" type="button" data-repeat aria-label="{{ 'Hear again' if g.language == 'en' else 'Nochmal hören' }}">🔊</button>
+          <button class="btn btn-outline-secondary btn-lg kids-touch" type="button" data-picture-hint aria-pressed="false" hidden><span aria-hidden="true">👁️</span> {{ 'Picture clue' if g.language == 'en' else 'Bild-Tipp' }}</button>
+        </div>
       </div>
       <div class="kids-matching-target" data-target role="img"></div>
       <p class="kids-matching-prompt" data-prompt aria-live="polite"></p>
