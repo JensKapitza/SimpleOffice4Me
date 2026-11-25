@@ -13,7 +13,9 @@ import os
 import re
 import secrets
 import ssl
+import stat
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -25,6 +27,10 @@ from tools.smoke_federation_loopback import ADMIN, Browser, configure_pair, requ
 
 PEERS = ("deployment-a", "deployment-b")
 STATE = Path("/var/lib/simpleoffice4me")
+SCRATCH = Path("/run/simpleoffice-federation-scratch")
+APP_UID = APP_GID = 10001
+PEER_SCRATCH_MIB = 256
+CLIENT_SCRATCH_MIB = 32
 FIXTURE_ENV = "SIMPLEOFFICE_FEDERATION_DEPLOYMENT_FIXTURE"
 TLS = STATE / "fixture-tls"
 PLAIN = "http://127.0.0.1:8080"
@@ -416,9 +422,29 @@ PHASES = {
 }
 
 
+def verify_private_scratch(limit_mib):
+    """Fail the Docker acceptance before any work if its scratch is not private."""
+    require(os.environ.get("TMPDIR") == str(SCRATCH), "Fixture must set its private TMPDIR")
+    require(Path(tempfile.gettempdir()) == SCRATCH, "Fixture scratch must be the active writable temp directory")
+    info = SCRATCH.stat()
+    require((os.getuid(), os.getgid(), info.st_uid, info.st_gid) == (APP_UID, APP_GID, APP_UID, APP_GID)
+            and stat.S_ISDIR(info.st_mode) and stat.S_IMODE(info.st_mode) == 0o700,
+            "Fixture scratch must be owned and accessible only by the application user")
+    mount = os.statvfs(SCRATCH)
+    required_flags = os.ST_NOSUID | os.ST_NODEV | os.ST_NOEXEC
+    require(mount.f_flag & required_flags == required_flags, "Fixture scratch mount protections are missing")
+    require(mount.f_blocks * mount.f_frsize == limit_mib * 1024 * 1024,
+            "Fixture scratch must enforce its configured size")
+    # Python's temporaryfile may use O_TMPFILE; this also checks the actual
+    # named creation/unlink operations used by ordinary Python dependencies.
+    with tempfile.TemporaryDirectory() as owned:
+        require(Path(owned).parent == SCRATCH, "Temporary data escaped the private fixture scratch")
+
+
 def main():
     require(2 <= len(sys.argv) <= 3, "Expected a fixture action")
     action = sys.argv[1]
+    verify_private_scratch(PEER_SCRATCH_MIB if os.environ.get(FIXTURE_ENV) else CLIENT_SCRATCH_MIB)
     fixture = json.load(sys.stdin)
     if action == "prepare" and len(sys.argv) == 3:
         output = prepare_peer(fixture, sys.argv[2])

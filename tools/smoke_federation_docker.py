@@ -20,10 +20,12 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-from tools.federation_docker_peer import FIXTURE_ENV, PEERS, SIZE, STATE
+from tools.federation_docker_peer import (
+    APP_GID, APP_UID, CLIENT_SCRATCH_MIB, FIXTURE_ENV, PEERS, PEER_SCRATCH_MIB, SCRATCH, SIZE, STATE,
+)
 from tools.smoke_federation_loopback import require
 
-APP_USER = "10001:10001"
+APP_USER = f"{APP_UID}:{APP_GID}"
 PYTHON = "/opt/simpleoffice4me/.venv/bin/python"
 DUMMY_ARTIFACT_STAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T[\d:.]+Z")
 LOG_KINDS = {
@@ -102,6 +104,11 @@ def _failure(result):
     return out
 
 
+def _scratch_args(size_mib):
+    mount = f"{SCRATCH}:rw,nosuid,nodev,noexec,size={size_mib}m,mode=0700,uid={APP_UID},gid={APP_GID}"
+    return ("--tmpfs", mount, "-e", f"TMPDIR={SCRATCH}")
+
+
 class Deployment:
     def __init__(self, image, deps, output, tls):
         self.image, self.deps, self.output, self.tls = image, deps, output, tls
@@ -177,7 +184,7 @@ class Deployment:
 
     def _app_args(self, peer):
         return ("--user", APP_USER, "--init", "--cap-drop", "ALL",
-                "--security-opt", "no-new-privileges:true", "--tmpfs", "/tmp:rw,nosuid,nodev,size=256m",
+                "--security-opt", "no-new-privileges:true", *_scratch_args(PEER_SCRATCH_MIB),
                 "--mount", f"type=volume,src={self.name(peer)},dst={STATE}",
                 *self._deps(), *self._owner_env())
 
@@ -205,6 +212,7 @@ class Deployment:
             self.command("run", "--rm", "-i", "--name", transient, "--pull=never", "--network", "none",
                          *self._app_args(peer), self.image, PYTHON, "-m",
                          "tools.federation_docker_peer", "prepare", peer, fixture=scoped)
+            self.note("private-scratch", "passed", peer=peer, limit_mib=PEER_SCRATCH_MIB)
             self.command("create", "--pull=never", "--name", name, "--hostname", peer,
                          "--network", self.network, "--ip", self.fixture["addresses"][peer],
                          *self._app_args(peer), self.image)
@@ -226,7 +234,7 @@ class Deployment:
             self.transient.add(transient)
             args = ("run", "--rm", "-i", "--name", transient, "--pull=never", "--network", self.network, "--read-only",
                     "--user", APP_USER, "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
-                    "--tmpfs", "/tmp:rw,nosuid,nodev,size=32m", *self._deps(),
+                    *_scratch_args(CLIENT_SCRATCH_MIB), *self._deps(),
                     *_docker_env({"PYTHONPATH": "/run/test-python", **self._private_env()}),
                     "--entrypoint", PYTHON, self.image, "-m", "tools.federation_docker_peer", phase)
         result = self.command(*args, fixture=self.fixture, timeout=235, check=False)
@@ -239,7 +247,9 @@ class Deployment:
             answer = json.loads(result.stdout.strip().splitlines()[-1])
         except (IndexError, ValueError) as exc:
             raise RuntimeError(f"{phase} did not return fixture JSON") from exc
-        self.note(phase, "passed", elapsed_seconds=elapsed, **({"peer": peer} if peer else {}))
+        self.note(phase, "passed", elapsed_seconds=elapsed,
+                  scratch_limit_mib=PEER_SCRATCH_MIB if peer else CLIENT_SCRATCH_MIB,
+                  **({"peer": peer} if peer else {}))
         return answer
 
     def restart(self):

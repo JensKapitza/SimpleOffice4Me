@@ -11,7 +11,9 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from tools.federation_docker_peer import FIXTURE_ENV, PEERS, QUEUE_HTTP_TIMEOUT, SIZE, _guard_local_fixture, payload, run_queue
-from tools.smoke_federation_docker import Deployment, _events, _failure, create_tls, main, validate_download_counts
+from tools.smoke_federation_docker import (
+    Deployment, _events, _failure, create_tls, main, validate_download_counts,
+)
 
 
 class FederationDockerFixtureTests(unittest.TestCase):
@@ -65,6 +67,28 @@ class FederationDockerFixtureTests(unittest.TestCase):
         deployment = Deployment("image", None, None, None)
         deployment.fixture["addresses"] = dict(zip(PEERS, ("10.213.5.2", "10.213.5.3")))
         self.assertIn("SIMPLEOFFICE_LOG_STDERR_ONLY=1", deployment._owner_env())
+
+    def test_peers_and_read_only_clients_get_bounded_application_owned_scratch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            deployment = Deployment("image", directory, Path(directory), Path(directory))
+            deployment.fixture["addresses"] = dict(zip(PEERS, ("10.213.5.2", "10.213.5.3")))
+            peer = deployment._app_args(PEERS[0])
+            with patch.object(deployment, "command", return_value=SimpleNamespace(
+                returncode=0, stdout='{}',
+            )) as launch:
+                deployment.invoke("pair")
+            client = launch.call_args.args
+            for args, limit in ((peer, 256), (client, 32)):
+                with self.subTest(limit=limit):
+                    self.assertEqual("10001:10001", args[args.index("--user") + 1])
+                    mount = args[args.index("--tmpfs") + 1]
+                    path, options = mount.split(":", 1)
+                    self.assertEqual("/run/simpleoffice-federation-scratch", path)
+                    self.assertIn(f"TMPDIR={path}", args)
+                    self.assertEqual({"rw", "nosuid", "nodev", "noexec", f"size={limit}m", "mode=0700",
+                                      "uid=10001", "gid=10001"}, set(options.split(",")))
+            self.assertIn("--read-only", client)
+            self.assertIn('"scratch_limit_mib": 32', (Path(directory) / "timeline.jsonl").read_text())
 
     def test_only_allowlisted_stage_names_and_peers_appear_in_failure_diagnostics(self):
         result = SimpleNamespace(returncode=1, stderr="fixture-progress uploaded deployment-b\n"
