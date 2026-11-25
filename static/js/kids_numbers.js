@@ -11,9 +11,12 @@
   const clipLang = english ? 'en' : 'de';
   let currentClips = [];
   const speechStatus = root.querySelector('[data-speech-status]');
+  function playParts(parts) {
+    return playClips(audioBase, audioVersion, clipLang, parts, language, speechStatus);
+  }
   function say(parts) {
     currentClips = parts;
-    return playClips(audioBase, audioVersion, clipLang, parts, language, speechStatus);
+    return playParts(parts);
   }
   const setup = root.querySelector('[data-setup]');
   const play = root.querySelector('[data-play]');
@@ -133,6 +136,54 @@
     return amount === 1 ? item.audio : item.audio_plural;
   }
 
+  function countingPicture(amount, item) {
+    const area = document.createElement('div');
+    area.className = 'kids-numbers-counting';
+    const hint = document.createElement('p');
+    hint.id = 'kids-numbers-counting-hint';
+    hint.className = 'small text-secondary mb-1';
+    hint.textContent = text('👆 Du kannst die Bilder zum Zählen antippen.', '👆 You can tap the pictures to count.');
+    const figures = document.createElement('div');
+    figures.className = 'kids-numbers-picture';
+    figures.setAttribute('role', 'group');
+    figures.setAttribute('aria-labelledby', hint.id);
+
+    const status = document.createElement('span');
+    status.className = 'visually-hidden';
+    status.setAttribute('role', 'status');
+    let counted = 0;
+    for (let index = 0; index < amount; index += 1) {
+      const tile = document.createElement('button');
+      tile.type = 'button';
+      tile.className = 'kids-numbers-count-tile';
+      tile.setAttribute('aria-label', text(`${noun(item, 1)} zählen`, `Count the ${noun(item, 1)}`));
+
+      const image = document.createElement('span');
+      image.setAttribute('aria-hidden', 'true');
+      image.textContent = item.emoji;
+      const badge = document.createElement('span');
+      badge.className = 'kids-numbers-count-badge';
+      badge.hidden = true;
+      badge.setAttribute('aria-hidden', 'true');
+      tile.append(image, badge);
+
+      tile.addEventListener('click', () => {
+        if (locked || play.hidden || !stage.contains(tile) || tile.getAttribute('aria-disabled') === 'true') return;
+        counted += 1;
+        tile.setAttribute('aria-disabled', 'true');
+        tile.setAttribute('aria-label', text(`${noun(item, 1)} gezählt: ${counted}`, `${noun(item, 1)} counted: ${counted}`));
+        badge.textContent = String(counted);
+        badge.hidden = false;
+        status.textContent = text(`Gezählt: ${counted}`, `Counted: ${counted}`);
+        // Play an existing local clip without replacing the repeat-question prompt.
+        playParts([{key: `num_${counted}`, fallback: String(counted)}]);
+      });
+      figures.append(tile);
+    }
+    area.append(hint, figures, status);
+    return area;
+  }
+
   function showCount(task, options) {
     const amount = 1 + Math.floor(Math.random() * options.max);
     task.amount = amount;
@@ -142,12 +193,7 @@
       {key: nounAudio(task.item, amount), fallback: noun(task.item, amount)},
       {key: 'see_you', fallback: text('siehst du?', 'can you see?')},
     ], spoken);
-    const figures = document.createElement('div');
-    figures.className = 'kids-numbers-picture';
-    figures.setAttribute('role', 'img');
-    figures.setAttribute('aria-label', `${amount} ${noun(task.item, amount)}`);
-    figures.textContent = picture(amount, task.item);
-    stage.append(figures);
+    stage.append(countingPicture(amount, task.item));
     distinctNumbers(options.choices, options.max, amount).forEach(value => {
       stage.append(makeAnswerButton(String(value), value === amount));
     });
@@ -281,6 +327,6 @@
   next.addEventListener('click', () => {
     taskIndex += 1;
     if (taskIndex >= tasks.length) finish();
-    else showTask();
+    else { showTask(); title.focus(); }
   });
 })();
