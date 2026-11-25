@@ -60,7 +60,8 @@ python3.14 simpleoffice_runtime_support.py
 ```
 
 Die Systemprüfung findet optionale PDF- und OCR-Programme auf dem
-`PATH`. Bei explizitem `--check-system` fragt sie zusätzlich mit lokalem
+`PATH`, einschließlich aller drei Poppler-Befehle für PDF-Reader-OCR
+(`pdftotext`, `pdftoppm` und `pdfimages`). Bei explizitem `--check-system` fragt sie zusätzlich mit lokalem
 `tesseract --list-langs` nach Deutsch (`deu`) und Englisch (`eng`). Das
 ist eine Bestandsprüfung, keine OCR eines Dokuments. Bei abweichendem
 Sprachdatenordner auch `TESSDATA_PREFIX` prüfen. Beim normalen Start

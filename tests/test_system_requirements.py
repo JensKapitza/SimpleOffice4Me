@@ -28,6 +28,26 @@ class NativeSystemReportTests(unittest.TestCase):
         self.assertNotIn("  OK ", out)
         process.assert_not_called()
 
+    def test_missing_pdfimages_is_reported_even_when_other_ocr_tools_are_present(self):
+        available = {command for commands in check.TOOLS.values() for command in commands} - {"pdfimages"}
+        out, process = self.output(available, only_missing=True)
+        self.assertIn("FEHLT PDF-Bildprüfung für Reader-OCR: pdfimages", out)
+        self.assertIn("poppler-utils", out)
+        self.assertNotIn("FEHLT PDF-Text", out)
+        self.assertNotIn("FEHLT PDF-Vorschau", out)
+        process.assert_not_called()
+
+    def test_explicit_check_reports_pdfimages_and_language_packs_separately(self):
+        langs = subprocess.CompletedProcess([], 0, stdout=b"deu\neng\n")
+        tools = {"pdftoppm", "pdftotext", "tesseract"}
+        missing, _ = self.output(tools, only_missing=False, result=langs)
+        ready, probe = self.output(tools | {"pdfimages"}, only_missing=False, result=langs)
+        self.assertIn("FEHLT PDF-Bildprüfung für Reader-OCR: pdfimages", missing)
+        self.assertIn("OK PDF-Bildprüfung für Reader-OCR: /test/pdfimages", ready)
+        self.assertIn("OK OCR-Sprachdaten gelistet: deu, eng", missing)
+        self.assertIn("OK OCR-Sprachdaten gelistet: deu, eng", ready)
+        probe.assert_called_once()
+
     def test_healthy_startup_is_quiet_and_never_runs_tesseract(self):
         available = {command for commands in check.TOOLS.values() for command in commands}
         out, process = self.output(available, only_missing=True)
