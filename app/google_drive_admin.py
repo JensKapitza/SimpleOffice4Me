@@ -27,7 +27,9 @@ from .security_controls import protect_value, unprotect_value
 
 bp = Blueprint("google_drive_admin", __name__, url_prefix="/settings/google-drive")
 ANDROID_USER_AGENT_TOKEN = "SimpleOffice4Me-Android/"
-ANDROID_RESULTS = frozenset({"connected", "synced", "cancelled", "error", "unavailable"})
+ANDROID_RESULTS = frozenset({
+    "connected", "synced", "cancelled", "error", "unavailable", "denied", "offline", "configuration", "play-services",
+})
 ANDROID_ACTIONS = frozenset({"connect", "sync"})
 MAX_ANDROID_TOKEN_BYTES = 8192
 MAX_ANDROID_TOKEN_REQUEST_BYTES = 16 * 1024
@@ -179,7 +181,7 @@ def index():
         status = str(item.get("status", "pending"))
         counts[status] = counts.get(status, 0) + 1
     android_result = str(request.args.get("android", "")).strip().casefold()
-    if android_result not in ANDROID_RESULTS:
+    if not _is_android_request() or android_result not in ANDROID_RESULTS:
         android_result = ""
     oauth_client_id, oauth_client_secret = _marketplace.google_oauth_credentials()
     return render_template(
