@@ -232,7 +232,8 @@ def _cached_book(provider: str, code: str, api_key: str) -> list[dict] | None:
     # Cache namespace fingerprint, not credential storage: segregating cached
     # rows per API key without retaining the raw key. A salted KDF cannot
     # serve as a deterministic lookup key, so the finding is suppressed here.
-    key_marker = hashlib.sha256(api_key.encode()).hexdigest() if provider == "google_books" else ""  # codeql[py/weak-sensitive-data-hashing]
+    # codeql[py/weak-sensitive-data-hashing]
+    key_marker = hashlib.sha256(api_key.encode()).hexdigest() if provider == "google_books" else ""
     cache_key = (provider, code, key_marker)
     now = time.monotonic()
     with _cache_lock:
