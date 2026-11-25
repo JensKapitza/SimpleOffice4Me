@@ -286,6 +286,24 @@ class MailReadAloudTests(unittest.TestCase):
             network.assert_not_called()
         self.assertEqual(["Hello Mail"], self.spoken)
 
+    def test_html_only_receipt_speaks_table_cells_without_splitting_inline_words(self):
+        message = EmailMessage()
+        message.set_content(
+            "<p>Ihre Liefer<strong>bestätigung</strong>.</p>"
+            "<table><tr><th>Beleg</th><th>Nummer</th></tr>"
+            "<tr><td>Rechnung</td><td>76342</td></tr>"
+            "<tr><td>Einzelpreis</td><td>18,90&nbsp;€</td></tr></table>"
+            "<p>Die Lieferung erfolgt am Dienstag.</p>",
+            subtype="html",
+        )
+        document = DocumentStore(self.root).import_upload(io.BytesIO(message.as_bytes()), "receipt.eml", "alice")
+        doc_id = document["document_id"]
+        player = self._control(self.alice, f"/documents/{doc_id}/eml-preview?view=html")
+        self._assert_wav(self._post(self.alice, player))
+        self.assertEqual([
+            "Ihre Lieferbestätigung. Beleg Nummer Rechnung 76342 Einzelpreis 18,90 € Die Lieferung erfolgt am Dienstag.",
+        ], self.spoken)
+
     def test_case_permission_does_not_grant_generic_eml_document_read_aloud(self):
         archive = self._archived_message("Private document")
         case = MailCaseStore(self.root)
