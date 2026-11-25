@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
+import wave
+from unittest.mock import Mock, patch
 
 from app.audio_output_engine import _stored_piper_model, render_tts
 from app.media_settings import (
@@ -46,6 +48,38 @@ class PiperModelSettingsTests(unittest.TestCase):
                 with patch("app.audio_output_engine.shutil.which", return_value=None):
                     with self.assertRaisesRegex(RuntimeError, "nicht installiert"):
                         render_tts("Hallo", "stimme", root, model="/models/voice.onnx")
+
+    def test_render_tts_opts_out_before_child_start_without_mutating_parent(self):
+        for parent in ({}, {"ORT_DISABLE_TELEMETRY": "0"}):
+            with self.subTest(parent=parent), tempfile.TemporaryDirectory() as root:
+                environment = {"PATH": "fixture-search-path", "PIPER_ENV_FIXTURE": "preserved", **parent}
+                text = "Synthetischer Test: grüner Würfel."
+                child = Mock(returncode=0)
+                child.poll.return_value = 0
+
+                def fake_popen(command, **kwargs):
+                    self.assertEqual({**environment, "ORT_DISABLE_TELEMETRY": "1"}, kwargs.get("env"))
+                    self.assertEqual(dict(os.environ), environment)
+                    self.assertEqual(["piper-fixture", "--model", "fixture.onnx", "--output_file"], command[:4])
+                    self.assertEqual(5, len(command))
+                    self.assertEqual(subprocess.PIPE, kwargs["stdin"])
+                    with wave.open(command[4], "wb") as output:
+                        output.setnchannels(1)
+                        output.setsampwidth(2)
+                        output.setframerate(8000)
+                        output.writeframes(b"\x01\x00")
+                    return child
+
+                with (
+                    patch.dict(os.environ, environment, clear=True),
+                    patch("app.audio_output_engine.shutil.which", return_value="piper-fixture"),
+                    patch("app.audio_output_engine.subprocess.Popen", side_effect=fake_popen) as launch,
+                ):
+                    target = render_tts(text, "fixture", root, model="fixture.onnx")
+                    self.assertTrue(target.is_file())
+                    launch.assert_called_once()
+                    child.communicate.assert_called_once_with(input=text.encode("utf-8"), timeout=0.2)
+                    self.assertEqual(dict(os.environ), environment)
 
 
 if __name__ == "__main__":

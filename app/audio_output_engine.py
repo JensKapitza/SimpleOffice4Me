@@ -97,8 +97,10 @@ def render_tts(text: str, voice: str, cache_dir: str | Path, *, model: str | Non
         return target
     with tempfile.TemporaryDirectory(prefix="tts-render-", dir=root) as temporary:
         output = Path(temporary) / "speech.wav"
+        # ONNX Runtime's 1DS provider reads the opt-out at startup. Scope it to Piper.
         process = subprocess.Popen([piper, "--model", selected_model, "--output_file", str(output)],
-            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            env={**os.environ, "ORT_DISABLE_TELEMETRY": "1"})
         deadline = time.monotonic() + 45
         input_data = text.encode("utf-8")
         try:

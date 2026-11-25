@@ -20,6 +20,14 @@ Netzwerk-Stimmen-Fallback.
 Signaltöne entstehen mit Python-Standardbibliothek als WAV. Nichts wird durch
 den Audio-Worker installiert oder heruntergeladen.
 
+Beim Start zur Synthese setzt SimpleOffice nur für den Piper-Unterprozess
+`ORT_DISABLE_TELEMETRY=1`. Das deaktiviert laut der
+[ONNX-Runtime-Dokumentation](https://github.com/microsoft/onnxruntime/blob/main/docs/Privacy.md#disabling-telemetry)
+den 1DS-Telemetrieanbieter, sofern die verwendete Laufzeit den Schalter
+unterstützt. Der ältere Windows-TraceLogging-Anbieter verwendet ihn nicht.
+Der Schalter ist keine Netzwerksperre für beliebige Piper-Builds oder andere
+Prozesse; die Umgebung von SimpleOffice bleibt unverändert.
+
 ## Standardbetrieb
 
 `./start.sh` startet den lokalen Wiedergabe-Worker mit. Unter **Mini Services →
