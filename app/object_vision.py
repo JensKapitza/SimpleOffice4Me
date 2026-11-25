@@ -8,6 +8,7 @@ set while using the same object-care code.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import threading
@@ -62,8 +63,8 @@ def _rapidocr_engine() -> Any:
 
             # RapidOCR's defaults can download missing model files during the
             # first inference. Point it at the model files shipped in the
-            # pinned package and fail closed if they are absent, so OCR never
-            # makes a network request at runtime.
+            # pinned package and fail closed if they are absent to prevent a
+            # runtime fetch of those model files.
             model_root = Path(next(iter(spec.submodule_search_locations))) / "models"
             model_paths = {
                 "Det.model_path": model_root / "PP-OCRv6_det_small.onnx",
@@ -77,6 +78,9 @@ def _rapidocr_engine() -> Any:
                     + ", ".join(missing_models)
                 )
 
+            # Set this before the vendor import, which may initialize ONNX Runtime.
+            # The supported 1DS opt-out applies to this process for its lifetime.
+            os.environ["ORT_DISABLE_TELEMETRY"] = "1"
             from rapidocr import RapidOCR
 
             _RAPID_OCR_ENGINE = RapidOCR(
