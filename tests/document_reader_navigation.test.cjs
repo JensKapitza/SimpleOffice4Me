@@ -23,12 +23,14 @@ class Element {
   dispatchEvent(event) { this.fire(event.type, event); }
 }
 
-function reader(saved = {}) {
-  const root = new Element({format: 'epub', documentVersion: 'version-1',
+function reader(saved = {}, {stale = false, format = 'epub'} = {}) {
+  const root = new Element({format, documentVersion: 'version-1',
     savedLocator: JSON.stringify(saved), epubUrl: '/chapters', progressApi: '/progress',
-    annotationApi: '/notes'});
-  const names = ['status', 'position', 'error', 'epub-body', 'prev', 'next', 'note', 'add-note'];
+    annotationApi: '/notes', pdfUrl: '/book.pdf', pageCount: '5'});
+  const names = ['status', 'position', 'error', 'epub-body', 'pdf-frame', 'prev', 'next', 'note', 'add-note'];
+  if (stale) names.push('stale-progress', 'save-new-progress', 'save-new-status');
   const elements = Object.fromEntries(names.map(name => [name, new Element()]));
+  if (stale) elements['save-new-progress'].disabled = true;
   const chapters = ['a', 'b', 'c'].map((id, index) => new Element({
     readerChapter: String(index), readerChapterId: id,
   }));
@@ -41,22 +43,25 @@ function reader(saved = {}) {
   const timers = new Map();
   const frames = [];
   const scrolls = [];
+  const progressReplies = [];
   let serial = 0;
   const tick = () => new Promise(resolve => setImmediate(resolve));
   const response = (body, ok = true) => ({ok, status: ok ? 200 : 503, json: async () => body});
   const fetch = (url, options) => {
     if (options.method === 'POST') {
       writes.push({url, data: JSON.parse(options.body)});
-      return Promise.resolve(response({}));
+      const next = url === '/progress' && progressReplies.shift();
+      if (next?.defer) return next.defer.then(() => response(next.body, next.ok));
+      return Promise.resolve(next ? response(next.body, next.ok) : response({document_version: 'version-1', stale: false}));
     }
     return new Promise(resolve => gets.push({url, resolve}));
   };
   const win = new Element();
-  win.location = {reload() {}};
+  win.location = new URL('http://localhost/reader/book');
   win.scrollTo = opts => scrolls.push(opts.top);
   vm.runInNewContext(script, {
     document: {getElementById: id => id === 'reader-root' ? root : null, querySelector: () => null},
-    window: win, Headers, fetch, requestAnimationFrame: fn => frames.push(fn),
+    window: win, Headers, URL, fetch, requestAnimationFrame: fn => frames.push(fn),
     setTimeout: (fn, delay) => { timers.set(++serial, {fn, delay}); return serial; },
     clearTimeout: id => timers.delete(id),
     CustomEvent: class {
@@ -64,7 +69,7 @@ function reader(saved = {}) {
     },
   });
   return {
-    elements, chapters, gets, writes, frames, scrolls, win,
+    elements, chapters, gets, writes, frames, scrolls, win, progressReplies,
     async finish(index, id, ok = true) {
       const data = ok ? {id, html: '<p>' + id + '</p>'} : {error: id};
       gets[index].resolve(response(data, ok));
@@ -190,4 +195,88 @@ test('initial failed resume does not jump back to the stale saved chapter index'
   assert.equal(r.gets[1].url, '/chapters/2');
   await r.finish(1, 'c');
   assert.equal(r.elements['epub-body'].innerHTML, '<p>c</p>');
+});
+
+test('opening or browsing a replaced EPUB does not replace the old position without consent', async () => {
+  const r = reader({}, {stale: true});
+  await r.finish(0, 'a');
+  r.elements.next.fire();
+  await r.finish(1, 'b');
+  r.win.scrollY = 487;
+  r.win.fire('scroll');
+  await r.runTimers(250);
+  await r.runTimers(350);
+  assert.deepEqual(r.writes, []);
+  assert.equal(r.elements.position.value, '2');
+  assert.equal(r.elements['stale-progress'].hidden, undefined);
+  await r.elements['save-new-progress'].fire();
+  await r.runTimers(350);
+  assert.equal(r.elements['stale-progress'].hidden, true);
+  assert.deepEqual(r.writes.map(x => x.data.locator), [locator('b', 1, 87)]);
+  r.elements.next.fire();
+  await r.finish(2, 'c');
+  await r.runTimers(350);
+  assert.deepEqual(r.writes.map(x => x.data.locator), [locator('b', 1, 87), locator('c', 2)]);
+});
+
+test('replaced PDF navigation remains usable and writes only after explicit acceptance', async () => {
+  const r = reader({}, {stale: true, format: 'pdf'});
+  await r.runTimers(350);
+  r.elements.next.fire();
+  await r.runTimers(350);
+  assert.equal(new URL(r.elements['pdf-frame'].src).hash, '#page=2');
+  assert.deepEqual(r.writes, []);
+  await r.elements['save-new-progress'].fire();
+  await r.runTimers(350);
+  assert.deepEqual(r.writes, [{url: '/progress', data: {
+    locator: {page: 2}, percent: 40, document_version: 'version-1',
+  }}]);
+  r.elements.next.fire();
+  await r.runTimers(350);
+  assert.equal(r.writes[1].data.locator.page, 3);
+});
+
+test('a failed first EPUB chapter has not enabled starting a new saved position', async () => {
+  const r = reader({}, {stale: true});
+  await r.finish(0, 'missing', false);
+  assert.equal(r.elements['save-new-progress'].disabled, true);
+  await r.elements['save-new-progress'].fire();
+  await r.runTimers(350);
+  assert.deepEqual(r.writes, []);
+});
+
+test('an unconfirmed write keeps the warning and does not enable autosave', async () => {
+  const r = reader({}, {stale: true, format: 'pdf'});
+  r.progressReplies.push({ok: false, body: {error: 'Das Dokument wurde geändert.'}}, {ok: true, body: {}});
+  await r.elements['save-new-progress'].fire();
+  assert.match(r.elements['save-new-status'].textContent, /Dokument wurde geändert/);
+  assert.equal(r.elements['stale-progress'].hidden, undefined);
+  r.elements.next.fire();
+  await r.runTimers(350);
+  assert.equal(r.writes.length, 1);
+  await r.elements['save-new-progress'].fire();
+  assert.match(r.elements['save-new-status'].textContent, /nicht bestätigt/);
+  assert.equal(r.elements['stale-progress'].hidden, undefined);
+  r.elements.next.fire();
+  await r.runTimers(350);
+  assert.equal(r.writes.length, 2);
+  await r.elements['save-new-progress'].fire();
+  assert.equal(r.writes[2].data.locator.page, 3);
+  assert.equal(r.elements['stale-progress'].hidden, true);
+});
+
+test('the acknowledged position is snapshotted before later navigation resumes autosave', async () => {
+  const r = reader({}, {stale: true, format: 'pdf'});
+  let complete;
+  const defer = new Promise(resolve => { complete = resolve; });
+  r.progressReplies.push({defer, ok: true, body: {document_version: 'version-1', stale: false}});
+  const save = r.elements['save-new-progress'].fire();
+  r.elements.next.fire();
+  await r.elements['save-new-progress'].fire();
+  await r.runTimers(350);
+  assert.deepEqual(r.writes.map(x => x.data.locator.page), [1]);
+  complete();
+  await save;
+  await r.runTimers(350);
+  assert.deepEqual(r.writes.map(x => x.data.locator.page), [1, 2]);
 });

@@ -7,6 +7,12 @@
   const status = root.querySelector('[data-reader-status]');
   const position = root.querySelector('[data-reader-position]');
   const errorBox = root.querySelector('[data-reader-error]');
+  const staleProgress = root.querySelector('[data-reader-stale-progress]');
+  const saveNewProgress = root.querySelector('[data-reader-save-new-progress]');
+  const saveNewStatus = root.querySelector('[data-reader-save-new-status]');
+  let progressPaused = Boolean(staleProgress);
+  let positionReady = false;
+  let acceptingProgress = false;
   const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content || '';
   const saved = (() => { try { return JSON.parse(root.dataset.savedLocator || '{}'); } catch (_) { return {}; } })();
   let current = format === 'pdf' ? Math.max(1, Number(saved.page || 1)) : Math.max(0, Number(saved.chapter_index || 0));
@@ -60,16 +66,45 @@
     const total = format === 'pdf' ? pageCount : chapterCount;
     return total > 0 ? Math.min(100, Math.max(0, Math.round(((current + (format === 'pdf' ? 0 : 1)) / total) * 100))) : 0;
   };
+  const progressPayload = () => JSON.stringify({
+    locator: locator(), percent: percent(), document_version: version
+  });
+  const writeProgress = body => request(root.dataset.progressApi, {method: 'POST', body});
   const scheduleSave = () => {
+    positionReady = true;
+    if (progressPaused) {
+      if (saveNewProgress && !acceptingProgress) saveNewProgress.disabled = false;
+      return;
+    }
     clearTimeout(saveTimer);
     saveTimer = setTimeout(async () => {
-      try {
-        await request(root.dataset.progressApi, {method: 'POST', body: JSON.stringify({
-          locator: locator(), percent: percent(), document_version: version
-        })});
-      } catch (error) { showError(error.message); }
+      try { await writeProgress(progressPayload()); }
+      catch (error) { showError(error.message); }
     }, 350);
   };
+  saveNewProgress?.addEventListener('click', async () => {
+    if (!progressPaused || !positionReady || acceptingProgress) return;
+    acceptingProgress = true;
+    saveNewProgress.disabled = true;
+    saveNewStatus.textContent = 'Speichert …';
+    const body = progressPayload();
+    try {
+      const state = await writeProgress(body);
+      if (state?.document_version !== version || state.stale !== false) {
+        throw new Error('Speichern konnte nicht bestätigt werden. Bitte lade den Reader neu.');
+      }
+      progressPaused = false;
+      const returnFocus = document.activeElement === saveNewProgress;
+      staleProgress.hidden = true;
+      if (returnFocus) position?.focus();
+      if (progressPayload() !== body) scheduleSave();
+    } catch (error) {
+      saveNewStatus.textContent = error.message;
+    } finally {
+      acceptingProgress = false;
+      saveNewProgress.disabled = false;
+    }
+  });
   const updateStatus = (total) => {
     if (position) position.value = String(format === 'pdf' ? current : current + 1);
     if (status) status.textContent = (format === 'pdf' ? 'Seite ' : 'Kapitel ') +
