@@ -559,6 +559,20 @@ class FederationCatalog:
             ).fetchall()
         return [self._request(row) for row in rows]
 
+    def queue_readiness(self, now: int) -> tuple[int, int, int | None]:
+        """Read all eligible queue records, including those outside the visible page."""
+        with self._db() as db:
+            row = db.execute(
+                """SELECT COUNT(*) AS pending,
+                          COUNT(CASE WHEN q.next_attempt_at<=? THEN 1 END) AS ready,
+                          MIN(CASE WHEN q.next_attempt_at>? THEN q.next_attempt_at END) AS earliest
+                   FROM federation_download_request q
+                   JOIN federation_remote_file f ON f.peer_id=q.peer_id AND f.remote_document_id=q.remote_document_id
+                   WHERE q.status IN ('queued','retry','waiting_peer')""",
+                (now, now),
+            ).fetchone()
+        return row["ready"], row["pending"] - row["ready"], row["earliest"]
+
     def next_requests(self, limit: int = 1) -> list[dict[str, Any]]:
         with self._db() as db:
             rows = db.execute(

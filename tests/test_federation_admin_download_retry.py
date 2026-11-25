@@ -57,6 +57,11 @@ class FederationAdminDownloadRetryTests(FederationAdminUiFixture, unittest.TestC
                     result = self.client.get(self.transfer_path)
                 self.assertEqual(200, result.status_code)
                 page = BeautifulSoup(result.get_data(as_text=True), "html.parser")
+                summary = page.select_one("#download-queue-eligibility")
+                self.assertEqual(len(eligible), int(summary["data-ready"]))
+                self.assertEqual("3", summary["data-delayed"])
+                earliest = datetime.fromtimestamp(self.now + 90, timezone.utc)
+                self.assertEqual(earliest, datetime.fromisoformat(summary.select_one("time")["datetime"]))
                 for name, (status, timestamp) in self.statuses.items():
                     with self.subTest(name=name):
                         form = page.find("form", action=f'/admin/federation/queue/{self.requests[name]}/priority')
