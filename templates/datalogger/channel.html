@@ -7,18 +7,28 @@
   {% with messages=get_flashed_messages() %}{% for message in messages %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}{% endwith %}
 
   <section class="card mb-4"><div class="card-body">
+    <h2 class="h5">Letzter gespeicherter Wert</h2>
+    {% if latest %}<p class="fs-4 mb-0">{{ latest.value }} {{ channel.unit }}</p><p class="text-secondary">{{ latest.measured_at }} · {{ latest.source_name }}</p>{% else %}<p>Für diesen Kanal wurde noch kein Wert gespeichert.</p>{% endif %}
+    {% for source in sources if source.last_error_code %}<p class="text-danger mb-1"><strong>{{ source.name }}:</strong> Letzte Messung fehlgeschlagen ({{ source.last_error_code }}; {{ source.last_run_at }}). Der letzte gespeicherte Wert ist nicht automatisch aktuell.</p>{% endfor %}
+  </div></section>
+  <section class="card mb-4"><div class="card-body">
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-      <h2 class="h5 mb-0">Messverlauf</h2>
+      <h2 class="h5 mb-0" id="messverlauf">Messverlauf</h2>
       <div class="text-secondary small">{{ total_samples }} Messwerte · Seite {{ page }} von {{ pages }}</div>
     </div>
-    <svg id="chart" viewBox="0 0 1000 300" class="w-100 border rounded"></svg>
-
-    <form method="get" class="d-flex justify-content-end align-items-center gap-2 my-3">
+    <form method="get" class="d-flex flex-wrap align-items-end gap-2 my-3">
+      <label for="start-day">Von (UTC)<input id="start-day" name="start_day" class="form-control" type="date" value="{{ start_day }}" required></label>
+      <label for="end-day">Bis einschließlich (UTC)<input id="end-day" name="end_day" class="form-control" type="date" value="{{ end_day }}" required></label>
       <label class="small text-secondary" for="per-page">Zeilen pro Seite</label>
-      <select class="form-select form-select-sm w-auto" id="per-page" name="per_page" onchange="this.form.submit()">
+      <select class="form-select form-select-sm w-auto" id="per-page" name="per_page">
         {% for size in (50,100,250) %}<option value="{{ size }}" {% if per_page == size %}selected{% endif %}>{{ size }}</option>{% endfor %}
       </select>
+      <button class="btn btn-primary" type="submit">Zeitraum anzeigen</button>
     </form>
+    {% if chart_samples %}
+    <svg id="chart" viewBox="0 0 1000 300" class="w-100 border rounded" role="img" aria-label="Messpunkte nach Zeit in {{ channel.unit or 'Kanaleinheit' }}; genaue Werte stehen in der Tabelle"></svg>
+    <p class="text-secondary small">Je ein Punkt pro gültiger Messung, maximal die 200 neuesten. Fehlende Messungen werden nicht als Null dargestellt.</p>
+    {% else %}<p>Keine Messwerte für den gewählten Zeitraum. Wähle einen anderen Zeitraum oder richte unten eine Quelle ein.</p>{% endif %}
 
     <div class="table-responsive"><table class="table table-sm align-middle">
       <thead><tr><th scope="col">Zeitpunkt</th><th scope="col">Quelle</th><th scope="col">Messgröße</th><th scope="col">Wert</th><th scope="col">Qualität</th></tr></thead>
@@ -27,15 +37,27 @@
 
     {% if pages > 1 %}
     <nav aria-label="Messwertseiten"><ul class="pagination pagination-sm justify-content-center flex-wrap">
-      <li class="page-item {{ 'disabled' if page <= 1 else '' }}"><a class="page-link" href="{{ url_for('datalogger.channel', channel_id=channel.channel_id, page=page-1, per_page=per_page) }}" rel="prev">Zurück</a></li>
+      <li class="page-item {{ 'disabled' if page <= 1 else '' }}"><a class="page-link" href="{{ url_for('datalogger.channel', channel_id=channel.channel_id, page=page-1, per_page=per_page, start_day=start_day, end_day=end_day) }}" rel="prev">Zurück</a></li>
       {% set start_page = [1, page-2]|max %}{% set end_page = [pages, page+2]|min %}
-      {% if start_page > 1 %}<li class="page-item"><a class="page-link" href="{{ url_for('datalogger.channel', channel_id=channel.channel_id, page=1, per_page=per_page) }}">1</a></li>{% if start_page > 2 %}<li class="page-item disabled"><span class="page-link" aria-hidden="true">…</span></li>{% endif %}{% endif %}
-      {% for p in range(start_page, end_page + 1) %}<li class="page-item {{ 'active' if p == page else '' }}"><a class="page-link" href="{{ url_for('datalogger.channel', channel_id=channel.channel_id, page=p, per_page=per_page) }}" aria-current="{{ 'page' if p == page else 'false' }}">{{ p }}</a></li>{% endfor %}
-      {% if end_page < pages %}{% if end_page < pages-1 %}<li class="page-item disabled"><span class="page-link" aria-hidden="true">…</span></li>{% endif %}<li class="page-item"><a class="page-link" href="{{ url_for('datalogger.channel', channel_id=channel.channel_id, page=pages, per_page=per_page) }}">{{ pages }}</a></li>{% endif %}
-      <li class="page-item {{ 'disabled' if page >= pages else '' }}"><a class="page-link" href="{{ url_for('datalogger.channel', channel_id=channel.channel_id, page=page+1, per_page=per_page) }}" rel="next">Weiter</a></li>
+      {% if start_page > 1 %}<li class="page-item"><a class="page-link" href="{{ url_for('datalogger.channel', channel_id=channel.channel_id, page=1, per_page=per_page, start_day=start_day, end_day=end_day) }}">1</a></li>{% if start_page > 2 %}<li class="page-item disabled"><span class="page-link" aria-hidden="true">…</span></li>{% endif %}{% endif %}
+      {% for p in range(start_page, end_page + 1) %}<li class="page-item {{ 'active' if p == page else '' }}"><a class="page-link" href="{{ url_for('datalogger.channel', channel_id=channel.channel_id, page=p, per_page=per_page, start_day=start_day, end_day=end_day) }}" aria-current="{{ 'page' if p == page else 'false' }}">{{ p }}</a></li>{% endfor %}
+      {% if end_page < pages %}{% if end_page < pages-1 %}<li class="page-item disabled"><span class="page-link" aria-hidden="true">…</span></li>{% endif %}<li class="page-item"><a class="page-link" href="{{ url_for('datalogger.channel', channel_id=channel.channel_id, page=pages, per_page=per_page, start_day=start_day, end_day=end_day) }}">{{ pages }}</a></li>{% endif %}
+      <li class="page-item {{ 'disabled' if page >= pages else '' }}"><a class="page-link" href="{{ url_for('datalogger.channel', channel_id=channel.channel_id, page=page+1, per_page=per_page, start_day=start_day, end_day=end_day) }}" rel="next">Weiter</a></li>
     </ul></nav>
     {% endif %}
-    <a href="{{ url_for('datalogger.data', channel_id=channel.channel_id) }}">JSON-Export</a>
+    <div class="d-flex flex-wrap gap-2 mt-3" aria-label="Export für den angezeigten Zeitraum">
+      <a class="btn btn-outline-primary" href="{{ url_for('datalogger.report', channel_id=channel.channel_id, kind='csv', start_day=start_day, end_day=end_day) }}">Messwerte als CSV</a>
+      <a class="btn btn-outline-primary" href="{{ url_for('datalogger.report', channel_id=channel.channel_id, kind='txt', start_day=start_day, end_day=end_day) }}">Bericht als Text</a>
+      <a class="btn btn-outline-primary" href="{{ url_for('datalogger.report', channel_id=channel.channel_id, kind='pdf', start_day=start_day, end_day=end_day) }}">Bericht als PDF</a>
+      <a class="btn btn-outline-secondary" href="{{ url_for('datalogger.data', channel_id=channel.channel_id, start_day=start_day, end_day=end_day) }}">Messwerte als JSON</a>
+    </div>
+  </div></section>
+  <section class="card mb-4"><div class="card-body">
+    <h2 class="h5">Protokollierte Erfassungsfehler</h2>
+    <p class="text-secondary">Die letzten 20 Fehler im Zeitraum. Ältere Fehler vor der Protokollierung und ausgefallene Worker werden dadurch nicht rückwirkend erfasst.</p>
+    {% if errors %}<ul class="list-group list-group-flush">{% for error in errors %}
+      <li class="list-group-item px-0"><strong>{{ error.source_name }}</strong> · {{ error.measured_at }} · <code>{{ error.error_code }}</code> <a class="d-inline-block ms-2" href="{{ url_for('datalogger.channel', channel_id=channel.channel_id, start_day=error.before, end_day=error.after, _anchor='messverlauf') }}">Verlauf vor und nach dem Fehler</a></li>
+    {% endfor %}</ul>{% else %}<p>Keine protokollierten Fehler im Zeitraum.</p>{% endif %}
   </div></section>
 
   {% if can_edit %}<div class="row g-3">
@@ -63,6 +85,6 @@
     </div></div></section>
   </div>{% endif %}
 
-  <script>const data={{ chart_samples|tojson }};if(data.length>1){const svg=document.getElementById('chart'),v=data.map(x=>x.value),lo=Math.min(...v),hi=Math.max(...v),span=hi-lo||1,p=document.createElementNS('http://www.w3.org/2000/svg','polyline');p.setAttribute('points',data.map((x,i)=>`${20+i*960/(data.length-1)},${280-(x.value-lo)*260/span}`).join(' '));p.setAttribute('fill','none');p.setAttribute('stroke','{{ channel.color }}');p.setAttribute('stroke-width','3');svg.appendChild(p)}</script>
+  <script>const svg=document.getElementById('chart');if(svg){const points={{ chart_samples|tojson }}.filter(r=>r.quality==='good').map(r=>({time:Date.parse(r.measured_at+(/(?:Z|[+-]\d\d:\d\d)$/.test(r.measured_at)?'':'Z')),value:r.value})).filter(r=>Number.isFinite(r.time));const values=points.map(r=>r.value),lo=Math.min(...values),hi=Math.max(...values),span=hi-lo||1,start=Date.parse({{ start_day|tojson }}),length=Date.parse({{ end_day|tojson }})-start+86400000,ns='http://www.w3.org/2000/svg';for(const r of points){const p=document.createElementNS(ns,'circle');p.setAttribute('cx',88+(r.time-start)*890/length);p.setAttribute('cy',260-(r.value-lo)*225/span);p.setAttribute('r',5);p.setAttribute('fill',{{ channel.color|tojson }});svg.appendChild(p)}if(points.length){for(const [x,y,label] of [[8,35,hi.toPrecision(4)],[8,260,lo.toPrecision(4)],[88,292,{{ start_day|tojson }}],[845,292,{{ end_day|tojson }}]]){const t=document.createElementNS(ns,'text');t.setAttribute('x',x);t.setAttribute('y',y);t.setAttribute('fill','currentColor');t.textContent=label;svg.appendChild(t)}}}</script>
 </main>
 {% endblock %}
