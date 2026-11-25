@@ -391,8 +391,16 @@ class _DocumentStorePart5:
         except (OSError, ValueError, SyntaxError) as exc:
             analysis["metadata_error"] = str(exc)
 
+        from .ocr_preprocessing import photo_ocr_input
+
         try:
-            ocr_text = self._image_ocr(path)
+            with photo_ocr_input(path) as source:
+                try:
+                    ocr_text = self._image_ocr(source)
+                except (OSError, RuntimeError) as exc:
+                    if source == path:
+                        raise
+                    raise RuntimeError("Local OCR failed for the prepared grayscale PNG.") from exc
             metadata["ocr_text"] = ocr_text
             analysis["ocr_status"] = "completed"
             analysis["ocr_characters"] = len(ocr_text)
