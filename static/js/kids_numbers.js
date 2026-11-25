@@ -61,6 +61,7 @@
   let firstTry = 0;
   let mistakes = 0;
   let locked = false;
+  let replayQuestion = null;
 
   function noun(item, amount) {
     if (amount === 1) return english ? item.en : item.de;
@@ -245,6 +246,9 @@
   function ask(parts, spoken) {
     prompt.textContent = spoken;
     say(parts);
+    // Pin this question before feedback or the optional counting aid speaks.
+    const questionClips = currentClips;
+    replayQuestion = () => say(questionClips);
   }
 
   function makeAnswerButton(label, correct) {
@@ -320,7 +324,9 @@
   root.querySelectorAll('[data-level]').forEach(button => {
     button.addEventListener('click', () => begin(button.dataset.level));
   });
-  root.querySelector('[data-repeat]').addEventListener('click', () => { if (currentClips.length) say(currentClips); });
+  root.querySelector('[data-repeat]').addEventListener('click', () => {
+    if (!play.hidden) replayQuestion?.();
+  });
   root.querySelector('[data-back]').addEventListener('click', toSetup);
   root.querySelector('[data-result-back]').addEventListener('click', toSetup);
   root.querySelector('[data-play-again]').addEventListener('click', () => begin(level));
