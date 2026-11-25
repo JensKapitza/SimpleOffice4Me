@@ -27,6 +27,7 @@
   const progress = root.querySelector('[data-progress]');
   const next = root.querySelector('[data-next]');
   const repeat = root.querySelector('[data-repeat]');
+  const pictureHint = root.querySelector('[data-picture-hint]');
   const speechStatus = root.querySelector('[data-speech-status]');
   const levelButtons = [...root.querySelectorAll('[data-level]')];
 
@@ -111,15 +112,9 @@
     feedback.textContent = '';
     progress.textContent = text(`Runde ${taskIndex + 1} von ${tasks.length}`, `Round ${taskIndex + 1} of ${tasks.length}`);
     stage.replaceChildren();
-    if (task.kind === 'sounds') {
-      target.textContent = '🔊❓';
-      target.setAttribute('aria-label', taskSpoken(task));
-      prompt.textContent = text(`Hör gut zu: ${soundWord(task.target)}`, `Listen well: ${soundWord(task.target)}`);
-    } else {
-      target.textContent = task.target.emoji;
-      target.setAttribute('aria-label', word(task.target));
-      prompt.textContent = text('Tippe auf das gleiche Bild.', 'Tap the matching picture.');
-    }
+    pictureHint.hidden = task.kind !== 'sounds';
+    pictureHint.setAttribute('aria-pressed', 'false');
+    showTarget(task);
     task.choices.forEach(item => {
       const button = document.createElement('button');
       button.type = 'button';
@@ -130,6 +125,20 @@
       stage.append(button);
     });
     say([{key: task.target.prompt_audio, fallback: taskSpoken(task)}]);
+  }
+
+  function showTarget(task, showPicture = false) {
+    if (task.kind === 'sounds' && !showPicture) {
+      target.textContent = '🔊❓';
+      target.setAttribute('aria-label', taskSpoken(task));
+      prompt.textContent = text(`Hör gut zu: ${soundWord(task.target)}`, `Listen well: ${soundWord(task.target)}`);
+      return;
+    }
+    target.textContent = task.target.emoji;
+    target.setAttribute('aria-label', word(task.target));
+    prompt.textContent = showPicture
+      ? text(`Tippbild: ${word(task.target)}. Tippe auf das gleiche Bild.`, `Picture clue: ${word(task.target)}. Tap the matching picture.`)
+      : text('Tippe auf das gleiche Bild.', 'Tap the matching picture.');
   }
 
   function answer(button, item, task) {
@@ -220,6 +229,12 @@
   }));
   root.querySelectorAll('[data-category]').forEach(button => button.addEventListener('click', () => begin(button.dataset.category)));
   repeat.addEventListener('click', () => { if (currentClips.length) say(currentClips); });
+  pictureHint.addEventListener('click', () => {
+    if (play.hidden || pictureHint.hidden) return;
+    const showPicture = pictureHint.getAttribute('aria-pressed') !== 'true';
+    pictureHint.setAttribute('aria-pressed', String(showPicture));
+    showTarget(tasks[taskIndex], showPicture);
+  });
   next.addEventListener('click', nextTask);
   root.querySelector('[data-back]').addEventListener('click', showSetup);
   root.querySelector('[data-result-back]').addEventListener('click', showSetup);
