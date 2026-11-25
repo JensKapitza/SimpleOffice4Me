@@ -11,6 +11,8 @@ In **Dokumente – Schnell finden** genügt ein Wortanfang. `rech` findet etwa d
 Tag `rechnung` und Dateinamen, die mit diesem Token beginnen. Höchstens 25
 Treffer werden direkt angezeigt.
 
+Die bereichsübergreifende **Schnellsuche** findet bei Dokumenten mehrere Wörter auch auf unterschiedlichen Zeilen oder Seiten, sobald der Text indexiert ist. Bei `Rechnung Koel` muss also `Rechnung` vorkommen; das letzte Wort darf noch unvollständig sein. Diese Suche wertet keine erweiterten Operatoren aus und startet keine OCR. Dokumentdetails zeigen den bereits erkannten Text; für PDF und EPUB bietet die Schnellsuche-Vorschau zusätzlich **Im Reader öffnen**. Dieser Link öffnet das Dokument, nicht automatisch die Fundseite.
+
 Die **Erweiterte Suche** unterstützt:
 
 | Ausdruck | Bedeutung |
