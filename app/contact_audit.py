@@ -125,7 +125,8 @@ def manage():
 @login_required
 def deleted_contacts():
     store = ContactStore(current_app.config["DOCUMENT_ROOT"])
-    return render_template("documents/contact_deleted.html", deleted_contacts=store.deleted_contacts(_actor()))
+    content = render_template("documents/contact_deleted.html", deleted_contacts=store.deleted_contacts(_actor()))
+    return content, 200, {"Cache-Control": "private, no-store"}
 
 
 @bp.post("/documents/contacts/manage/deleted/<archive_id>/restore")
