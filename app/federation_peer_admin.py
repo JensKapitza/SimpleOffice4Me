@@ -23,6 +23,7 @@ from .federation_identity_admin import (
 )
 from .federation_local_profile import local_profile
 from .federation_pairing import FederationPairingTokens
+from .federation_pairing_comparison import pairing_comparison
 from .federation_pairing_client import PairingClientError, claim_pairing_code, remote_pairing_status
 from .federation_qr import decode_peer, encode_peer
 from .federation_qr_image import render_qr_svg
@@ -345,6 +346,7 @@ def dashboard():
             "compatibility": peer_compatibility,
             "recommendations": recommendations(_root(), identity["peer_id"]),
             "pairing": pairing_tokens.status(identity["peer_id"]),
+            "pairing_comparison": pairing_comparison(identity.get("fingerprint"), peer.get("base_url")),
             "pairing_ready": bool(
                 identity.get("public_key")
                 and identity.get("fingerprint")
