@@ -53,6 +53,7 @@
 <span class="badge text-bg-secondary align-self-center">{{ document.state }}</span>
 </div>
 </div>{% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+{% set has_recognized_preview = preview.kind in ['pdf', 'image', 'document'] and preview.text %}
 <section id="document-preview" class="card mb-4" data-preview-kind="{{ preview.kind }}">
   <div class="card-header"><strong>{{ 'Preview' if g.language == 'en' else 'Vorschau' }} · {{ preview.name }}</strong></div>
   <div class="card-body">
@@ -116,8 +117,8 @@
       <span>{% if preview.preview_status in ['pending', 'processing'] %}{{ 'The preview is still being generated.' if g.language == 'en' else 'Die Vorschau wird noch erstellt.' }}{% else %}{{ 'No image preview is available for this file type.' if g.language == 'en' else 'Für diesen Dateityp ist keine Bildvorschau verfügbar.' }}{% endif %} {{ 'The original remains unchanged.' if g.language == 'en' else 'Das Original bleibt unverändert.' }}</span>
     </div>
     {% endif %}
-    {% if preview.kind in ['pdf', 'image', 'document'] and preview.text %}
-    <h3 class="h6 mt-3">{{ 'Recognized text' if g.language == 'en' else 'Erkannter Text' }}</h3>
+    {% if has_recognized_preview %}
+    <h3 id="document-recognized-text" class="h6 mt-3" tabindex="-1">{{ 'Recognized text' if g.language == 'en' else 'Erkannter Text' }}</h3>
     {% include "documents/_text_preview.html" %}
     {% endif %}
     {% if preview.kind not in ['video', 'audio'] %}<div class="mt-3"><a class="btn btn-sm btn-outline-primary" href="{{ preview.url }}" target="_blank" rel="noopener noreferrer">{{ 'Open original' if g.language == 'en' else 'Original öffnen' }}</a> <a class="btn btn-sm btn-outline-secondary" href="{{ preview.download_url }}" download>{{ 'Download original' if g.language == 'en' else 'Original herunterladen' }}</a> <button type="button" class="btn btn-sm btn-outline-secondary" data-desktop-reveal data-document-id="{{ document.document_id }}" hidden>{{ 'Show in file manager' if g.language == 'en' else 'Im Dateimanager anzeigen' }}</button> <span class="small text-secondary" data-desktop-reveal-feedback role="status" aria-live="polite"></span></div>{% endif %}
@@ -334,6 +335,9 @@
   <span data-photo-ocr-status="unavailable">{{ 'OCR could not run. Check Tesseract and its language packs on the server.' if g.language == 'en' else 'Die Texterkennung konnte nicht laufen. Prüfe Tesseract und die Sprachpakete auf dem Server.' }}</span>
 {% else %}
   <span data-photo-ocr-status="pending">{{ 'No OCR result for the current file yet. Start OCR below.' if g.language == 'en' else 'Für die aktuelle Datei liegt noch kein OCR-Ergebnis vor. Starte die Texterkennung unten.' }}</span>
+{% endif %}
+{% if has_ocr_text and has_recognized_preview and preview.kind == 'image' %}
+  <a class="d-block mt-1" href="#document-recognized-text">{{ 'View and copy recognized text' if g.language == 'en' else 'Erkannten Text ansehen und kopieren' }}</a>
 {% endif %}
 </dd>{% for key, value in document.image_analysis.exif|default({})|dictsort %}<dt class="col-5 text-break">{{ key }}</dt>
 <dd class="col-7 text-break">{{ value }}</dd>{% endfor %}</dl>{% if has_ocr_text %}<details>
