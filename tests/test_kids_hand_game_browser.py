@@ -127,11 +127,21 @@ class KidsHandGameBrowserTests(PublicHttpTestCase):
                 self.assertEqual(page.evaluate("window.handFixtureTracks.map(t => t.readyState)"), ["ended"])
                 start.click()
                 expect(page.locator("[data-hand-preview]")).to_be_visible(timeout=20000)
-                page.evaluate("""() => window.addEventListener('pagehide', () => {
-                  window.name = window.handFixtureTracks.map(t => t.readyState).join(',');
-                }, {once: true})""")
+                # Test-only, same-tab observer. The browser automatically ending
+                # the device on navigation does not call our JS wrapper, so a
+                # passing assertion here means the application stopped the track.
+                page.evaluate("""() => {
+                  sessionStorage.removeItem('kids-hand-test-nav-stop');
+                  const [track] = window.handFixtureTracks;
+                  const originalStop = track.stop.bind(track);
+                  track.stop = () => {
+                    originalStop();
+                    sessionStorage.setItem('kids-hand-test-nav-stop', track.readyState);
+                  };
+                }""")
                 page.locator('[data-kids-header] a[href="/kids/"]').click()
-                self.assertEqual(page.evaluate("window.name"), "ended")
+                page.wait_for_url(self.origin + "/kids/")
+                self.assertEqual(page.evaluate("sessionStorage.getItem('kids-hand-test-nav-stop')"), "ended")
                 self.assertEqual(outbound, [])
                 self.assertFalse(any(method != "GET" for method, _ in seen))
                 self.assertTrue(any(url.endswith("vision_wasm_nosimd_internal.wasm") for _, url in seen))
