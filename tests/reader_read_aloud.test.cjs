@@ -47,6 +47,8 @@ function fixture({
     speechUnavailable: 'Nicht verfügbar', speechPauseLabel: 'Pause', speechResumeLabel: 'Weiter',
     speechPlayRequired: 'Bereit', speechError: 'Fehler', speechNoText: 'Kein Text', speechStale: 'Neu laden',
     speechTooLarge: 'Zu groß', speechPdfTooLarge: 'PDF teilen (64 MiB)',
+    speechBusy: 'Belegt. Warte kurz und versuche es erneut.',
+    speechTimeout: 'Vorlesen dauerte zu lange. Warte kurz und versuche es erneut.',
     speechPdfSourceTimeout: 'PDF Vorbereitung Zeitlimit', speechPdfStageUnavailable: 'Temporärer Speicher',
   };
   const reader = new Element();
@@ -260,6 +262,31 @@ test('wrong MIME, invalid WAV and server refusal produce only localized status, 
     assert.equal(f.status.textContent, message);
     assert.equal(f.start.disabled, false);
     assert.equal(f.audios.length, 0);
+  }
+});
+
+test('busy and synthesis timeout use fixed retry guidance without automatically retrying', async () => {
+  for (const [control, code, message] of [
+    ['start', 'read_aloud_busy', 'Belegt. Warte kurz und versuche es erneut.'],
+    ['ocr', 'read_aloud_timeout', 'Vorlesen dauerte zu lange. Warte kurz und versuche es erneut.'],
+  ]) {
+    const f = fixture({ocrUrl: ocrEndpoint});
+    const request = f[control].fire('click');
+    const failure = {error: code, details: 'internal fixture details'};
+    f.requests[0].resolve(response(JSON.stringify(failure), 'application/json', 503));
+    await request;
+    assert.equal(f.status.textContent, message);
+    assert.equal(f[control].disabled, false);
+    assert.equal(f.requests.length, 1);
+    assert.equal(f.audios.length, 0);
+    const retry = f[control].fire('click');
+    assert.equal(f.requests.length, 2);
+    assert.equal(f.requests[1].url, f.requests[0].url);
+    assert.equal(f.requests[1].opts.body, f.requests[0].opts.body);
+    f.requests[1].resolve(response());
+    await retry;
+    assert.equal(f.status.textContent, 'Liest');
+    assert.equal(f.audios.length, 1);
   }
 });
 
@@ -483,6 +510,23 @@ test('no-text page stops conclusively and offers navigation but never starts OCR
   assert.equal(bodyPage(f.requests[2]), 5);
   f.audios.at(-1).fire('ended');
   assert.equal(f.requests.length, 3);
+});
+
+test('temporary failure on a later page offers a manual jump without advancing or retrying', async () => {
+  const f = pdfRun();
+  await respond(f, f.continuous.fire('click'));
+  const next = f.audios[0].fire('ended');
+  await respond(f, next, response('{"error":"read_aloud_busy"}', 'application/json', 503));
+  assert.equal(f.status.textContent, 'Belegt. Warte kurz und versuche es erneut.');
+  assert.equal(f.requests.length, 2);
+  assert.equal(f.position.value, '4');
+  assert.equal(f.jump.hidden, false);
+  f.jump.fire('click');
+  assert.equal(f.position.value, '5');
+  assert.equal(f.requests.length, 2);
+  await respond(f, f.continuous.fire('click'));
+  assert.equal(bodyPage(f.requests[2]), 5);
+  assert.equal(f.requests[2].url, base + endpoint);
 });
 
 test('known final page ends a shorter run, without a follow-up request or resume link', async () => {

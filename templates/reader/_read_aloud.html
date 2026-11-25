@@ -27,6 +27,8 @@
      data-speech-pdf-stage-unavailable="{{ 'The server could not prepare the PDF. Check its temporary storage and try again.' if g.language == 'en' else 'Der Server konnte das PDF nicht vorbereiten. Prüfe den temporären Speicher und versuche es erneut.' }}"
      data-speech-pdf-source-timeout="{{ 'Preparing the PDF took too long. Try again or split the PDF.' if g.language == 'en' else 'Das Vorbereiten des PDFs hat zu lange gedauert. Versuche es erneut oder teile das PDF.' }}"
      {% endif %}
+     data-speech-busy="{{ 'Local read-aloud is busy. Wait a moment, then try again.' if g.language == 'en' else 'Das lokale Vorlesen ist gerade ausgelastet. Warte kurz und versuche es erneut.' }}"
+     data-speech-timeout="{{ 'Preparing local audio took too long. Wait a moment, then try again.' if g.language == 'en' else 'Die lokale Sprachausgabe hat zu lange gebraucht. Warte kurz und versuche es erneut.' }}"
      data-speech-pause-label="{{ 'Pause' if g.language == 'en' else 'Pause' }}"
      data-speech-resume-label="{{ 'Resume' if g.language == 'en' else 'Fortsetzen' }}"
      data-speech-play-required="{{ 'Audio is ready. Select Resume to play.' if g.language == 'en' else 'Die Sprachausgabe ist bereit. Tippe auf Fortsetzen.' }}">
