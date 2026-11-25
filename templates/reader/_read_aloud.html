@@ -1,5 +1,9 @@
 <div class="border rounded p-2 my-2" data-reader-read-aloud
      data-speech-url="{{ speech_url }}"
+     {% if speech_kind == 'epub' %}
+     data-speech-epub-too-large="{{ ('This EPUB exceeds the %s MiB read-aloud limit.' if g.language == 'en' else 'Dieses EPUB überschreitet die Vorlesegrenze von %s MiB.') | format(speech_epub_limit_mib) }}"
+     data-speech-segment-label="{{ 'Part {current} of {total}' if g.language == 'en' else 'Abschnitt {current} von {total}' }}"
+     {% endif %}
      {% if speech_kind == 'pdf' and speech_ocr_url %}
      data-speech-ocr-url="{{ speech_ocr_url }}"
      data-speech-ocr-loading="{{ 'Recognizing this page locally…' if g.language == 'en' else 'Diese Seite wird lokal erkannt …' }}"
@@ -50,7 +54,14 @@
     <button class="btn btn-sm btn-outline-secondary" type="button" data-speech-pause disabled>Pause</button>
     <button class="btn btn-sm btn-outline-secondary" type="button" data-speech-stop disabled>{{ 'Stop' if g.language == 'en' else 'Stopp' }}</button>
   </div>
-  {% if speech_kind == 'pdf' %}<div class="form-text">{{ 'Continuous reading starts at the selected page and stops at a page without a text layer. It never starts OCR or moves the view automatically.' if g.language == 'en' else 'Mehrere Seiten werden ab der ausgewählten Seite vorgelesen. Bei einer Seite ohne Textebene stoppt das Vorlesen, ohne OCR zu starten oder die Ansicht zu verschieben.' }}</div>{% endif %}
+  {% if speech_kind == 'epub' %}
+  <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
+    <button class="btn btn-sm btn-outline-secondary" type="button" data-speech-prev-segment disabled>{{ 'Previous part' if g.language == 'en' else 'Vorheriger Abschnitt' }}</button>
+    <span class="small" data-speech-part role="status"></span>
+    <button class="btn btn-sm btn-outline-secondary" type="button" data-speech-next-segment disabled>{{ 'Next part' if g.language == 'en' else 'Nächster Abschnitt' }}</button>
+  </div>
+  {% endif %}
+  {% if speech_kind == 'pdf' %}<div class="form-text">{{ 'Continuous reading starts at the selected page and stops at a page without a text layer. It never starts OCR or moves the view automatically. OCR recognizes a selected scan without changing the PDF.' if g.language == 'en' else 'Mehrere Seiten werden ab der ausgewählten Seite vorgelesen. Bei einer Seite ohne Textebene stoppt das Vorlesen, ohne OCR zu starten oder die Ansicht zu verschieben. OCR erkennt den Text einer ausgewählten Scan-Seite, ohne das PDF zu ändern.' }}</div>{% endif %}
   <div class="form-text">
     {% if g.user and g.user.is_admin %}
     <a href="{{ url_for('admin.documents_media_settings', _anchor='local-read-aloud') }}">{{ 'Set up or test local read-aloud' if g.language == 'en' else 'Lokales Vorlesen einrichten oder prüfen' }}</a>

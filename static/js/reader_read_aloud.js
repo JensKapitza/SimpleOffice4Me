@@ -42,6 +42,12 @@
     if (!start || !pause || !stop || !status) return;
 
     const position = reader?.querySelector('[data-reader-position]');
+    const epub = reader?.dataset.format === 'epub';
+    const previousSegment = root.querySelector('[data-speech-prev-segment]');
+    const nextSegment = root.querySelector('[data-speech-next-segment]');
+    const segmentStatus = root.querySelector('[data-speech-part]');
+    let segment = 1;
+    const totalSegments = () => Number(reader?.dataset.speechChapterSegments) || 0;
     const version = reader?.dataset.documentVersion;
     const rawCount = Number(reader?.dataset.pageCount);
     const lastPage = Number.isSafeInteger(rawCount) && rawCount <= 10000 && rawCount > 1 ? rawCount : 0;
@@ -49,6 +55,7 @@
     const ocrUrl = sameOriginUrl(root.dataset.speechOcrUrl);
     const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content || '';
     const pageNumber = () => {
+      if (epub) return Number(reader?.dataset.speechChapter) || 0;
       const value = Number(position?.value);
       return Number.isSafeInteger(value) && value > 0 ? value : 1;
     };
@@ -66,12 +73,21 @@
       const locator = {page: request.page, document_version: version};
       const clockwise = request.ocr && rotation ? Number(rotation.value) : 0;
       if (clockwise === 90 || clockwise === 270) locator.ocr_clockwise = clockwise;
+      if (epub) locator.segment = request.segment;
       return locator;
     }
 
     function render(nextState, message = '') {
       state = nextState;
-      const canStart = available && ['idle', 'error', 'unavailable'].includes(state);
+      const total = totalSegments();
+      const canStart = available && (!epub || (pageNumber() > 0 && total > 0)) &&
+        ['idle', 'error', 'unavailable'].includes(state);
+      if (previousSegment) previousSegment.disabled = !available || segment <= 1;
+      if (nextSegment) nextSegment.disabled = !available || segment >= total;
+      if (segmentStatus) segmentStatus.textContent = total
+        ? label('speechSegmentLabel', 'Part {current} of {total}')
+            .replace('{current}', String(segment)).replace('{total}', String(total))
+        : pageNumber() ? label('speechNoText', 'No readable text in this chapter.') : '';
       start.disabled = !canStart;
       if (ocr) ocr.disabled = !canStart || !ocrUrl;
       if (continuous) continuous.disabled = !canStart || !lastPage || pageNumber() >= lastPage;
@@ -106,7 +122,10 @@
 
     function isCurrent(request) {
       if (active !== request) return false;
-      if (request.anchorPage !== pageNumber()) {
+      const pageMatches = request.continuing
+        ? request.anchorPage === pageNumber()
+        : request.page === pageNumber();
+      if (!pageMatches || (epub && request.segment !== segment)) {
         release();
         return false;
       }
@@ -143,7 +162,8 @@
         if (!isCurrent(request)) return;
         const code = problem?.error;
         if (statusCode === 413) {
-          const documentLimit = code === 'document_too_large' && root.dataset.speechPdfTooLarge;
+          const documentLimit = code === 'document_too_large' &&
+            (epub ? root.dataset.speechEpubTooLarge : root.dataset.speechPdfTooLarge);
           release('error', documentLimit || label('speechTooLarge', 'This page exceeds the read-aloud limit.'));
         } else if (statusCode === 422) {
           if (request.continuing && code === 'no_text') {
@@ -212,7 +232,14 @@
       }
 
       jumpPage = null;
-      const request = {...run, controller: new AbortController(), objectUrl: null, audio: null};
+      const request = {
+        ...run,
+        page: run.page ?? pageNumber(),
+        segment,
+        controller: new AbortController(),
+        objectUrl: null,
+        audio: null,
+      };
       active = request;
       render('loading', request.ocr
         ? label('speechOcrLoading', 'Recognizing this page locally…')
@@ -266,6 +293,19 @@
       release();
       position.value = String(target);
       position.dispatchEvent(new Event('change', {bubbles: true}));
+    });
+    const selectSegment = next => {
+      if (next < 1 || next > totalSegments() || next === segment) return;
+      segment = next;
+      release();
+    };
+    previousSegment?.addEventListener('click', () => selectSegment(segment - 1));
+    nextSegment?.addEventListener('click', () => selectSegment(segment + 1));
+    if (epub) reader.addEventListener('reader:chapter-displayed', () => {
+      const nextPage = pageNumber();
+      if (displayedPage !== nextPage || segment > totalSegments()) segment = 1;
+      displayedPage = nextPage;
+      release();
     });
     reader.addEventListener('reader:page-changed', event => {
       const nextPage = event.detail?.page ?? pageNumber();

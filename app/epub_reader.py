@@ -22,6 +22,12 @@ MAX_CHAPTER_TEXT = 2 * 1024 * 1024
 MAX_COVER_BYTES = 10 * 1024 * 1024
 MAX_XML_DEPTH = 256
 MAX_XML_NODES = 50_000
+EPUB_SPEECH_SEGMENT_CHARS = 1200
+_IGNORED_TEXT_TAGS = {"head", "script", "style", "noscript", "template"}
+_SPEECH_BLOCK_TAGS = {
+    "address", "article", "aside", "blockquote", "br", "dd", "div", "dl", "dt", "figcaption",
+    "h1", "h2", "h3", "h4", "h5", "h6", "hr", "li", "p", "pre", "section", "td", "th", "tr",
+}
 SAFE_COVER_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 
 
@@ -94,6 +100,34 @@ def _text(root: Any) -> str:
 
     visit(root)
     return "\n\n".join(chunks)
+
+
+def _spoken_text(body: ElementTree.Element) -> str:
+    """Flatten only body text; block boundaries separate but inline words stay intact."""
+    pieces: list[str] = []
+
+    def visit(node: ElementTree.Element) -> None:
+        tag = _local(node.tag)
+        if tag in _IGNORED_TEXT_TAGS:
+            return
+        is_block = tag in _SPEECH_BLOCK_TAGS
+        if is_block:
+            pieces.append("\n\n")
+        if node.text:
+            pieces.append(re.sub(r"\s+", " ", node.text))
+        for child in node:
+            visit(child)
+            if child.tail:
+                pieces.append(re.sub(r"\s+", " ", child.tail))
+        if is_block:
+            pieces.append("\n\n")
+
+    visit(body)
+    paragraphs = (" ".join(piece.split()) for piece in "".join(pieces).split("\n\n"))
+    text = "\n\n".join(piece for piece in paragraphs if piece)
+    if len(text) > MAX_CHAPTER_TEXT:
+        raise ValueError("EPUB chapter text exceeds the supported limit")
+    return text
 
 
 class EpubBook:
@@ -322,7 +356,7 @@ class EpubBook:
             raise ValueError("EPUB cover exceeds the supported size")
         return payload, media_type
 
-    def chapter(self, index: int) -> dict[str, Any]:
+    def _chapter_document(self, index: int) -> tuple[str, dict[str, str], ElementTree.Element]:
         if index < 0 or index >= len(self.spine):
             raise KeyError(index)
         item_id = self.spine[index]
@@ -334,6 +368,37 @@ class EpubBook:
             raise ValueError("EPUB chapter has an unsupported media type")
         with zipfile.ZipFile(BytesIO(self.raw)) as archive:
             root = self._xml(self._read(archive, item["path"]))
+        return item_id, item, root
+
+    @staticmethod
+    def _speech_segments(root: Any) -> list[str]:
+        body = root if _local(root.tag) == "body" else next(
+            (node for node in root if _local(node.tag) == "body"), None,
+        )
+        if body is None:
+            return []
+        remaining = _spoken_text(body)
+        parts = []
+        start = 0
+        while start < len(remaining):
+            end = min(start + EPUB_SPEECH_SEGMENT_CHARS, len(remaining))
+            if end < len(remaining):
+                midpoint = start + EPUB_SPEECH_SEGMENT_CHARS // 2
+                stop = max(remaining.rfind("\n\n", midpoint, end), remaining.rfind(" ", midpoint, end))
+                if stop > start:
+                    end = stop
+            section = remaining[start:end].strip()
+            if section:
+                parts.append(section)
+            start = end
+        return parts
+
+    def speech_segments(self, index: int) -> list[str]:
+        _, _, root = self._chapter_document(index)
+        return self._speech_segments(root)
+
+    def chapter(self, index: int) -> dict[str, Any]:
+        item_id, item, root = self._chapter_document(index)
         title = ""
         for node in root.iter():
             if _local(node.tag) in {"h1", "h2", "title"}:
@@ -344,6 +409,11 @@ class EpubBook:
         # Render text, not publisher HTML: this blocks scripts, external URLs,
         # tracking pixels, CSS and active content while keeping reflow semantics.
         paragraphs = [part.strip() for part in re.split(r"\n\s*\n", text) if part.strip()]
+        try:
+            speech_count = len(self._speech_segments(root))
+        except ValueError:
+            # A speech cap must not prevent the existing text view from opening.
+            speech_count = 0
         body = "".join(f"<p>{html.escape(part)}</p>" for part in paragraphs)
         return {
             "index": index,
@@ -352,6 +422,7 @@ class EpubBook:
             "title": title or f"Kapitel {index + 1}",
             "html": body,
             "text_length": len(text),
+            "speech_segments": speech_count,
             "position_anchor": f"chapter:{item_id}",
         }
 

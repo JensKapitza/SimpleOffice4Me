@@ -118,6 +118,67 @@ class ReaderReadAloudTests(unittest.TestCase):
         self.assertTrue(self.temp_dirs)
         self.assertTrue(all(not path.exists() for path in self.temp_dirs))
 
+    def test_epub_reads_one_bounded_body_segment_without_scripts_or_front_matter(self):
+        from tests.test_document_reader import epub_bytes
+
+        source = epub_bytes(toc_format="epub3", sparse_toc=True, chapter_xml=(
+            '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>HEAD_SENTINEL</title>'
+            '<template><body>NESTED_BODY_SENTINEL</body></template></head>'
+            '<body><p>' + ('erste Wörter ' * 99) + '</p><script>SCRIPT_SENTINEL</script>'
+            '<style>STYLE_SENTINEL</style><template>TEMPLATE_SENTINEL</template>'
+            '<p>Zweiter Abschnitt mit Schlüssel<strong>wort</strong>.</p></body></html>'
+        ))
+        document = self.document("voice.epub", source)
+        url = f"/documents/reader/{document['document_id']}"
+        view = self.client.get(url)
+        page = BeautifulSoup(view.get_data(as_text=True), "html.parser")
+        self.assertIsNotNone(page.select_one("[data-speech-next-segment]"))
+        self.assertIsNone(page.select_one("[data-speech-ocr]"))
+        self.assertIn("media-src 'self' blob:", view.headers["Content-Security-Policy"])
+        self.assertEqual(self.client.get(url + "/epub/0").get_json()["speech_segments"], 2)
+        locator = {"page": 1, "segment": 2, "document_version": reader_version(document)}
+        headers = {"X-CSRF-Token": self.csrf}
+
+        def send(values=locator):
+            return self.client.post(self.route(document), json=values, headers=headers)
+
+        with patch(self.speech_patch, side_effect=self.render_wave) as renderer:
+            success = send()
+            self.assert_private_audio(success)
+            self.assertEqual(404, send({**locator, "page": 9}).status_code)
+            self.assertEqual(404, send({**locator, "segment": 3}).status_code)
+            self.assertEqual(400, send({**locator, "segment": True}).status_code)
+            self.assertEqual(400, send({**locator, "text": "untrusted text"}).status_code)
+            self.assertEqual(409, send({**locator, "document_version": "old"}).status_code)
+            self.assertEqual(404, self.client.post(self.route(document) + "/ocr",
+                                                  json=locator, headers=headers).status_code)
+            self.login("limited")
+            self.assertEqual(403, send().status_code)
+            renderer.assert_called_once()
+        self.assertIn("Zweiter Abschnitt mit Schlüsselwort.", self.spoken[0])
+        self.assertNotIn("SENTINEL", self.spoken[0])
+        self.assertLessEqual(len(self.spoken[0]), 1200)
+
+    def test_epub_speech_source_guard_and_empty_body_do_not_invoke_renderer(self):
+        from tests.test_document_reader import epub_bytes
+
+        source = epub_bytes(chapter_xml=(
+            '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Metadata</title></head>'
+            '<body><script>Do not speak me</script></body></html>'
+        ))
+        document = self.document("empty.epub", source)
+        locator = {"page": 1, "segment": 1, "document_version": reader_version(document)}
+        headers = {"X-CSRF-Token": self.csrf}
+        with patch(self.speech_patch, side_effect=self.render_wave) as renderer:
+            self.assertEqual("no_text", self.client.post(
+                self.route(document), json=locator, headers=headers,
+            ).get_json()["error"])
+            with patch("app.reader_routes.MAX_READ_ALOUD_EPUB_BYTES", len(source) - 1):
+                limited = self.client.post(self.route(document), json=locator, headers=headers)
+            self.assertEqual(413, limited.status_code)
+            self.assertEqual("document_too_large", limited.get_json()["error"])
+            renderer.assert_not_called()
+
     def test_text_reader_uses_actual_selected_section_and_deleted_temporary_audio(self):
         document = self.document("notes.txt", b"a" * MAX_READ_ALOUD_TEXT_SECTION_CHARS + b"\nSecond section <em>literal</em>")
         detail = self.client.get(f"/documents/{document['document_id']}")

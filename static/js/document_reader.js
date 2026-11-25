@@ -133,6 +133,9 @@
         errorSource = undefined;
       }
       updateStatus(chapterCount);
+      root.dataset.speechChapter = String(target + 1);
+      root.dataset.speechChapterSegments = String(chapter.speech_segments || 0);
+      if (typeof CustomEvent === 'function') root.dispatchEvent(new CustomEvent('reader:chapter-displayed'));
       if (!restoredOffset && resumeEpubIndex === current && currentOffset > 0) {
         restoredOffset = true;
         const offset = currentOffset;

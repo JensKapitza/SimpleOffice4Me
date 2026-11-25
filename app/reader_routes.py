@@ -4,6 +4,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 import io
 import tempfile
+import zipfile
 from pathlib import Path
 from typing import Any, BinaryIO, Iterator
 
@@ -15,7 +16,8 @@ from .document_store import DocumentStore
 from .epub_reader import EpubBook, MAX_EPUB_BYTES
 from .pdf_limits import MAX_PDF_BYTES
 from .private_read_aloud import (
-    ReadAloudError, private_audio_response, read_aloud_error, read_aloud_ocr_request, read_aloud_request,
+    ReadAloudError, private_audio_response, read_aloud_epub_request, read_aloud_error,
+    read_aloud_ocr_request, read_aloud_request,
 )
 from .reader_page_ocr import pdf_page_has_images, recognize_pdf_page, supplement_native_text
 from .reader_speech_text import (
@@ -28,6 +30,8 @@ from .v2.storage_runtime import storage_for
 bp = Blueprint("reader", __name__, url_prefix="/documents/reader")
 FORMATS = {".pdf": "pdf", ".epub": "epub"}
 MAX_BOOKS = 250
+MAX_READ_ALOUD_EPUB_MIB = 16
+MAX_READ_ALOUD_EPUB_BYTES = MAX_READ_ALOUD_EPUB_MIB * 1024 * 1024
 
 
 @bp.after_request
@@ -299,6 +303,7 @@ def open_book(document_id: str):
     return render_template(
         "reader/book.html", document=document, book=payload, reader_state=state,
         annotations=annotations, speech_pdf_limit_mib=MAX_READ_ALOUD_PDF_MIB,
+        speech_epub_limit_mib=MAX_READ_ALOUD_EPUB_MIB,
     )
 
 
@@ -308,7 +313,7 @@ def _speech_document(document_id: str) -> tuple[dict[str, Any], str]:
     except (ValueError, OSError):
         raise ReadAloudError("document_unavailable", 404) from None
     suffix = Path(str(document.get("last_path") or "")).suffix.casefold()
-    if document["document_id"] != document_id or suffix not in {".pdf", ".txt"}:
+    if document["document_id"] != document_id or suffix not in {".pdf", ".txt", ".epub"}:
         raise ReadAloudError("document_unavailable", 404)
     return document, suffix
 
@@ -371,9 +376,13 @@ def _read_aloud(document_id: str, *, allow_ocr: bool):
             raise ReadAloudError("document_unavailable", 404)
         if allow_ocr:
             page, version, clockwise = read_aloud_ocr_request()
+            segment = 1
+        elif suffix == ".epub":
+            page, version, segment = read_aloud_epub_request()
+            clockwise = 0
         else:
             page, version = read_aloud_request()
-            clockwise = 0
+            clockwise, segment = 0, 1
         if version != reader_version(document):
             raise ReadAloudError("document_changed", 409)
 
@@ -382,6 +391,19 @@ def _read_aloud(document_id: str, *, allow_ocr: bool):
                 storage = storage_for(current_app.config["DOCUMENT_ROOT"], _actor())
                 with staged_speech_pdf(storage, document, MAX_READ_ALOUD_PDF_BYTES) as source:
                     return _speech_pdf_page(source, page, g.language, allow_ocr=allow_ocr, clockwise=clockwise)
+            if suffix == ".epub":
+                source = _speech_source_for(document, MAX_READ_ALOUD_EPUB_BYTES)
+                try:
+                    parts = EpubBook(source).speech_segments(page - 1)
+                except KeyError as exc:
+                    raise ReadAloudError("invalid_page", 404) from exc
+                except (ValueError, zipfile.BadZipFile) as exc:
+                    raise ReadAloudError("invalid_text", 422) from exc
+                if not parts:
+                    raise ReadAloudError("no_text", 422)
+                if segment > len(parts):
+                    raise ReadAloudError("invalid_segment", 404)
+                return parts[segment - 1]
             sections = plain_text_sections(_speech_source_for(document, MAX_READ_ALOUD_TEXT_BYTES))
             if page > len(sections):
                 raise ReadAloudError("invalid_page", 404)
