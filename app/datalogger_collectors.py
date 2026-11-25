@@ -108,6 +108,15 @@ def _bounded_int(value, default: int, minimum: int, maximum: int, code: str) -> 
 
 def collect_linux(config):
     metric = str(config.get("metric", "")).strip() or "load1"
+    if metric == "uptime_seconds":
+        try:
+            with Path("/proc/uptime").open(encoding="ascii") as stream:
+                uptime = float(stream.read(256).split()[0])
+            if not math.isfinite(uptime) or uptime < 0:
+                raise ValueError("invalid uptime")
+        except (OSError, ValueError, IndexError) as exc:
+            raise CollectionError("uptime_unavailable") from exc
+        return uptime
     if metric in {"load1", "load5", "load15"}:
         try:
             return os.getloadavg()[{"load1": 0, "load5": 1, "load15": 2}[metric]]
@@ -126,13 +135,17 @@ def collect_linux(config):
         if total <= 0:
             raise CollectionError("memory_unavailable")
         return 100 * (1 - available / total)
-    if metric == "disk_used_percent":
+    if metric in {"disk_used_percent", "disk_free_bytes", "disk_total_bytes"}:
         try:
             usage = shutil.disk_usage(str(config.get("path", "")).strip() or "/")
         except OSError as exc:
             raise CollectionError("disk_unavailable") from exc
         if usage.total <= 0:
             raise CollectionError("disk_unavailable")
+        if metric == "disk_free_bytes":
+            return usage.free
+        if metric == "disk_total_bytes":
+            return usage.total
         return 100 * usage.used / usage.total
     if metric == "temperature_c":
         paths = sorted(Path("/sys/class/thermal").glob("thermal_zone*/temp"))

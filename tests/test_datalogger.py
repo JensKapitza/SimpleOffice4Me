@@ -1,7 +1,10 @@
+import csv
+import io
 import json
 import os
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from email.message import Message
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -133,6 +136,19 @@ class CollectorTest(unittest.TestCase):
         with patch("app.datalogger_collectors.os.getloadavg", return_value=(0.5, 0.25, 0.1), create=True):
             self.assertIsInstance(collect_linux({"metric": "load1"}), float)
 
+    def test_linux_explicit_free_and_total_storage(self):
+        with tempfile.TemporaryDirectory() as root:
+            free = collect_linux({"metric": "disk_free_bytes", "path": root})
+            total = collect_linux({"metric": "disk_total_bytes", "path": root})
+        self.assertGreater(total, 0)
+        self.assertGreaterEqual(free, 0)
+        self.assertLessEqual(free, total)
+
+    def test_linux_proc_uptime_reports_real_seconds(self):
+        if not Path("/proc/uptime").is_file():
+            self.skipTest("Linux procfs not available")
+        self.assertGreater(collect_linux({"metric": "uptime_seconds"}), 0)
+
     def test_worker_records_success_without_flask(self):
         with tempfile.TemporaryDirectory() as root:
             store = DataLoggerStore(root); channel = store.create_channel("Load", "alice")
@@ -190,6 +206,70 @@ class DataLoggerWebTest(unittest.TestCase):
         response = self.owner.post("/datalogger/channels", data={"name": "Privat"})
         channel = response.headers["Location"].rsplit("/", 1)[-1]
         self.assertEqual(404, self.reader.get(f"/datalogger/channels/{channel}").status_code)
+
+    def test_diagnosis_same_range_in_ui_and_exports(self):
+        store = DataLoggerStore(app.config['DOCUMENT_ROOT'])
+        channel_id = store.create_channel('Speicher frei', 'owner', unit='B')
+        store.add_source(channel_id, 'owner', 'linux', 'Lokaler Datenordner',
+                         {'metric': 'disk_free_bytes', 'path': self.temp.name}, 60)
+        failed = store.add_source(channel_id, 'owner', 'linux', 'Getrenntes Laufwerk',
+                                  {'metric': 'disk_free_bytes', 'path': f'{self.temp.name}/not-mounted'}, 60)
+        store.add_sample(channel_id, 999, 'owner', measured_at='2024-02-29T23:30:00+00:00')
+        run(app.config['DOCUMENT_ROOT'], once=True)
+        self.assertEqual(next(row for row in store.sources(channel_id) if row['source_id'] == failed)['last_status'], 'error')
+        today = datetime.now(timezone.utc).date().isoformat()
+        query = f'?start_day={today}&end_day={today}'
+        base = f'/datalogger/channels/{channel_id}'
+        view = self.owner.get(base + query)
+        self.assertEqual(view.status_code, 200)
+        self.assertIn('disk_unavailable', view.get_data(as_text=True))
+        self.assertIn('Messwerte als CSV', view.get_data(as_text=True))
+        self.assertIn('Verlauf vor und nach dem Fehler', view.get_data(as_text=True))
+        self.assertIn('start_day=' + today, view.get_data(as_text=True))
+        self.assertNotIn('>999.0 B<', view.get_data(as_text=True))
+        response = self.owner.get(base + '/report.csv' + query)
+        self.assertEqual(response.headers['Cache-Control'], 'private, no-store')
+        rows = list(csv.DictReader(io.StringIO(response.get_data(as_text=True))))
+        row, = [entry for entry in rows if entry['status'] == 'good']
+        error, = [entry for entry in rows if entry['status'] == 'error']
+        self.assertEqual(error['value'], '')
+        self.assertEqual(error['error_code'], 'disk_unavailable')
+        self.assertEqual(row['source'], 'Lokaler Datenordner')
+        self.assertEqual(row['unit'], 'B')
+        self.assertEqual(row['status'], 'good')
+        self.assertGreaterEqual(float(row['value']), 0)
+        self.assertIn('gültig: 1', self.owner.get(base + '/report.txt' + query).get_data(as_text=True))
+        payload = self.owner.get(base + '/data.json' + query).json
+        self.assertEqual(len(payload['samples']), 1)
+        self.assertEqual(payload['collection_errors'][0]['error_code'], 'disk_unavailable')
+        self.assertIsNone(payload['collection_errors'][0]['value'])
+        response = self.owner.get(base + '/report.pdf' + query)
+        self.assertEqual(response.mimetype, 'application/pdf')
+        self.assertTrue(response.data.startswith(b'%PDF-'))
+        self.assertEqual(self.reader.get(base + '/report.csv' + query).status_code, 404)
+        self.assertEqual(self.owner.get(base + '/report.csv?start_day=yesterday').status_code, 400)
+
+    def test_server_preset_is_visible_private_and_idempotent(self):
+        url = '/datalogger/server-presets/uptime_seconds'
+        with patch('app.datalogger.platform_kind', return_value='linux'):
+            self.assertIn(url, self.owner.get('/datalogger/').get_data(as_text=True))
+            self.assertNotIn(url, self.reader.get('/datalogger/').get_data(as_text=True))
+            self.assertEqual(self.reader.post(url).status_code, 403)
+            app.config['TEST_CSRF_PROTECTION'] = True
+            with self.owner.session_transaction() as session:
+                session['_csrf_token'] = 't' * 40
+            self.assertEqual(self.owner.post(url).status_code, 403)
+            headers = {'X-CSRF-Token': 't' * 40}
+            first = self.owner.post(url, headers=headers)
+            self.assertEqual(first.status_code, 302)
+            self.assertEqual(first.location, self.owner.post(url, headers=headers).location)
+        with patch('app.datalogger.platform_kind', return_value='android'):
+            self.assertEqual(self.owner.post(url, headers=headers).status_code, 404)
+        store = DataLoggerStore(app.config['DOCUMENT_ROOT'])
+        channel_id = first.location.rsplit('/', 1)[-1]
+        self.assertEqual(len(store.sources(channel_id)), 1)
+        self.assertEqual(store.channel(channel_id)['unit'], 's')
+        self.assertFalse(store.can_read(store.channel(channel_id), 'reader'))
 
     def test_poll_interval_settings_are_admin_only_csrf_protected_and_persistent(self):
         url = "/datalogger/settings"

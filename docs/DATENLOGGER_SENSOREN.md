@@ -43,6 +43,41 @@ Grenzen vermeiden unbemerkte Freigaben, Netzwerkscans und Datenverlust.
 
 ## Bedienung und Quellen
 
+### Serverdiagnose und Auswertung
+
+Auf einem Linux-Server unter **Datenlogger → Server-Messungen mit Vorlagen
+einrichten** eine Vorlage auswählen. Sie legt je Administratorkonto einen
+privaten Kanal mit Quellenintervall 60 Sekunden an. Erneutes Öffnen dupliziert
+nichts. Freier/Gesamtspeicher beziehen sich auf die Dokumentwurzel, Uptime auf
+`/proc/uptime`. Bei Containern können Linux-Systemwerte den Host beschreiben;
+`load1` ist keine CPU-Auslastung in Prozent. Diese Vorlagen messen weder andere
+Datenträger noch SMART, sofern nicht separat eingerichtet.
+
+**Kanal auswerten** öffnet standardmäßig die letzten sieben UTC-Kalendertage.
+Die Datumsfelder grenzen Tabelle, Grafik und Export gemeinsam ein: Das
+Enddatum ist einschließlich. Der zuletzt gespeicherte Wert ist separat von
+Erfassungsfehlern sichtbar. Nur echte gültige Werte erscheinen als Punkte,
+fehlende Werte werden nicht als Null ergänzt. Die Fehlerliste zeichnet neue
+fehlgeschlagene Quellenabfragen auf; ein nicht laufender Worker erzeugt dort
+kein künstliches Ereignis. Die Sekundäransicht zum Vergleich skaliert jede
+Reihe separat und ist kein Vergleich absoluter Messwerte.
+
+CSV listet Messwerte und protokollierte Erfassungsfehler mit UTC-Zeitstempel,
+Kanal, Quelle, Einheit, Status und Fehlercode. Ein Fehler hat keinen Messwert.
+JSON liefert dieselbe Zeitspanne und listet Erfassungsfehler separat. Text und
+PDF liefern eine lesbare Zusammenfassung mit Anzahl, Bereich, Mittelwert und
+den letzten Fehlermeldungen. Alle Formate verwenden die Kanalrechte und sind
+bei übergroßen Zeiträumen begrenzt. Beim bisherigen direkten `data.json` ohne
+Datumsparameter bleiben die alten API-Parameter gültig. Berichtplanung, Versand
+und Schwellwertregeln sind in dieser Ausbaustufe nicht aktiv.
+
+Der optionale lokale Hilfsaufruf `python -m tools.datalogger_smart_snapshot`
+liest eine vorhandene JSON-Ausgabe von `smartctl` über Standardeingabe. Er gibt
+nur gültige Zustands-, Temperatur- und Laufzeitwerte aus; keine Seriennummern
+oder Rohmeldungen. Er ruft weder SMART-Befehle noch `sudo` selbst auf. Die
+Einbindung einer administrativ bereitgestellten Quelle und die Prüfung mit
+echter Hardware bleiben separat erforderlich.
+
 Unter **Datenlogger** wird zuerst ein Kanal angelegt. Eigentümer und Administratoren
 können Lesende und Bearbeitende als vorhandene Benutzernamen eintragen.
 Bearbeitende dürfen Werte und Quellen ändern; Lesende sehen Verlauf und Export.
