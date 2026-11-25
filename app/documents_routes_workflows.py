@@ -6,6 +6,7 @@ from .smart_folder_views import SmartFolderViews
 from .contact_company_data import company_data_metadata_from_form, company_search_items
 from .mail_document_access import private_mail_document
 from .form_store import StockAdjustmentCommittedError
+from .document_search_return import document_search_return
 from .v2.contracts import LogicalObjectId, StorageLocation
 from .v2.storage_runtime import (
     restore_document as restore_document_v2,
@@ -56,6 +57,7 @@ def detail(document_id: str):
         versions=store.versions(document_id),
         content_recovery_versions=store.content_recovery_versions(document_id),
         relationships=relationships,
+        search_return_url=document_search_return(),
         shares=store.document_shares(document_id),
         public_sharing_allowed=not private_mail_document(document),
         retention=store.retention_status(document_id),

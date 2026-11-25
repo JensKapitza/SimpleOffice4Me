@@ -6,6 +6,8 @@ import json
 from dataclasses import dataclass
 
 
+MAX_SEARCH_QUERY_CHARS = 2_000
+
 FIELDS = {
     "tag": "tags", "tags": "tags",
     "name": "path", "datei": "path", "path": "path", "pfad": "path",
@@ -42,7 +44,7 @@ class SearchQuery:
     @staticmethod
     def _tokens(source: str) -> list[tuple[str, str]]:
         """Tokenize in one linear pass without a backtracking regular expression."""
-        if len(source) > 2_000:
+        if len(source) > MAX_SEARCH_QUERY_CHARS:
             raise ValueError("Die Suchanfrage ist auf 2.000 Zeichen begrenzt.")
         result: list[tuple[str, str]] = []
         index = 0
