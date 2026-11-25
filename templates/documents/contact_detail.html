@@ -43,7 +43,9 @@
             <div class="col-md-6"><label class="form-label">Position / Titel</label><input class="form-control" name="title" value="{{ contact.fields.title|default('') }}"></div>
             <div class="col-md-6"><label class="form-label">Rolle</label><input class="form-control" name="role" value="{{ contact.fields.role|default('') }}"></div>
             <div class="col-12"><label class="form-label">Notiz</label><textarea class="form-control" name="note" rows="5">{{ contact.fields.note|default('') }}</textarea></div>
-            {% for key, value in contact.fields.items() if key not in standard_fields and 'photo' not in key %}
+            {% if contact.fields.additional_phones %}<div class="col-md-6"><label class="form-label">Weitere Telefonnummern</label><input class="form-control" name="custom_additional_phones" value="{{ contact.fields.additional_phones }}"></div>{% endif %}
+            {% if contact.fields.additional_emails %}<div class="col-md-6"><label class="form-label">Weitere E-Mail-Adressen</label><input class="form-control" name="custom_additional_emails" value="{{ contact.fields.additional_emails }}"></div>{% endif %}
+            {% for key, value in contact.fields.items() if key not in standard_fields and key not in ['additional_phones','additional_emails'] and 'photo' not in key %}
               {% if key.startswith('vcard_') %}
               <div class="col-12"><label class="form-label">Weitere vCard-Eigenschaft</label><textarea class="form-control font-monospace" name="custom_{{ key }}" rows="2">{{ value }}</textarea><div class="form-text">Unbekanntes oder zusätzliches Thunderbird-Feld. Die komplette vCard-Zeile bleibt beim Synchronisieren erhalten.</div></div>
               {% else %}
@@ -66,7 +68,8 @@
             <dt class="col-sm-4">Rolle</dt><dd class="col-sm-8">{{ contact.fields.role|default('—', true) }}</dd>
             <dt class="col-sm-4">Webseite</dt><dd class="col-sm-8">{{ contact.fields.website|default('—', true) }}</dd>
             <dt class="col-sm-4">Notiz</dt><dd class="col-sm-8" style="white-space:pre-wrap">{{ contact.fields.note|default('—', true) }}</dd>
-            {% for key, value in contact.fields.items() if key not in standard_fields and 'photo' not in key %}<dt class="col-sm-4">{% if key.startswith('vcard_') %}vCard{% else %}{{ key }}{% endif %}</dt><dd class="col-sm-8 text-break" style="white-space:pre-wrap">{{ value }}</dd>{% endfor %}
+            {% if contact.fields.additional_phones %}<dt class="col-sm-4">Weitere Telefonnummern</dt><dd class="col-sm-8">{{ contact.fields.additional_phones }}</dd>{% endif %}{% if contact.fields.additional_emails %}<dt class="col-sm-4">Weitere E-Mail-Adressen</dt><dd class="col-sm-8">{{ contact.fields.additional_emails }}</dd>{% endif %}
+            {% for key, value in contact.fields.items() if key not in standard_fields and key not in ['additional_phones','additional_emails'] and 'photo' not in key %}<dt class="col-sm-4">{% if key.startswith('vcard_') %}vCard{% else %}{{ key }}{% endif %}</dt><dd class="col-sm-8 text-break" style="white-space:pre-wrap">{{ value }}</dd>{% endfor %}
           </dl>
           {% endif %}
         </div>

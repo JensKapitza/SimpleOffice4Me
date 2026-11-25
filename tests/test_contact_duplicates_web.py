@@ -124,6 +124,18 @@ class ContactDuplicatesWebTest(unittest.TestCase):
         self.assertEqual("+49111111", contacts[0]["fields"]["phone"])
         self.assertEqual("Muster GmbH", contacts[0]["fields"]["company"])
 
+    def test_merge_archives_source_and_keeps_alternate_phone_visible(self):
+        store = ContactStore(Path(app.config["DOCUMENT_ROOT"]))
+        first = store.upsert({"display_name": "Max", "phone": "+491111"}, "jens")
+        second = store.upsert({"display_name": "Max Kopie", "phone": "+492222"}, "jens")
+        response = self.client.post("/documents/contacts/manage/duplicates/combine", data={
+            "contact_ids": [first["contact_id"], second["contact_id"]], "target_id": first["contact_id"],
+        })
+        self.assertEqual(302, response.status_code)
+        deleted = store.deleted_contacts("jens")
+        self.assertEqual(second["contact_id"], deleted[0]["contact"]["contact_id"])
+        self.assertEqual(200, self.client.get("/documents/contacts/manage/deleted").status_code)
+
 
 if __name__ == "__main__":
     unittest.main()
