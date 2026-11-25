@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
 import secrets
@@ -28,6 +29,8 @@ from .business_document_preferences import (
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
 from .mail_reader import _header, _message_text
+from .mail_read_aloud import MAX_SPEECH_EML_BYTES, document_eml_text, requested_mail_version
+from .private_read_aloud import ReadAloudError, private_audio_response, read_aloud_error
 from .osm_address import LocalAddressIndex, field_suggestions, search_address, unique_candidate
 from .settings_store import translate
 from .v2.materialize import materialize_verified_object
@@ -342,13 +345,20 @@ def _parse_address_rows(text: str) -> list[dict[str, str]]:
     return result
 
 
-def _eml_preview(root: Path, document_id: str, actor: str, *, include_body: bool = True) -> dict[str, Any]:
+def _eml_preview(
+    root: Path, document_id: str, actor: str, *,
+    include_body: bool = True, include_speech_version: bool = False,
+) -> dict[str, Any]:
     store = DocumentStore(root); document = store.get_document(document_id)
     if Path(str(document.get("last_path") or "")).suffix.casefold() != ".eml":
         raise ValueError("document is not a regular EML file")
+    speech_version = ""
     with materialize_verified_object(root, actor, document_id, suffix=".eml") as path:
         with path.open("rb") as source:
             message = BytesParser(policy=policy.default).parse(source)
+            if include_body and include_speech_version and path.stat().st_size <= MAX_SPEECH_EML_BYTES:
+                source.seek(0)
+                speech_version = hashlib.file_digest(source, "sha256").hexdigest()
     attachments: list[dict[str, Any]] = []
     for index, part in enumerate(message.walk()):
         if part.get_content_disposition() != "attachment" and not part.get_filename(): continue
@@ -375,7 +385,11 @@ def _eml_preview(root: Path, document_id: str, actor: str, *, include_body: bool
         if isinstance(candidate, str):
             html_body = candidate[:262144]
             break
-    return {"subject": _header(message.get("Subject")) or "(ohne Betreff)", "from": _header(message.get("From")), "to": _header(message.get("To")), "cc": _header(message.get("Cc")), "reply_to": _header(message.get("Reply-To")), "date": _header(message.get("Date")), "message_id": _header(message.get("Message-ID")), "text": _message_text(message) if include_body else "", "html": html_body, "attachments": attachments, "attachment_count": len(attachments), "attachment_bytes": sum(item["size"] for item in attachments), "has_inline_images": any(item["inline"] and item["type"].startswith("image/") for item in attachments)}
+    preview = {"subject": _header(message.get("Subject")) or "(ohne Betreff)", "from": _header(message.get("From")), "to": _header(message.get("To")), "cc": _header(message.get("Cc")), "reply_to": _header(message.get("Reply-To")), "date": _header(message.get("Date")), "message_id": _header(message.get("Message-ID")), "text": _message_text(message) if include_body else "", "html": html_body, "attachments": attachments, "attachment_count": len(attachments), "attachment_bytes": sum(item["size"] for item in attachments), "has_inline_images": any(item["inline"] and item["type"].startswith("image/") for item in attachments)}
+    if speech_version:
+        preview["speech_version"] = speech_version
+    return preview
+
 
 
 def register(bp) -> None:
@@ -526,7 +540,11 @@ def register(bp) -> None:
     @login_required
     def eml_preview(document_id: str):
         if not has_feature(g.user, "documents"): abort(403)
-        try: preview = _eml_preview(Path(current_app.config["DOCUMENT_ROOT"]), document_id, str(g.user["username"]))
+        try:
+            preview = _eml_preview(
+                Path(current_app.config["DOCUMENT_ROOT"]), document_id, str(g.user["username"]),
+                include_speech_version=True,
+            )
         except (OSError, RuntimeError, ValueError) as exc:
             current_app.logger.warning("CRM mail preview rejected (%s)", type(exc).__name__)
             abort(404)
@@ -539,6 +557,23 @@ def register(bp) -> None:
         response = current_app.make_response(render_template("documents/eml_document_preview.html", preview=preview, document_id=document_id, view=view, html_srcdoc=html_srcdoc))
         response.headers["Cache-Control"] = "private, no-store"
         return response
+
+    @bp.post("/documents/<document_id>/eml-preview/read-aloud", endpoint="eml_read_aloud")
+    @login_required
+    def eml_read_aloud(document_id: str):
+        if not has_feature(g.user, "documents"):
+            return read_aloud_error("source_unavailable", 404)
+        try:
+            version = requested_mail_version(64)
+        except ReadAloudError as exc:
+            return read_aloud_error(exc.code, exc.status)
+        return private_audio_response(
+            lambda: document_eml_text(
+                Path(current_app.config["DOCUMENT_ROOT"]), str(g.user["username"]),
+                document_id, version,
+            ),
+            language=g.language, recheck_source=True,
+        )
 
     @bp.get("/documents/<document_id>/eml-metadata.json", endpoint="eml_metadata")
     @login_required

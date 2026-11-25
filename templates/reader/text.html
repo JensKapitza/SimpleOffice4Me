@@ -1,0 +1,20 @@
+{% extends "layout.html" %}
+{% block title %}{{ document.last_path.rsplit('/', 1)[-1] }}{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-lg py-3" data-document-reader data-document-version="{{ document_version }}">
+  <a href="{{ url_for('documents.detail', document_id=document.document_id) }}" class="small text-decoration-none">← {{ 'Document' if g.language == 'en' else 'Dokument' }}</a>
+  <h1 class="h3 text-break">{{ document.last_path.rsplit('/', 1)[-1] }}</h1>
+  <input type="hidden" data-reader-position value="{{ section }}">
+  {% with speech_url=url_for('reader.read_aloud', document_id=document.document_id), speech_kind='text' %}
+    {% include 'reader/_read_aloud.html' %}
+  {% endwith %}
+  <nav class="d-flex flex-wrap align-items-center gap-2 my-3" aria-label="{{ 'Text sections' if g.language == 'en' else 'Textabschnitte' }}">
+    {% if section > 1 %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('reader.open_text', document_id=document.document_id, section=section-1) }}">{{ 'Previous' if g.language == 'en' else 'Zurück' }}</a>{% endif %}
+    <span>{{ 'Section' if g.language == 'en' else 'Abschnitt' }} {{ section }} / {{ section_count }}</span>
+    {% if section < section_count %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('reader.open_text', document_id=document.document_id, section=section+1) }}">{{ 'Next' if g.language == 'en' else 'Weiter' }}</a>{% endif %}
+  </nav>
+  <pre class="text-break bg-body-secondary border rounded p-3" style="white-space: pre-wrap">{{ text }}</pre>
+</main>
+{% include "reader/_read_aloud_script.html" %}
+{% endblock %}

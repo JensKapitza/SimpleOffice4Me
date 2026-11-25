@@ -481,6 +481,9 @@ app.register_blueprint(v3_android_offline_routes.bp)
 from . import reader_routes
 app.register_blueprint(reader_routes.bp)
 
+from . import reader_runtime_check
+app.register_blueprint(reader_runtime_check.bp)
+
 from . import v3_entity_routes
 app.register_blueprint(v3_entity_routes.bp)
 
@@ -543,9 +546,22 @@ def bound_document_upload_form_parts():
         request.max_form_parts = 1010
 
 
+PRIVATE_READ_ALOUD_ENDPOINTS = frozenset({
+    "reader.read_aloud", "reader.read_aloud_ocr", "mail_reader.live_read_aloud", "mail_reader.archive_read_aloud",
+    "mail_reader.case_read_aloud", "contact_audit.eml_read_aloud",
+})
+
+
 @app.before_request
 def verify_browser_request():
     fakturama_admin.limit_preview_upload()
+    reader_runtime_check.limit_request()
+    if request.endpoint in PRIVATE_READ_ALOUD_ENDPOINTS and request.method == "POST":
+        from .private_read_aloud import limit_read_aloud_request
+
+        limited = limit_read_aloud_request()
+        if limited is not None:
+            return limited
     protect_browser_mutation()
 
 
@@ -776,6 +792,9 @@ def add_header(response):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     response.headers.setdefault("Referrer-Policy", "same-origin")
+    if request.endpoint in PRIVATE_READ_ALOUD_ENDPOINTS:
+        response.headers["Cache-Control"] = "private, no-store"
+        response.headers["Referrer-Policy"] = "no-referrer"
     camera_policy = "camera=(self)" if request.endpoint in CAMERA_SCANNER_ENDPOINTS else "camera=()"
     display_policy = "display-capture=(self)" if request.blueprint == "screen" else "display-capture=()"
     microphone_policy = "microphone=(self)" if request.endpoint in {"quick_share.index", "quick_share.create", "documents.transfer"} else "microphone=()"
@@ -791,7 +810,11 @@ def add_header(response):
     if untrusted_file and request.method in {"GET", "HEAD"}:
         response.headers["Content-Security-Policy"] = "sandbox"
     else:
-        response.headers.setdefault("Content-Security-Policy", "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; object-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'")
+        policy = "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; object-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'"
+        # Private read-aloud uses only same-origin audio responses and transient object URLs.
+        if request.endpoint in {"reader.open_book", "reader.open_text", "mail_reader.index", "contact_audit.eml_preview"}:
+            policy += "; media-src 'self' blob:"
+        response.headers.setdefault("Content-Security-Policy", policy)
     return response
 
 
