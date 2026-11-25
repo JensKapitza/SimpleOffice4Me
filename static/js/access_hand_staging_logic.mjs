@@ -68,3 +68,14 @@ export class HandShortcut {
     return null;
   }
 }
+
+
+// Muting as an explicit property precedes delayed playback (the model and
+// permission both resolve after the initiating click). No autoplay grant is
+// needed, and the shared controller still tears down a rejected attempt.
+export async function playHandPreview(video, stream) {
+  video.muted = true;
+  video.playsInline = true;
+  video.srcObject = stream;
+  await video.play();
+}

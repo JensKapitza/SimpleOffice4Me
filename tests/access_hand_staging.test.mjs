@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {ARM_DURATION, HandShortcut} from '../static/js/access_hand_staging_logic.mjs';
+import {ARM_DURATION, HandShortcut, playHandPreview} from '../static/js/access_hand_staging_logic.mjs';
 
 const absent = {signal:'none'};
 const spark = {signal:'recognized', gesture:'spark'};
@@ -67,4 +67,17 @@ test('bounded arming and explicit stop reject later observations', () => {
   f.group(absent);
   f.logic.stop();
   assert.deepEqual(f.group(spark), []);
+});
+
+test('preview sets actual muted playback before attaching stream and preserves rejected play', async () => {
+  const stream = {};
+  const order = [];
+  const video = {
+    set muted(value) { order.push(['mute', value]); },
+    set playsInline(value) { order.push(['inline', value]); },
+    set srcObject(value) { order.push(['stream', value]); },
+    play() { order.push(['play']); return Promise.reject(new DOMException('test-only', 'NotAllowedError')); },
+  };
+  await assert.rejects(playHandPreview(video, stream), {name:'NotAllowedError'});
+  assert.deepEqual(order, [['mute',true], ['inline',true], ['stream',stream], ['play']]);
 });

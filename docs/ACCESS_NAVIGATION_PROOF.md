@@ -146,6 +146,15 @@ neither alone triggers and Esc releases the track. The public photograph
 covers one gesture and does not establish a physical user's reliability or
 gaze calibration. The browser suite has been prepared but was not executed in
 the local restricted environment (Chromium cannot open its startup socket).
-18 local Python and 15 Node tests pass; admission with the real asset bytes
+18 local Python and 16 Node tests pass; admission with the real asset bytes
 and composition are separate from inference. Do not claim a positive
 browser run for this candidate until its own gate has passed.
+
+
+The first hosted run reached the page and fetched all four pinned assets
+(HTTP 200), but no preview became live. Its previous generic status did not
+identify the exact native step that failed. The follow-up explicitly mutes the
+video element before delayed playback, tests that call order, separates model,
+permission/preview and inference failure statuses, and records the browser
+phase and track state on the unchanged genuine fixture gate. This is not a
+claim of a successful browser run or a proven root cause for the first run.

@@ -1,7 +1,7 @@
 import {cameraController} from './kids_hand_camera.mjs';
 import {readResult} from './kids_hand_logic.mjs';
 import {loadHandModel} from './kids_hand_model.mjs';
-import {FRAME_DELAY, HAND_DESTINATIONS, HandShortcut} from './access_hand_staging_logic.mjs';
+import {FRAME_DELAY, HAND_DESTINATIONS, HandShortcut, playHandPreview} from './access_hand_staging_logic.mjs';
 
 const root = document.querySelector('[data-hand-nav][data-ready="yes"]');
 if (root) setup(root);
@@ -34,7 +34,9 @@ function setup(panel) {
     release:'Move your hand out of the frame to arm.',
     armed:'Armed: hold up only your index finger.',
     ended:'Camera off.', denied:'Camera permission denied.',
-    failure:'Camera stopped. Check the local model or webcam and try again.',
+    model_error:'The local hand model could not start. Camera off. Check the verified setup.',
+    camera_error:'The camera or its preview could not start. Check browser access and whether the webcam is in use.',
+    inference_error:'Hand recognition stopped. Camera off.',
     expired:'Time expired. Camera off.',
   } : {
     loading:'Das lokale Handmodell wird geladen …', permission:'Erlaube nur die Kamera.',
@@ -42,7 +44,9 @@ function setup(panel) {
     release:'Nimm die Hand aus dem Bild, um scharfzuschalten.',
     armed:'Scharf: Halte nur den Zeigefinger hoch.',
     ended:'Kamera aus.', denied:'Kamerazugriff abgelehnt.',
-    failure:'Kamera aus. Prüfe das lokale Modell oder die Webcam und versuche es erneut.',
+    model_error:'Das lokale Handmodell konnte nicht starten. Kamera aus. Prüfe die Einrichtung.',
+    camera_error:'Kamera oder Vorschau konnte nicht starten. Prüfe die Browserfreigabe und ob die Kamera schon genutzt wird.',
+    inference_error:'Handerkennung gestoppt. Kamera aus.',
     expired:'Zeit abgelaufen. Kamera aus.',
   };
   const logic = new HandShortcut();
@@ -76,8 +80,7 @@ function setup(panel) {
     attach: async (stream) => {
       const generation = ++epoch;
       sequence = -1;
-      video.srcObject = stream;
-      await video.play();
+      await playHandPreview(video, stream);
       if (generation === epoch) watch(generation);
     },
     detach: () => {
@@ -101,7 +104,7 @@ function setup(panel) {
       clearTimeout(timer);
       // Camera can never be left running awaiting attention forever.
       if (live) timer = setTimeout(() => controller.stop('expired'), 30000);
-      repaint(text[state] ? state : state.endsWith('_error') ? 'failure' : 'ended');
+      repaint(text[state] ? state : 'ended');
     },
     update: (model) => {
       if (!present()) { controller.stop(); return; }
@@ -124,6 +127,7 @@ function setup(panel) {
       if (logic.state !== 'inactive') repaint(logic.state);
     },
   });
+  repaint('ended');
   start.disabled = false;
   start.addEventListener('click', (event) => { if (event.isTrusted) controller.start(); });
   arm.addEventListener('click', (event) => {

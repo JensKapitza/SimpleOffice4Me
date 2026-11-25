@@ -75,16 +75,15 @@ class HandStagingBrowserTests(PublicHttpTestCase):
             window.handTest = [];
             navigator.mediaDevices.getUserMedia = async (constraints) => {
                 window.handTest.push(constraints);
-                const input = await native(constraints);
-                window.handTestTracks = input.getTracks();
-                for (const track of window.handTestTracks) {
-                    const nativeStop = track.stop.bind(track);
-                    track.stop = () => {
-                        nativeStop();
-                        sessionStorage.setItem('hand-nav-fixture-only-stop', track.readyState);
-                    };
+                try {
+                    const input = await native(constraints);
+                    window.handTestTracks = input.getTracks();
+                    window.handTestMedia = 'granted';
+                    return input;
+                } catch (error) {
+                    window.handTestMedia = error.name;
+                    throw error;
                 }
-                return input;
             };
         })()""")
         page = context.new_page()
@@ -98,7 +97,47 @@ class HandStagingBrowserTests(PublicHttpTestCase):
         self.assertFalse(any("/handzeichen/assets/" in url for _, url in requests))
         expect(page.locator("[data-hand-nav-start]")).to_be_enabled()
         expect(page.locator("[data-hand-nav-arm]")).to_be_disabled()
+        page.evaluate("""() => {
+          const status = document.querySelector('[data-hand-nav-status]');
+          window.handTestStages = [status.dataset.state];
+          new MutationObserver(() => window.handTestStages.push(status.dataset.state))
+            .observe(status, {attributes: true, attributeFilter: ['data-state']});
+        }""")
         return browser, page, requests, outbound
+
+    def _start_native_preview(self, page):
+        page.locator("[data-hand-nav-start]").click()
+        # A failed start is a hard failure with stages, not a long wait for a
+        # hidden element that loses the browser's exact startup evidence.
+        status = page.locator("[data-hand-nav-status]")
+        page.wait_for_function("""() => {
+          const phase = document.querySelector('[data-hand-nav-status]').dataset.state;
+          return ['live', 'model_error', 'camera_error', 'inference_error', 'denied'].includes(phase)
+            || (phase === 'ended' && window.handTestStages.includes('loading'));
+        }""", timeout=25000)
+        snapshot = page.evaluate("""() => ({
+          stages: [...new Set(window.handTestStages)],
+          media: window.handTestMedia ?? 'not requested',
+          tracks: window.handTestTracks?.map(t => t.kind + ':' + t.readyState) ?? [],
+          visibility: document.visibilityState,
+          focus: document.hasFocus(),
+          previewMuted: document.querySelector('[data-hand-nav-video]').muted,
+        })""")
+        self.assertEqual("live", status.get_attribute("data-state"), snapshot)
+        expect(page.locator("[data-hand-nav-video]")).to_be_visible()
+        self.assertEqual(snapshot["tracks"], ["video:live"])
+        self.assertTrue(page.evaluate("window.handTest.length === 1 && window.handTest[0].audio === false"))
+
+    @staticmethod
+    def _observe_stop_after_start(page):
+        page.evaluate("""() => {
+          const [track] = window.handTestTracks;
+          const nativeStop = track.stop.bind(track);
+          track.stop = () => {
+            nativeStop();
+            sessionStorage.setItem('hand-nav-fixture-only-stop', track.readyState);
+          };
+        }""")
 
     def test_pinned_real_model_routes_after_public_index_and_deliberate_blank(self):
         with sync_playwright() as playwright:
@@ -107,10 +146,8 @@ class HandStagingBrowserTests(PublicHttpTestCase):
                     browser, page, requests, outbound = self._open(playwright, "hand-nav-release-then-index.y4m")
                     try:
                         page.locator("[data-hand-nav-destination]").select_option(key)
-                        page.locator("[data-hand-nav-start]").click()
-                        expect(page.locator("[data-hand-nav-video]")).to_be_visible(timeout=25000)
-                        self.assertEqual(page.evaluate("window.handTestTracks.map(t => t.kind)"), ["video"])
-                        self.assertTrue(page.evaluate("window.handTest[0].audio === false"))
+                        self._start_native_preview(page)
+                        self._observe_stop_after_start(page)
                         page.locator("[data-hand-nav-arm]").click()
                         expect(page.locator("[data-hand-nav-status]")).to_have_attribute("data-state", "armed", timeout=9000)
                         page.wait_for_url(self.origin + path, timeout=12000)
@@ -128,8 +165,7 @@ class HandStagingBrowserTests(PublicHttpTestCase):
                 with self.subTest(video=name):
                     browser, page, _, outbound = self._open(playwright, name)
                     try:
-                        page.locator("[data-hand-nav-start]").click()
-                        expect(page.locator("[data-hand-nav-video]")).to_be_visible(timeout=25000)
+                        self._start_native_preview(page)
                         page.locator("[data-hand-nav-arm]").click()
                         # An actual hold window elapses. The page must not leave.
                         page.wait_for_timeout(2200)
