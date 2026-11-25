@@ -38,6 +38,14 @@
     {% endif %}
     {% if speech_kind == 'pdf' and speech_ocr_url %}
     <button class="btn btn-sm btn-outline-primary" type="button" data-speech-ocr disabled>{{ 'OCR and read aloud' if g.language == 'en' else 'OCR und vorlesen' }}</button>
+    <label class="small align-self-center">
+      {{ 'Turn this scan for OCR only' if g.language == 'en' else 'Drehung nur für die OCR dieser Seite' }}
+      <select class="form-select form-select-sm" data-speech-rotation disabled>
+        <option value="0">{{ 'Do not turn' if g.language == 'en' else 'Nicht drehen' }}</option>
+        <option value="90">{{ 'Right 90°' if g.language == 'en' else '90° rechts' }}</option>
+        <option value="270">{{ 'Left 90°' if g.language == 'en' else '90° links' }}</option>
+      </select>
+    </label>
     {% endif %}
     <button class="btn btn-sm btn-outline-secondary" type="button" data-speech-pause disabled>Pause</button>
     <button class="btn btn-sm btn-outline-secondary" type="button" data-speech-stop disabled>{{ 'Stop' if g.language == 'en' else 'Stopp' }}</button>

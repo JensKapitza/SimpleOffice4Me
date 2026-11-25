@@ -49,7 +49,17 @@ def limit_read_aloud_request() -> Response | None:
 
 
 def read_aloud_request() -> tuple[int, str]:
-    """Parse only the shared player's small locator envelope; never accept text."""
+    """Parse the shared player's small locator envelope; never accept text."""
+    page, version, _ = _read_locator()
+    return page, version
+
+
+def read_aloud_ocr_request() -> tuple[int, str, int]:
+    """Accept an optional fixed quarter-turn only for the explicit Reader OCR."""
+    return _read_locator(allow_ocr_rotation=True)
+
+
+def _read_locator(*, allow_ocr_rotation: bool = False) -> tuple[int, str, int]:
     if not request.is_json:
         raise ReadAloudError("invalid_request", 400)
     if request.content_length is not None and request.content_length > _MAX_REQUEST_BYTES:
@@ -61,14 +71,19 @@ def read_aloud_request() -> tuple[int, str]:
         value = json.loads(body)
     except (UnicodeError, ValueError, RecursionError) as exc:
         raise ReadAloudError("invalid_request", 400) from exc
-    if not isinstance(value, dict) or set(value) != {"page", "document_version"}:
+    if not isinstance(value, dict):
         raise ReadAloudError("invalid_request", 400)
+    clockwise = value.pop("ocr_clockwise", 0) if allow_ocr_rotation else 0
+    if set(value) != {"page", "document_version"}:
+        raise ReadAloudError("invalid_request", 400)
+    if type(clockwise) is not int or clockwise not in {0, 90, 270}:
+        raise ReadAloudError("invalid_rotation", 400)
     page, version = value["page"], value["document_version"]
     if type(page) is not int or not 1 <= page <= 10_000:
         raise ReadAloudError("invalid_page", 400)
     if not isinstance(version, str) or not version or len(version) > 160:
         raise ReadAloudError("invalid_version", 400)
-    return page, version
+    return page, version, clockwise
 
 
 def configured_piper_model(language: str) -> str:

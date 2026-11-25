@@ -460,6 +460,48 @@ class ReaderReadAloudTests(unittest.TestCase):
         self.assert_private_audio(result)
         self.assertEqual(["Second unique page"], self.spoken)
 
+    @unittest.skipUnless(shutil.which("pdftoppm") and shutil.which("tesseract"), "Local OCR tools needed")
+    def test_selected_ocr_turn_recovers_sideways_pixels_without_rewriting_pdf(self):
+        try:
+            font = ImageFont.truetype("DejaVuSans.ttf", 64)
+        except OSError:
+            self.skipTest("Fixture font not installed")
+        with Image.new("RGB", (1150, 280), "white") as raster:
+            ImageDraw.Draw(raster).text((70, 50), "CAMERA INVOICE", font=font, fill="black")
+            with raster.transpose(Image.Transpose.ROTATE_90) as sideways:
+                output = io.BytesIO()
+                writer = canvas.Canvas(output, pagesize=(140, 575))
+                writer.drawImage(ImageReader(sideways), 0, 0, 140, 575)
+                writer.save()
+        source = output.getvalue()
+        self.assertEqual(0, PdfReader(io.BytesIO(source)).pages[0].rotation)
+        document = self.document("synthetic-sideways-scan.pdf", source)
+        html = self.client.get(f'/documents/reader/{document["document_id"]}')
+        dom = BeautifulSoup(html.data, "html.parser")
+        self.assertEqual(["0", "90", "270"], [
+            option["value"] for option in dom.select("[data-speech-rotation] option")
+        ])
+        controls = dom.select_one("[data-reader-read-aloud]")
+        ocr = controls["data-speech-ocr-url"]
+        args = {"page": 1, "document_version": reader_version(document), "ocr_clockwise": 90}
+        headers = {"X-CSRF-Token": self.csrf}
+        with patch(self.speech_patch, side_effect=self.render_wave):
+            self.assertEqual(403, self.client.post(ocr, json=args).status_code)
+            native = self.client.post(controls["data-speech-url"], json=args, headers=headers)
+            self.assertEqual(400, native.status_code)
+            self.assertEqual("invalid_request", native.get_json()["error"])
+            for angle in (True, 45, 180, "90"):
+                with self.subTest(angle=angle):
+                    invalid = self.client.post(ocr, json=dict(args, ocr_clockwise=angle), headers=headers)
+                    self.assertEqual(400, invalid.status_code)
+                    self.assertEqual("invalid_rotation", invalid.get_json()["error"])
+                    self.assertEqual("private, no-store", invalid.headers["Cache-Control"])
+            self.assertFalse(self.spoken)
+            result = self.client.post(ocr, json=args, headers=headers)
+        self.assert_private_audio(result)
+        self.assertIn("CAMERA INVOICE", self.spoken[0])
+        self.assertEqual(source, (self.root / document["last_path"]).read_bytes())
+
     def test_pdf_preparation_timeout_and_unavailable_space_are_distinct_private_errors(self):
         document = self.document("ordinary.pdf", self.pdf())
         with patch("app.reader_routes.pdf_page_text") as extract, patch(self.speech_patch) as piper:
