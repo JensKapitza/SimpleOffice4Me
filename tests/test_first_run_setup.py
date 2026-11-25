@@ -174,6 +174,13 @@ class FirstRunSetupTest(unittest.TestCase):
         for password in passwords:
             self.assertNotIn(password, later)
 
+    def test_setup_page_has_no_body_style_element(self):
+        body = self.client.get('/documents/setup', base_url=self.base_url).get_data(as_text=True)
+        self.assertIn('setup-mobile-safe', body)
+        self.assertIn('css/setup.css', body)
+        self.assertNotIn('<style>', body)
+        self.assertNotIn('<style ', body)
+
     def test_macos_setup_and_rendered_help(self):
         body = self.client.get('/documents/setup', base_url=self.base_url).get_data(as_text=True)
         self.assertIn('value="macos"', body)
