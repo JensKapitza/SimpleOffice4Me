@@ -25,7 +25,7 @@
      data-speech-reading-page="{{ 'Reading page {page}.' if g.language == 'en' else 'Seite {page} wird vorgelesen.' }}"
      data-speech-continuous-blank="{{ 'Stopped at page {page}: no text layer. Use OCR manually if needed.' if g.language == 'en' else 'Stopp auf Seite {page}: keine Textebene. Bei Bedarf OCR manuell starten.' }}"
      data-speech-continuous-limit="{{ 'Five pages read. Go to the next page to continue.' if g.language == 'en' else 'Fünf Seiten vorgelesen. Wechsle zur nächsten Seite, um weiterzuhören.' }}"
-     data-speech-continuous-end="{{ 'End of PDF.' if g.language == 'en' else 'Ende des PDFs.' }}"
+     data-speech-continuous-end="{{ 'End of PDF. Use the page button to open the last page.' if g.language == 'en' else 'Ende des PDFs. Mit der Schaltfläche kannst du die letzte Seite öffnen.' }}"
      data-speech-jump-label="{{ 'Go to page {page}' if g.language == 'en' else 'Zu Seite {page} wechseln' }}"
      data-speech-pdf-too-large="{{ ('This PDF exceeds %s MiB. Split it into smaller PDFs to read aloud.' if g.language == 'en' else 'Dieses PDF überschreitet %s MiB. Teile es zum Vorlesen in kleinere PDFs.') | format(speech_pdf_limit_mib) }}"
      data-speech-pdf-stage-unavailable="{{ 'The server could not prepare the PDF. Check its temporary storage and try again.' if g.language == 'en' else 'Der Server konnte das PDF nicht vorbereiten. Prüfe den temporären Speicher und versuche es erneut.' }}"

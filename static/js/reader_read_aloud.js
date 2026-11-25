@@ -208,7 +208,10 @@
       if (state !== 'playing') return;
       if (request.page === request.endPage) {
         if (request.page === lastPage) {
-          return release('idle', label('speechContinuousEnd', 'End of PDF.'));
+          // Reaching audio EOF is not a display navigation or a saved
+          // reading position. Offer the same deliberate page jump as at a stop.
+          return release('idle', label('speechContinuousEnd', 'End of PDF.'),
+            request.page === request.anchorPage ? null : request.page);
         }
         return release('idle', label('speechContinuousLimit', 'Page limit reached. Start again to continue.'),
           request.page + 1);
