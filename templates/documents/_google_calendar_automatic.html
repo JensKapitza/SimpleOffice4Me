@@ -1,0 +1,35 @@
+{% set auto = google_sync.automatic %}
+{% set en = g.language == 'en' %}
+{% if google_sync.configured or auto.configured_before %}
+  <div id="google-calendar-automatic" class="mb-3 border-bottom pb-3">
+    <h2 class="h6">{{ 'Automatic import from Google' if en else 'Automatischer Import von Google' }}</h2>
+    <p class="small mb-2">
+      {% if auto.outcome == 'configuration_changed' %}
+        {{ 'Paused: the account or target changed. Confirm the new configuration to continue.' if en else 'Pausiert: Konto oder Ziel wurden geändert. Bestätige die neue Konfiguration, um fortzufahren.' }}
+      {% elif auto.outcome == 'conflict' %}
+        {{ 'Paused until you resolve the calendar conflicts below.' if en else 'Pausiert, bis du die Kalenderkonflikte unten aufgelöst hast.' }}
+      {% elif auto.outcome == 'error' %}
+        {{ 'Last attempt failed. Check Google access and write permission for the local calendar; the worker will retry.' if en else 'Letzter Versuch fehlgeschlagen. Prüfe den Google-Zugang und das Schreibrecht am lokalen Kalender. Der Dienst versucht es erneut.' }}
+      {% elif auto.enabled %}
+        {{ 'Enabled. The worker checks Google about every 15 minutes.' if en else 'Aktiv. Der Dienst prüft Google etwa alle 15 Minuten.' }}
+      {% else %}
+        {{ 'Off. Nothing runs automatically without your consent.' if en else 'Aus. Ohne deine Zustimmung läuft nichts automatisch.' }}
+      {% endif %}
+    </p>
+    {% if auto.last_attempt or auto.next_run %}
+      <p class="small text-secondary mb-2">
+        {% if auto.last_attempt %}{{ 'Last automatic attempt' if en else 'Letzter automatischer Versuch' }}: {{ auto.last_attempt|calendar_display_datetime }}. {% endif %}
+        {% if auto.next_run %}{{ 'Next scheduled attempt' if en else 'Nächster geplanter Versuch' }}: {{ auto.next_run|calendar_display_datetime }}.{% endif %}
+      </p>
+    {% endif %}
+    <form method="post" action="{{ url_for('documents.google_calendar_automatic') }}" class="d-flex flex-wrap gap-2">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      {% if google_sync.configured and not auto.enabled %}
+        <button type="submit" name="action" value="enable" class="btn btn-sm btn-outline-primary">{{ 'Enable automatic import' if en else 'Automatischen Import aktivieren' }}</button>
+      {% endif %}
+      {% if auto.configured_before %}
+        <button type="submit" name="action" value="disable" class="btn btn-sm btn-outline-secondary">{{ 'Disable automatic import' if en else 'Automatischen Import deaktivieren' }}</button>
+      {% endif %}
+    </form>
+  </div>
+{% endif %}

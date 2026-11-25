@@ -197,7 +197,10 @@ class CalendarStore:
                 self.history.record(action, actor, "calendar", event["event_id"], event)
             return imported
 
-    def upsert_external_event(self, values: dict[str, Any], actor: str, source: dict[str, str], owner: str = "", calendar_id: str = "", access_actor: str = "") -> dict[str, Any]:
+    def upsert_external_event(
+        self, values: dict[str, Any], actor: str, source: dict[str, str], owner: str = "",
+        calendar_id: str = "", access_actor: str = "", *, expected: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Create or update a provider event by its immutable provider ID."""
         if not source.get("provider") or not source.get("source_id"):
             raise ValueError("provider and source id are required")
@@ -207,7 +210,21 @@ class CalendarStore:
             raise ValueError("external event start is required")
         with exclusive_file_lock(self.path.parent / ".calendar-write.lock"):
             data = self._read()
-            existing = next((item for item in data.get("events", []) if isinstance(item.get("source"), dict) and item["source"].get("provider") == source["provider"] and item["source"].get("source_id") == source["source_id"]), None)
+            scoped = bool(source.get("scope"))
+            candidates = [
+                item for item in data.get("events", [])
+                if isinstance(item.get("source"), dict)
+                and item["source"].get("provider") == source["provider"]
+                and item["source"].get("source_id") == source["source_id"]
+            ]
+            existing = next((item for item in candidates if item["source"].get("scope") == source.get("scope")), None)
+            if scoped and expected and not existing and not expected["source"].get("scope"):
+                existing = next((item for item in candidates if not item["source"].get("scope")
+                                 and item.get("event_id") == expected.get("event_id")), None)
+            # A local edit/revocation between inspection and write must not
+            # get overwritten or granted access by an unattended pull.
+            if scoped and (existing != expected or (existing and not self._can_edit(existing, access_actor))):
+                raise ValueError("external calendar event changed during synchronization")
             event = self._event(existing.get("event_id", "") if existing else "", title, str(values.get("reason", "")).strip() or "Aus externem Kalender importiert", start, str(values.get("end", "")).strip(), "", actor, existing.get("visibility", "private") if existing else "private", existing.get("public_notice", "") if existing else "", existing.get("tags", []) if existing else [], existing, values)
             event["source"] = source
             event["source_uid"] = source["source_id"]

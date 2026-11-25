@@ -397,8 +397,10 @@ def start(configure_only: bool = False) -> None:
         proxy_status = configure_lan_proxy(app, document_root, "127.0.0.1", port)
         if proxy_status["state"] == "error":
             print(f"LAN-Proxy konnte nicht starten: {proxy_status['message']}.", file=sys.stderr, flush=True)
+        from app.google_calendar_worker import google_calendar_background
         try:
-            serve(app, **options)
+            with google_calendar_background(app):
+                serve(app, **options)
         except OSError as exc:
             if exc.errno != errno.EADDRINUSE:
                 raise
