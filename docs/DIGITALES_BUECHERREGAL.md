@@ -60,7 +60,7 @@ Der erkannte Text kommt als unsichtbare PDF-Textebene hinter den sichtbaren Seit
 
 ## Lokal vorlesen: PDF und Text
 
-Öffne ein PDF oder eine UTF-8-`.txt`-Datei über **Im Reader öffnen** in der Dokumentansicht. **Vorlesen** liest die im Reader gewählte PDF-Seite beziehungsweise den aktuellen Textabschnitt. **Pause**, **Fortsetzen** und **Stopp** steuern die Wiedergabe. Wenn der Browser nach der Vorbereitung nicht automatisch spielt, startet **Fortsetzen** das fertige Audio. Ein Seitenwechsel beendet die bisherige Wiedergabe.
+Öffne ein PDF oder eine `.txt`-Datei in UTF-8 oder UTF-16 mit BOM (LE/BE) über **Im Reader öffnen** in der Dokumentansicht. **Vorlesen** liest die im Reader gewählte PDF-Seite beziehungsweise den aktuellen Textabschnitt. **Pause**, **Fortsetzen** und **Stopp** steuern die Wiedergabe. Wenn der Browser nach der Vorbereitung nicht automatisch spielt, startet **Fortsetzen** das fertige Audio. Ein Seitenwechsel beendet die bisherige Wiedergabe. Der Reader rät keine Textkodierung; UTF-16 ohne BOM und UTF-32 werden nicht als solche geöffnet. Bei einer abgelehnten Datei kannst du eine UTF-8-Kopie speichern.
 
 ### Stimme für den Reader einrichten
 

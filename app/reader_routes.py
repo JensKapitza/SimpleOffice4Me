@@ -327,7 +327,7 @@ def _speech_source_for(document: dict[str, Any], maximum: int) -> bytes:
 @bp.get("/<document_id>/text")
 @login_required
 def open_text(document_id: str):
-    """Display verified UTF-8 text in the Reader, one bounded section at a time."""
+    """Display verified UTF-8 or BOM-marked UTF-16 in bounded sections."""
     _require_documents()
     try:
         document, suffix = _speech_document(document_id)
@@ -340,10 +340,15 @@ def open_text(document_id: str):
     except ReadAloudError as exc:
         if exc.status == 404:
             abort(404)
+        if exc.code == "invalid_text":
+            message = ("This file is not supported plain text. Save the original as UTF-8 or as UTF-16 with a BOM."
+                       if g.language == "en" else
+                       "Diese Datei ist kein unterstützter Klartext. Speichere das Original als UTF-8 oder als UTF-16 mit BOM.")
+        else:
+            message = ("The text is unavailable or exceeds the Reader limit (256 KiB)." if g.language == "en"
+                       else "Der Text ist nicht verfügbar oder überschreitet die Reader-Grenze (256 KiB).")
         response = make_response(render_template(
-            "reader/error.html", document=document, format="text",
-            message=("The text is unavailable or exceeds the Reader limit (256 KiB)." if g.language == "en"
-                     else "Der Text ist nicht verfügbar oder überschreitet die Reader-Grenze (256 KiB)."),
+            "reader/error.html", document=document, format="text", message=message,
         ), exc.status)
     else:
         response = make_response(render_template(
