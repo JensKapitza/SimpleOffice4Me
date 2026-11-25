@@ -302,6 +302,8 @@ def epub_cover(document_id: str):
 @login_required
 def grayscale_pdf(document_id: str):
     """Download a grayscale copy, retaining the protected source unchanged."""
+    from .pdf_limits import PdfConversionTimeout
+
     _require_documents()
     document, kind = _book(document_id)
     if kind != "pdf":
@@ -311,6 +313,16 @@ def grayscale_pdf(document_id: str):
         from .pdf_conversion import make_grayscale_searchable_pdf
 
         payload = make_grayscale_searchable_pdf(source)
+    except PdfConversionTimeout:
+        current_app.logger.info("Reader PDF export timed out for %s", document_id)
+        flash(
+            "The local PDF export took too long. Try again or split the PDF into smaller files. Your original is unchanged."
+            if g.language == "en" else
+            "Der lokale PDF-Export hat das Zeitlimit überschritten. Versuche es erneut oder teile das PDF "
+            "in kleinere Dateien. Dein Original bleibt unverändert.",
+            "reader-export-error",
+        )
+        return redirect(url_for("reader.open_book", document_id=document_id))
     except ValueError as exc:
         current_app.logger.info(
             "Reader PDF conversion rejected for %s: %s",

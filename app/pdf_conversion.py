@@ -16,7 +16,7 @@ from reportlab.pdfgen import canvas
 
 from .document_store_core import ocr_subprocess_environment
 from .ocr_preprocessing import OCR_RENDER_EDGE, needs_ocr_supplement, prepare_ocr_image
-from .pdf_limits import MAX_PDF_BYTES
+from .pdf_limits import MAX_PDF_BYTES, PdfConversionTimeout
 
 MAX_OUTPUT_BYTES = MAX_PDF_BYTES
 MAX_RENDER_EDGE = OCR_RENDER_EDGE
@@ -50,7 +50,7 @@ def _run(
             timeout=timeout, check=False, env=env,
         )
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("Die PDF-Konvertierung hat das Zeitlimit überschritten.") from exc
+        raise PdfConversionTimeout("Die PDF-Konvertierung hat das Zeitlimit überschritten.") from exc
     except OSError as exc:
         raise RuntimeError("Ein benötigtes PDF-Werkzeug konnte nicht gestartet werden.") from exc
     if result.returncode:

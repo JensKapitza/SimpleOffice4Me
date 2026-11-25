@@ -435,6 +435,55 @@ class ReaderRoutesTests(unittest.TestCase):
             response.get_data(as_text=True),
         )
 
+    def test_terminal_timeout_is_visible_once_and_allows_explicit_retry(self):
+        from bs4 import BeautifulSoup
+        from reportlab.pdfgen.canvas import Canvas
+
+        source = io.BytesIO()
+        pdf = Canvas(source)
+        pdf.drawString(40, 650, "Synthetic PDF export")
+        pdf.save()
+        original = source.getvalue()
+        document = DocumentStore(self.documents).import_upload(io.BytesIO(original), "Retry.pdf", "admin")
+        route = f"/documents/reader/{document['document_id']}"
+        path = route + "/pdf/grayscale"
+        original_run = subprocess.run
+        for language, wording in (("de", "Zeitlimit überschritten"), ("en", "took too long")):
+            with self.subTest(language=language):
+                with self.client.session_transaction() as session:
+                    session["simpleoffice_language"] = language
+                failure = subprocess.TimeoutExpired(["/fixture/synthetic-private-tool"], 900, stderr="private contents")
+                attempts = []
+
+                def timeout_only_conversion(command, *args, **kwargs):
+                    if str(command[0]) == "/fixture/gs":
+                        attempts.append(kwargs["timeout"])
+                        raise failure
+                    return original_run(command, *args, **kwargs)
+
+                with (
+                    patch("app.pdf_conversion.shutil.which", side_effect=lambda name: "/fixture/" + name),
+                    patch("app.pdf_conversion.subprocess.run", side_effect=timeout_only_conversion),
+                    patch("app.reader_routes.audit") as audit,
+                ):
+                    result = self.client.post(path, headers=self.headers, follow_redirects=True)
+                    self.assertEqual(200, result.status_code)
+                    self.assertEqual((302,), tuple(step.status_code for step in result.history))
+                    page = BeautifulSoup(result.data, "html.parser")
+                    notice = page.select_one('[data-reader-feedback][role="alert"]')
+                    self.assertIsNotNone(notice)
+                    self.assertIn(wording, notice.get_text())
+                    self.assertNotIn("synthetic-private-tool", page.get_text())
+                    self.assertNotIn("private contents", page.get_text())
+                    self.assertIsNotNone(page.select_one(f'form[action="{path}"] button'))
+                    self.assertNotIn("Content-Disposition", result.headers)
+                    self.assertIsNone(BeautifulSoup(self.client.get(route).data, "html.parser")
+                                      .select_one("[data-reader-feedback]"))
+                    self.assertEqual([900], attempts)
+                    self.assertNotIn("document_reader_pdf_grayscale_export",
+                                     [call.args[0] for call in audit.call_args_list])
+        self.assertEqual(original, (self.documents / document["last_path"]).read_bytes())
+
     def test_grayscale_pdf_flash_does_not_include_conversion_error_details(self):
         document = DocumentStore(self.documents).import_upload(
             io.BytesIO(b"%PDF-1.4\nreader"), "Conversion.pdf", "admin",
