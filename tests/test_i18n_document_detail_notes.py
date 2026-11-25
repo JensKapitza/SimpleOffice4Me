@@ -9,6 +9,9 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+from bs4 import BeautifulSoup
 
 from app import app
 from app.db import ensure_auth_database
@@ -74,23 +77,50 @@ class DetailNotesLinkingI18nTest(unittest.TestCase):
         target = self.store.import_file(source, actor="notes-tester")
         return self.store.get_document(target)["document_id"]
 
+    def _assert_image_analysis_workflow(
+        self, language: str, heading: str, dimensions: str, start: str, again: str, no_text: str
+    ) -> None:
+        # Render the real document detail after an import where local OCR was unavailable.
+        # Stub only the binary boundary: the labels must not depend on CI's installed engines.
+        with patch.object(DocumentStore, "_image_ocr", side_effect=RuntimeError("OCR unavailable")) as ocr:
+            document_id = self._import_png()
+            body = self._get_image(document_id, language)
+            ocr.assert_called_once()
+        path = f"/documents/{document_id}"
+        action = path + "/analyze-image"
+        for label in (heading, dimensions):
+            self.assertIn(label, body)
+        panel = BeautifulSoup(body, "html.parser").select_one("#image-analysis")
+        form = panel.select_one(f'form[method="post"][action="{action}"]')
+        self.assertIsNotNone(form)
+        self.assertEqual(start, form.select_one('button[type="submit"]').get_text(strip=True))
+        fields = {field["name"]: field["value"] for field in form.select('input[type="hidden"][name]')}
+        self.assertTrue(fields["_csrf_token"])
+        self.assertEqual("detail", fields["return_view"])
+
+        # The same form runs OCR and returns to the card. Successful analysis of the blank
+        # fixture still switches to the repeat action, without implying usable text exists.
+        with patch.object(DocumentStore, "_image_ocr", return_value="") as ocr:
+            response = self.client.post(action, data=fields)
+            self.addCleanup(response.close)
+            self.assertEqual(302, response.status_code)
+            self.assertEqual(path + "#image-analysis", response.headers["Location"])
+            ocr.assert_called_once()
+        completed = self._get_image(document_id, language)
+        self.assertIn(no_text, completed)
+        panel = BeautifulSoup(completed, "html.parser").select_one("#image-analysis")
+        self.assertEqual(again, panel.select_one(f'form[action="{action}"] button').get_text(strip=True))
+
     def test_image_analysis_english(self) -> None:
-        body = self._get_image(self._import_png(), "en")
-        for expected in (
-            "Image analysis",
-            "Dimensions",
-            "Re-analyze EXIF / OCR",
-        ):
-            self.assertIn(expected, body)
+        self._assert_image_analysis_workflow(
+            "en", "Image analysis", "Dimensions", "Run OCR", "Run OCR again", "found no readable text"
+        )
 
     def test_image_analysis_german(self) -> None:
-        body = self._get_image(self._import_png(), "de")
-        for expected in (
-            "Bildanalyse",
-            "Abmessungen",
-            "EXIF / OCR erneut analysieren",
-        ):
-            self.assertIn(expected, body)
+        self._assert_image_analysis_workflow(
+            "de", "Bildanalyse", "Abmessungen", "Texterkennung starten",
+            "Texterkennung erneut ausführen", "keinen lesbaren Text gefunden",
+        )
 
     def _get_image_with_engel(self, document_id: str, language: str) -> str:
         previous = app.config.get("CONTEXTFLOW_ENABLED")

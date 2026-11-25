@@ -958,9 +958,24 @@ def export_all_portable_metadata():
 @bp.post("/<document_id>/analyze-image")
 @login_required
 def analyze_image(document_id: str):
+    english = g.language == "en"
     try:
-        _store().analyze_image(document_id, str(g.user["username"]))
-        flash("Bild analysiert: EXIF, OCR und Tags wurden aktualisiert.")
+        document = _store().analyze_image(document_id, str(g.user["username"]))
+        analysis = document["image_analysis"]
+        if analysis.get("ocr_retry_status") == "unavailable":
+            flash("OCR could not run again. Previous text for this image was kept." if english else
+                  "OCR konnte nicht erneut ausgeführt werden. Der bisherige Text dieses Bildes bleibt erhalten.")
+        elif analysis.get("ocr_status") != "completed":
+            flash("Local OCR could not run. Check Tesseract and its language packs, then try again." if english else
+                  "Lokale OCR konnte nicht ausgeführt werden. Prüfe Tesseract und die Sprachpakete und versuche es erneut.")
+        elif analysis.get("ocr_characters"):
+            flash("Recognized text is now searchable." if english else "Der erkannte Text ist jetzt durchsuchbar.")
+        else:
+            flash("OCR ran but found no readable text." if english else
+                  "OCR wurde ausgeführt, hat aber keinen lesbaren Text gefunden.")
     except (OSError, RuntimeError, ValueError) as exc:
-        flash(f"Bildanalyse fehlgeschlagen: {exc}")
+        current_app.logger.info("Image analysis could not be updated: %s", type(exc).__name__)
+        flash("Image analysis could not be updated." if english else "Die Bildanalyse konnte nicht aktualisiert werden.")
+    if request.form.get("return_view") == "detail":
+        return redirect(url_for("documents.detail", document_id=document_id, _anchor="image-analysis"))
     return redirect(url_for("documents.images"))
