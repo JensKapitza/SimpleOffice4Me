@@ -1,13 +1,13 @@
 {# Original simplified illustrations. Each pose models the safe action only. #}
 {% macro adult(x, y) -%}
-<g transform="translate({{ x }} {{ y }})" class="story-person story-adult">
+<g transform="matrix(1 0 0 1 {{ x }} {{ y }})" class="story-person story-adult">
   <circle class="story-head" cx="0" cy="-49" r="13"/>
   <path class="story-body" d="M-13 -35 Q0 -42 13 -35 L17 -1 H-17 Z"/>
   <path d="M-9 0 L-12 22 M9 0 L12 22 M-13 -28 L-24 -12 M13 -28 L24 -12"/>
 </g>
 {%- endmacro %}
 {% macro child(x, y, scale=1, gesture='call') -%}
-<g transform="translate({{ x }} {{ y }}) scale({{ scale }})" class="story-person story-child">
+<g transform="matrix({{ scale }} 0 0 {{ scale }} {{ x }} {{ y }})" class="story-person story-child">
   <circle class="story-head" cx="0" cy="-43" r="12"/>
   <path class="story-body" d="M-10 -30 Q0 -36 10 -30 L13 -1 H-13 Z"/>
   <path d="M-6 0 L-10 18 M6 0 L10 18"/>

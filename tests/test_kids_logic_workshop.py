@@ -49,6 +49,15 @@ class KidsLogicWorkshopTests(PublicHttpTestCase):
         self.assertFalse(scenes[-1].select(".story-outlet circle"))
         self.assertEqual(len(scenes[2].select(".story-child")), 2)
         self.assertEqual(len(scenes[2].select(".story-adult")), 1)
+        # Transforms keep both children on the safe side of the outlet,
+        # preserve their original sizes and keep the calling gesture visible.
+        children = scenes[2].select(".story-child")
+        self.assertEqual([child["transform"] for child in children],
+                         ["matrix(0.72 0 0 0.72 160 111)", "matrix(0.95 0 0 0.95 214 111)"])
+        self.assertEqual(scenes[2].select_one(".story-adult")["transform"], "matrix(1 0 0 1 306 105)")
+        self.assertIsNone(children[0].select_one(".story-sound"))
+        self.assertIsNotNone(children[1].select_one(".story-sound"))
+        self.assertEqual(scenes[-1].select_one(".story-child")["transform"], "matrix(1 0 0 1 174 117)")
 
     def test_english_workshop_and_old_kids_electrical_safety_route(self):
         csrf = self._csrf_headers(self.client, "/kids/")
