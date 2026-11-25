@@ -1,0 +1,140 @@
+import {cameraController} from './kids_hand_camera.mjs';
+import {readResult} from './kids_hand_logic.mjs';
+import {loadHandModel} from './kids_hand_model.mjs';
+import {FRAME_DELAY, HAND_DESTINATIONS, HandShortcut} from './access_hand_staging_logic.mjs';
+
+const root = document.querySelector('[data-hand-nav][data-ready="yes"]');
+if (root) setup(root);
+function setup(panel) {
+  const parent = panel.closest('[data-access-proof]');
+  if (!parent) return;
+  const get = (name) => panel.querySelector(`[data-hand-nav-${name}]`);
+  const [start, arm, stopButton, select, status, video, preview] =
+    ['start', 'arm', 'stop', 'destination', 'status', 'video', 'preview'].map(get);
+  if (![start, arm, stopButton, select, status, video, preview].every(Boolean)) return;
+  const en = panel.dataset.language === 'en';
+  if (!window.isSecureContext || window.top !== window || !navigator.mediaDevices?.getUserMedia ||
+      typeof video?.requestVideoFrameCallback !== 'function' ||
+      typeof video.cancelVideoFrameCallback !== 'function') {
+    status.textContent = en ? 'A current HTTPS or localhost browser with a webcam is required.' :
+      'Dafür brauchst du einen aktuellen Browser auf HTTPS oder localhost und eine Webcam.';
+    return;
+  }
+  const destinations = new Map();
+  for (const id of HAND_DESTINATIONS) {
+    const anchor = parent.querySelector(`a[data-access-target="${id}"]`);
+    if (!anchor) return;
+    const url = new URL(anchor.href);
+    if (url.origin !== window.location.origin || url.username || url.password || url.hash || url.search) return;
+    destinations.set(id, {url: url.href, anchor});
+  }
+  const text = en ? {
+    loading:'Loading the local hand model…', permission:'Allow only the camera.',
+    live:'Camera on. Choose a destination and arm once.',
+    release:'Move your hand out of the frame to arm.',
+    armed:'Armed: hold up only your index finger.',
+    ended:'Camera off.', denied:'Camera permission denied.',
+    failure:'Camera stopped. Check the local model or webcam and try again.',
+    expired:'Time expired. Camera off.',
+  } : {
+    loading:'Das lokale Handmodell wird geladen …', permission:'Erlaube nur die Kamera.',
+    live:'Kamera an. Wähle ein Ziel und schalte einmal scharf.',
+    release:'Nimm die Hand aus dem Bild, um scharfzuschalten.',
+    armed:'Scharf: Halte nur den Zeigefinger hoch.',
+    ended:'Kamera aus.', denied:'Kamerazugriff abgelehnt.',
+    failure:'Kamera aus. Prüfe das lokale Modell oder die Webcam und versuche es erneut.',
+    expired:'Zeit abgelaufen. Kamera aus.',
+  };
+  const logic = new HandShortcut();
+  let epoch = 0, frameHandle, frame, sequence, timer;
+  const present = () => !document.hidden && document.hasFocus();
+  function watch(generation) {
+    frameHandle = video.requestVideoFrameCallback((at, info) => {
+      if (generation !== epoch) return;
+      if (Number.isSafeInteger(info.presentedFrames) && info.presentedFrames > sequence) {
+        sequence = info.presentedFrames;
+        frame = at;
+      }
+      watch(generation);
+    });
+  }
+  function repaint(state) {
+    const message = text[state];
+    if (status.textContent !== message) status.textContent = message;
+    status.dataset.state = state;
+  }
+  const controller = cameraController({
+    openCamera: async (constraints) => {
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      const tracks = stream.getTracks();
+      if (tracks.length === 1 && tracks[0].kind === 'video') return stream;
+      tracks.forEach((track) => track.stop());
+      throw new Error('Expected one video track');
+    },
+    openModel: () => loadHandModel(panel.dataset.runtime),
+    active: present,
+    attach: async (stream) => {
+      const generation = ++epoch;
+      sequence = -1;
+      video.srcObject = stream;
+      await video.play();
+      if (generation === epoch) watch(generation);
+    },
+    detach: () => {
+      epoch += 1;
+      if (frameHandle !== undefined) video.cancelVideoFrameCallback(frameHandle);
+      frameHandle = frame = undefined;
+      video.pause();
+      video.srcObject = null;
+    },
+    schedule: (fn) => window.requestAnimationFrame(fn),
+    cancel: (id) => window.cancelAnimationFrame(id),
+    onState: (state) => {
+      const live = state === 'live';
+      const active = live || ['loading', 'permission'].includes(state);
+      start.disabled = active;
+      arm.disabled = !live;
+      stopButton.disabled = !active;
+      select.disabled = !live && active;
+      preview.hidden = !live;
+      if (!live) logic.stop();
+      clearTimeout(timer);
+      // Camera can never be left running awaiting attention forever.
+      if (live) timer = setTimeout(() => controller.stop('expired'), 30000);
+      repaint(text[state] ? state : state.endsWith('_error') ? 'failure' : 'ended');
+    },
+    update: (model) => {
+      if (!present()) { controller.stop(); return; }
+      if (logic.state === 'inactive') return;
+      const now = performance.now();
+      if (logic.expire(now)) { controller.stop('expired'); return; }
+      const at = frame;
+      frame = undefined;
+      if (Number.isFinite(at) && at <= now && now - at <= FRAME_DELAY && video.readyState >= 2) {
+        const result = readResult(model.detectForVideo(video, at));
+        if (!present()) { controller.stop(); return; }
+        const destination = logic.observe(result, at, performance.now());
+        if (destination) {
+          const expected = destinations.get(destination);
+          controller.stop();
+          if (expected.anchor.isConnected && expected.anchor.href === expected.url) window.location.assign(expected.url);
+          return;
+        }
+      }
+      if (logic.state !== 'inactive') repaint(logic.state);
+    },
+  });
+  start.disabled = false;
+  start.addEventListener('click', (event) => { if (event.isTrusted) controller.start(); });
+  arm.addEventListener('click', (event) => {
+    if (!event.isTrusted || !controller.live() || !present() || !logic.arm(select.value, performance.now())) return;
+    arm.disabled = select.disabled = true;
+    frame = undefined;
+    repaint('release');
+  });
+  stopButton.addEventListener('click', () => controller.stop());
+  document.addEventListener('keydown', (event) => { if (event.key === 'Escape') controller.stop(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) controller.stop(); });
+  window.addEventListener('pagehide', () => controller.stop());
+  window.addEventListener('blur', () => controller.stop());
+}

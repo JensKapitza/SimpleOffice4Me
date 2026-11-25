@@ -804,7 +804,11 @@ def add_header(response):
     if request.endpoint in PRIVATE_READ_ALOUD_ENDPOINTS:
         response.headers["Cache-Control"] = "private, no-store"
         response.headers["Referrer-Policy"] = "no-referrer"
-    camera_policy = "camera=(self)" if request.endpoint in CAMERA_SCANNER_ENDPOINTS else "camera=()"
+    hand_nav_camera = (
+        request.endpoint == "documents.access_navigation_proof"
+        and getattr(g, "hand_nav_camera_ready", False) is True
+    )
+    camera_policy = "camera=(self)" if request.endpoint in CAMERA_SCANNER_ENDPOINTS or hand_nav_camera else "camera=()"
     display_policy = "display-capture=(self)" if request.blueprint == "screen" else "display-capture=()"
     microphone_policy = "microphone=(self)" if request.endpoint in {"quick_share.index", "quick_share.create", "documents.transfer"} else "microphone=()"
     response.headers.setdefault("Permissions-Policy", f"{camera_policy}, {microphone_policy}, geolocation=(), {display_policy}")
@@ -820,7 +824,7 @@ def add_header(response):
         response.headers["Content-Security-Policy"] = "sandbox"
     else:
         policy = "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; object-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'"
-        if request.endpoint == "kids_learning.hand_game":
+        if request.endpoint == "kids_learning.hand_game" or hand_nav_camera:
             # Local, pinned WASM only; no eval, cross-origin inference or iframe camera.
             policy = policy.replace("script-src 'self' 'unsafe-inline'", "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'")
             policy = policy.replace("frame-ancestors 'self'", "frame-ancestors 'none'")

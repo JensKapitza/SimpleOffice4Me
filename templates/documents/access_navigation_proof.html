@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% set en = g.language == 'en' %}
+{% block title %}{{ 'Navigation assistance' if en else 'Bedienhilfe' }} · SimpleOffice{% endblock %}
+{% block content %}
+<section aria-labelledby="access-heading" data-access-proof data-language="{{ 'en' if en else 'de' }}">
+  <h1 id="access-heading">{{ 'Navigation assistance' if en else 'Bedienhilfe' }}</h1>
+  <p>{{ 'Use the links with a keyboard, mouse or touch. Gaze control with the Focus Seal and Click Seal is not yet available.' if en else 'Die Links funktionieren mit Tastatur, Maus und Touch. Blicksteuerung mit Fokus-Siegel und Klick-Siegel ist noch nicht verfügbar.' }}</p>
+  {% if hand_nav_enabled %}
+  <section aria-labelledby="hand-nav-heading" data-hand-nav data-ready="{{ 'yes' if hand_nav_ready else 'no' }}"
+           data-language="{{ 'en' if en else 'de' }}" data-runtime="{{ url_for('kids_learning.hand_game_asset', name='vision_bundle.mjs') }}">
+    <h2 id="hand-nav-heading" class="h4">{{ 'Hand shortcut (test)' if en else 'Handzeichen (Test)' }}</h2>
+    <p>{{ 'Choose a destination, start the camera and then arm once. Move your hand out of view, then hold up only your index finger. Video stays in the browser. No microphone or recording.' if en else 'Wähle ein Ziel, starte die Kamera und schalte einmal scharf. Nimm die Hand kurz aus dem Bild und halte dann nur den Zeigefinger hoch. Das Bild bleibt im Browser. Kein Mikrofon, keine Aufnahme.' }}</p>
+    <label for="hand-nav-target">{{ 'Destination' if en else 'Ziel' }}</label>
+    <select id="hand-nav-target" class="form-select" data-hand-nav-destination>
+      <option value="dashboard">{{ 'Overview' if en else 'Übersicht' }}</option>
+      <option value="documents">{{ 'Documents' if en else 'Dokumente' }}</option>
+    </select>
+    <div class="d-flex gap-2 flex-wrap mt-2">
+      <button class="btn btn-outline-primary" type="button" data-hand-nav-start disabled>{{ 'Start camera' if en else 'Kamera starten' }}</button>
+      <button class="btn btn-outline-primary" type="button" data-hand-nav-arm disabled>{{ 'Arm once' if en else 'Einmal scharfschalten' }}</button>
+      <button class="btn btn-outline-secondary" type="button" data-hand-nav-stop disabled>{{ 'Stop camera' if en else 'Kamera stoppen' }}</button>
+    </div>
+    <p class="mt-2" role="status" data-hand-nav-status>{{ ('Camera off.' if en else 'Kamera aus.') if hand_nav_ready else ('Verified local hand model not configured.' if en else 'Geprüftes lokales Handmodell nicht eingerichtet.') }}</p>
+    <div data-hand-nav-preview hidden>
+      <video data-hand-nav-video muted playsinline style="display: block; width: min(100%, 24rem);"
+             aria-label="{{ 'Local camera preview' if en else 'Lokale Kameravorschau' }}"></video>
+    </div>
+    <noscript><p>{{ 'Hand shortcut requires JavaScript.' if en else 'Das Handzeichen benötigt JavaScript.' }}</p></noscript>
+  </section>
+  {% endif %}
+  <p data-access-status role="status">{{ 'Gaze control off' if en else 'Blicksteuerung aus' }}</p>
+  <div style="min-block-size: 2.5rem;"><p data-access-cue role="status" hidden></p></div>
+  <div class="d-flex gap-2 flex-wrap">
+    <button data-access-start class="btn btn-outline-primary" type="button" disabled hidden>{{ 'Start camera' if en else 'Kamera starten' }}</button>
+    <button data-access-capture class="btn btn-outline-primary" type="button" disabled hidden>{{ 'Measure this point' if en else 'Diesen Punkt messen' }}</button>
+    <button data-access-pause class="btn btn-outline-secondary" type="button" disabled hidden>{{ 'Pause' }}</button>
+    <button data-access-stop class="btn btn-outline-secondary" type="button" disabled hidden>{{ 'Stop camera' if en else 'Kamera stoppen' }}</button>
+  </div>
+  <p data-access-marker aria-hidden="true" hidden>●</p>
+  <video data-access-video muted playsinline hidden></video>
+  <nav class="d-flex gap-2 flex-wrap my-3" aria-label="{{ 'Allowed destinations' if en else 'Erlaubte Ziele' }}">
+    <a data-access-target="dashboard" class="btn btn-outline-primary" href="{{ url_for('documents.dashboard') }}">{{ 'Overview' if en else 'Übersicht' }}</a>
+    <a data-access-target="documents" class="btn btn-outline-primary" href="{{ url_for('documents.index') }}">{{ 'Documents' if en else 'Dokumente' }}</a>
+    <a data-access-target="calendar" class="btn btn-outline-primary" href="{{ url_for('documents.calendar') }}">{{ 'Calendar' if en else 'Kalender' }}</a>
+  </nav>
+</section>
+{% if hand_nav_ready %}<script type="module" src="{{ url_for('static', filename='js/access_hand_staging.mjs', v=app_build.version) }}"></script>{% endif %}
+{% endblock %}
