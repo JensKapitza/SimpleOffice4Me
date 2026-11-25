@@ -133,3 +133,36 @@ test('a wrong answer leaves the counting aid usable without altering the check m
   assert.equal(p.elements.next.hidden, true);
   assert.match(p.elements.feedback.textContent, /Versuch es nochmal/);
 });
+
+test('easy rounds match pictures to dots and show dots for the requested group without changing answers', () => {
+  for (const language of ['de', 'en']) {
+    const p = page(language);
+    const dots = element => element.children.find(child => child.className === 'kids-numbers-dots');
+    const assertDots = (group, expected) => {
+      assert.equal(group.getAttribute('aria-hidden'), 'true');
+      assert.equal(group.children.length, expected);
+      assert.ok(group.children.every(dot => dot.className === 'kids-numbers-dot'));
+    };
+    assert.equal(p.tiles().length, 3);
+    assert.ok(p.answers().length > 1);
+    p.answers().forEach(button => assertDots(dots(button), Number(button.textContent)));
+    assert.equal(p.elements.next.hidden, true);
+    p.answers().find(button => dots(button).children.length === p.tiles().length).click();
+    p.elements.next.click();
+
+    const cue = p.elements.stage.children.find(child => child.className === 'kids-numbers-quantity-cue');
+    assert.equal(cue.getAttribute('aria-hidden'), 'true');
+    const wanted = Number(p.elements.prompt.textContent.match(/\d+/)[0]);
+    assertDots(dots(cue), wanted);
+    assert.ok(p.answers().every(button => !dots(button)));
+    assert.equal(p.elements.next.hidden, true);
+    const match = p.answers().find(button => button.textContent.split(' ').length === wanted);
+    p.answers().find(button => button !== match).click();
+    assert.ok(p.elements.next.hidden);
+    assert.ok(p.elements.stage.contains(cue), 'retry retains the same visible clue');
+    match.click();
+    assert.equal(p.elements.next.hidden, false);
+    p.elements.next.click();
+    assert.ok(!p.elements.stage.contains(cue));
+  }
+});

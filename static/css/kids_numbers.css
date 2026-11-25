@@ -17,6 +17,10 @@
 .kids-numbers-count-badge { position:absolute; top:0; right:0; min-width:1.55em; padding:.12em .3em; border-radius:.6rem; background:#1c6335; color:#fff; font-size:clamp(.9rem, 3vw, 1.15rem); font-weight:700; line-height:1.25; }
 
 .kids-numbers-answer { min-width:76px; min-height:76px; flex:1 1 0; max-width:220px; padding:.5rem; border:2px solid #d7e4f2; border-radius:1rem; background:#fff; color:#142e49; font-size:clamp(2.2rem,8vw,3.4rem); font-weight:700; touch-action:manipulation; transition:opacity .3s ease,transform .12s ease,background-color .15s ease; }
+/* Recognizable groups of one to three without a spoken or written numeral. */
+.kids-numbers-quantity-cue { flex:1 1 100%; padding:.5rem; border-radius:.75rem; background:#f3f8ff; color:#17324d; text-align:center; }
+.kids-numbers-dots { display:flex; align-items:center; justify-content:center; gap:.35rem; }
+.kids-numbers-dot { width:.85rem; height:.85rem; border:.425rem solid currentColor; border-radius:50%; }
 .kids-numbers-answer:hover { transform:scale(1.03); }
 .kids-numbers-answer.is-correct { border-color:#218838; background:#dff5e5; }
 .kids-numbers-answer.is-wrong { border-color:#c23d4b; background:#fff0f1; }

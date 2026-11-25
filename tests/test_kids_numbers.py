@@ -74,6 +74,21 @@ class KidsNumbersPageTests(PublicHttpTestCase):
         self.assertIn("Hear again", html)
         self.assertIn("data-speech-status", html)
 
+    def test_preschool_link_serves_number_cue_assets(self):
+        dashboard = self.client.get("/kids/")
+        link = "/kids/numbers/?practice=preschool"
+        self.assertEqual(200, dashboard.status_code)
+        self.assertIn(f'href="{link}"', dashboard.text)
+        page = self.client.get(link)
+        self.assertEqual(200, page.status_code)
+        self.assertIn('data-preschool-round="true"', page.text)
+        urls = re.findall(r'(?:src|href)="([^"]+/kids_numbers\.(?:js|css)[^"]*)"', page.text)
+        self.assertEqual(2, len(urls))
+        for url in urls:
+            with self.client.get(url) as asset:
+                self.assertEqual(200, asset.status_code)
+                self.assertIn(b"kids-numbers-dot", asset.data)
+
     def test_numbers_page_has_private_kids_headers(self):
         response = self.client.get("/kids/numbers/")
         self.assertEqual(200, response.status_code)
