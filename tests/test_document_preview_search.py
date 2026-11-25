@@ -12,8 +12,6 @@ from unittest.mock import patch
 from bs4 import BeautifulSoup
 from PIL import Image, ImageDraw, ImageFont
 
-from bs4 import BeautifulSoup
-
 from app import app
 from app import db as database
 from app.document_store import DocumentStore
