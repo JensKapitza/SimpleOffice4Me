@@ -1,6 +1,9 @@
 """Focused administrator UI coverage for preserving peer policies."""
 
 import unittest
+from urllib.parse import parse_qs, urlsplit
+
+from bs4 import BeautifulSoup
 
 from app.federation_store import FederationStore
 from tests.federation_admin_ui_fixture import FederationAdminUiFixture
@@ -33,6 +36,50 @@ class FederationAdminPolicyUiTests(FederationAdminUiFixture, unittest.TestCase):
             policy["documents"],
         )
         self.assertEqual({"send": True, "receive": False}, policy["chat"])
+
+    def test_peer_list_compares_saved_local_document_directions_without_inference(self):
+        store = FederationStore(self.root)
+        cases = {
+            "outbound": ({"send": True, "receive": False}, ("on", "off")),
+            "inbound": ({"send": False, "receive": True}, ("off", "on")),
+            "legacy": ({}, ("unset", "unset")),
+            "partial": ({"send": False}, ("off", "unset")),
+        }
+        for name, (stored, _) in cases.items():
+            store.save_peer(name, name, "https://synthetic-peer.example.test", "",
+                            enabled=True, policy={"documents": stored})
+        before = store.list_peers()
+        for language, heading, unset, example in (
+            ("de", "Dokumentfreigaben auf diesem Server:", "Nicht gesetzt", "Empfangen auf der Gegenstelle"),
+            ("en", "Document settings on this server:", "Not set", "Receive on the other server"),
+        ):
+            with self.client.session_transaction() as session:
+                session["simpleoffice_language"] = language
+            response = self.client.get("/admin/federation?view=peers")
+            self.assertEqual(200, response.status_code)
+            page = BeautifulSoup(response.data, "html.parser")
+            for peer, (_, flags) in cases.items():
+                with self.subTest(language=language, peer=peer):
+                    row = page.find("code", string=peer).find_parent("tr")
+                    summary = row.select_one("[data-peer-document-directions]")
+                    self.assertIn(heading, summary.get_text())
+                    for direction, flag in zip(("send", "receive"), flags, strict=True):
+                        field = f"data-document-{direction}"
+                        badge = summary.select_one(f"[{field}]")
+                        self.assertEqual(flag, badge[field])
+                        if flag == "unset":
+                            self.assertIn(unset, badge.get_text())
+                    location = urlsplit(summary.a["href"])
+                    self.assertEqual(("", "", "/admin/federation", "fed-document-permissions"),
+                                     (location.scheme, location.netloc, location.path, location.fragment))
+                    self.assertEqual({"view": ["peers"], "edit_peer": [peer]}, parse_qs(location.query))
+                    edited = self.client.get(f"{location.path}?{location.query}")
+                    fieldset = BeautifulSoup(edited.data, "html.parser").select_one("#fed-document-permissions")
+                    self.assertIn(example, fieldset.get_text())
+                    for direction, flag in zip(("send", "receive"), flags, strict=True):
+                        self.assertEqual(flag != "off",
+                                         fieldset.select_one(f'[name="documents_{direction}"]').has_attr("checked"))
+        self.assertEqual(before, store.list_peers())
 
     def test_peer_form_maps_mail_case_policy_without_losing_advanced_policy(self):
         response = self.client.post(

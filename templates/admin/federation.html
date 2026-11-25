@@ -406,8 +406,9 @@
                 </div>
               </fieldset>
 
-              <fieldset class="col-12">
-                <legend class="h6 mb-2">{{ 'Document permissions' if g.language == 'en' else 'Dokument-Berechtigungen' }}</legend>
+              <fieldset class="col-12" id="fed-document-permissions" aria-describedby="fed-document-direction-help">
+                <legend class="h6 mb-2">{{ 'Local document permissions' if g.language == 'en' else 'Lokale Dokument-Berechtigungen' }}</legend>
+                <p class="form-text mb-2" id="fed-document-direction-help">{{ 'For sending, compare Send here with Receive on the other server. For the return direction, compare Receive here with Send there. A connection check does not verify either server’s document permissions.' if g.language == 'en' else 'Für den Versand vergleiche Senden hier mit Empfangen auf der Gegenstelle. Für die Rückrichtung vergleiche Empfangen hier mit Senden dort. Ein Verbindungstest bestätigt keine Dokument-Berechtigungen.' }}</p>
                 <div class="vstack gap-2 border rounded p-3">
                   <label class="form-check">
                     <input class="form-check-input" type="checkbox" name="documents_send" value="1" {% if document_policy.get('send', true) %}checked{% endif %}>
@@ -510,6 +511,20 @@
                       <strong>{{ peer.label }}</strong>
                       <br><code>{{ peer.peer_id }}</code>
                       <br><small class="text-secondary text-break">{{ peer.base_url }}</small>
+                      {% set saved_documents = peer.policy.get('documents') if peer.policy is mapping else none %}
+                      {% set local_documents = saved_documents if saved_documents is mapping else {} %}
+                      <div class="small mt-1" data-peer-document-directions>
+                        <div>{{ 'Document settings on this server:' if g.language == 'en' else 'Dokumentfreigaben auf diesem Server:' }}</div>
+                        {% for direction, label_en, label_de in [('send', 'Send to peer', 'An Peer senden'), ('receive', 'Receive from peer', 'Von Peer empfangen')] %}
+                          {% set value = local_documents.get(direction) %}
+                          {% set saved_value = 'on' if value is sameas true else ('off' if value is sameas false else 'unset') %}
+                          <div {% if direction == 'send' %}data-document-send{% else %}data-document-receive{% endif %}="{{ saved_value }}">
+                            {{ label_en if g.language == 'en' else label_de }}:
+                            {{ ('On' if saved_value == 'on' else ('Off' if saved_value == 'off' else 'Not set')) if g.language == 'en' else ('Ein' if saved_value == 'on' else ('Aus' if saved_value == 'off' else 'Nicht gesetzt')) }}
+                          </div>
+                        {% endfor %}
+                        <a href="{{ url_for('federation_admin.dashboard', view='peers', edit_peer=peer.peer_id, _anchor='fed-document-permissions') }}">{{ 'Compare document permissions' if g.language == 'en' else 'Dokument-Berechtigungen abgleichen' }}</a>
+                      </div>
                     </td>
                     <td>
                       <span class="badge {{ 'text-bg-success' if peer.enabled else 'text-bg-secondary' }}">{{ ('blocked' if peer.banned else ('active' if peer.enabled else 'deactivated')) if g.language == 'en' else ('gesperrt' if peer.banned else ('aktiv' if peer.enabled else 'deaktiviert')) }}</span>
