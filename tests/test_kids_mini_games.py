@@ -1,6 +1,7 @@
 """Authenticated entry point and game-switch regression coverage."""
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import unittest
@@ -26,6 +27,18 @@ class KidsMiniGamePageTests(PublicHttpTestCase):
         self.assertLess(play_break.text.index("data-mini-back"), play_break.text.index("data-mini-stage"))
         self.assertIn("js/kids_mini_games.js", play_break.text)
         self.assertEqual(302, app.test_client().get("/kids/lernen/spielpause").status_code)
+
+    def test_memory_progress_hook_and_versioned_assets_are_local(self):
+        page = self.client.get("/kids/lernen/spielpause")
+        self.assertEqual(200, page.status_code)
+        self.assertIn('data-mini-memory-progress aria-hidden="true" hidden', page.text)
+        self.assertIn('data-mini-feedback role="status" aria-live="polite"', page.text)
+        urls = re.findall(r'(?:src|href)="([^"]+/kids_mini_games\.(?:js|css)\?v=[^"]+)"', page.text)
+        self.assertEqual(2, len(urls))
+        for url in urls:
+            with self.client.get(url) as asset:
+                self.assertEqual(200, asset.status_code)
+                self.assertIn(b"kids-mini-memory-slot", asset.data)
 
 
 class KidsMiniGameFrontendTests(unittest.TestCase):

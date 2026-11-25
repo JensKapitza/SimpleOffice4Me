@@ -12,6 +12,7 @@
   const prompt = root.querySelector('[data-mini-prompt]');
   const feedback = root.querySelector('[data-mini-feedback]');
   const progress = root.querySelector('[data-mini-progress]');
+  const memoryProgress = root.querySelector('[data-mini-memory-progress]');
   const next = root.querySelector('[data-mini-next]');
   const gameButtons = [...picker.querySelectorAll('[data-mini-game]')];
   const pairs = [
@@ -66,6 +67,7 @@
     play.hidden = false;
     next.hidden = true;
     feedback.textContent = '';
+    memoryProgress.hidden = game !== 'memory';
     prompt.removeAttribute('aria-label');
     stage.removeAttribute('aria-label');
     title.textContent = gameTitle();
@@ -90,6 +92,12 @@
     ]));
     progress.textContent = text('Finde die drei Bildpaare.','Find the three picture pairs.');
     prompt.textContent = text('Tippe zwei Karten an.','Tap two cards.');
+    memoryProgress.replaceChildren(...selected.map(() => {
+      const slot = document.createElement('span');
+      slot.className = 'kids-mini-memory-slot';
+      slot.textContent = '○ ○';
+      return slot;
+    }));
     currentSpoken = text('Finde die drei Bildpaare.','Find the three picture pairs.');
     speak(currentSpoken, uiLanguage());
     stage.classList.add('is-memory');
@@ -115,7 +123,7 @@
   }
 
   function flipMemoryCard(button, card, hiddenLabel) {
-    if (lockBoard || button.disabled || button.classList.contains('is-flipped')) return;
+    if (play.hidden || !stage.contains(button) || lockBoard || button.disabled || button.classList.contains('is-flipped')) return;
     button.classList.add('is-flipped');
     button.textContent = card.emoji;
     button.setAttribute('aria-label', card.word);
@@ -128,7 +136,11 @@
       firstCard.button.disabled = true;
       button.classList.add('is-matched');
       firstCard.button.classList.add('is-matched');
-      feedback.textContent = text(`Richtig! ${card.word}!`, `A match! ${card.word}!`);
+      memoryProgress.children[matchedPairs - 1].textContent = `${card.emoji} ${card.emoji}`;
+      feedback.textContent = text(
+        `Richtig! ${card.word}! ${matchedPairs} von 3 Paaren gefunden.`,
+        `A match! ${card.word}! ${matchedPairs} of 3 pairs found.`,
+      );
       speak(card.word, uiLanguage());
       firstCard = null;
       if (matchedPairs === 3) finish();

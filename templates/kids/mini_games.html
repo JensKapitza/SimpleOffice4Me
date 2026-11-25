@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 {% block header %}{% include "kids/_header.html" %}{% endblock %}
 {% block title %}{{ 'Quick play break' if g.language == 'en' else 'Kurze Spielpause' }} · SimpleOffice{% endblock %}
-{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/kids_mini_games.css') }}">{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/kids_mini_games.css', v=app_build.version) }}">{% endblock %}
 {% block body %}
 <main id="main-content" class="kids-mini-page container py-3 py-lg-4" data-kids-mini-games data-language="{{ g.language }}" data-tts-url="{{ url_for('kids_learning.sprache') }}">
   <header class="kids-mini-header d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4">
@@ -27,6 +27,7 @@
         </div>
       </div>
       <p class="kids-mini-prompt" data-mini-prompt aria-live="polite"></p>
+      <div class="kids-mini-memory-progress" data-mini-memory-progress aria-hidden="true" hidden></div>
       <div class="kids-mini-stage" data-mini-stage role="group"></div>
       <p class="kids-mini-feedback" data-mini-feedback role="status" aria-live="polite"></p>
       <div class="d-flex flex-wrap gap-2 mt-3">
@@ -46,5 +47,5 @@
   </section>
 </main>
 <script src="{{ url_for('static', filename='js/kids_piper_voice.js', v=app_build.version) }}" defer></script>
-<script src="{{ url_for('static', filename='js/kids_mini_games.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/kids_mini_games.js', v=app_build.version) }}" defer></script>
 {% endblock %}

@@ -37,9 +37,10 @@ function fixture(language = 'de') {
       replaceChildren(...items) { this.children = items; },
       append(...items) { this.children.push(...items); },
       querySelectorAll() { return this.children; },
+      contains(node) { return this === node || this.children.some(child => child.contains(node)); },
     };
   };
-  const names = 'game-picker mini-play mini-result mini-stage mini-title mini-prompt mini-feedback mini-progress mini-next mini-back mini-repeat result-title result-copy result-back play-again'.split(' ');
+  const names = 'game-picker mini-play mini-result mini-stage mini-title mini-prompt mini-feedback mini-progress mini-memory-progress mini-next mini-back mini-repeat result-title result-copy result-back play-again'.split(' ');
   const parts = Object.fromEntries(names.map(name => [name, element()]));
   const game = Object.fromEntries(['memory', 'count', 'odd'].map(name => {
     const button = element();
@@ -47,6 +48,7 @@ function fixture(language = 'de') {
     return [name, button];
   }));
   parts['game-picker'].children = Object.values(game);
+  parts['mini-memory-progress'].hidden = true;
   const root = {
     dataset: {language},
     querySelector(selector) { return parts[selector.match(/^\[data-(.*?)\]$/)?.[1]] ?? element(); },
@@ -119,4 +121,53 @@ test('return from results focuses the launcher and switching clears old instruct
   assert.match(parts['result-copy'].textContent, /3 pairs in 3 turns/);
   parts['result-back'].click();
   assert.equal(focused(), game.memory);
+});
+
+test('memory progress only marks real pairs and resets on replay', () => {
+  for (const language of ['de', 'en']) {
+    const {parts, game, advance, cards} = fixture(language);
+    const progress = parts['mini-memory-progress'];
+    const labels = () => progress.children.map(slot => slot.textContent);
+    const empty = ['○ ○', '○ ○', '○ ○'];
+    assert.equal(progress.hidden, true);
+    game.memory.click();
+    assert.equal(progress.hidden, false);
+    assert.deepEqual(labels(), empty);
+
+    const [first] = cards();
+    first.click();
+    first.click();
+    assert.deepEqual(labels(), empty, 'one card cannot count as a pair');
+    cards().find(card => card.dataset.pair !== first.dataset.pair).click();
+    advance(750);
+    assert.deepEqual(labels(), empty, 'two different cards do not count');
+
+    const matched = [];
+    for (let index = 0; index < empty.length; index++) {
+      const a = cards().find(card => !card.disabled);
+      const b = cards().find(card => card !== a && card.dataset.pair === a.dataset.pair);
+      a.click();
+      b.click();
+      matched.push(`${a.textContent} ${b.textContent}`);
+      assert.deepEqual(labels(), [...matched, ...empty.slice(matched.length)]);
+      assert.match(parts['mini-feedback'].textContent, new RegExp(`${matched.length} ${language === 'de' ? 'von' : 'of'} 3`));
+    }
+    assert.equal(parts['mini-result'].hidden, false);
+    parts['play-again'].click();
+    assert.equal(parts['mini-result'].hidden, true);
+    assert.equal(parts['mini-play'].hidden, false);
+    assert.deepEqual(labels(), empty);
+    assert.ok(cards().every(card => !card.disabled && card.textContent === '❔'));
+
+    const oldBoard = cards();
+    parts['mini-back'].click();
+    game.memory.click();
+    oldBoard[0].click();
+    oldBoard.find(card => card !== oldBoard[0] && card.dataset.pair === oldBoard[0].dataset.pair).click();
+    assert.deepEqual(labels(), empty, 'buttons from an earlier board cannot fill the new row');
+    parts['mini-back'].click();
+    game.odd.click();
+    assert.equal(progress.hidden, true);
+    assert.equal(parts['mini-play'].hidden, false);
+  }
 });
