@@ -229,8 +229,9 @@ def document_search():
 @bp.get("/quick-search")
 @login_required
 def quick_search():
-    """Search the main registers and jump directly for one unambiguous hit."""
+    """Find records; jump to a unique result unless the caller wants the list."""
     query = request.args.get("q", "").strip()
+    explicit_results = request.args.get("view") == "results"
     matches: list[dict[str, str]] = []
     if query:
         from .documents_routes_quicksearch import collect_quick_matches
@@ -239,11 +240,17 @@ def quick_search():
         for match in matches:
             if match["kind"] == "document":
                 _store().record_access(match["ref"], str(g.user["username"]), "found")
-        if len(matches) == 1:
+        if len(matches) == 1 and not explicit_results:
             return redirect(matches[0]["url"])
     from .search_narrow_hints import suggest_search_narrowing
-    return render_template("documents/quick_search.html", query=query, matches=matches,
+    page = render_template("documents/quick_search.html", query=query, matches=matches,
+                           explicit_results=explicit_results,
                            narrow_hints=suggest_search_narrowing(matches, query))
+    if explicit_results:
+        # Keep one stable search URL without carrying the search terms in
+        # document links or exposing them in an automatic Referer header.
+        return page, {"Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer"}
+    return page
 
 
 @bp.post("/search/index")
