@@ -176,6 +176,18 @@ def _redirect_dashboard(**values):
     return redirect(url_for("federation_admin.dashboard", **args))
 
 
+def _redirect_download_queue_focus(request_id: str):
+    """Keep the edited download and its catalogue context in the local UI."""
+    focus_id = _download_reference(request_id)
+    if focus_id and request.form.get("_return_view") == "transfers":
+        return _redirect_dashboard(
+            download=focus_id,
+            remote_peer=request.form.get("remote_peer", "").strip()[:128],
+            remote_q=request.form.get("remote_q", "").strip()[:200],
+            _anchor=f"download-{focus_id}",
+        )
+    return _redirect_dashboard()
+
 def _redirect_document_action(document_id: str):
     query = request.form.get("_return_local_q", "").strip()[:_LOCAL_FILE_QUERY_LIMIT]
     return _redirect_dashboard(document_id=document_id, q=query)
@@ -712,7 +724,8 @@ def set_queue_priority(request_id: str):
         flash(translate(g.language, "fed.transfer.priority").format(priority=row.get('effective_priority', 0)))
     except (TypeError, ValueError) as exc:
         flash(translate(g.language, "fed.transfer.priority.failed").format(exc=exc))
-    return _redirect_dashboard()
+        return _redirect_dashboard()
+    return _redirect_download_queue_focus(str(row.get("request_id") or ""))
 
 
 @bp.post("/queue/run")
@@ -727,15 +740,7 @@ def run_download_queue():
             done=len(result['completed']), waiting=len(result['deferred']), failed=len(result['failed'])))
     except (TypeError, ValueError) as exc:
         flash(translate(g.language, "fed.pipeline.failed").format(exc=exc))
-    focus_id = _download_reference(request.form.get("download", ""))
-    if focus_id and request.form.get("_return_view") == "transfers":
-        return _redirect_dashboard(
-            download=focus_id,
-            remote_peer=request.form.get("remote_peer", "").strip()[:128],
-            remote_q=request.form.get("remote_q", "").strip()[:200],
-            _anchor=f"download-{focus_id}",
-        )
-    return _redirect_dashboard()
+    return _redirect_download_queue_focus(request.form.get("download", ""))
 
 
 @bp.post("/transfers")

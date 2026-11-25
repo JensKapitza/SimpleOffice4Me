@@ -54,3 +54,44 @@ class FederationDownloadFocusTests(FederationAdminUiFixture, unittest.TestCase):
         self.assertIsNone(BeautifulSoup(self.client.get(
             f"/admin/federation?view=files&download={uuid4()}",
         ).data, "html.parser").select_one("[data-federation-download-focus]"))
+
+    def test_setting_priority_keeps_the_edited_job_and_catalog_context(self):
+        catalog = FederationCatalog(self.root)
+        jobs = {}
+        for peer in ("east", "west"):
+            catalog.begin_index(peer, "fixture-generation")
+            catalog.ingest(peer, "fixture-generation", [
+                {"document_id": "same-id", "path": "same-name.pdf", "blob_hash": "a" * 64, "size": 20},
+            ])
+            catalog.finish_index(peer, "fixture-generation")
+            jobs[peer] = catalog.request_download(peer, "same-id", requested_by="federation-ui-admin")["request_id"]
+
+        # Start on a row reached through the filtered catalog, then adjust a
+        # different row with the same visible filename. The route, not the
+        # old highlight, determines which row should be highlighted now.
+        focus = f"/admin/federation?view=transfers&download={jobs['east']}&remote_peer=east&remote_q=same-name"
+        page = BeautifulSoup(self.client.get(focus).data, "html.parser")
+        self.assertIn("table-primary", page.find(id=f"download-{jobs['east']}")["class"])
+        action = f"/admin/federation/queue/{jobs['west']}/priority"
+        form = page.find("form", action=action)
+        data = {field["name"]: field.get("value", "") for field in form.select("input[name]")}
+        updated = self.client.post(action, data={**data, "priority": "12"}, follow_redirects=False)
+        destination = urlsplit(updated.headers["Location"])
+        self.assertEqual(302, updated.status_code)
+        self.assertEqual("download-" + jobs["west"], destination.fragment)
+        self.assertEqual({
+            "view": ["transfers"], "download": [jobs["west"]], "remote_peer": ["east"], "remote_q": ["same-name"],
+        }, parse_qs(destination.query))
+
+        rendered = BeautifulSoup(self.client.get(updated.headers["Location"]).data, "html.parser")
+        selected = rendered.find(id=destination.fragment)
+        self.assertIn("table-primary", selected["class"])
+        self.assertNotIn("table-primary", rendered.find(id=f"download-{jobs['east']}").get("class", []))
+        self.assertEqual("12", selected.select_one('input[name="priority"]')["value"])
+        back = rendered.select_one('a[href$="#remote-files"]')
+        self.assertEqual({"view": ["files"], "remote_peer": ["east"], "remote_q": ["same-name"]},
+                         parse_qs(urlsplit(back["href"]).query))
+        self.assertEqual(0, catalog.get_request(jobs["east"])["transfer_priority"])
+        self.assertEqual("queued", catalog.get_request(jobs["west"])["status"])
+        self.assertEqual(0, catalog.get_request(jobs["west"])["attempts"])
+        self.assertEqual(2, len(catalog.queue()))
