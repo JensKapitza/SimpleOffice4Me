@@ -1,6 +1,8 @@
 """Document HTTP route group extracted from app.documents."""
 from __future__ import annotations
 import secrets
+
+from flask import make_response
 from .documents_core import *  # noqa: F401,F403
 from .smart_folder_views import SmartFolderViews
 from .contact_company_data import company_data_metadata_from_form, company_search_items
@@ -48,9 +50,14 @@ def detail(document_id: str):
             )["attachments"]
         except (OSError, RuntimeError, ValueError):
             current_app.logger.warning("EML attachment metadata unavailable for document %s", document_id)
-    return render_template(
+    preview_context = _document_detail_preview_context(document)
+    # The image-analysis card may also display OCR. Give it the same approved
+    # excerpt as the main preview rather than unverified raw metadata.
+    preview = preview_context["preview"]
+    visible_document = {**document, "ocr_text": preview["text"] if preview["kind"] == "image" else ""}
+    response = make_response(render_template(
         "documents/detail.html",
-        document=document,
+        document=visible_document,
         smart_folders=smart_views.activated_folders(),
         document_smart_folders=smart_views.assigned_to(document_id),
         import_origin_path=smart_views.import_origin_view_path(document),
@@ -63,7 +70,7 @@ def detail(document_id: str):
         retention=store.retention_status(document_id),
         link_query=query,
         link_matches=[item for item in store.search(query, limit=10) if item["document_id"] != document_id] if query else [],
-        **_document_detail_preview_context(document),
+        **preview_context,
         defaults=_settings().settings(),
         document_tasks=[
             row for row in _todos().items(str(g.user["username"]))
@@ -75,7 +82,9 @@ def detail(document_id: str):
         eml_attachments=eml_attachments,
         scanner_name=getattr(security.scanner, "display_name", "ClamAV"),
         can_scan=detail_can_scan,
-    )
+    ))
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
 
 @bp.route("/<document_id>/attachments", methods=["GET", "POST"])
 @login_required

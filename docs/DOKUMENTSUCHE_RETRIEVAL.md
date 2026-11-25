@@ -90,6 +90,17 @@ lesen weiterhin keine Originaldateien. Nicht implementiert sind
 Relevanzgewichtung, unscharfe Schreibweisen und semantische Vektorsuche. Die
 Ergebnismenge ist bewusst seitenweise begrenzt.
 
+## Erkannten Text aus Dokumentdetails kopieren
+
+In der Dokumentvorschau lassen sich der angezeigte Text oder eine Auswahl
+kopieren. Ist die Browser-Zwischenablage blockiert, etwa bei HTTP im LAN,
+erscheint derselbe Text in einem markierbaren Feld zum manuellen Kopieren.
+Die Vorschau bleibt auf 300 Zeilen und 12.000 Zeichen begrenzt; die Oberfläche
+kennzeichnet gekürzte Auszüge. Erkannter Text wird nur angezeigt, wenn sein
+Speicherstand zur aktuellen Dokumentdatei gehört. Fehlender oder älterer
+Texterkennungsstand muss über die vorhandene Dateiauswertung erneuert werden;
+die Vorschau startet keine OCR.
+
 ## Standards
 
 Für diese interne Retrieval-Grammatik existiert kein einschlägiges IETF-
