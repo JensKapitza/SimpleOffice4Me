@@ -66,6 +66,51 @@ class PhotoOcrRetryTests(PublicHttpTestCase):
         return form["action"], {field["name"]: field["value"] for field in form.select('input[type="hidden"][name]')}
 
     @unittest.skipUnless(shutil.which("tesseract"), "Test requires the actual local OCR engine")
+    def test_photo_ocr_result_links_directly_to_existing_text_search_and_copy(self):
+        item = self.upload("beleg.jpg", self.picture("FOTOBELEG QUARTZ", "JPEG"))
+        detail = item["detail_url"]
+        link_selector = '#image-analysis a[href="#document-recognized-text"]'
+
+        def page(path):
+            reply = self.client.get(path)
+            self.assertEqual(200, reply.status_code)
+            return BeautifulSoup(reply.data, "html.parser")
+
+        def retry():
+            url, fields = self.read_form(detail, "#image-analysis form")
+            result = self.client.post(url, data=fields)
+            self.assertEqual(302, result.status_code)
+            self.assertEqual(detail + "#image-analysis", result.headers["Location"])
+            return page(result.headers["Location"])
+
+        self.assertIsNone(page(detail).select_one(link_selector))
+        returned = retry()
+        link = returned.select_one(link_selector)
+        self.assertIsNotNone(link)
+        self.assertEqual("Erkannten Text ansehen und kopieren", link.get_text(strip=True))
+        target, = returned.select(link["href"])
+        self.assertEqual("-1", target["tabindex"])
+        controls = target.find_next_sibling(attrs={"data-text-preview": True})
+        self.assertIn("QUARTZ", controls.select_one("[data-text-preview-body]").get_text())
+        self.assertIsNotNone(controls.select_one("input[data-text-preview-search]"))
+        self.assertIsNotNone(controls.select_one("button[data-text-preview-copy]"))
+        self.assertIsNotNone(controls.select_one("textarea[data-text-preview-manual]"))
+
+        # A failed retry with the same bytes retains its route to existing text.
+        with patch.object(DocumentStore, "_image_ocr", side_effect=RuntimeError("OCR unavailable")):
+            retained = retry()
+        self.assertIsNotNone(retained.select_one('[data-photo-ocr-status="retained"]'))
+        self.assertIsNotNone(retained.select_one(link_selector))
+
+        # An empty result and old text from a replaced file must not show a link.
+        blank = self.upload("blank.jpg", self.picture("", "JPEG"), run_ocr=True)
+        self.assertIsNone(page(blank["detail_url"]).select_one(link_selector))
+        self.store().replace_content(item["document_id"], self.picture("NEUER TEXT", "JPEG"), "owner")
+        replaced = page(detail)
+        self.assertIsNone(replaced.select_one(link_selector))
+        self.assertIsNone(replaced.select_one("#document-recognized-text"))
+
+    @unittest.skipUnless(shutil.which("tesseract"), "Test requires the actual local OCR engine")
     def test_individual_retry_repairs_failed_phone_jpeg_and_deferred_png_without_reupload(self):
         with patch.object(DocumentStore, "_image_ocr", side_effect=RuntimeError("tool-details-must-not-leak")) as ocr:
             failed = self.upload("camera.jpg", self.picture("RECHNUNGSBELEG", "JPEG"), run_ocr=True)
