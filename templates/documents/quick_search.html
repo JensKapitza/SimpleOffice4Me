@@ -11,6 +11,7 @@
     <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.document_search', q=query) }}">{{ 'Advanced document search' if g.language == 'en' else 'Erweiterte Dokumentensuche' }}</a>
   </div>
   <form role="search" aria-label="{{ 'Search all records' if g.language == 'en' else 'Alle Datensätze durchsuchen' }}" method="get" class="input-group my-3">
+    {% if explicit_results %}<input type="hidden" name="view" value="results">{% endif %}
     <input id="quick-search-query" type="search" autofocus required class="form-control form-control-lg" name="q" value="{{ query }}" placeholder="{{ 'Documents, appointments, tasks, chats, contacts or projects' if g.language == 'en' else 'Dokumente, Termine, Aufgaben, Chats, Kontakte oder Projekte' }}" aria-label="{{ 'Search terms' if g.language == 'en' else 'Suchbegriff' }}" autocomplete="off">
     <button type="submit" class="btn btn-primary">{{ 'Search' if g.language == 'en' else 'Suchen' }}</button>
   </form>

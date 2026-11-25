@@ -144,10 +144,11 @@
         <label class="visually-hidden" for="global-quick-search">{{ 'Quick search' if g.language == 'en' else 'Schnellsuche' }}</label>
         <div class="input-group input-group-sm">
           <input id="global-quick-search" class="form-control" type="search" name="q" value="{{ query if request.endpoint == 'documents.quick_search' else '' }}" placeholder="{{ 'Quick search…' if g.language == 'en' else 'Schnellsuche…' }}">
-          <button type="submit" class="btn btn-outline-light" title="{{ 'Search' if g.language == 'en' else 'Suchen' }}">
+          <button type="submit" class="btn btn-outline-light" title="{{ 'Search and open a single result' if g.language == 'en' else 'Suchen und Einzeltreffer öffnen' }}">
             <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
-            <span class="visually-hidden">{{ 'Search' if g.language == 'en' else 'Suchen' }}</span>
+            <span class="visually-hidden">{{ 'Search and open a single result' if g.language == 'en' else 'Suchen und Einzeltreffer öffnen' }}</span>
           </button>
+          <button type="submit" name="view" value="results" class="btn btn-outline-light" aria-label="{{ 'Show search results without opening a record' if g.language == 'en' else 'Treffer anzeigen, ohne einen Datensatz zu öffnen' }}">{{ 'Results' if g.language == 'en' else 'Treffer' }}</button>
         </div>
       </form>
 
