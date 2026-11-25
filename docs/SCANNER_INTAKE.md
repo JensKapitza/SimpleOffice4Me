@@ -69,8 +69,8 @@ node --test tests/inventory_intake_js.test.cjs
 python -m tools.smoke_book_scans --loopback --evidence scanner-acceptance.json
 ```
 
-Das letzte Kommando benötigt OpenSSL, Poppler, Tesseract (Englisch) und
-DejaVu Sans. Es startet drei isolierte reale HTTPS-Testinstanzen. Alle
+Das letzte Kommando benötigt OpenSSL, Poppler und Tesseract (Englisch).
+Die Testschrift ist in Pillow integriert; ein Systemfont ist nicht nötig. Es startet drei isolierte reale HTTPS-Testinstanzen. Alle
 Fotos sind synthetisch; die Katalog- und KI-Tests verwenden Fixtures und
 führen keine Live-KI aus. Externe API-Zugangsdaten und ein physisches
 Kameragerät sind nicht Teil der Prüfung.

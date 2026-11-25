@@ -79,7 +79,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -q
-          sudo apt-get install -y --no-install-recommends openssl poppler-utils tesseract-ocr tesseract-ocr-eng fonts-dejavu-core
+          sudo apt-get install -y --no-install-recommends openssl poppler-utils tesseract-ocr tesseract-ocr-eng
           command -v tesseract
           tesseract --list-langs | grep -Fx eng
           python -m pip install -e '.[test]'

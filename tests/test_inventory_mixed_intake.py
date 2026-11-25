@@ -10,7 +10,6 @@ from unittest import mock
 import unittest
 
 from bs4 import BeautifulSoup
-from PIL import Image, ImageDraw, ImageFont
 
 from app import app
 from app.capture_inbox_store import CaptureInboxStore
@@ -18,6 +17,7 @@ from app.inventory_catalog import lookup_catalog
 from app.inventory_intake_evidence import local_proposal, proposal_from_ids
 from app.object_store import ObjectStore
 from tests import test_inventory_capture_persist as fixture
+from tools.smoke_book_scans import image_file
 
 
 class MixedIntakeTests(unittest.TestCase):
@@ -83,12 +83,7 @@ class MixedIntakeTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("tesseract"), "stock Tesseract unavailable")
     def test_real_local_ocr_one_photo_then_explicit_private_confirm(self):
-        photo = Image.new("RGB", (820, 200), "white")
-        font = ImageFont.truetype("DejaVuSans.ttf", 50)
-        ImageDraw.Draw(photo).text((20, 40), "Marke: Synthetic Pencil", font=font, fill="black")
-        png = io.BytesIO()
-        photo.save(png, format="PNG")
-        draft = self.photo(png.getvalue())
+        draft = self.photo(image_file("Marke: Synthetic Pencil"))
         url = f'/{draft["id"]}'
         read = self.post(url + "/ocr", revision="1")
         self.assertEqual(read.status_code, 200, read.data)

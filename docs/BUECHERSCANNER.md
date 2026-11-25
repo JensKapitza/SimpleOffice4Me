@@ -10,7 +10,7 @@ Die Angebote erscheinen weder im normalen Dokumentenkatalog noch in der Schnells
 
 ## Reproduzierbare Abnahme
 
-Für die lokale Variante Linux, OpenSSL, DejaVu, Python, Poppler und Tesseract mit Englisch bereitstellen. Nur synthetische Seiten, Zertifikate und Konten werden erzeugt.
+Für die lokale Variante Linux, OpenSSL, Python, Poppler und Tesseract mit Englisch bereitstellen. Die synthetischen Scanbilder werden aus der mit Pillow gelieferten Schrift erzeugt; es wird kein Systemfont gesucht oder heruntergeladen. Nur synthetische Seiten, Zertifikate und Konten werden erzeugt.
 
 ```sh
 python -m pip install -e '.[test]'

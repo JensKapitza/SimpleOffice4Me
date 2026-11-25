@@ -25,7 +25,7 @@ from tools import smoke_federation_loopback as fixture
 from tools.smoke_federation_loopback import ADMIN, configure_pair, initialize, instance, make_certificates
 
 LOOPBACK_PEERS = (*fixture.PEERS, "loop-office-c")
-DOCKER_STAGES = ("private-scratch", "private-export", "explicit-publication", "verified-retrieval",
+DOCKER_STAGES = ("private-scratch", "recognition-tools", "private-export", "explicit-publication", "verified-retrieval",
                  "revocation", "explicit-reader-import", "stock-ocr", "private-intake")
 
 
@@ -33,13 +33,26 @@ def image_file(label, *, sideways=False):
     from PIL import Image, ImageDraw, ImageFont
 
     image = Image.new("RGB", (1000, 1300), "white")
-    font = ImageFont.truetype("DejaVuSans.ttf", 61)
+    # Pillow supplies the embedded Aileron face as bytes; no system font lookup.
+    font = ImageFont.load_default(size=61)
     ImageDraw.Draw(image).text((95, 235), label, fill="black", font=font)
     if sideways:
         image = image.transpose(Image.Transpose.ROTATE_90)
     target = io.BytesIO()
     image.save(target, format="PNG")
     return target.getvalue()
+
+
+
+def require_stock_recognition():
+    """Only the real acceptance modes require both tools and the English pack."""
+    missing = [tool for tool in ("pdftoppm", "tesseract") if not shutil.which(tool)]
+    if missing:
+        raise OSError("Missing stock OCR acceptance tools: " + ", ".join(missing))
+    data = subprocess.run(["tesseract", "--list-langs"], check=True, capture_output=True,
+                          text=True, timeout=8)
+    if "eng" not in data.stdout.splitlines():
+        raise OSError("Stock Tesseract English data (eng) required.")
 
 
 def exercise(root, source, target, a, b, third=None, *, progress=lambda _stage: None):
@@ -269,6 +282,8 @@ def docker_inside():
     from tools.federation_docker_peer import CLIENT_SCRATCH_MIB, PEERS, open_sites, verify_private_scratch
     verify_private_scratch(CLIENT_SCRATCH_MIB)
     _docker_progress("private-scratch")
+    _docker_progress("recognition-tools")
+    require_stock_recognition()
     a, b = PEERS
     peers = open_sites(json.load(sys.stdin))
     with TemporaryDirectory(prefix="book-scan-container-") as folder:
@@ -337,6 +352,8 @@ def loopback_with_evidence(root, evidence):
         save("in_progress")
 
     try:
+        progress("recognition-tools")
+        require_stock_recognition()
         result = loopback(root, progress=progress)
     except (AssertionError, OSError, ValueError, KeyError, TypeError, RuntimeError, subprocess.SubprocessError) as exc:
         save("failed", error_class=type(exc).__name__)

@@ -10,25 +10,15 @@ from pathlib import Path
 from unittest.mock import patch
 
 from bs4 import BeautifulSoup
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageFont
 from pypdf import PdfReader
+from tools.smoke_book_scans import image_file
 
 from app import app, db
 from app.document_store import DocumentStore
 from app.library.book_scan_pdf import MAX_REQUEST
 
 SCAN = "/library/book-scan"
-
-
-def image_file(name, *, sideways=False):
-    image = Image.new("RGB", (1000, 1300), "white")
-    font = ImageFont.truetype("DejaVuSans.ttf", 61)
-    ImageDraw.Draw(image).text((95, 235), name, fill="black", font=font)
-    if sideways:
-        image = image.transpose(Image.Transpose.ROTATE_90)
-    target = io.BytesIO()
-    image.save(target, format="PNG")
-    return target.getvalue()
 
 
 class BookScanRouteTests(unittest.TestCase):
@@ -64,6 +54,25 @@ class BookScanRouteTests(unittest.TestCase):
             "pages": [(io.BytesIO(image), "fixture.png") for image in images],
             "order": order,
         })
+
+    def test_scan_fixture_uses_no_system_font_files(self):
+        from os import PathLike
+
+        original = ImageFont.truetype
+
+        def memory_only(source, *args, **kwargs):
+            if isinstance(source, (str, PathLike)):
+                raise OSError("cannot open resource")
+            return original(source, *args, **kwargs)
+
+        with patch.object(ImageFont, "truetype", side_effect=memory_only):
+            picture = image_file("CAPITEL OMEGA", sideways=True)
+        with Image.open(io.BytesIO(picture)) as rendered:
+            self.assertEqual((1300, 1000), rendered.size)
+            self.assertEqual((0, 255), rendered.convert("L").getextrema())
+        exported = self.export([picture], "[[0,1]]")
+        self.assertEqual(200, exported.status_code)
+        self.assertEqual(1, len(PdfReader(io.BytesIO(exported.data)).pages))
 
     def test_route_and_nav_require_normal_authentication_and_docs_feature(self):
         stranger = app.test_client()
