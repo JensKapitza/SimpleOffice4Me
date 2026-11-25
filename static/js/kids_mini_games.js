@@ -23,13 +23,14 @@
     ['🐶','Hunde','dogs'], ['🐟','Fische','fish'], ['🐞','Käfer','ladybugs'], ['🐸','Frösche','frogs'],
     ['🦋','Schmetterlinge','butterflies'], ['🐤','Küken','chicks'], ['🐰','Hasen','rabbits']
   ];
+  // Name every choice alike, so read-aloud labels don't identify the odd one.
   const oddSets = [
-    {same:['🍎','🍐','🍌'], odd:'🚗', word:'Auto', en:'car'},
-    {same:['🐶','🐱','🐰'], odd:'🚲', word:'Fahrrad', en:'bicycle'},
-    {same:['🧦','👟','👢'], odd:'🍰', word:'Kuchen', en:'cake'},
-    {same:['🌷','🌼','🌹'], odd:'🐟', word:'Fisch', en:'fish'},
-    {same:['🚒','🚜','🚕'], odd:'🍓', word:'Erdbeere', en:'strawberry'},
-    {same:['🥄','🍴','🥢'], odd:'🐸', word:'Frosch', en:'frog'}
+    {same:[['🍎','Apfel','apple'], ['🍐','Birne','pear'], ['🍌','Banane','banana']], odd:['🚗','Auto','car']},
+    {same:[['🐶','Hund','dog'], ['🐱','Katze','cat'], ['🐰','Hase','rabbit']], odd:['🚲','Fahrrad','bicycle']},
+    {same:[['🧦','Socke','sock'], ['👟','Turnschuh','sneaker'], ['👢','Stiefel','boot']], odd:['🍰','Kuchen','cake']},
+    {same:[['🌷','Tulpe','tulip'], ['🌼','Blüte','blossom'], ['🌹','Rose','rose']], odd:['🐟','Fisch','fish']},
+    {same:[['🚒','Feuerwehrauto','fire engine'], ['🚜','Traktor','tractor'], ['🚕','Taxi','taxi']], odd:['🍓','Erdbeere','strawberry']},
+    {same:[['🥄','Löffel','spoon'], ['🍴','Messer und Gabel','knife and fork'], ['🥢','Essstäbchen','chopsticks']], odd:['🐸','Frosch','frog']},
   ];
   let game = '';
   let questions = [];
@@ -211,10 +212,10 @@
     prompt.textContent = '';
     prompt.setAttribute('aria-label', spoken);
     stage.setAttribute('aria-label', spoken);
-    question.choices.forEach(emoji => {
-      const button = makeAnswerButton(emoji, emoji === question.odd);
+    question.choices.forEach(([emoji, de, en]) => {
+      const button = makeAnswerButton(emoji, emoji === question.odd[0]);
       button.classList.add('kids-mini-picture-choice');
-      button.setAttribute('aria-label', emoji === question.odd ? (english ? question.en : question.word) : text('Bild aus der Gruppe','Picture in the group'));
+      button.setAttribute('aria-label', text(de, en));
       stage.append(button);
     });
     speak(spoken, uiLanguage());
@@ -236,7 +237,10 @@
       button.classList.add('is-correct');
       stage.querySelectorAll('button').forEach(choice => { choice.disabled = true; });
       feedback.textContent = text('Richtig! Super gemacht!','That is right! Well done!');
-      if (game === 'odd') speak(english ? questions[questionIndex].en : questions[questionIndex].word, uiLanguage());
+      if (game === 'odd') {
+        const [, de, en] = questions[questionIndex].odd;
+        speak(text(de, en), uiLanguage());
+      }
       next.hidden = false;
       next.focus();
       return;
@@ -253,7 +257,7 @@
 
   function revealAnswer() {
     const question = questions[questionIndex];
-    const correctValue = game === 'count' ? String(question.amount) : question.odd;
+    const correctValue = game === 'count' ? String(question.amount) : question.odd[0];
     stage.querySelectorAll('button').forEach(button => {
       button.disabled = true;
       if (button.textContent === correctValue) button.classList.add('is-correct');
