@@ -6,7 +6,10 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '../static/js/kids_mini_games.js'), 'utf8');
 
-function fixture(language = 'de') {
+function fixture(language = 'de', random = Math.random) {
+  const phrases = [];
+  const math = Object.create(Math);
+  math.random = random;
   let focused;
   let now = 0;
   let timerId = 0;
@@ -55,8 +58,10 @@ function fixture(language = 'de') {
     querySelectorAll() { return Object.values(game); },
   };
   vm.runInNewContext(source, {
+    Math: math,
     document: {querySelector: () => root, createElement: element},
     window: {
+      KidsPiperVoice: {speak(value) { phrases.push(value); }, stop() {}},
       setTimeout(callback, delay) {
         timers.set(++timerId, {at: now + delay, callback});
         return timerId;
@@ -64,7 +69,7 @@ function fixture(language = 'de') {
       clearTimeout(id) { timers.delete(id); },
     },
   });
-  return {parts, game, advance, focused: () => focused, cards: () => parts['mini-stage'].children};
+  return {parts, game, advance, phrases, focused: () => focused, cards: () => parts['mini-stage'].children};
 }
 
 function mismatch(cards) {
@@ -169,5 +174,35 @@ test('memory progress only marks real pairs and resets on replay', () => {
     game.odd.click();
     assert.equal(progress.hidden, true);
     assert.equal(parts['mini-play'].hidden, false);
+  }
+});
+
+test('odd picture choices have equal accessible naming and keep scoring and reveal', () => {
+  for (const language of ['de', 'en']) {
+    const {parts, game, cards, phrases} = fixture(language, () => 0.99); // Keep source order for these two questions.
+    game.odd.click();
+    const first = cards();
+    assert.deepEqual(first.map(button => button.textContent), ['🍎', '🍐', '🍌', '🚗']);
+    assert.deepEqual(first.map(button => button.getAttribute('aria-label')), language === 'de'
+      ? ['Apfel', 'Birne', 'Banane', 'Auto'] : ['apple', 'pear', 'banana', 'car']);
+
+    first[1].click();
+    assert.ok(parts['mini-next'].hidden);
+    first[3].click();
+    assert.equal(parts['mini-next'].hidden, false);
+    assert.equal(phrases.at(-1), language === 'de' ? 'Auto' : 'car');
+    parts['mini-next'].click();
+
+    const second = cards();
+    assert.deepEqual(second.map(button => button.getAttribute('aria-label')), language === 'de'
+      ? ['Hund', 'Katze', 'Hase', 'Fahrrad'] : ['dog', 'cat', 'rabbit', 'bicycle']);
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      second[0].click();
+      assert.ok(parts['mini-next'].hidden);
+    }
+    second[0].click();
+    assert.equal(parts['mini-next'].hidden, false);
+    assert.ok(second.every(button => button.disabled));
+    assert.ok(second.every(button => button.hidden === (button.textContent !== '🚲')));
   }
 });
