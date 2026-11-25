@@ -480,6 +480,9 @@ app.register_blueprint(v3_workboard_routes.bp)
 from . import v3_android_offline_routes
 app.register_blueprint(v3_android_offline_routes.bp)
 
+from . import android_device_sources
+app.register_blueprint(android_device_sources.bp)
+
 from . import reader_routes
 app.register_blueprint(reader_routes.bp)
 
