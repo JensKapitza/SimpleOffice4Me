@@ -1,6 +1,19 @@
 {% if speech_version %}
 <div data-document-reader data-document-version="{{ speech_version }}">
   {% set speech_limit_message = 'This email could not be read aloud in one go. Nothing was played; open the readable message text below.' if g.language == 'en' else 'Diese E-Mail konnte nicht am Stück vorgelesen werden. Es wurde nichts abgespielt. Öffne unten den lesbaren Nachrichtentext.' %}
+  {% if speech_section_count|default(0) > 1 %}
+  <label class="form-label small mb-1">
+    {{ 'Section to read aloud' if g.language == 'en' else 'Abschnitt zum Vorlesen' }}
+    <select class="form-select form-select-sm w-auto" data-reader-position data-mail-speech-section disabled>
+      <option value="1" selected>{{ 'Entire message' if g.language == 'en' else 'Ganze Nachricht' }}</option>
+      {% for index in range(1, speech_section_count + 1) %}
+      <option value="{{ index + 1 }}">{{ '%s of %s'|format(index, speech_section_count) if g.language == 'en' else '%s von %s'|format(index, speech_section_count) }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <p class="small text-secondary mb-0">{{ 'Select a section and press Read aloud. No section plays automatically.' if g.language == 'en' else 'Wähle einen Abschnitt und tippe auf Vorlesen. Kein Abschnitt startet automatisch.' }}</p>
+  {% set speech_limit_message = 'Nothing was played. Try a numbered section or open the readable message text below.' if g.language == 'en' else 'Es wurde nichts abgespielt. Versuche einen nummerierten Abschnitt oder öffne unten den lesbaren Nachrichtentext.' %}
+  {% endif %}
   {% with speech_kind='mail' %}{% include 'reader/_read_aloud.html' %}{% endwith %}
   <div class="small mb-2" data-mail-speech-recovery>
     <a href="{{ speech_text_href|default('#mail-message-text') }}" data-mail-speech-text-link>{{ 'Open readable message text' if g.language == 'en' else 'Lesbaren Nachrichtentext öffnen' }}</a>

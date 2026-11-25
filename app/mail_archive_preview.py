@@ -13,7 +13,9 @@ from .mail_archive_storage import archive_path_by_id, read_archive_eml
 from .safe_paths import relative_under
 
 
-def _preview_from_target(store: MailStore, actor: str, account_id: str, path: str) -> dict[str, Any]:
+def _preview_from_target(
+    store: MailStore, actor: str, account_id: str, path: str, *, speech_sections: bool = False,
+) -> dict[str, Any]:
     raw = read_archive_eml(store, actor, account_id, path)
     message = BytesParser(policy=policy.default).parsebytes(raw)
     attachments: list[dict[str, Any]] = []
@@ -28,7 +30,7 @@ def _preview_from_target(store: MailStore, actor: str, account_id: str, path: st
             "size": len(payload),
             "sha256": hashlib.sha256(payload).hexdigest(),
         })
-    return {
+    preview = {
         "path": relative_under(store.root, path, require_name=True).as_posix(),
         "sha512": hashlib.sha512(raw).hexdigest(),
         "subject": _header(message.get("Subject")) or "(ohne Betreff)",
@@ -43,6 +45,11 @@ def _preview_from_target(store: MailStore, actor: str, account_id: str, path: st
         "attachments": attachments,
         "size": len(raw),
     }
+    if speech_sections:
+        from .mail_read_aloud import preview_mail_speech_section_count
+
+        preview["speech_section_count"] = preview_mail_speech_section_count(message, len(raw))
+    return preview
 
 
 def preview_eml_bytes(raw: bytes) -> dict[str, Any]:
@@ -82,9 +89,12 @@ def load_local_eml(store: MailStore, actor: str, account_id: str, relative_path:
     return _preview_from_target(store, actor, account_id, relative_path)
 
 
-def load_local_eml_by_id(store: MailStore, actor: str, account_id: str, archive_id: str) -> dict[str, Any]:
+def load_local_eml_by_id(
+    store: MailStore, actor: str, account_id: str, archive_id: str, *, speech_sections: bool = False,
+) -> dict[str, Any]:
     """Load an archived message by its SHA-512 filename instead of a client supplied path."""
-    return _preview_from_target(store, actor, account_id, archive_path_by_id(store, actor, account_id, archive_id))
+    return _preview_from_target(store, actor, account_id, archive_path_by_id(store, actor, account_id, archive_id),
+                                speech_sections=speech_sections)
 
 
 def load_local_attachment_by_id(

@@ -29,7 +29,9 @@ from .business_document_preferences import (
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
 from .mail_reader import MAX_PREVIEW_TEXT, _header, _message_text
-from .mail_read_aloud import MAX_SPEECH_EML_BYTES, document_eml_text, requested_mail_version
+from .mail_read_aloud import (
+    MAX_SPEECH_EML_BYTES, document_eml_text, preview_mail_speech_section_count, requested_mail_selection,
+)
 from .private_read_aloud import ReadAloudError, private_audio_response, read_aloud_error
 from .osm_address import LocalAddressIndex, field_suggestions, search_address, unique_candidate
 from .settings_store import translate
@@ -353,12 +355,15 @@ def _eml_preview(
     if Path(str(document.get("last_path") or "")).suffix.casefold() != ".eml":
         raise ValueError("document is not a regular EML file")
     speech_version = ""
+    speech_section_count = 0
     with materialize_verified_object(root, actor, document_id, suffix=".eml") as path:
         with path.open("rb") as source:
             message = BytesParser(policy=policy.default).parse(source)
-            if include_body and include_speech_version and path.stat().st_size <= MAX_SPEECH_EML_BYTES:
+            raw_bytes = path.stat().st_size if include_body and include_speech_version else -1
+            if 0 <= raw_bytes <= MAX_SPEECH_EML_BYTES:
                 source.seek(0)
                 speech_version = hashlib.file_digest(source, "sha256").hexdigest()
+                speech_section_count = preview_mail_speech_section_count(message, raw_bytes)
     attachments: list[dict[str, Any]] = []
     for index, part in enumerate(message.walk()):
         if part.get_content_disposition() != "attachment" and not part.get_filename(): continue
@@ -388,6 +393,7 @@ def _eml_preview(
     preview = {"subject": _header(message.get("Subject")) or "(ohne Betreff)", "from": _header(message.get("From")), "to": _header(message.get("To")), "cc": _header(message.get("Cc")), "reply_to": _header(message.get("Reply-To")), "date": _header(message.get("Date")), "message_id": _header(message.get("Message-ID")), "text": _message_text(message) if include_body else "", "html": html_body, "attachments": attachments, "attachment_count": len(attachments), "attachment_bytes": sum(item["size"] for item in attachments), "has_inline_images": any(item["inline"] and item["type"].startswith("image/") for item in attachments)}
     if speech_version:
         preview["speech_version"] = speech_version
+        preview["speech_section_count"] = speech_section_count
     return preview
 
 
@@ -567,13 +573,13 @@ def register(bp) -> None:
         if not has_feature(g.user, "documents"):
             return read_aloud_error("source_unavailable", 404)
         try:
-            version = requested_mail_version(64)
+            part, version = requested_mail_selection(64, parts=request.args.get("parts") == "1")
         except ReadAloudError as exc:
             return read_aloud_error(exc.code, exc.status)
         return private_audio_response(
             lambda: document_eml_text(
                 Path(current_app.config["DOCUMENT_ROOT"]), str(g.user["username"]),
-                document_id, version,
+                document_id, version, part=part,
             ),
             language=g.language, recheck_source=True,
         )
