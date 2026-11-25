@@ -17,7 +17,7 @@
     <h2 class="h4 mb-3" id="kids-syll-picker-title" tabindex="-1">{{ 'Let’s clap!' if g.language == 'en' else 'Wir klatschen jetzt!' }}</h2>
     <button type="button" class="btn btn-primary btn-lg" data-syll-level="clap">{{ 'Start clapping' if g.language == 'en' else 'Klatschen starten' }} 👏</button>
     {% else %}
-    <h2 class="h4 mb-3" id="kids-syll-picker-title">{{ 'Pick a level' if g.language == 'en' else 'Such dir eine Stufe aus' }}</h2>
+    <h2 class="h4 mb-3" id="kids-syll-picker-title" tabindex="-1">{{ 'Pick a level' if g.language == 'en' else 'Such dir eine Stufe aus' }}</h2>
     <div class="kids-syll-level-grid">
       <button class="kids-syll-level-card" type="button" data-syll-level="clap"><span aria-hidden="true">👏</span><strong>{{ 'Level 1: Clap along' if g.language == 'en' else 'Stufe 1: Klatsche mit' }}</strong><small>{{ 'Hear a word and tap once for every syllable.' if g.language == 'en' else 'Höre ein Wort und tippe einmal pro Silbe.' }}</small></button>
       <button class="kids-syll-level-card" type="button" data-syll-level="count"><span aria-hidden="true">🔢</span><strong>{{ 'Level 2: Count syllables' if g.language == 'en' else 'Stufe 2: Silben zählen' }}</strong><small>{{ 'How many syllables can you hear? Choose 1 to 4.' if g.language == 'en' else 'Wie viele Silben hörst du? Wähle 1 bis 4.' }}</small></button>
