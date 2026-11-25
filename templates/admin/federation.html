@@ -722,6 +722,10 @@
                   <form method="post" action="{{ url_for('federation_admin.set_queue_priority', request_id=item.request_id) }}" class="input-group input-group-sm">
                     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="_return_view" value="transfers">
+                    {% if remote_peer or remote_query %}
+                    <input type="hidden" name="remote_peer" value="{{ remote_peer }}">
+                    <input type="hidden" name="remote_q" value="{{ remote_query }}">
+                    {% endif %}
                     <input class="form-control" type="number" name="priority" min="-1000" max="1000" value="{{ item.transfer_priority }}" aria-label="{{ 'Transfer priority' if g.language == 'en' else 'Transfer-Priorität' }}">
                     <button class="btn btn-outline-secondary" type="submit">{{ 'Set' if g.language == 'en' else 'Setzen' }}</button>
                   </form>
