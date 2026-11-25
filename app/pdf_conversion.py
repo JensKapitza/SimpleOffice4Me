@@ -11,14 +11,16 @@ from collections import defaultdict
 from pathlib import Path
 
 from pypdf import PdfReader, PdfWriter
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 
 from .document_store_core import ocr_subprocess_environment
 from .ocr_preprocessing import OCR_RENDER_EDGE, needs_ocr_supplement, prepare_ocr_image
-from .pdf_limits import MAX_PDF_BYTES
+from .pdf_limits import MAX_PDF_BYTES, PdfConversionTimeout
 
 MAX_OUTPUT_BYTES = MAX_PDF_BYTES
 MAX_RENDER_EDGE = OCR_RENDER_EDGE
+_PositionedLine = tuple[float, float, float, str, float]
 
 
 def _checked_pdf(payload: bytes) -> PdfReader:
@@ -48,7 +50,7 @@ def _run(
             timeout=timeout, check=False, env=env,
         )
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("Die PDF-Konvertierung hat das Zeitlimit überschritten.") from exc
+        raise PdfConversionTimeout("Die PDF-Konvertierung hat das Zeitlimit überschritten.") from exc
     except OSError as exc:
         raise RuntimeError("Ein benötigtes PDF-Werkzeug konnte nicht gestartet werden.") from exc
     if result.returncode:
@@ -56,31 +58,46 @@ def _run(
     return result
 
 
-def _tesseract_lines(tsv: str) -> list[tuple[float, float, float, str]]:
+def _tesseract_lines(tsv: str) -> list[_PositionedLine]:
     """Convert Tesseract word geometry into positioned text lines."""
     lines: dict[tuple[str, str, str, str], list[tuple[int, str, float, float, float]]] = defaultdict(list)
-    for row in csv.DictReader(io.StringIO(tsv), delimiter="\t"):
-        if row.get("level") != "5" or not row.get("text", "").strip():
+    rows = csv.DictReader(io.StringIO(tsv), delimiter="\t", quoting=csv.QUOTE_NONE)
+    required = {"level", "page_num", "block_num", "par_num", "line_num", "left", "top", "height", "conf", "text"}
+    if not required.issubset(rows.fieldnames or ()):
+        raise RuntimeError("Tesseract hat keine gültigen OCR-Daten geliefert.")
+    for row in rows:
+        if row.get("level") not in {"1", "2", "3", "4", "5"} or row.get("text") is None:
+            raise RuntimeError("Tesseract hat unvollständige OCR-Daten geliefert.")
+        if row["level"] != "5" or not row["text"].strip():
             continue
         try:
             confidence = float(row.get("conf", "-1"))
             left = float(row.get("left", "0"))
             top = float(row.get("top", "0"))
             box_height = float(row.get("height", "0"))
-        except ValueError:
-            continue
-        if confidence < 0 or box_height <= 0:
-            continue
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("Tesseract hat ungültige OCR-Koordinaten geliefert.") from exc
+        if not all(map(math.isfinite, (confidence, left, top, box_height))) or box_height <= 0:
+            raise RuntimeError("Tesseract hat ungültige OCR-Koordinaten geliefert.")
+        if confidence < 0:
+            raise RuntimeError("Tesseract hat ungültige OCR-Konfidenz geliefert.")
         key = (row.get("page_num", ""), row.get("block_num", ""), row.get("par_num", ""), row.get("line_num", ""))
-        lines[key].append((int(left), row["text"].strip(), top, box_height, confidence))
+        try:
+            box_width = float(row.get("width", "0"))
+        except (TypeError, ValueError):
+            box_width = 0.0
+        if not math.isfinite(box_width) or box_width <= 0:
+            box_width = 0.0
+        lines[key].append((int(left), row["text"].strip(), top, box_height, box_width))
 
-    positioned: list[tuple[float, float, float, str]] = []
+    positioned: list[_PositionedLine] = []
     for words in lines.values():
         words.sort(key=lambda word: word[0])
         positioned.append((
             float(words[0][0]), min(word[2] for word in words),
             max(word[3] for word in words),
             " ".join(word[1] for word in words),
+            max(word[0] + word[4] for word in words) - words[0][0] if all(word[4] > 0 for word in words) else 0.0,
         ))
     return positioned
 
@@ -95,9 +112,9 @@ def _ocr_overlay(
     )
 
 
-def _rapidocr_lines(result: dict, image_width: int, image_height: int) -> list[tuple[float, float, float, str]]:
+def _rapidocr_lines(result: dict, image_width: int, image_height: int) -> list[_PositionedLine]:
     """Extract bounded line text and its box from the local RapidOCR result."""
-    lines: list[tuple[float, float, float, str]] = []
+    lines: list[_PositionedLine] = []
     for block in result.get("blocks", [])[:250]:
         if not isinstance(block, dict):
             continue
@@ -123,12 +140,12 @@ def _rapidocr_lines(result: dict, image_width: int, image_height: int) -> list[t
             confidence = 1.0
         if not math.isfinite(confidence) or confidence < 0.25:
             continue
-        lines.append((left, top, bottom - top, text))
+        lines.append((left, top, bottom - top, text, right - left))
     return lines
 
 
 def _invisible_text_overlay(
-    lines: list[tuple[float, float, float, str]], width: float, height: float,
+    lines: list[_PositionedLine], width: float, height: float,
     image_width: int, image_height: int, existing_text: str = "",
 ) -> bytes:
     """Build a PDF text page whose glyphs are searchable but not painted."""
@@ -142,7 +159,7 @@ def _invisible_text_overlay(
     invisible_text = pdf.beginText()
     invisible_text.setTextRenderMode(3)
     written_lines = set(known_lines)
-    for left, top, box_height, line in sorted(lines, key=lambda item: (item[1], item[0])):
+    for left, top, box_height, line, box_width in sorted(lines, key=lambda item: (item[1], item[0])):
         line = " ".join(line.split())[:2000]
         normalized = " ".join(line.split()).casefold()
         if not normalized or normalized in written_lines:
@@ -153,6 +170,12 @@ def _invisible_text_overlay(
         font_size = max(1.0, min(36.0, box_height * height / image_height))
         invisible_text.setTextOrigin(x, y)
         invisible_text.setFont("Helvetica", font_size)
+        natural_width = stringWidth(line, "Helvetica", font_size)
+        measured_width = min(box_width, image_width - left) * width / image_width
+        # Selecting text should cover the rendered scan, not the natural
+        # Helvetica width. Clamp malformed or extreme OCR boxes.
+        scale = 100.0 * measured_width / natural_width if natural_width > 0 and measured_width > 0 else 100.0
+        invisible_text.setHorizScale(max(25.0, min(400.0, scale)))
         invisible_text.textLine(line)
     pdf.drawText(invisible_text)
     pdf.showPage()
@@ -163,8 +186,9 @@ def _invisible_text_overlay(
 def make_grayscale_searchable_pdf(payload: bytes) -> bytes:
     """Return a grayscale PDF with local OCR text behind each visible page.
 
-    The source is only read. Any parse, rendering, or OCR failure rejects the
-    whole conversion, so callers never download a silently partial result.
+    The source is only read. Every converted page is checked for additional
+    text, without duplicating native lines. A successful empty OCR result
+    leaves the converted page intact; failures still reject the export.
     """
     if not isinstance(payload, bytes) or not payload or len(payload) > MAX_PDF_BYTES:
         raise ValueError("Das PDF muss zwischen 1 Byte und 1 GiB groß sein.")
@@ -209,12 +233,14 @@ def make_grayscale_searchable_pdf(payload: bytes) -> bytes:
 
         writer = PdfWriter()
         for page_number, page in enumerate(converted_reader.pages, start=1):
+            native_text_failed = False
             try:
                 native_text = page.extract_text() or ""
             except Exception:
                 # OCR remains the recovery path when a page's existing text
                 # operators cannot be decoded safely by the PDF text parser.
                 native_text = ""
+                native_text_failed = True
             prefix = root / f"render-{page_number:06d}"
             _run(
                 [
@@ -236,34 +262,35 @@ def make_grayscale_searchable_pdf(payload: bytes) -> bytes:
                 from .object_vision import analyze_ocr
 
                 ml_result = analyze_ocr(ocr_image_path, fallback_tesseract=False)
-                positioned = _rapidocr_lines(ml_result, image_width, image_height)
+                ml_completed = ml_result.get("status") == "completed"
+                positioned = _rapidocr_lines(ml_result, image_width, image_height) if ml_completed else []
                 ml_text = str(ml_result.get("text") or "").strip()
-                ml_has_positioned_text = ml_result.get("status") == "completed" and bool(positioned)
+                ml_recognized_words = ml_completed and bool(ml_text or ml_result.get("blocks"))
+                recognized_empty = ml_completed and not ml_recognized_words
                 should_supplement = needs_ocr_supplement(ml_text, ml_result.get("confidence"))
-                if not ml_has_positioned_text or (tesseract and should_supplement):
-                    if not tesseract and not ml_has_positioned_text:
-                        raise RuntimeError(
-                            f"Lokale ML-OCR für PDF-Seite {page_number} nicht verfügbar; "
-                            "Tesseract ist nicht installiert."
-                        )
-                    if tesseract:
+                if tesseract and (not positioned or should_supplement):
+                    try:
                         try:
-                            try:
-                                result = _run(
-                                    [tesseract, str(ocr_image_path), "stdout", "-l", "deu+eng", "tsv"],
-                                    timeout=30, env=ocr_subprocess_environment(),
-                                )
-                            except RuntimeError:
-                                result = _run(
-                                    [tesseract, str(ocr_image_path), "stdout", "-l", "eng", "tsv"],
-                                    timeout=30, env=ocr_subprocess_environment(),
-                                )
-                            positioned.extend(_tesseract_lines(result.stdout))
+                            result = _run(
+                                [tesseract, str(ocr_image_path), "stdout", "-l", "deu+eng", "-c", "tessedit_create_tsv=1"],
+                                timeout=30, env=ocr_subprocess_environment(),
+                            )
                         except RuntimeError:
-                            if not ml_has_positioned_text:
-                                raise
+                            result = _run(
+                                [tesseract, str(ocr_image_path), "stdout", "-l", "eng", "-c", "tessedit_create_tsv=1"],
+                                timeout=30, env=ocr_subprocess_environment(),
+                            )
+                        lines = _tesseract_lines(result.stdout)
+                        positioned.extend(lines)
+                        recognized_empty = not lines and not ml_recognized_words
+                    except RuntimeError:
+                        if not positioned:
+                            raise
                 if not positioned:
-                    raise RuntimeError(f"Für PDF-Seite {page_number} wurde kein OCR-Text erkannt.")
+                    if recognized_empty and not native_text_failed:
+                        writer.add_page(page)
+                        continue
+                    raise RuntimeError(f"Für PDF-Seite {page_number} konnte keine verlässliche OCR erstellt werden.")
                 overlay_bytes = _invisible_text_overlay(
                     positioned, page_width, page_height, image_width, image_height,
                     existing_text=native_text,

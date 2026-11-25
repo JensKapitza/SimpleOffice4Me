@@ -3,18 +3,27 @@
 {% block title %}{{ 'Syllable clapping' if g.language == 'en' else 'Silben klatschen' }} · SimpleOffice{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/kids_syllables.css', v=app_build.version) }}">{% endblock %}
 {% block body %}
+{% set preschool = request.args.get('practice') == 'preschool' %}
 <main id="main-content" class="kids-syll-page container py-3 py-lg-4" data-kids-syllables data-language="{{ g.language }}" data-audio-base="{{ url_for('static', filename='audio/kids/games/syllables') }}" data-audio-version="{{ app_build.version }}" data-tts-url="{{ url_for('kids_learning.sprache') }}">
   <header class="kids-syll-header d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4">
     <div><h1 class="h2 mb-1">{{ 'Syllable clapping' if g.language == 'en' else 'Silben klatschen' }} 👏</h1><p class="text-secondary mb-0">{{ 'Listen, clap the syllables and find rhymes. No timer and no reading needed.' if g.language == 'en' else 'Höre zu, klatsche die Silben und finde Reime. Ohne Zeitdruck und ohne Lesen.' }}</p></div>
   </header>
 
+  {% if preschool %}
+  <p class="badge text-bg-primary mb-3 text-wrap text-start">{{ 'Preschool round · 2 of 2: Clapping' if g.language == 'en' else 'Vorschulrunde · 2 von 2: Klatschen' }}</p>
+  {% endif %}
   <section class="kids-syll-picker" data-level-picker aria-labelledby="kids-syll-picker-title">
+    {% if preschool %}
+    <h2 class="h4 mb-3" id="kids-syll-picker-title" tabindex="-1">{{ 'Let’s clap!' if g.language == 'en' else 'Wir klatschen jetzt!' }}</h2>
+    <button type="button" class="btn btn-primary btn-lg" data-syll-level="clap">{{ 'Start clapping' if g.language == 'en' else 'Klatschen starten' }} 👏</button>
+    {% else %}
     <h2 class="h4 mb-3" id="kids-syll-picker-title">{{ 'Pick a level' if g.language == 'en' else 'Such dir eine Stufe aus' }}</h2>
     <div class="kids-syll-level-grid">
       <button class="kids-syll-level-card" type="button" data-syll-level="clap"><span aria-hidden="true">👏</span><strong>{{ 'Level 1: Clap along' if g.language == 'en' else 'Stufe 1: Klatsche mit' }}</strong><small>{{ 'Hear a word and tap once for every syllable.' if g.language == 'en' else 'Höre ein Wort und tippe einmal pro Silbe.' }}</small></button>
       <button class="kids-syll-level-card" type="button" data-syll-level="count"><span aria-hidden="true">🔢</span><strong>{{ 'Level 2: Count syllables' if g.language == 'en' else 'Stufe 2: Silben zählen' }}</strong><small>{{ 'How many syllables can you hear? Choose 1 to 4.' if g.language == 'en' else 'Wie viele Silben hörst du? Wähle 1 bis 4.' }}</small></button>
       <button class="kids-syll-level-card" type="button" data-syll-level="rhyme"><span aria-hidden="true">🎵</span><strong>{{ 'Level 3: Find rhymes' if g.language == 'en' else 'Stufe 3: Reime finden' }}</strong><small>{{ 'Listen and tap the picture that rhymes.' if g.language == 'en' else 'Höre zu und tippe das Bild an, das sich reimt.' }}</small></button>
     </div>
+    {% endif %}
   </section>
 
   <section class="kids-syll-play card shadow-sm mt-4" data-syll-play hidden aria-labelledby="kids-syll-title">
@@ -28,7 +37,7 @@
       <p class="kids-syll-feedback" data-syll-feedback role="status" aria-live="polite"></p>
       <div class="d-flex flex-wrap gap-2 mt-3">
         <button class="btn btn-success btn-lg" type="button" data-syll-next hidden>{{ 'Next' if g.language == 'en' else 'Weiter' }} ➡️</button>
-        <button class="btn btn-outline-secondary btn-lg" type="button" data-syll-back>{{ 'Choose another level' if g.language == 'en' else 'Andere Stufe wählen' }}</button>
+        <button class="btn btn-outline-secondary btn-lg" type="button" data-syll-back>{{ ('Restart clapping' if g.language == 'en' else 'Klatschrunde neu starten') if preschool else ('Choose another level' if g.language == 'en' else 'Andere Stufe wählen') }}</button>
       </div>
     </div>
   </section>
@@ -38,8 +47,16 @@
       <div class="kids-syll-result-flower" aria-hidden="true">🌼✨</div>
       <h2 class="h3" data-result-title tabindex="-1"></h2>
       <p class="lead" data-result-copy></p>
+      {% if preschool %}
+      <p class="fw-semibold">{{ 'Preschool round complete!' if g.language == 'en' else 'Vorschulrunde geschafft!' }} 🌟</p>
+      <div class="d-flex flex-wrap justify-content-center gap-2">
+        <a class="btn btn-primary btn-lg" href="{{ url_for('kids_matching.dashboard') }}">{{ 'Done for now' if g.language == 'en' else 'Fertig für heute' }} 🧸</a>
+        <button class="btn btn-outline-secondary btn-lg" type="button" data-play-again>{{ 'Clap again' if g.language == 'en' else 'Nochmal klatschen' }}</button>
+      </div>
+      {% else %}
       <button class="btn btn-primary btn-lg" type="button" data-play-again>{{ 'Play again' if g.language == 'en' else 'Nochmal spielen' }} 🔄</button>
       <button class="btn btn-outline-secondary btn-lg ms-sm-2 mt-2 mt-sm-0" type="button" data-result-back>{{ 'Choose another level' if g.language == 'en' else 'Andere Stufe wählen' }}</button>
+      {% endif %}
     </div>
   </section>
 </main>

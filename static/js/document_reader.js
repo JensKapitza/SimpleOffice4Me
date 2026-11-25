@@ -23,6 +23,17 @@
   let contrast = false;
   let saveTimer = null;
   const pageCount = Math.max(0, Number(root.dataset.pageCount || 0));
+  // The publisher TOC may omit chapters. Older cached markup can only provide
+  // a lower bound in the form of the last linked spine position.
+  const epubChapterCount = () => {
+    const count = Number(root.dataset.chapterCount);
+    if (Number.isSafeInteger(count) && count > 0) return count;
+    return [...root.querySelectorAll('[data-reader-chapter]')].reduce((highest, item) => {
+      const index = Number(item.dataset.readerChapter);
+      return Number.isSafeInteger(index) && index >= 0 ? Math.max(highest, index + 1) : highest;
+    }, 1);
+  };
+  const chapterCount = format === 'epub' ? epubChapterCount() : 0;
 
   const showError = (message, source) => {
     if (!errorBox) return;
@@ -46,7 +57,7 @@
     ? {page: current}
     : {chapter: currentChapterId || String(current), chapter_index: current, anchor: '', cfi: '', offset: currentOffset};
   const percent = () => {
-    const total = format === 'pdf' ? pageCount : Number(root.querySelectorAll('[data-reader-chapter]').length || 1);
+    const total = format === 'pdf' ? pageCount : chapterCount;
     return total > 0 ? Math.min(100, Math.max(0, Math.round(((current + (format === 'pdf' ? 0 : 1)) / total) * 100))) : 0;
   };
   const scheduleSave = () => {
@@ -69,8 +80,7 @@
   const addNote = root.querySelector('[data-reader-add-note]');
   if (format === 'epub' && addNote) addNote.disabled = true;
   const loadEpub = async (index) => {
-    const total = root.querySelectorAll('[data-reader-chapter]').length || 1;
-    requestedEpub = Math.max(0, Math.min(total - 1, Number(index) || 0));
+    requestedEpub = Math.max(0, Math.min(chapterCount - 1, Math.trunc(Number(index) || 0)));
     const target = requestedEpub;
     const requestId = ++epubRequest;
     try {
@@ -87,7 +97,7 @@
         errorBox?.classList.add('d-none');
         errorSource = undefined;
       }
-      updateStatus(total);
+      updateStatus(chapterCount);
       if (!restoredOffset && resumeEpubIndex === current && currentOffset > 0) {
         restoredOffset = true;
         const offset = currentOffset;
@@ -119,18 +129,26 @@
     frame.src = url.toString();
     frame.classList.remove('d-none');
   };
+  let pdfRequest = 0;
   const loadPdf = async (page) => {
+    const requestId = ++pdfRequest;
+    const previous = current;
     current = Math.max(1, pageCount ? Math.min(pageCount, Number(page) || 1) : Number(page) || 1);
     updateStatus(pageCount);
+    if (current !== previous) {
+      root.dispatchEvent(new CustomEvent('reader:page-changed', {bubbles: true, detail: {page: current}}));
+    }
     if (window.SimpleOfficePdf && nativeBox && nativeImage) {
       try {
         const rendered = await window.SimpleOfficePdf.render(root.dataset.pdfUrl, current - 1, Math.min(2048, Math.max(720, window.innerWidth * window.devicePixelRatio * fontScale)));
+        if (requestId !== pdfRequest) return;
         if (rendered && rendered.dataUrl) {
           nativeImage.src = rendered.dataUrl;
           nativeBox.classList.remove('d-none');
           frame?.classList.add('d-none');
         }
       } catch (_) {
+        if (requestId !== pdfRequest) return;
         nativeBox.classList.add('d-none');
         showPdfFramePage();
       }

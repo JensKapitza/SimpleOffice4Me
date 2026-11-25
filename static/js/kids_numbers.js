@@ -61,6 +61,7 @@
   let firstTry = 0;
   let mistakes = 0;
   let locked = false;
+  let replayQuestion = null;
 
   function noun(item, amount) {
     if (amount === 1) return english ? item.en : item.de;
@@ -85,7 +86,8 @@
     const options = config.levels[level] || fallbackConfig.levels.easy;
     const kinds = options.compare ? ['count', 'show', 'more', 'less'] : ['count', 'show'];
     const list = [];
-    for (let index = 0; index < options.tasks; index += 1) {
+    const taskCount = root.dataset.preschoolRound === 'true' ? 4 : options.tasks;
+    for (let index = 0; index < taskCount; index += 1) {
       const kind = kinds[index % kinds.length];
       const item = config.items[Math.floor(Math.random() * config.items.length)];
       // Rotate kinds in shuffled blocks so every game mixes all task types.
@@ -245,6 +247,9 @@
   function ask(parts, spoken) {
     prompt.textContent = spoken;
     say(parts);
+    // Pin this question before feedback or the optional counting aid speaks.
+    const questionClips = currentClips;
+    replayQuestion = () => say(questionClips);
   }
 
   function makeAnswerButton(label, correct) {
@@ -320,9 +325,11 @@
   root.querySelectorAll('[data-level]').forEach(button => {
     button.addEventListener('click', () => begin(button.dataset.level));
   });
-  root.querySelector('[data-repeat]').addEventListener('click', () => { if (currentClips.length) say(currentClips); });
+  root.querySelector('[data-repeat]').addEventListener('click', () => {
+    if (!play.hidden) replayQuestion?.();
+  });
   root.querySelector('[data-back]').addEventListener('click', toSetup);
-  root.querySelector('[data-result-back]').addEventListener('click', toSetup);
+  root.querySelector('[data-result-back]')?.addEventListener('click', toSetup);
   root.querySelector('[data-play-again]').addEventListener('click', () => begin(level));
   next.addEventListener('click', () => {
     taskIndex += 1;

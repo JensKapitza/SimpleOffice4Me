@@ -21,14 +21,16 @@
     <div class="card-body p-3 p-md-4">
       <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
         <div><p class="small text-secondary mb-1" data-mini-progress></p><h2 class="h3 mb-0" data-mini-title id="kids-mini-title" tabindex="-1"></h2></div>
-        <button class="btn btn-outline-primary btn-lg" type="button" data-mini-repeat>{{ 'Hear again' if g.language == 'en' else 'Nochmal hören' }} 🔊</button>
+        <div class="d-flex flex-wrap gap-2">
+          <button class="btn btn-outline-secondary btn-lg" type="button" data-mini-back><span aria-hidden="true">⬅️</span> {{ 'Choose another game' if g.language == 'en' else 'Anderes Spiel wählen' }}</button>
+          <button class="btn btn-outline-primary btn-lg" type="button" data-mini-repeat>{{ 'Hear again' if g.language == 'en' else 'Nochmal hören' }} 🔊</button>
+        </div>
       </div>
       <p class="kids-mini-prompt" data-mini-prompt aria-live="polite"></p>
       <div class="kids-mini-stage" data-mini-stage role="group"></div>
       <p class="kids-mini-feedback" data-mini-feedback role="status" aria-live="polite"></p>
       <div class="d-flex flex-wrap gap-2 mt-3">
         <button class="btn btn-success btn-lg" type="button" data-mini-next hidden>{{ 'Next' if g.language == 'en' else 'Weiter' }} ➡️</button>
-        <button class="btn btn-outline-secondary btn-lg" type="button" data-mini-back>{{ 'Choose another game' if g.language == 'en' else 'Anderes Spiel wählen' }}</button>
       </div>
     </div>
   </section>
@@ -39,7 +41,7 @@
       <h2 class="h3" data-result-title tabindex="-1"></h2>
       <p class="lead" data-result-copy></p>
       <button class="btn btn-primary btn-lg" type="button" data-play-again>{{ 'Play again' if g.language == 'en' else 'Nochmal spielen' }} 🔄</button>
-      <button class="btn btn-outline-secondary btn-lg ms-sm-2 mt-2 mt-sm-0" type="button" data-result-back>{{ 'Choose another game' if g.language == 'en' else 'Anderes Spiel wählen' }}</button>
+      <button class="btn btn-outline-secondary btn-lg ms-sm-2 mt-2 mt-sm-0" type="button" data-result-back><span aria-hidden="true">⬅️</span> {{ 'Choose another game' if g.language == 'en' else 'Anderes Spiel wählen' }}</button>
     </div>
   </section>
 </main>

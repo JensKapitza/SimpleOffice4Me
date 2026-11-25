@@ -19,7 +19,7 @@ from app.pdf_limits import MAX_PDF_BYTES
 
 def epub_bytes(
     *, unsafe: bool = False, encrypted: bool = False, cover: bool = False,
-    toc_format: str = "", chapter_xml: str | None = None,
+    toc_format: str = "", chapter_xml: str | None = None, sparse_toc: bool = False,
 ) -> bytes:
     output = io.BytesIO()
     chapter_count = 2 if toc_format else 1
@@ -67,7 +67,7 @@ def epub_bytes(
                 "OEBPS/nav.xhtml",
                 '<html xmlns="http://www.w3.org/1999/xhtml" '
                 'xmlns:epub="http://www.idpf.org/2007/ops"><body><nav epub:type="toc">'
-                '<ol><li><a href="chapter.xhtml">Vorspann</a></li>'
+                '<ol>' + ('' if sparse_toc else '<li><a href="chapter.xhtml">Vorspann</a></li>') +
                 '<li><a href="chapter2.xhtml#section">Hauptteil</a></li></ol>'
                 '</nav><a href="https://example.invalid/tracker">Extern</a></body></html>',
             )
@@ -75,8 +75,9 @@ def epub_bytes(
             archive.writestr(
                 "OEBPS/toc.ncx",
                 '<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/"><navMap>'
-                '<navPoint id="one"><navLabel><text>Vorspann NCX</text></navLabel>'
-                '<content src="chapter.xhtml"/></navPoint>'
+                + ('' if sparse_toc else '<navPoint id="one"><navLabel><text>Vorspann NCX</text></navLabel>'
+                   '<content src="chapter.xhtml"/></navPoint>')
+                +
                 '<navPoint id="two"><navLabel><text>Hauptteil NCX</text></navLabel>'
                 '<content src="chapter2.xhtml#section"/></navPoint>'
                 '</navMap></ncx>',
@@ -261,6 +262,47 @@ class ReaderRoutesTests(unittest.TestCase):
         self.assertEqual(200, metadata.status_code)
         self.assertIn("Manueller Titel", metadata.get_data(as_text=True))
 
+    def test_personal_book_and_shelf_html_are_private_and_not_stored(self):
+        from bs4 import BeautifulSoup
+        from reportlab.pdfgen.canvas import Canvas
+
+        data = io.BytesIO()
+        pdf = Canvas(data)
+        for word in ("First", "Second"):
+            pdf.drawString(50, 650, word)
+            pdf.showPage()
+        pdf.save()
+        data.seek(0)
+        pdf_book = DocumentStore(self.documents).import_upload(data, "Private-state.pdf", "admin")
+        chosen = ((self.document, {"chapter": "c1", "chapter_index": 0, "offset": 0}),
+                  (pdf_book, {"page": 2}))
+        for document, locator in chosen:
+            book_id = document["document_id"]
+            version = reader_version(document)
+            self.assertEqual(200, self.client.post(
+                f"/documents/reader/api/{book_id}/progress",
+                json={"locator": locator, "percent": 67, "document_version": version},
+                headers=self.headers,
+            ).status_code)
+            self.assertEqual(201, self.client.post(
+                f"/documents/reader/api/{book_id}/annotations",
+                json={"locator": locator, "text": "synthetic-personal-note", "document_version": version},
+                headers=self.headers,
+            ).status_code)
+            with self.subTest(book=book_id):
+                page = self.client.get(f"/documents/reader/{book_id}")
+                self.addCleanup(page.close)
+                self.assertEqual(200, page.status_code)
+                body = BeautifulSoup(page.data, "html.parser")
+                self.assertEqual("67", body.select_one("#reader-root")["data-saved-percent"])
+                self.assertIn("synthetic-personal-note", body.get_text())
+                self.assertEqual("private, no-store", page.headers.get("Cache-Control"))
+        shelf = self.client.get("/documents/reader", query_string={"status": "reading"})
+        self.addCleanup(shelf.close)
+        self.assertEqual(200, shelf.status_code)
+        self.assertIn(b"Private-state", shelf.data)
+        self.assertEqual("private, no-store", shelf.headers.get("Cache-Control"))
+
     def test_reader_uses_epub3_nav_and_epub2_ncx_labels_for_real_chapters(self):
         store = DocumentStore(self.documents)
         for toc_format, labels in (
@@ -290,6 +332,24 @@ class ReaderRoutesTests(unittest.TestCase):
                     f"/documents/reader/{document['document_id']}/epub/2"
                 ).status_code,
             )
+
+    def test_reader_reports_spine_length_even_when_publisher_lists_only_last_chapter(self):
+        store = DocumentStore(self.documents)
+        for toc_format in ("epub3", "ncx"):
+            with self.subTest(toc_format=toc_format):
+                document = store.import_upload(
+                    io.BytesIO(epub_bytes(toc_format=toc_format, sparse_toc=True)),
+                    f"sparse-{toc_format}.epub", "admin",
+                )
+                url = f"/documents/reader/{document['document_id']}"
+                response = self.client.get(url)
+                self.assertEqual(200, response.status_code)
+                self.assertIn(b'data-chapter-count="2"', response.data)
+                self.assertEqual(1, response.data.count(b'data-reader-chapter='))
+                self.assertIn(b'data-reader-chapter="1"', response.data)
+                self.assertIn("Kapitel Eins", self.client.get(url + "/epub/0").get_json()["html"])
+                self.assertIn("Zweites Kapitel", self.client.get(url + "/epub/1").get_json()["html"])
+                self.assertEqual(404, self.client.get(url + "/epub/2").status_code)
 
     def test_broken_optional_epub_navigation_does_not_block_reading(self):
         document = DocumentStore(self.documents).import_upload(
@@ -434,6 +494,55 @@ class ReaderRoutesTests(unittest.TestCase):
             "Das Dokument konnte nicht sicher verarbeitet werden und wird nicht im Reader angezeigt.",
             response.get_data(as_text=True),
         )
+
+    def test_terminal_timeout_is_visible_once_and_allows_explicit_retry(self):
+        from bs4 import BeautifulSoup
+        from reportlab.pdfgen.canvas import Canvas
+
+        source = io.BytesIO()
+        pdf = Canvas(source)
+        pdf.drawString(40, 650, "Synthetic PDF export")
+        pdf.save()
+        original = source.getvalue()
+        document = DocumentStore(self.documents).import_upload(io.BytesIO(original), "Retry.pdf", "admin")
+        route = f"/documents/reader/{document['document_id']}"
+        path = route + "/pdf/grayscale"
+        original_run = subprocess.run
+        for language, wording in (("de", "Zeitlimit überschritten"), ("en", "took too long")):
+            with self.subTest(language=language):
+                with self.client.session_transaction() as session:
+                    session["simpleoffice_language"] = language
+                failure = subprocess.TimeoutExpired(["/fixture/synthetic-private-tool"], 900, stderr="private contents")
+                attempts = []
+
+                def timeout_only_conversion(command, *args, **kwargs):
+                    if str(command[0]) == "/fixture/gs":
+                        attempts.append(kwargs["timeout"])
+                        raise failure
+                    return original_run(command, *args, **kwargs)
+
+                with (
+                    patch("app.pdf_conversion.shutil.which", side_effect=lambda name: "/fixture/" + name),
+                    patch("app.pdf_conversion.subprocess.run", side_effect=timeout_only_conversion),
+                    patch("app.reader_routes.audit") as audit,
+                ):
+                    result = self.client.post(path, headers=self.headers, follow_redirects=True)
+                    self.assertEqual(200, result.status_code)
+                    self.assertEqual((302,), tuple(step.status_code for step in result.history))
+                    page = BeautifulSoup(result.data, "html.parser")
+                    notice = page.select_one('[data-reader-feedback][role="alert"]')
+                    self.assertIsNotNone(notice)
+                    self.assertIn(wording, notice.get_text())
+                    self.assertNotIn("synthetic-private-tool", page.get_text())
+                    self.assertNotIn("private contents", page.get_text())
+                    self.assertIsNotNone(page.select_one(f'form[action="{path}"] button'))
+                    self.assertNotIn("Content-Disposition", result.headers)
+                    self.assertIsNone(BeautifulSoup(self.client.get(route).data, "html.parser")
+                                      .select_one("[data-reader-feedback]"))
+                    self.assertEqual([900], attempts)
+                    self.assertNotIn("document_reader_pdf_grayscale_export",
+                                     [call.args[0] for call in audit.call_args_list])
+        self.assertEqual(original, (self.documents / document["last_path"]).read_bytes())
 
     def test_grayscale_pdf_flash_does_not_include_conversion_error_details(self):
         document = DocumentStore(self.documents).import_upload(

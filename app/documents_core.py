@@ -378,6 +378,26 @@ def _preview_data(document: dict) -> dict[str, str]:
     return {"kind": kind, "icon": icon, "mime": mime}
 
 
+def _preview_extraction_time(document: dict, extraction: dict, suffix: str) -> datetime | None:
+    digest = document.get("sha256")
+    if suffix in IMAGE_SUFFIXES:
+        analysis = document.get("image_analysis")
+        if (not isinstance(analysis, dict) or analysis.get("ocr_status") != "completed"
+                or analysis.get("ocr_retry_status")):
+            return None
+        # A fresh index projection is not proof that the image OCR ran again.
+        source, timestamp = analysis.get("source_sha256"), analysis.get("analyzed_at")
+    else:
+        source, timestamp = extraction.get("source_sha256"), extraction.get("extracted_at")
+    if not digest or source != digest or not isinstance(timestamp, str) or len(timestamp) > 48:
+        return None
+    try:
+        moment = datetime.fromisoformat(timestamp)
+        return moment.astimezone(timezone.utc) if moment.utcoffset() is not None else None
+    except (OverflowError, ValueError):
+        return None
+
+
 def _document_detail_preview_context(document: dict) -> dict[str, Any]:
     document_id = str(document["document_id"])
     preview_service = PreviewService(current_app.config["DOCUMENT_ROOT"])
@@ -394,7 +414,7 @@ def _document_detail_preview_context(document: dict) -> dict[str, Any]:
         text_status = "ready" if text else ""
     extraction = document.get("text_extraction") if isinstance(document.get("text_extraction"), dict) else {}
     extraction_status = str(extraction.get("status", "")) if text and suffix not in TEXT_SUFFIXES else ""
-    extraction_updated = str(extraction.get("updated_at", "") or extraction.get("updated_by", "")) if extraction_status else ""
+    extraction_time = _preview_extraction_time(document, extraction, suffix) if extraction_status else None
     return {
         "preview": {
             **_preview_data(document),
@@ -409,7 +429,7 @@ def _document_detail_preview_context(document: dict) -> dict[str, Any]:
             "text_status": text_status,
             "text_truncated": text_truncated,
             "extraction_status": extraction_status,
-            "extraction_updated": extraction_updated,
+            "extraction_time": extraction_time,
             "archive": archive_preview,
         },
         "document_path_parts": [part for part in str(document.get("last_path", "")).split("/") if part],

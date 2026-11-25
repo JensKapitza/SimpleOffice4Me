@@ -1,25 +1,39 @@
 """Integrated PDF/EPUB bookshelf and reader routes."""
 from __future__ import annotations
 
+from contextlib import contextmanager
 import io
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO, Iterator
 
-from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template, request, send_file, url_for
+from flask import Blueprint, abort, current_app, flash, g, jsonify, make_response, redirect, render_template, request, send_file, url_for
 
 from .access_control import audit, has_feature
 from .auth import login_required
 from .document_store import DocumentStore
 from .epub_reader import EpubBook, MAX_EPUB_BYTES
 from .pdf_limits import MAX_PDF_BYTES
+from .private_read_aloud import ReadAloudError, private_audio_response, read_aloud_error, read_aloud_request
+from .reader_page_ocr import pdf_page_has_images, recognize_pdf_page, supplement_native_text
+from .reader_speech_text import (
+    MAX_READ_ALOUD_PDF_BYTES, MAX_READ_ALOUD_PDF_MIB, MAX_READ_ALOUD_TEXT_BYTES, copy_verified_reader_source, pdf_page_text,
+    plain_text_sections, staged_speech_pdf, verified_speech_source,
+)
 from .reading_store import ReaderVersionChanged, ReadingStateStore, reader_version
-from .v2.contracts import LogicalObjectId
 from .v2.storage_runtime import storage_for
 
 bp = Blueprint("reader", __name__, url_prefix="/documents/reader")
 FORMATS = {".pdf": "pdf", ".epub": "epub"}
 MAX_BOOKS = 250
+
+
+@bp.after_request
+def _keep_reader_html_private(response):
+    """Exclude personalized book and shelf HTML from HTTP caches."""
+    if request.endpoint in {"reader.shelf", "reader.open_book"} and response.mimetype == "text/html":
+        response.headers["Cache-Control"] = "private, no-store"
+    return response
 
 
 class ReaderDocumentRejected(ValueError):
@@ -62,24 +76,22 @@ def _book(document_id: str) -> tuple[dict[str, Any], str]:
     return document, kind
 
 
+@contextmanager
+def _verified_reader_spool(document: dict[str, Any], *, maximum: int) -> Iterator[BinaryIO]:
+    # Keep the existing small in-memory spool, but never re-materialize a rolled file.
+    with tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b") as spool:
+        storage = storage_for(current_app.config["DOCUMENT_ROOT"], _actor())
+        try:
+            copy_verified_reader_source(storage, document, spool, maximum)
+        except ReadAloudError as exc:
+            abort(exc.status)
+        spool.seek(0)
+        yield spool
+
+
 def _verified_bytes(document: dict[str, Any], *, maximum: int) -> bytes:
-    spool = tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b")
-    result = storage_for(current_app.config["DOCUMENT_ROOT"], _actor()).copy_verified_to(
-        LogicalObjectId(str(document["document_id"])), spool,
-    )
-    if not result.ok:
-        spool.close()
-        abort(404)
-    size = int(result.value.size)
-    if size > maximum:
-        spool.close()
-        abort(413)
-    spool.seek(0)
-    payload = spool.read(maximum + 1)
-    spool.close()
-    if len(payload) != size or len(payload) > maximum:
-        abort(413)
-    return payload
+    with _verified_reader_spool(document, maximum=maximum) as spool:
+        return spool.read(maximum + 1)
 
 
 def _catalog(query: str = "") -> list[dict[str, Any]]:
@@ -206,25 +218,26 @@ def open_book(document_id: str):
             payload.update(detected)
             payload["toc"] = book.toc()
         else:
-            raw = _verified_bytes(document, maximum=MAX_PDF_BYTES)
             from pypdf import PdfReader
-            pdf = PdfReader(io.BytesIO(raw))
-            if pdf.is_encrypted:
-                try:
-                    if not pdf.decrypt(""):
+
+            with _verified_reader_spool(document, maximum=MAX_PDF_BYTES) as spool:
+                pdf = PdfReader(spool)
+                if pdf.is_encrypted:
+                    try:
+                        if not pdf.decrypt(""):
+                            raise ReaderDocumentRejected(
+                                "Passwortgeschützte PDF-Dateien werden im Reader nicht unterstützt."
+                            )
+                    except ReaderDocumentRejected:
+                        raise
+                    except Exception as exc:
                         raise ReaderDocumentRejected(
                             "Passwortgeschützte PDF-Dateien werden im Reader nicht unterstützt."
-                        )
-                except ReaderDocumentRejected:
-                    raise
-                except Exception as exc:
-                    raise ReaderDocumentRejected(
-                        "Passwortgeschützte PDF-Dateien werden im Reader nicht unterstützt."
-                    ) from exc
-            payload["page_count"] = len(pdf.pages)
-            metadata = pdf.metadata or {}
-            detected_title = str(getattr(metadata, "title", "") or metadata.get("/Title", "") or "")[:500]
-            detected_author = str(getattr(metadata, "author", "") or metadata.get("/Author", "") or "")[:500]
+                        ) from exc
+                payload["page_count"] = len(pdf.pages)
+                metadata = pdf.metadata or {}
+                detected_title = str(getattr(metadata, "title", "") or metadata.get("/Title", "") or "")[:500]
+                detected_author = str(getattr(metadata, "author", "") or metadata.get("/Author", "") or "")[:500]
     except ReaderDocumentRejected:
         return render_template(
             "reader/error.html", document=document, format=kind,
@@ -271,8 +284,112 @@ def open_book(document_id: str):
     )
     return render_template(
         "reader/book.html", document=document, book=payload, reader_state=state,
-        annotations=annotations,
+        annotations=annotations, speech_pdf_limit_mib=MAX_READ_ALOUD_PDF_MIB,
     )
+
+
+def _speech_document(document_id: str) -> tuple[dict[str, Any], str]:
+    try:
+        document = _documents().get_document(document_id)
+    except (ValueError, OSError):
+        raise ReadAloudError("document_unavailable", 404) from None
+    suffix = Path(str(document.get("last_path") or "")).suffix.casefold()
+    if document["document_id"] != document_id or suffix not in {".pdf", ".txt"}:
+        raise ReadAloudError("document_unavailable", 404)
+    return document, suffix
+
+
+def _speech_source_for(document: dict[str, Any], maximum: int) -> bytes:
+    return verified_speech_source(
+        storage_for(current_app.config["DOCUMENT_ROOT"], _actor()), document, maximum,
+    )
+
+
+@bp.get("/<document_id>/text")
+@login_required
+def open_text(document_id: str):
+    """Display verified UTF-8 text in the Reader, one bounded section at a time."""
+    _require_documents()
+    try:
+        document, suffix = _speech_document(document_id)
+        if suffix != ".txt":
+            raise ReadAloudError("document_unavailable", 404)
+        sections = plain_text_sections(_speech_source_for(document, MAX_READ_ALOUD_TEXT_BYTES))
+        section = request.args.get("section", 1, type=int)
+        if not 1 <= section <= len(sections):
+            raise ReadAloudError("invalid_page", 404)
+    except ReadAloudError as exc:
+        if exc.status == 404:
+            abort(404)
+        response = make_response(render_template(
+            "reader/error.html", document=document, format="text",
+            message=("The text is unavailable or exceeds the Reader limit (256 KiB)." if g.language == "en"
+                     else "Der Text ist nicht verfügbar oder überschreitet die Reader-Grenze (256 KiB)."),
+        ), exc.status)
+    else:
+        response = make_response(render_template(
+            "reader/text.html", document=document, text=sections[section - 1],
+            section=section, section_count=len(sections), document_version=reader_version(document),
+        ))
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
+@bp.post("/<document_id>/read-aloud")
+@login_required
+def read_aloud(document_id: str):
+    """Read native text from an authorized, current document version."""
+    return _read_aloud(document_id, allow_ocr=False)
+
+
+@bp.post("/<document_id>/read-aloud/ocr")
+@login_required
+def read_aloud_ocr(document_id: str):
+    """Recognize one image-only PDF page, only on an explicit user request."""
+    return _read_aloud(document_id, allow_ocr=True)
+
+
+def _read_aloud(document_id: str, *, allow_ocr: bool):
+    _require_documents()
+    try:
+        document, suffix = _speech_document(document_id)
+        if allow_ocr and suffix != ".pdf":
+            raise ReadAloudError("document_unavailable", 404)
+        page, version = read_aloud_request()
+        if version != reader_version(document):
+            raise ReadAloudError("document_changed", 409)
+
+        def load_text():
+            if suffix == ".pdf":
+                storage = storage_for(current_app.config["DOCUMENT_ROOT"], _actor())
+                with staged_speech_pdf(storage, document, MAX_READ_ALOUD_PDF_BYTES) as source:
+                    return _speech_pdf_page(source, page, g.language, allow_ocr=allow_ocr)
+            sections = plain_text_sections(_speech_source_for(document, MAX_READ_ALOUD_TEXT_BYTES))
+            if page > len(sections):
+                raise ReadAloudError("invalid_page", 404)
+            return sections[page - 1]
+
+        response = private_audio_response(load_text, language=g.language)
+        if response.status_code == 200:
+            current, _ = _speech_document(document_id)
+            if version != reader_version(current):
+                raise ReadAloudError("document_changed", 409)
+        return response
+    except ReadAloudError as exc:
+        return read_aloud_error(exc.code, exc.status)
+
+
+def _speech_pdf_page(source: Path, page: int, language: str, *, allow_ocr: bool) -> str:
+    text = pdf_page_text(source, page)
+    if not allow_ocr or (text.strip() and not pdf_page_has_images(source, page)):
+        return text
+    try:
+        recognized = recognize_pdf_page(source, page, language)
+    except ReadAloudError as exc:
+        if exc.code == "ocr_no_text" and text.strip():
+            return text
+        raise
+    return supplement_native_text(text, recognized)
 
 
 @bp.get("/<document_id>/cover")
@@ -302,6 +419,8 @@ def epub_cover(document_id: str):
 @login_required
 def grayscale_pdf(document_id: str):
     """Download a grayscale copy, retaining the protected source unchanged."""
+    from .pdf_limits import PdfConversionTimeout
+
     _require_documents()
     document, kind = _book(document_id)
     if kind != "pdf":
@@ -311,6 +430,16 @@ def grayscale_pdf(document_id: str):
         from .pdf_conversion import make_grayscale_searchable_pdf
 
         payload = make_grayscale_searchable_pdf(source)
+    except PdfConversionTimeout:
+        current_app.logger.info("Reader PDF export timed out for %s", document_id)
+        flash(
+            "The local PDF export took too long. Try again or split the PDF into smaller files. Your original is unchanged."
+            if g.language == "en" else
+            "Der lokale PDF-Export hat das Zeitlimit überschritten. Versuche es erneut oder teile das PDF "
+            "in kleinere Dateien. Dein Original bleibt unverändert.",
+            "reader-export-error",
+        )
+        return redirect(url_for("reader.open_book", document_id=document_id))
     except ValueError as exc:
         current_app.logger.info(
             "Reader PDF conversion rejected for %s: %s",
@@ -323,7 +452,13 @@ def grayscale_pdf(document_id: str):
             "Reader PDF conversion failed for %s: %s",
             document_id, type(exc).__name__,
         )
-        flash("Das Graustufen-PDF konnte wegen eines Verarbeitungsfehlers nicht erstellt werden.")
+        flash(
+            "Could not create the searchable copy. Check local Ghostscript, Poppler and OCR setup. "
+            "To read only this page, use ‘OCR and read aloud’."
+            if g.language == "en" else
+            "Die durchsuchbare Kopie konnte nicht erstellt werden. Prüfe die lokale Installation "
+            "von Ghostscript, Poppler und OCR. Für diese einzelne Seite nutze „OCR und vorlesen“."
+        )
         return redirect(url_for("reader.open_book", document_id=document_id))
 
     stem = Path(str(document.get("last_path") or "document.pdf")).stem[:100]

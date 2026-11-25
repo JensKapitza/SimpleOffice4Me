@@ -10,6 +10,7 @@
 <option value="related" selected>{{ 'Generally linked' if g.language == 'en' else 'Allgemein verbunden' }}</option>{%- endmacro %}
 {% block body %}<main id="main-content" class="container-xl py-4">
 <a class="text-decoration-none" href="{{ url_for('documents.index') }}">← {{ 'Documents' if g.language == 'en' else 'Dokumente' }}</a>
+{% if search_return_url %}<a class="btn btn-sm btn-outline-secondary ms-2" data-search-return href="{{ search_return_url }}">{{ 'Back to search results' if g.language == 'en' else 'Zurück zu den Suchtreffern' }}</a>{% endif %}
 <div class="d-flex flex-wrap justify-content-between gap-3 mt-2 mb-3">
 <div>
 <nav aria-label="{{ 'Document path' if g.language == 'en' else 'Dokumentpfad' }}" class="mb-1"><ol class="breadcrumb flex-wrap mb-0">{% for part in document_path_parts %}<li class="breadcrumb-item text-break">{{ part }}</li>{% endfor %}</ol></nav>
@@ -43,6 +44,10 @@
 </form>{% endif %}
 <a class="btn btn-outline-primary" href="{{ url_for('documents.image_preview', document_id=document.document_id) }}" target="_blank" rel="noopener noreferrer">
 {{ 'Open original' if g.language == 'en' else 'Original öffnen' }}</a>
+{% if document.last_path.lower().endswith('.pdf') or document.last_path.lower().endswith('.txt') %}
+<a class="btn btn-outline-primary" href="{{ url_for('reader.open_text' if document.last_path.lower().endswith('.txt') else 'reader.open_book', document_id=document.document_id) }}">
+{{ 'Open in Reader' if g.language == 'en' else 'Im Reader öffnen' }}</a>
+{% endif %}
 <a class="btn btn-primary" href="{{ url_for('webdav.setup_document', document_id=document.document_id) }}">
 {{ 'Edit in LibreOffice' if g.language == 'en' else 'In LibreOffice bearbeiten' }}</a>
 <span class="badge text-bg-secondary align-self-center">{{ document.state }}</span>

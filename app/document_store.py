@@ -50,7 +50,10 @@ class DocumentStore(_DocumentStorePart1, _DocumentStorePart2, _DocumentStorePart
         view_args = request.view_args or {}
         read_case = ""
         read_id = ""
-        if request.method == "GET" and request.endpoint == "mail_reader_cases.case_attachment":
+        if (request.method, request.endpoint) in {
+            ("GET", "mail_reader_cases.case_attachment"),
+            ("POST", "mail_reader.case_read_aloud"),
+        }:
             read_case = str(view_args.get("case_id", ""))
             read_id = str(view_args.get("archive_id", ""))
         elif request.method == "GET" and request.endpoint == "mail_reader.index":

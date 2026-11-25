@@ -11,6 +11,7 @@ from pathlib import Path
 
 from flask import Blueprint, current_app, flash, g, jsonify, redirect, render_template, request, send_file, url_for
 
+from .access_control import has_feature
 from .attachment_security import MAX_ATTACHMENT_BYTES
 from .auth import login_required
 from .db import get_db
@@ -22,8 +23,10 @@ from .mail_case_attachments import MailCaseAttachmentStore
 from .mail_attachment_download import latest_scan_for_sha256, scan_attachment_for_download
 from .mail_client import MAX_MESSAGE_BYTES, MailStore, SmtpDeliveryStateUnknown, SmtpSubmission, _mail_ui_features
 from .mail_reader import MailReader
+from .mail_read_aloud import archive_mail_text, live_mail_text, requested_mail_version
 from .mail_signatures import get_signature_or_default
 from .mail_webclient import ImapWebClient, MailAccountPolicy, MailReadOnlyError, contact_recipients
+from .private_read_aloud import ReadAloudError, private_audio_response, read_aloud_error
 
 
 bp = Blueprint("mail_reader", __name__, url_prefix="/documents/mail/reader")
@@ -407,6 +410,65 @@ def index():
         can_delegated_send=can_delegated_send,
         fetch_disabled=fetch_disabled,
     )
+
+
+@bp.post("/read-aloud/live")
+@login_required
+def live_read_aloud():
+    if not has_feature(g.user, "mail"):
+        return read_aloud_error("source_unavailable", 404)
+    try:
+        version = requested_mail_version(128)
+    except ReadAloudError as exc:
+        return read_aloud_error(exc.code, exc.status)
+    return private_audio_response(
+        lambda: live_mail_text(
+            _store(), _actor(), request.args.get("account", ""),
+            request.args.get("folder", ""), request.args.get("uid", ""), version,
+        ),
+        language=g.language, recheck_source=True,
+    )
+
+
+@bp.post("/read-aloud/archive/<archive_id>")
+@login_required
+def archive_read_aloud(archive_id: str):
+    if not has_feature(g.user, "mail"):
+        return read_aloud_error("source_unavailable", 404)
+    try:
+        version = requested_mail_version(128)
+    except ReadAloudError as exc:
+        return read_aloud_error(exc.code, exc.status)
+    return private_audio_response(
+        lambda: archive_mail_text(_store(), _actor(), request.args.get("account", ""), archive_id, version),
+        language=g.language, recheck_source=True,
+    )
+
+
+@bp.post("/read-aloud/case/<case_id>/<archive_id>")
+@login_required
+def case_read_aloud(case_id: str, archive_id: str):
+    if not has_feature(g.user, "mail"):
+        return read_aloud_error("source_unavailable", 404)
+    try:
+        version = requested_mail_version(128)
+    except ReadAloudError as exc:
+        return read_aloud_error(exc.code, exc.status)
+
+    def load_case_message() -> str:
+        store = _store()
+        try:
+            case = _cases(store).get_case(_actor(), case_id)
+            account_id = str(case["account_id"])
+            if account_id.startswith("federation:") or not any(
+                row["mail_reference"] == _mail_reference(archive_id) for row in case["messages"]
+            ):
+                raise PermissionError("not a local message in this case")
+        except (OSError, PermissionError, KeyError, ValueError):
+            raise ReadAloudError("source_unavailable", 404) from None
+        return archive_mail_text(store, case["account_owner"], account_id, archive_id, version)
+
+    return private_audio_response(load_case_message, language=g.language, recheck_source=True)
 
 
 @bp.get("/contacts")

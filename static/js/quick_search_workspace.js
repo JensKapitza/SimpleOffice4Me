@@ -215,6 +215,17 @@
     }
   }
 
+  function localReaderUrl(value) {
+    if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//')) return null;
+    try {
+      const url = new URL(value, window.location.origin);
+      return url.origin === window.location.origin && !url.username && !url.password && !url.search && !url.hash
+        ? url.href : null;
+    } catch {
+      return null;
+    }
+  }
+
   async function openPreview(match) {
     if (!preview) return;
     if (previewRequest) previewRequest.abort();
@@ -228,7 +239,7 @@
     try {
       const params = new URLSearchParams({kind: match.kind, id: match.ref || ''});
       const response = await fetch(`${previewApi}?${params.toString()}`, {
-        headers: {Accept: 'application/json'}, signal: request.signal,
+        headers: {Accept: 'application/json'}, cache: 'no-store', signal: request.signal,
       });
       if (!response.ok) throw new Error(`preview ${response.status}`);
       const data = await response.json();
@@ -243,7 +254,15 @@
       open.addEventListener('click', () => recordRecent(match));
       const copyLink = el('button', {type: 'button', class: 'btn btn-outline-secondary'}, text('Link kopieren', 'Copy link'));
       copyLink.addEventListener('click', () => copyText(absoluteUrl(data.url || match.url), text('Link kopiert.', 'Link copied.')));
-      previewActions.append(open, copyLink);
+      previewActions.append(open);
+      const readerUrl = match.kind === 'document' && localReaderUrl(data.reader_url);
+      if (readerUrl) {
+        const reader = el('a', {class: 'btn btn-outline-primary', href: readerUrl},
+          text('Im Reader öffnen', 'Open in Reader'));
+        reader.addEventListener('click', () => recordRecent(match));
+        previewActions.append(reader);
+      }
+      previewActions.append(copyLink);
       if (fields.length) {
         const copy = el('button', {type: 'button', class: 'btn btn-outline-secondary'},
           text('Vorschau kopieren', 'Copy preview'));
@@ -299,7 +318,7 @@
     try {
       const params = new URLSearchParams({q: query});
       const response = await fetch(`${api}?${params.toString()}`, {
-        headers: {Accept: 'application/json'}, signal: controller.signal,
+        headers: {Accept: 'application/json'}, cache: 'no-store', signal: controller.signal,
       });
       if (!response.ok) throw new Error(`search ${response.status}`);
       const data = await response.json();

@@ -1,0 +1,8 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <h1 class="h2">{{ 'Setup test for Reader and email' if g.language == 'en' else 'Einrichtungstest für Reader und E-Mail' }}</h1>
+  {% include "admin/_reader_runtime_check.html" %}
+</main>
+{% endblock %}

@@ -9,7 +9,7 @@ from .sqlite_utils import connect as sqlite_connect
 
 from .document_store_core import *  # noqa: F401,F403
 from .file_lock import exclusive_file_lock
-from .ocr_preprocessing import OCR_RENDER_EDGE
+from .ocr_preprocessing import OCR_RENDER_EDGE, jpeg_ocr_input
 
 MAX_EML_INDEX_BYTES = 25 * 1024 * 1024
 MAX_MANUAL_ANALYSIS_BYTES = 128 * 1024 * 1024
@@ -391,8 +391,16 @@ class _DocumentStorePart5:
         except (OSError, ValueError, SyntaxError) as exc:
             analysis["metadata_error"] = str(exc)
 
+        from .ocr_preprocessing import photo_ocr_input
+
         try:
-            ocr_text = self._image_ocr(path)
+            with photo_ocr_input(path) as source:
+                try:
+                    ocr_text = self._image_ocr(source)
+                except (OSError, RuntimeError) as exc:
+                    if source == path:
+                        raise
+                    raise RuntimeError("Local OCR failed for the prepared grayscale PNG.") from exc
             metadata["ocr_text"] = ocr_text
             analysis["ocr_status"] = "completed"
             analysis["ocr_characters"] = len(ocr_text)
@@ -464,9 +472,10 @@ class _DocumentStorePart5:
             raise RuntimeError("Tesseract OCR is not installed")
         environment = ocr_subprocess_environment()
         try:
-            result = subprocess.run([executable, str(path), "stdout", "-l", "deu+eng"], capture_output=True, text=True, timeout=timeout, check=False, env=environment)
-            if result.returncode != 0 and "deu" in result.stderr.lower():
-                result = subprocess.run([executable, str(path), "stdout", "-l", "eng"], capture_output=True, text=True, timeout=timeout, check=False, env=environment)
+            with jpeg_ocr_input(path) as source:
+                result = subprocess.run([executable, str(source), "stdout", "-l", "deu+eng"], capture_output=True, text=True, timeout=timeout, check=False, env=environment)
+                if result.returncode != 0 and "deu" in result.stderr.lower():
+                    result = subprocess.run([executable, str(source), "stdout", "-l", "eng"], capture_output=True, text=True, timeout=timeout, check=False, env=environment)
         except subprocess.TimeoutExpired as exc:
             raise RuntimeError(f"OCR timed out after {timeout} seconds") from exc
         if result.returncode != 0:

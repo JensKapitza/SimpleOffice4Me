@@ -59,6 +59,18 @@ python3.14 simpleoffice_runtime_support.py
 ./start.sh --check-system
 ```
 
+Die Systemprüfung findet optionale PDF- und OCR-Programme auf dem
+`PATH`. Bei explizitem `--check-system` fragt sie zusätzlich mit lokalem
+`tesseract --list-langs` nach Deutsch (`deu`) und Englisch (`eng`). Das
+ist eine Bestandsprüfung, keine OCR eines Dokuments. Bei abweichendem
+Sprachdatenordner auch `TESSDATA_PREFIX` prüfen. Beim normalen Start
+erscheinen nur fehlende Programme; die Sprachprüfung verzögert ihn nicht.
+Die Prüfung installiert nichts. Sie bewertet auch keine Piper-Stimme.
+
+Hinweise zu den Sprachpaketen: [Tesseract](https://tesseract-ocr.github.io/tessdoc/Installation.html),
+[Fedora](https://packages.fedoraproject.org/pkgs/tesseract-tessdata/),
+[Homebrew](https://formulae.brew.sh/formula/tesseract-lang).
+
 Für produktive Installationen sind finale CPython-Versionen 3.11–3.14
 freigegeben; neue Builds verwenden 3.14. Python 3.15 bleibt experimentell.
 

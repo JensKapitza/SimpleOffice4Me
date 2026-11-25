@@ -14,6 +14,7 @@
     <input id="quick-search-query" type="search" autofocus required class="form-control form-control-lg" name="q" value="{{ query }}" placeholder="{{ 'Documents, appointments, tasks, chats, contacts or projects' if g.language == 'en' else 'Dokumente, Termine, Aufgaben, Chats, Kontakte oder Projekte' }}" aria-label="{{ 'Search terms' if g.language == 'en' else 'Suchbegriff' }}" autocomplete="off">
     <button type="submit" class="btn btn-primary">{{ 'Search' if g.language == 'en' else 'Suchen' }}</button>
   </form>
+  <p class="small text-secondary">{{ 'Documents can match words on different pages after text recognition has indexed them.' if g.language == 'en' else 'Dokumente können Wörter auf unterschiedlichen Seiten enthalten. Die Schnellsuche findet sie, sobald der erkannte Text im Index steht.' }}</p>
   {% if narrow_hints %}<div class="alert alert-info" role="status" aria-live="polite"><strong>{{ 'Search hints' if g.language == 'en' else 'Suchhinweise' }}:</strong><ul class="mb-0">{% for hint in narrow_hints %}<li>{{ hint.reason }}</li>{% endfor %}</ul></div>{% endif %}
   <div class="row g-3">
     <div class="col-lg-7">

@@ -16,4 +16,4 @@
       </div>
     </div>
     {% if preview.text_truncated %}<p class="small text-secondary mt-2 mb-0">{{ 'Preview is limited to 300 lines and 12,000 characters for security reasons. The original remains fully available.' if g.language == 'en' else 'Die Vorschau ist aus Sicherheitsgründen auf 300 Zeilen und 12.000 Zeichen begrenzt. Das Original bleibt vollständig verfügbar.' }}</p>{% endif %}
-    {% if preview.extraction_status %}<p class="small text-secondary mt-2 mb-0" data-text-preview-source>{{ 'Recognized text' if g.language == 'en' else 'Erkannter Text' }} · {{ preview.extraction_status }}{% if preview.extraction_updated %} · {{ preview.extraction_updated }}{% endif %}</p>{% endif %}
+    {% if preview.extraction_status %}<p class="small text-secondary mt-2 mb-0" data-text-preview-source>{{ 'Recognized text' if g.language == 'en' else 'Erkannter Text' }} · {{ preview.extraction_status }}{% if preview.extraction_time %} · {{ 'Extracted:' if g.language == 'en' else 'Erkannt am:' }} <time datetime="{{ preview.extraction_time.isoformat(timespec='seconds') }}">{{ preview.extraction_time.strftime('%Y-%m-%d %H:%M:%S UTC') }}</time>{% endif %}</p>{% endif %}

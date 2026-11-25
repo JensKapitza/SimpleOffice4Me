@@ -1,0 +1,5 @@
+{% if speech_version %}
+<div data-document-reader data-document-version="{{ speech_version }}">
+  {% with speech_kind='mail' %}{% include 'reader/_read_aloud.html' %}{% endwith %}
+</div>
+{% endif %}

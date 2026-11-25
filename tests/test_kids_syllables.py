@@ -1,5 +1,8 @@
 """Kids syllable game page contracts exercised through the HTTP interface."""
 import re
+import shutil
+import subprocess
+import unittest
 from pathlib import Path
 
 from http_api_fixture import PublicHttpTestCase
@@ -107,6 +110,22 @@ class KidsSyllablesPageTests(PublicHttpTestCase):
         self.assertIn("KidsPiperVoice", shared)
         self.assertNotIn("speechSynthesis", shared)
         self.assertNotIn("SpeechSynthesisUtterance", shared)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is needed for browser logic")
+    def test_example_sequence_is_local_and_does_not_answer(self):
+        result = subprocess.run(
+            [shutil.which("node"), "--test", "tests/kids_syllables_example.test.cjs"],
+            cwd=REPO_ROOT, capture_output=True, text=True, check=False, timeout=30,
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_example_source_clips_are_served_locally(self):
+        for language, part in (("de", "ap"), ("de", "fel"), ("en", "ap"), ("en", "ple")):
+            with self.subTest(language=language, part=part):
+                with self.client.get(f"/static/audio/kids/games/syllables/{language}/p_{part}.mp3") as response:
+                    self.assertEqual(200, response.status_code)
+                    self.assertTrue(response.content_type.startswith("audio/"))
+                    self.assertGreater(len(response.data), 100)
 
     def test_game_uses_prerecorded_clip_keys(self):
         script = SCRIPT.read_text(encoding="utf-8")

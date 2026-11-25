@@ -9,6 +9,15 @@
     <p class="text-secondary mb-0">{{ 'Tap a big picture to start playing. Everything stays on this device.' if g.language == 'en' else 'Tippe auf ein großes Bild und spiele los. Alles bleibt auf diesem Gerät.' }}</p>
   </header>
 
+  <section class="mb-4" aria-labelledby="kids-preschool-round-title">
+    <h2 class="h4" id="kids-preschool-round-title">{{ 'Preschool round' if g.language == 'en' else 'Kleine Vorschulrunde' }}</h2>
+    <a class="kids-symbol-card" href="{{ url_for('kids_numbers.index', practice='preschool') }}">
+      <span aria-hidden="true">🔢 → 👏</span>
+      <strong>{{ 'Start counting and clapping' if g.language == 'en' else 'Zählen und klatschen starten' }}</strong>
+      <small>{{ 'Four counting tasks, then three words to clap. No time limit.' if g.language == 'en' else 'Vier Zählaufgaben, dann drei Wörter zum Mitklatschen. Ohne Zeitdruck.' }}</small>
+    </a>
+  </section>
+
   <nav class="kids-symbol-grid" aria-label="{{ 'Kids activities' if g.language == 'en' else 'Kinderangebote' }}">
     <a class="kids-symbol-card" href="{{ url_for('kids_matching.matching') }}">
       <span aria-hidden="true">🧩</span>

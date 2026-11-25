@@ -7,6 +7,7 @@ import argparse
 import os
 import platform
 import shutil
+import subprocess
 
 
 TOOLS = {
@@ -14,6 +15,8 @@ TOOLS = {
     "ClamAV-Signaturupdate": ("freshclam",),
     "ImageMagick": ("magick", "convert"),
     "PDF-Vorschau": ("pdftoppm",),
+    "PDF-Text": ("pdftotext",),
+    "Foto-/Scan-OCR": ("tesseract",),
     "Audio/Video-Vorschau": ("ffmpeg",),
     "Office-Konvertierung": ("libreoffice", "soffice"),
     "PDF/A-Erzeugung": ("gs", "gswin64c", "gswin32c"),
@@ -23,6 +26,8 @@ DOCS = {
     "ClamAV": "https://docs.clamav.net/manual/Installing.html",
     "ImageMagick": "https://imagemagick.org/script/download.php",
     "PDF-Vorschau": "https://poppler.freedesktop.org/",
+    "PDF-Text": "https://poppler.freedesktop.org/",
+    "Foto-/Scan-OCR": "https://tesseract-ocr.github.io/tessdoc/Installation.html",
     "Audio/Video-Vorschau": "https://ffmpeg.org/download.html",
     "Office-Konvertierung": "https://www.libreoffice.org/download/download-libreoffice/",
     "PDF/A-Erzeugung": "https://www.ghostscript.com/releases/gsdnld.html",
@@ -47,8 +52,15 @@ def system_family() -> str:
     return "linux"
 
 
+def _detected_tools() -> dict[str, str | None]:
+    return {
+        label: next(filter(None, (shutil.which(command) for command in _commands(label, commands))), None)
+        for label, commands in TOOLS.items()
+    }
+
+
 def missing_tools() -> list[str]:
-    return [label for label, commands in TOOLS.items() if not any(shutil.which(command) for command in _commands(label, commands))]
+    return [label for label, path in _detected_tools().items() if path is None]
 
 
 def _commands(label: str, commands: tuple[str, ...]) -> tuple[str, ...]:
@@ -68,24 +80,61 @@ def install_help(family: str) -> list[str]:
     return ["Installiere ClamAV, ImageMagick, Poppler, FFmpeg und LibreOffice mit dem Paketmanager deines Systems."]
 
 
+def _ocr_install_hint(family: str) -> str:
+    return {
+        "debian": "sudo apt install tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng",
+        "fedora": "sudo dnf install tesseract tesseract-langpack-deu tesseract-langpack-eng",
+        "macos": "brew install tesseract tesseract-lang",
+    }.get(family, "Tesseract und die Sprachdaten deu/eng nach der offiziellen Anleitung bereitstellen.")
+
+
+def _ocr_languages(executable: str) -> set[bytes] | None:
+    try:
+        result = subprocess.run(
+            [executable, "--list-langs"], stdin=subprocess.DEVNULL,
+            capture_output=True, timeout=4, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    return {line.strip() for line in result.stdout.splitlines() if line.strip() in {b"deu", b"eng"}}
+
+
 def report(only_missing: bool = False) -> int:
     family = system_family()
-    missing = missing_tools()
-    if not only_missing or missing:
-        print(f"Systemprüfung ({family}):")
-        for label, commands in TOOLS.items():
-            candidates = _commands(label, commands)
-            found = next((shutil.which(command) for command in candidates if shutil.which(command)), None)
-            if found or not only_missing:
-                print(f"  {'OK' if found else 'FEHLT'} {label}: {found or '/'.join(candidates)}")
+    detected = _detected_tools()
+    missing = [label for label, path in detected.items() if path is None]
+    if only_missing and not missing:
+        return 0
+    print(f"Systemprüfung ({family}):")
+    for label, found in detected.items():
+        if not only_missing or not found:
+            candidates = _commands(label, TOOLS[label])
+            print(f"  {'OK' if found else 'FEHLT'} {label}: {found or '/'.join(candidates)}")
+
+    tesseract = detected["Foto-/Scan-OCR"]
+    missing_languages = []
+    if not only_missing and tesseract:
+        languages = _ocr_languages(tesseract)
+        if languages is None:
+            print("  UNKLAR OCR-Sprachdaten: Tesseract konnte sie nicht auflisten. Installation und TESSDATA_PREFIX prüfen.")
+        else:
+            missing_languages = [code for code in ("deu", "eng") if code.encode("ascii") not in languages]
+            if missing_languages:
+                print(f"  FEHLT OCR-Sprachdaten: {', '.join(missing_languages)}")
+            else:
+                print("  OK OCR-Sprachdaten gelistet: deu, eng")
     if missing:
         print("Optionale Systemwerkzeuge fehlen. Passende Installation:")
-        for line in install_help(family):
-            print(f"  {line}")
-        for label in missing:
-            link_label = "ClamAV" if label.startswith("ClamAV") else label
-            if link_label in DOCS:
-                print(f"  {link_label}: {DOCS[link_label]}")
+        if any(label != "Foto-/Scan-OCR" for label in missing):
+            for line in install_help(family):
+                print(f"  {line}")
+        for label in dict.fromkeys("ClamAV" if name.startswith("ClamAV") else name for name in missing):
+            if label in DOCS:
+                print(f"  {label}: {DOCS[label]}")
+    if not tesseract or missing_languages:
+        print(f"  Optionale OCR-Installation: {_ocr_install_hint(family)}")
     return 0
 
 

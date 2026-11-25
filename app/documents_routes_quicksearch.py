@@ -6,10 +6,12 @@ so the API never exposes more than the corresponding detail pages.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
-from flask import current_app, g, jsonify, request, url_for
+from flask import current_app, g, jsonify, make_response, request, url_for
 
+from .access_control import has_feature
 from .auth import login_required
 from .documents_core import _calendar, _contacts, _objects, _projects, _store, bp
 
@@ -22,6 +24,7 @@ PER_KIND_LIMIT = 12
 TOTAL_LIMIT = 50
 MAX_QUERY_LENGTH = 200
 MIN_API_QUERY_LENGTH = 2
+MAX_DOCUMENT_TERMS = 16
 CHAT_ROOMS_SCANNED = 10
 CHAT_MESSAGES_SCANNED = 300
 
@@ -48,9 +51,27 @@ def _actor() -> str:
     return str(g.user["username"])
 
 
+def _document_index_query(query: str) -> str:
+    # Match indexed words across separate fields, lines and pages. Only the
+    # last term can be an unfinished word; never pass the public boolean syntax.
+    terms = [
+        part.rstrip("*") for part in query.split()
+        if any(character.isalnum() for character in part)
+    ]
+    if not terms:
+        return ""
+    if len(terms) > MAX_DOCUMENT_TERMS:
+        # Keep the old bounded phrase search instead of silently dropping words.
+        return json.dumps(query + "*", ensure_ascii=False)
+    terms[-1] += "*"
+    return " ".join(json.dumps(term, ensure_ascii=False) for term in terms)
+
+
 def _document_matches(query: str) -> list[dict[str, Any]]:
+    literal = _document_index_query(query)
+    if not literal:
+        return []
     try:
-        literal = json.dumps(query + "*", ensure_ascii=False)
         rows = _store().search_page(literal, page_size=25)["results"]
     except ValueError:
         return []
@@ -303,10 +324,17 @@ def preview_for(kind: str, ref: str) -> dict[str, Any] | None:
             document = DocumentStore(current_app.config["DOCUMENT_ROOT"]).get_document(ref)
         except (ValueError, OSError, KeyError):
             return None
-        return {"title": str(document.get("last_path", "")), "rows": [
+        if document.get("document_id") != ref:
+            return None
+        path = str(document.get("last_path", ""))
+        preview = {"title": path, "rows": [
             ("Status", str(document.get("state", ""))),
             ("Aktualisiert", str(document.get("last_seen_at", ""))),
         ], "url": url_for("documents.detail", document_id=ref)}
+        if (Path(path).suffix.casefold() in {".pdf", ".epub"} and has_feature(g.user, "documents")
+                and not document.get("deleted_at") and document.get("system_state") != "webdav_deleted"):
+            preview["reader_url"] = url_for("reader.open_book", document_id=ref)
+        return preview
     if kind == "appointment":
         try:
             event = _calendar().get(ref, actor)
@@ -397,11 +425,13 @@ def quick_search_api():
         if request.args.getlist("type") and not kinds:
             return jsonify({"matches": [], "query": query})
     matches = collect_quick_matches(query, kinds=kinds)
-    return jsonify({"matches": [
+    response = jsonify({"matches": [
         {"kind": item["kind"], "label": item["label"], "detail": item["detail"],
          "url": item["url"], "ref": item["ref"], "score": item["score"]}
         for item in matches
     ], "query": query})
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
 
 
 @bp.get("/quick-search/preview")
@@ -410,10 +440,10 @@ def quick_search_preview():
     kind = (request.args.get("kind", "") or "").strip()
     ref = (request.args.get("id", "") or "").strip()
     if not kind and not ref:
-        return jsonify({"kind": "", "title": "", "rows": [], "url": ""})
-    if kind not in KIND_ORDER or not ref or len(ref) > 128:
-        return jsonify({"error": "Unbekannter Eintrag."}), 404
-    preview = preview_for(kind, ref)
-    if preview is None:
-        return jsonify({"error": "Unbekannter Eintrag."}), 404
-    return jsonify({"kind": kind, **preview})
+        response = jsonify({"kind": "", "title": "", "rows": [], "url": ""})
+    else:
+        preview = preview_for(kind, ref) if kind in KIND_ORDER and ref and len(ref) <= 128 else None
+        response = (jsonify({"kind": kind, **preview}) if preview is not None
+                    else make_response(jsonify({"error": "Unbekannter Eintrag."}), 404))
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
