@@ -63,6 +63,18 @@ erneuter Sichtkontakt wird nicht als Aktualisierung gezählt.
 Ein Absturz des Indexdienstes beendet den Webserver nicht. Beim nächsten Start
 wird der reparierbare Index fortgesetzt beziehungsweise erneut abgeglichen.
 
+In **Dokumente durchsuchen** bleibt die vorhandene Trefferliste bedienbar,
+wenn der Indexdienst eine laufende, fehlgeschlagene oder unvollständige
+Erfassung meldet oder ein Speicherabgleich erforderlich ist. Leere Seiten
+zeigen dann nur, dass dort keine indexierten Treffer vorliegen.
+**Treffer neu laden** behält die Suche und die Seite bei und fragt nur den
+vorhandenen Index ab. Es startet keine Texterkennung und keinen Indexlauf.
+Sobald der Index wieder soweit ist, kann bei Bedarf auch ab der ersten
+Seite gesucht werden. Administratoren können die Einstellungen des
+Indexdienstes sowie lokal die Protokolle, Speicherzugriffe und den Abgleich
+prüfen. Die getrennte Aktion „Fehlende oder veraltete Texte/OCR
+nacharbeiten“ ist kein Ersatz für die Speicherwiederherstellung.
+
 ## Konfiguration
 
 | Variable | Standard | Bereich / Wirkung |

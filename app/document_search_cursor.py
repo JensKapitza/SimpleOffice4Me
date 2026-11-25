@@ -30,6 +30,8 @@ def search_link_page(store, query: str, page: int) -> dict:
         except InvalidToken:
             pass  # Old or mismatched links still support ordinary page navigation.
     result = store.search_continuation_page(query, page=page, after_rowid=after)
+    if after is not None:
+        result["current_cursor"] = token
     next_position = result.pop("next_rowid", None)
     if next_position is not None:
         result["next_cursor"] = _cipher(query, page + 1).encrypt(
