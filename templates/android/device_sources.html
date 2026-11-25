@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Device sources' if g.language == 'en' else 'Gerätequellen' }}{% endblock %}
+{% block content %}
+<section id="android-device-sources" class="container py-3">
+  <h1>{{ 'Device sources' if g.language == 'en' else 'Gerätequellen' }}</h1>
+  <p>{{ 'View a small preview from the Android system calendar or contacts. Each source is authorized separately. Nothing is imported, saved, or shared.' if g.language == 'en' else 'Sieh eine kleine Vorschau aus dem Android-Systemkalender oder den Systemkontakten. Jede Quelle wird einzeln freigegeben. Es wird nichts importiert, gespeichert oder geteilt.' }}</p>
+  <div class="d-flex gap-2 flex-wrap">
+  {% for source in sources %}
+    <button type="button" class="btn btn-primary" data-device-source="{{ source }}" disabled>
+      {% if g.language == 'en' %}{{ 'View calendar' if source == 'calendar' else 'View contacts' }}
+      {% else %}{{ 'Kalender ansehen' if source == 'calendar' else 'Kontakte ansehen' }}{% endif %}
+    </button>
+  {% endfor %}
+  </div>
+  <p class="mt-3" data-device-source-status role="status"
+    data-english="{{ '1' if g.language == 'en' else '0' }}">{{ 'The native Android app is required.' if g.language == 'en' else 'Dafür ist die native Android-App erforderlich.' }}</p>
+  <p class="text-body-secondary">{{ 'This is not a Google account connection. Manage app permissions in Android settings.' if g.language == 'en' else 'Das ist keine Verbindung zu einem Google-Konto. App-Berechtigungen verwaltest du in den Android-Einstellungen.' }}</p>
+</section>
+{% endblock %}

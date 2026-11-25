@@ -137,6 +137,8 @@ public class MainActivity extends Activity {
     private volatile boolean localPageVisible;
     // Written on the WebView UI thread, read by @JavascriptInterface worker threads.
     private volatile String currentWebViewUrl = "";
+    private volatile boolean deviceSourcePageReady;
+    private AndroidDeviceSourcePreview deviceSourcePreview;
     private boolean mainFrameLoadFailed;
     private String pendingBarcodeResult;
     private String pendingBarcodeStatus;
@@ -224,6 +226,7 @@ public class MainActivity extends Activity {
                 + " SimpleOffice4Me-Android/" + BuildConfig.VERSION_NAME);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) settings.setSafeBrowsingEnabled(true);
 
+        deviceSourcePreview = new AndroidDeviceSourcePreview(this, this::isDeviceSourcePage);
         webView.addJavascriptInterface(new NativeBridge(), "SimpleOfficeAndroid");
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
@@ -301,6 +304,8 @@ public class MainActivity extends Activity {
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
+                deviceSourcePageReady = false;
+                if (deviceSourcePreview != null) deviceSourcePreview.onPageChanged();
                 webPermissionFlow.denyPending();
                 currentWebViewUrl = url == null ? "" : url;
                 localPageVisible = isLocalUrl(url);
@@ -316,6 +321,7 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
+                deviceSourcePageReady = !mainFrameLoadFailed && AndroidDeviceSourcePreview.isPage(url);
                 currentWebViewUrl = url == null ? "" : url;
                 localPageVisible = isLocalUrl(url);
                 if (localPageVisible) {
@@ -335,6 +341,8 @@ public class MainActivity extends Activity {
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 super.onReceivedError(view, request, error);
                 if (request.isForMainFrame()) {
+                    deviceSourcePageReady = false;
+                    if (deviceSourcePreview != null) deviceSourcePreview.onPageChanged();
                     mainFrameLoadFailed = true;
                     localPageVisible = false;
                     stopNfcReader();
@@ -503,6 +511,7 @@ public class MainActivity extends Activity {
                 + "stopShare:()=>{if(track){track.stop();track=null;}return String(window.SimpleOfficeAndroid.stopScreenCapture(bridgeToken));}};})();"
                 + audioUiShim()
                 + googleDriveUiShim()
+                + deviceSourcesUiShim()
                 + "window.dispatchEvent(new Event('simpleoffice:native-audio-ready'));"
                 + "if(!window.NDEFReader){class NativeNDEFReader extends EventTarget{async scan(){"
                 + "const state=String(window.SimpleOfficeAndroid.startNfcScan(bridgeToken));"
@@ -523,6 +532,20 @@ public class MainActivity extends Activity {
                 + "status.textContent=state==='ok'?'Android-Scanner wird geöffnet …':'Nativer Scanner ist nicht verfügbar. Kennung bitte manuell eingeben.';}"
                 + "},true);"
                 + "})();";
+    }
+
+    private static String deviceSourcesUiShim() {
+        return "const deviceSources=document.getElementById('android-device-sources');"
+                + "if(deviceSources&&location.href==='" + AndroidDeviceSourcePreview.PAGE + "'){"
+                + "const state=deviceSources.querySelector('[data-device-source-status]');"
+                + "const en=state.dataset.english==='1';"
+                + "state.textContent=en?'Choose a source to view on this device.':'Wähle eine Quelle für die Vorschau auf diesem Gerät.';"
+                + "deviceSources.querySelectorAll('[data-device-source]').forEach(button=>{"
+                + "button.disabled=false;button.addEventListener('click',event=>{if(!event.isTrusted)return;"
+                + "const csrf=document.querySelector('meta[name=csrf-token]')?.content||'';"
+                + "const result=window.SimpleOfficeAndroid.openDeviceSource(bridgeToken,button.dataset.deviceSource,csrf,en);"
+                + "if(result!=='pending')state.textContent=en?'The device preview is not available.':'Die Gerätevorschau ist nicht verfügbar.';"
+                + "});});}";
     }
 
     private static String googleDriveUiShim() {
@@ -601,6 +624,10 @@ public class MainActivity extends Activity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == AUDIO_PERMISSION_REQUEST) {
             handleAudioPermissionResult(grantResults);
+            return;
+        }
+        if (requestCode == AndroidDeviceSourcePreview.PERMISSION_REQUEST) {
+            if (deviceSourcePreview != null) deviceSourcePreview.onPermissionResult();
             return;
         }
         if (requestCode != WEB_CAPTURE_PERMISSION_REQUEST) return;
@@ -903,6 +930,20 @@ public class MainActivity extends Activity {
     }
 
     private final class NativeBridge {
+        @JavascriptInterface
+        public String openDeviceSource(String token, String source, String csrf, boolean english) {
+            AndroidDeviceSourcePreview.Source selected = AndroidDeviceSourcePreview.Source.parse(source);
+            if (!bridgeAllowed(token) || !deviceSourcePageReady
+                    || !AndroidDeviceSourcePreview.isPage(currentWebViewUrl)) return "blocked";
+            if (selected == null || !AndroidDeviceSourcePreview.isCsrf(csrf)) return "invalid";
+            mainHandler.post(() -> {
+                if (deviceSourcePreview != null && isDeviceSourcePage()) {
+                    deviceSourcePreview.open(selected, csrf, webView.getSettings().getUserAgentString(), english);
+                }
+            });
+            return "pending";
+        }
+
         @JavascriptInterface
         public String requestPdfRender(String token, String requestId, String url, int page, int width) {
             if (!bridgeAllowed(token)) return "blocked";
@@ -1408,6 +1449,11 @@ public class MainActivity extends Activity {
         return nativeBridgeToken.equals(token) && localPageVisible;
     }
 
+    private boolean isDeviceSourcePage() {
+        return deviceSourcePageReady && localPageVisible && webView != null
+                && AndroidDeviceSourcePreview.isPage(webView.getUrl());
+    }
+
     private boolean folderImportBridgeAllowed(String token) {
         // WebView.getUrl() throws on the JavaScript bridge worker thread.
         // Read the last main-frame URL cached by WebViewClient instead.
@@ -1705,6 +1751,7 @@ public class MainActivity extends Activity {
     protected void onPause() {
         // The Android permission dialog may pause this Activity before delivering its result.
         webPermissionFlow.setResumed(false);
+        if (deviceSourcePreview != null) deviceSourcePreview.onPause();
         localPageVisible = false;
         stopNfcReader();
         if (webView != null) {
@@ -1732,6 +1779,7 @@ public class MainActivity extends Activity {
             }
         }
         webPermissionFlow.setResumed(true);
+        if (deviceSourcePreview != null) deviceSourcePreview.onResume();
     }
 
     @Override
@@ -1777,6 +1825,10 @@ public class MainActivity extends Activity {
         if (fileChooserCallback != null) {
             fileChooserCallback.onReceiveValue(null);
             fileChooserCallback = null;
+        }
+        if (deviceSourcePreview != null) {
+            deviceSourcePreview.close();
+            deviceSourcePreview = null;
         }
         if (googleAuthorization != null) {
             googleAuthorization.close();
