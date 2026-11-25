@@ -20,6 +20,7 @@ from .federation_core import (
     capability_summary,
     chunk_range,
     complete,
+    empty_transfer_manifest,
     manifest_valid,
     normalize_sha256,
     preallocate,
@@ -748,6 +749,47 @@ def encrypted_recovery_store():
     return response
 
 
+def _complete_incoming(jobs: FederationStore, transfer: dict, target: Path, *, reuse_empty: bool = False) -> dict | None:
+    job_id = transfer["transfer_id"]
+    digest = transfer["blob_hash"]
+    if not verify_file(target, digest):
+        jobs.update_transfer(job_id, status="failed", error="final hash mismatch")
+        return None
+    final = jobs.incoming / f"{digest}.blob"
+    if (
+        reuse_empty and not final.is_symlink() and final.is_file()
+        and final.stat().st_size == 0 and verify_file(final, digest)
+    ):
+        target.unlink()
+    else:
+        target.replace(final)
+    return jobs.update_transfer(
+        job_id, status="complete", transferred_bytes=int(transfer.get("total_bytes", 0)),
+        final_path=str(final), error="",
+    )
+
+
+def _complete_prepared_empty(jobs: FederationStore, transfer: dict) -> dict | None:
+    job_id = transfer["transfer_id"]
+    target = jobs.incoming / f"{job_id}.part"
+    jobs.require_transfer_peers_allowed(job_id)
+    if transfer.get("final_path") != str(target) or target.is_symlink():
+        return None
+    try:
+        if target.is_file() and target.stat().st_size == 0:
+            return _complete_incoming(jobs, transfer, target, reuse_empty=True)
+    except FileNotFoundError:
+        # Another authorized retry may have moved the same staged file.
+        pass
+    current = jobs.get_transfer(job_id) or {}
+    if (
+        current.get("status") == "complete" and current.get("direction") == "incoming"
+        and current.get("blob_hash") == transfer["blob_hash"]
+    ):
+        return current  # Only acknowledge completion already persisted by that retry.
+    return None
+
+
 @bp.post("/transfers/prepare")
 def prepare_transfer():
     body = request.get_json(silent=True) or {}
@@ -770,12 +812,31 @@ def prepare_transfer():
             raise ValueError("invalid chunk count")
     except (KeyError, TypeError, ValueError):
         return jsonify({"error": "invalid_transfer"}), 400
-    jobs = _federation()
+    delegated = bool(body.get("delegated", False))
+    empty = size == 0 and not delegated
     job_id = str(body.get("transfer_id") or transfer_id())[:160]
+    if empty and (not empty_transfer_manifest(result_manifest) or not re.fullmatch(r"[A-Za-z0-9_-]{1,160}", job_id)):
+        return jsonify({"error": "invalid_transfer"}), 400
+    jobs = _federation()
     existing = jobs.get_transfer(job_id)
     if existing:
         if normalize_sha256(existing.get("blob_hash", "")) != digest:
             return jsonify({"error": "transfer_conflict", "transfer_id": job_id}), 409
+        if (
+            empty and existing.get("status") == "prepared" and existing.get("direction") == "incoming"
+            and not existing.get("has_capability") and existing.get("error") != "peer_banned"
+            and existing.get("total_bytes") == 0
+            and existing.get("total_chunks") == 0 and empty_transfer_manifest(existing.get("manifest"))
+            and existing.get("operation") == str(body.get("operation", "COPY")).upper()
+            and existing.get("source_peer") == str(body.get("source_peer", ""))[:128]
+        ):
+            try:
+                resumed = _complete_prepared_empty(jobs, existing)
+            except PeerBanned:
+                return jsonify({"error": "transfer_closed"}), 409
+            if resumed is None:
+                return jsonify({"error": "final_hash_mismatch"}), 409
+            existing = resumed
         return jsonify({
             "transfer_id": job_id,
             "status": existing.get("status"),
@@ -784,10 +845,15 @@ def prepare_transfer():
             "total_bytes": existing.get("total_bytes", 0),
             "status_url": f"/federation/v1/transfers/{job_id}/status",
         }), 200
-    delegated = bool(body.get("delegated", False))
     capability = secrets.token_urlsafe(32) if delegated else ""
     partial = jobs.incoming / f"{job_id}.part"
-    preallocate(partial, size)
+    if empty:
+        try:
+            partial.touch(mode=0o600, exist_ok=False)
+        except FileExistsError:
+            return jsonify({"error": "transfer_conflict", "transfer_id": job_id}), 409
+    else:
+        preallocate(partial, size)
     jobs.create_transfer(
         job_id,
         direction="incoming",
@@ -800,10 +866,18 @@ def prepare_transfer():
         manifest=result_manifest,
         capability=capability,
     )
-    jobs.update_transfer(job_id, final_path=str(partial))
+    if empty:
+        try:
+            prepared = jobs.update_transfer(job_id, final_path=str(partial))
+            if _complete_prepared_empty(jobs, prepared) is None:
+                return jsonify({"error": "final_hash_mismatch"}), 409
+        except PeerBanned:
+            return jsonify({"error": "transfer_closed"}), 409
+    else:
+        jobs.update_transfer(job_id, final_path=str(partial))
     response = {
         "transfer_id": job_id,
-        "status": "prepared",
+        "status": "complete" if empty else "prepared",
         "have_bitmap": "",
         "transferred_bytes": 0,
         "total_bytes": size,
@@ -894,18 +968,8 @@ def receive_transfer_chunk(job_id: str, index: int):
         transferred = sum(int(chunks[i].get("length", 0)) for i in have if i < len(chunks))
         jobs.update_transfer(job_id, status="receiving", transferred_bytes=transferred)
         if complete(have, int(transfer.get("total_chunks", len(chunks)))):
-            if not verify_file(target, transfer["blob_hash"]):
-                jobs.update_transfer(job_id, status="failed", error="final hash mismatch")
+            if _complete_incoming(jobs, transfer, target) is None:
                 return jsonify({"error": "final_hash_mismatch"}), 409
-            final = jobs.incoming / f"{transfer['blob_hash']}.blob"
-            target.replace(final)
-            jobs.update_transfer(
-                job_id,
-                status="complete",
-                transferred_bytes=int(transfer.get("total_bytes", 0)),
-                final_path=str(final),
-                error="",
-            )
     except PeerBanned:
         return jsonify({"error": "transfer_closed"}), 409
     current = jobs.get_transfer(job_id) or {}
