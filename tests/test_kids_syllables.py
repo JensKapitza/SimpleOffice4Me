@@ -39,6 +39,23 @@ class KidsSyllablesPageTests(PublicHttpTestCase):
         self.assertEqual("no-referrer", page.headers.get("Referrer-Policy"))
         self.assertEqual("noindex, nofollow", page.headers.get("X-Robots-Tag"))
 
+    def test_dashboard_clapping_picker_can_receive_focus_after_back(self):
+        home = self.client.get("/kids/")
+        self.assertEqual(200, home.status_code)
+        clap_path = "/kids/lernen/silben"
+        self.assertIn(f'href="{clap_path}"', home.text)
+        for suffix in ("", "?practice=preschool"):
+            with self.subTest(suffix=suffix):
+                page = self.client.get(clap_path + suffix)
+                self.assertEqual(200, page.status_code)
+                self.assertIn('id="kids-syll-picker-title" tabindex="-1"', page.text)
+                self.assertIn("data-syll-back", page.text)
+                script_url = re.search(r'<script src="([^"]+/kids_syllables\.js[^"]*)"', page.text)
+                self.assertIsNotNone(script_url)
+                with self.client.get(script_url.group(1)) as javascript:
+                    self.assertEqual(200, javascript.status_code)
+                    self.assertEqual(SCRIPT.read_bytes(), javascript.data)
+
     def test_syllables_page_requires_login(self):
         anonymous = app.test_client()
         response = anonymous.get("/kids/lernen/silben")
@@ -115,6 +132,14 @@ class KidsSyllablesPageTests(PublicHttpTestCase):
     def test_example_sequence_is_local_and_does_not_answer(self):
         result = subprocess.run(
             [shutil.which("node"), "--test", "tests/kids_syllables_example.test.cjs"],
+            cwd=REPO_ROOT, capture_output=True, text=True, check=False, timeout=30,
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is needed for browser logic")
+    def test_full_syllable_rounds_and_vocabulary(self):
+        result = subprocess.run(
+            [shutil.which("node"), "--test", "tests/kids_syllables_frontend.test.cjs"],
             cwd=REPO_ROOT, capture_output=True, text=True, check=False, timeout=30,
         )
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)

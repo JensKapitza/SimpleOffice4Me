@@ -21,13 +21,27 @@ function matches(node, selector) {
 function makeNode(tag) {
   const node = {
     tag, children: [], attributes: {}, dataset: {}, handlers: {},
-    hidden: false, disabled: false, textContent: '', style: {},
+    hidden: false, disabled: false, style: {},
     classList: {
       classes: new Set(),
       add(...names) { names.forEach(name => this.classes.add(name)); },
       remove(...names) { names.forEach(name => this.classes.delete(name)); },
       contains(name) { return this.classes.has(name); },
+      toggle(name, force = !this.contains(name)) {
+        if (force) this.add(name);
+        else this.remove(name);
+        return Boolean(force);
+      },
     },
+    get textContent() {
+      return this.text + this.children.map(child => child.textContent).join('');
+    },
+    set textContent(value) {
+      this.text = String(value);
+      this.children = [];
+    },
+    text: '',
+    contains(other) { return other === this || this.children.some(child => child.contains(other)); },
     setAttribute(key, value) {
       this.attributes[key] = String(value);
       if (key.startsWith('data-')) {
@@ -37,7 +51,7 @@ function makeNode(tag) {
     },
     getAttribute(key) { return this.attributes[key]; },
     addEventListener(type, listener) { (this.handlers[type] = this.handlers[type] || []).push(listener); },
-    click() { (this.handlers.click || []).forEach(listener => listener()); },
+    click() { if (!this.disabled) (this.handlers.click || []).forEach(listener => listener()); },
     append(...items) { this.children.push(...items); return items[0]; },
     appendChild(item) { this.children.push(item); return item; },
     replaceChildren(...items) { this.children = items; },
@@ -186,25 +200,36 @@ test('question builders return valid rounds and fall back to German', () => {
 
 test('clap level counts taps and finishes a full round', () => {
   const page = buildPage('de');
-  runScript(page);
+  const api = runScript(page);
   page.levelButtons.clap.click();
   assert.equal(page.play.hidden, false);
   assert.equal(page.title.textContent, 'Stufe 1: Klatsche mit');
   for (let round = 1; round <= 3; round += 1) {
     assert.equal(page.progress.textContent, `Aufgabe ${round} von 3`);
+    const word = page.prompt.textContent.replace(/^👏 /, '');
+    const card = api.WORDS.de.find(item => item.word === word);
+    assert.ok(card, `prompt word ${word} comes from the vocabulary`);
+    const total = card.parts.length;
     const dots = page.stage.children.find(child => child.className === 'kids-syll-dots');
-    const clap = page.stage.children.find(child => child.tag === 'button');
-    const total = dots.textContent.length;
-    assert.ok(total >= 1 && total <= 4);
-    for (let tap = 1; tap < total; tap += 1) {
+    const clap = page.stage.children.find(child => child.className === 'kids-syll-clap');
+    assert.equal(dots.children.length, total);
+    assert.ok(dots.children.every(dot => dot.className === 'kids-syll-dot' && dot.textContent === '○'));
+    assert.equal(page.next.hidden, true);
+    for (let tap = 1; tap <= total; tap += 1) {
       clap.click();
-      assert.ok(dots.textContent.startsWith('●'.repeat(tap)));
-      assert.match(page.feedback.textContent, /Noch \d/);
+      assert.equal(dots.textContent, '●'.repeat(tap) + '○'.repeat(total - tap));
+      assert.ok(dots.children.every(dot => !dot.classList.contains('is-example-beat')));
+      assert.equal(page.next.hidden, tap !== total);
+      if (tap < total) assert.match(page.feedback.textContent, new RegExp(`Noch ${total - tap}`));
     }
-    clap.click();
     assert.match(page.feedback.textContent, /Richtig!/);
-    assert.equal(page.next.hidden, false);
+    assert.equal(clap.disabled, true);
+    assert.equal(page.next.focused, true);
     page.next.click();
+    if (round < 3) {
+      clap.click();
+      assert.equal(page.next.hidden, true, 'the previous button cannot advance the new task');
+    }
   }
   assert.equal(page.result.hidden, false);
   assert.match(page.resultTitle.textContent, /toll gemacht/);
@@ -221,11 +246,12 @@ test('count level accepts a retry and returns to the picker', () => {
   assert.ok(entry, `prompt word ${word} must come from the vocabulary`);
   const buttons = page.stage.querySelectorAll('button');
   assert.equal(buttons.length, 4);
-  const wrong = buttons.find(button => button.textContent !== String(entry.parts.length));
+  const answerLabel = `${entry.parts.length} syllable${entry.parts.length === 1 ? '' : 's'}`;
+  const wrong = buttons.find(button => button.getAttribute('aria-label') !== answerLabel);
   wrong.click();
   assert.match(page.feedback.textContent, /Try 1 of 5/);
   assert.ok(wrong.classList.contains('is-wrong'));
-  buttons.find(button => button.textContent === String(entry.parts.length)).click();
+  buttons.find(button => button.getAttribute('aria-label') === answerLabel).click();
   assert.match(page.feedback.textContent, /right/);
   assert.equal(page.next.hidden, false);
   page.back.click();
