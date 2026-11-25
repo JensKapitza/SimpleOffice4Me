@@ -95,7 +95,14 @@ class FederationAdminUiTests(FederationAdminUiFixture, unittest.TestCase):
                 result = self.client.post(action_url, data=fields)
                 self.assertEqual(302, result.status_code)
                 self.assertEqual(path, urlsplit(result.location).path)
-                self.assertEqual({"view": ["files"], "remote_q": [query]}, parse_qs(urlsplit(result.location).query))
+                redirected_query = parse_qs(urlsplit(result.location).query)
+                self.assertEqual({"view": ["files"], "remote_q": [query]}, {
+                    key: redirected_query[key] for key in ("view", "remote_q")
+                })
+                if action == "download":
+                    self.assertEqual([catalog.queue()[0]["request_id"]], redirected_query.get("download"))
+                else:
+                    self.assertNotIn("download", redirected_query)
                 html = self.client.get(result.location).get_data(as_text=True)
                 self.assertIn("West March + Q2.pdf", html)
                 self.assertIn("East March + Q2.pdf", html)
