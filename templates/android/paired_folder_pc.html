@@ -1,0 +1,25 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+{% set en = g.language == 'en' %}
+<main id="main-content" class="container-xl py-4" data-paired-folder-pc
+      data-api="{{ url_for('android_paired_folder.index') }}" data-csrf="{{ csrf_token() }}"
+      data-lang="{{ 'en' if en else 'de' }}">
+  <h1>{{ 'Search an Android folder on this PC' if en else 'Android-Ordner am PC durchsuchen' }}</h1>
+  <p>{{ 'On the phone, open Documents → Local folders and choose PC access on one approved folder. Enable pairing there, then start it here. Compare the code on both screens, confirm the PC on the phone, then separately share the folder.' if en else 'Öffne am Handy Dokumente → Lokale Ordner und wähle bei einem freigegebenen Ordner „PC-Zugriff“. Aktiviere dort die Kopplung, dann starte sie hier. Vergleiche den Code auf beiden Bildschirmen, bestätige den PC am Handy und gib den Ordner anschließend separat frei.' }}</p>
+  <p>{{ 'Stay on the phone’s Local folders screen. Only matching file names are shown here. No files are opened, uploaded or copied; closing the screen on the phone ends access. A share lasts at most 10 minutes.' if en else 'Lass am Handy „Lokale Ordner“ geöffnet. Hier erscheinen nur passende Dateinamen. Keine Dateien werden geöffnet, hochgeladen oder kopiert. Verlässt du die Seite am Handy, endet der Zugriff. Die Freigabe dauert höchstens 10 Minuten.' }}</p>
+  <button type="button" class="btn btn-primary" id="paired-folder-pair">{{ 'Start pairing' if en else 'Kopplung starten' }}</button>
+  <p class="mt-3" id="paired-folder-state" role="status" aria-live="polite"></p>
+  <output class="font-monospace d-block text-break" id="paired-folder-code" aria-label="{{ 'Compare this code on the phone' if en else 'Diesen Code mit dem Handy vergleichen' }}"></output>
+  <form class="mt-3" id="paired-folder-search" hidden>
+    <label class="form-label" for="paired-folder-query">{{ 'Search file names (at least 2 characters)' if en else 'Dateinamen suchen (mindestens 2 Zeichen)' }}</label>
+    <div class="d-flex gap-2">
+      <input class="form-control w-auto" id="paired-folder-query" type="search" minlength="2" maxlength="120" autocomplete="off" required>
+      <button class="btn btn-primary" type="submit">{{ 'Search' if en else 'Suchen' }}</button>
+    </div>
+  </form>
+  <p class="mt-2" id="paired-folder-summary" role="status" aria-live="polite"></p>
+  <ul class="list-group" id="paired-folder-results"></ul>
+</main>
+<script src="{{ url_for('static', filename='js/android-paired-folder-pc.js') }}" defer></script>
+{% endblock %}

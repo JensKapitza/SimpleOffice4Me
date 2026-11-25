@@ -1,8 +1,6 @@
 """Application settings routes with separate profile and admin scopes."""
 from __future__ import annotations
 
-import hashlib
-import hmac
 
 from flask import abort, current_app, flash, g, make_response, redirect, render_template, request, session, url_for
 
@@ -39,11 +37,14 @@ def settings():
 @bp.get("/local-storage")
 @login_required
 def local_storage():
-    key = current_app.secret_key
-    if isinstance(key, str):
-        key = key.encode("utf-8")
-    owner = hmac.new(key, f"android-local-folder:{g.user['id']}".encode("utf-8"), hashlib.sha256).hexdigest()
-    response = make_response(render_template("documents/local_storage.html", android_folder_owner=owner))
+    from .android_paired_folder_session import folder_profile
+
+    owner = folder_profile(current_app.secret_key, g.user["id"])
+    pc_lan_enabled = ("android_paired_folder" in current_app.blueprints
+                      and request.environ.get("simpleoffice.lan_https") is True)
+    response = make_response(render_template(
+        "documents/local_storage.html", android_folder_owner=owner, pc_lan_enabled=pc_lan_enabled,
+    ))
     response.headers["Cache-Control"] = "private, no-store"
     return response
 

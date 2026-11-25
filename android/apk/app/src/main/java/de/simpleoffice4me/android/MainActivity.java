@@ -83,6 +83,7 @@ public class MainActivity extends Activity {
     private AndroidGoogleAuthorization googleAuthorization;
     private AndroidOfflineWorksetStore offlineWorksetStore;
     private AndroidLocalFolderRegistry localFolderRegistry;
+    private AndroidPcFolderConsent pcFolderConsent;
     private AndroidLocalFolderNames localFolderNames;
     private volatile String localFolderOwner = "";
     private volatile boolean localFolderPageReady;
@@ -161,6 +162,7 @@ public class MainActivity extends Activity {
         googleAuthorization = new AndroidGoogleAuthorization(this, this::handleGoogleAuthorizationResult);
         offlineWorksetStore = new AndroidOfflineWorksetStore(this);
         localFolderRegistry = new AndroidLocalFolderRegistry(this);
+        pcFolderConsent = new AndroidPcFolderConsent(this, localFolderRegistry);
         localFolderNames = new AndroidLocalFolderNames(this, localFolderRegistry, new AndroidLocalFolderNames.Listener() {
             @Override public void scanned(String id, String owner, String state, JSONArray files, boolean limited) {
                 publishLocalFolderNames(id, owner, state, files, limited);
@@ -324,6 +326,7 @@ public class MainActivity extends Activity {
                 currentWebViewUrl = url == null ? "" : url;
                 localFolderOwner = "";
                 localFolderPageReady = false;
+                pcFolderConsent.stop();
                 pendingLocalFolderResult = "";
                 if (localFolderNames != null) localFolderNames.clear();
                 localPageVisible = isLocalUrl(url);
@@ -512,6 +515,7 @@ public class MainActivity extends Activity {
                 + "prepareImport:(id)=>String(window.SimpleOfficeAndroid.prepareLocalFolderImport(bridgeToken,String(id||''))),"
                 + "scan:(id,requestId)=>String(window.SimpleOfficeAndroid.scanLocalFolderNames(bridgeToken,String(id||''),String(requestId||''))),"
                 + "open:(id,requestId)=>String(window.SimpleOfficeAndroid.openLocalFolderName(bridgeToken,String(id||''),String(requestId||''))),"
+                + "managePc:(id)=>window.SimpleOfficeAndroid.managePcFolder(bridgeToken,String(id||'')),"
                 + "clear:()=>window.SimpleOfficeAndroid.clearLocalFolderNames(bridgeToken)};}"
                   + "window.SimpleOfficePdf=(function(){const pending=new Map();"
                 + "window.addEventListener('simpleoffice:pdf-render',event=>{const detail=event.detail||{};const item=pending.get(String(detail.requestId||''));if(!item)return;pending.delete(String(detail.requestId||''));if(detail.ok)item.resolve(detail.result||{});else item.reject(new Error(detail.error||'PDF konnte nicht gerendert werden.'));});"
@@ -1046,6 +1050,14 @@ public class MainActivity extends Activity {
             if (!owner.equals(localFolderOwner) && localFolderNames != null) localFolderNames.clear();
             localFolderOwner = owner;
             return true;
+        }
+
+        @JavascriptInterface
+        public void managePcFolder(String token, String id) {
+            if (!localFolderBridgeAllowed(token) || id == null || !id.matches("[0-9a-f-]{36}")) return;
+            String owner = localFolderOwner;
+            runOnUiThread(() -> pcFolderConsent.manage(id, owner,
+                    () -> currentLocalFolderOwner(owner) && bridgeAllowed(token)));
         }
 
         @JavascriptInterface
@@ -1856,6 +1868,7 @@ public class MainActivity extends Activity {
         webPermissionFlow.setResumed(false);
         if (deviceSourcePreview != null) deviceSourcePreview.onPause();
         localPageVisible = false;
+        if (pcFolderConsent != null) pcFolderConsent.stop();
         if (localFolderNames != null) localFolderNames.clear();
         stopNfcReader();
         if (webView != null) {
@@ -1955,6 +1968,7 @@ public class MainActivity extends Activity {
         if (canStopExecutorImmediately) executor.shutdownNow();
         else executor.shutdown();
         if (localFolderNames != null) localFolderNames.close();
+        if (pcFolderConsent != null) pcFolderConsent.stop();
         super.onDestroy();
     }
 }
