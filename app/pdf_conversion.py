@@ -11,6 +11,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from pypdf import PdfReader, PdfWriter
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 
 from .document_store_core import ocr_subprocess_environment
@@ -19,6 +20,7 @@ from .pdf_limits import MAX_PDF_BYTES
 
 MAX_OUTPUT_BYTES = MAX_PDF_BYTES
 MAX_RENDER_EDGE = OCR_RENDER_EDGE
+_PositionedLine = tuple[float, float, float, str, float]
 
 
 def _checked_pdf(payload: bytes) -> PdfReader:
@@ -56,7 +58,7 @@ def _run(
     return result
 
 
-def _tesseract_lines(tsv: str) -> list[tuple[float, float, float, str]]:
+def _tesseract_lines(tsv: str) -> list[_PositionedLine]:
     """Convert Tesseract word geometry into positioned text lines."""
     lines: dict[tuple[str, str, str, str], list[tuple[int, str, float, float, float]]] = defaultdict(list)
     for row in csv.DictReader(io.StringIO(tsv), delimiter="\t"):
@@ -72,15 +74,22 @@ def _tesseract_lines(tsv: str) -> list[tuple[float, float, float, str]]:
         if confidence < 0 or box_height <= 0:
             continue
         key = (row.get("page_num", ""), row.get("block_num", ""), row.get("par_num", ""), row.get("line_num", ""))
-        lines[key].append((int(left), row["text"].strip(), top, box_height, confidence))
+        try:
+            box_width = float(row.get("width", "0"))
+        except (TypeError, ValueError):
+            box_width = 0.0
+        if not math.isfinite(box_width) or box_width <= 0:
+            box_width = 0.0
+        lines[key].append((int(left), row["text"].strip(), top, box_height, box_width))
 
-    positioned: list[tuple[float, float, float, str]] = []
+    positioned: list[_PositionedLine] = []
     for words in lines.values():
         words.sort(key=lambda word: word[0])
         positioned.append((
             float(words[0][0]), min(word[2] for word in words),
             max(word[3] for word in words),
             " ".join(word[1] for word in words),
+            max(word[0] + word[4] for word in words) - words[0][0] if all(word[4] > 0 for word in words) else 0.0,
         ))
     return positioned
 
@@ -95,9 +104,9 @@ def _ocr_overlay(
     )
 
 
-def _rapidocr_lines(result: dict, image_width: int, image_height: int) -> list[tuple[float, float, float, str]]:
+def _rapidocr_lines(result: dict, image_width: int, image_height: int) -> list[_PositionedLine]:
     """Extract bounded line text and its box from the local RapidOCR result."""
-    lines: list[tuple[float, float, float, str]] = []
+    lines: list[_PositionedLine] = []
     for block in result.get("blocks", [])[:250]:
         if not isinstance(block, dict):
             continue
@@ -123,12 +132,12 @@ def _rapidocr_lines(result: dict, image_width: int, image_height: int) -> list[t
             confidence = 1.0
         if not math.isfinite(confidence) or confidence < 0.25:
             continue
-        lines.append((left, top, bottom - top, text))
+        lines.append((left, top, bottom - top, text, right - left))
     return lines
 
 
 def _invisible_text_overlay(
-    lines: list[tuple[float, float, float, str]], width: float, height: float,
+    lines: list[_PositionedLine], width: float, height: float,
     image_width: int, image_height: int, existing_text: str = "",
 ) -> bytes:
     """Build a PDF text page whose glyphs are searchable but not painted."""
@@ -142,7 +151,7 @@ def _invisible_text_overlay(
     invisible_text = pdf.beginText()
     invisible_text.setTextRenderMode(3)
     written_lines = set(known_lines)
-    for left, top, box_height, line in sorted(lines, key=lambda item: (item[1], item[0])):
+    for left, top, box_height, line, box_width in sorted(lines, key=lambda item: (item[1], item[0])):
         line = " ".join(line.split())[:2000]
         normalized = " ".join(line.split()).casefold()
         if not normalized or normalized in written_lines:
@@ -153,6 +162,12 @@ def _invisible_text_overlay(
         font_size = max(1.0, min(36.0, box_height * height / image_height))
         invisible_text.setTextOrigin(x, y)
         invisible_text.setFont("Helvetica", font_size)
+        natural_width = stringWidth(line, "Helvetica", font_size)
+        measured_width = min(box_width, image_width - left) * width / image_width
+        # Selecting text should cover the rendered scan, not the natural
+        # Helvetica width. Clamp malformed or extreme OCR boxes.
+        scale = 100.0 * measured_width / natural_width if natural_width > 0 and measured_width > 0 else 100.0
+        invisible_text.setHorizScale(max(25.0, min(400.0, scale)))
         invisible_text.textLine(line)
     pdf.drawText(invisible_text)
     pdf.showPage()
