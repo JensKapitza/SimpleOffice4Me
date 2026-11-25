@@ -34,6 +34,14 @@ MAX_BYTES = 5 * 1024 * 1024
 MAX_PAGES = 20
 MAX_EVENTS = 5000
 TIMEOUT = 10
+# No time, type or invitation filters. Identity/cursor evidence binds to
+# this exact query so older, differently filtered cursors are never reused.
+EVENT_QUERY = {
+    "maxResults": "2500", "showDeleted": "true", "singleEvents": "false",
+    "showHiddenInvitations": "true",
+}
+ABSENT_ETAG = "simpleoffice:absent-from-verified-google-snapshot"
+
 
 
 class GoogleCalendarError(ValueError):
@@ -123,7 +131,7 @@ class GoogleCalendarSync:
         return hmac.new(key, json.dumps(values, sort_keys=True).encode(), hashlib.sha256).hexdigest()
 
     def config_key(self, actor: str, cfg: dict[str, str], target: dict) -> str:
-        return self._key([actor, target["owner"], cfg])
+        return self._key([actor, target["owner"], cfg, EVENT_QUERY])
 
     def _scope(self, actor: str, cfg: dict[str, str], target: dict) -> str:
         remote = cfg["calendar_id"]
@@ -217,12 +225,15 @@ class GoogleCalendarSync:
             raise GoogleCalendarError("Google OAuth did not return an access token")
         return token
 
-    def _fetch(self, cfg: dict[str, str], sync_token: str = "") -> tuple[list[dict[str, Any]], str]:
+    def _fetch(self, cfg: dict[str, str], sync_token: str = "") -> tuple[list[dict[str, Any]], str, bool]:
         access_token = self._token(cfg)
         events: list[dict[str, Any]] = []
         page_token = ""
+        page_tokens: set[str] = set()
+        event_ids: set[str] = set()
+        owner_snapshot = True
         for _ in range(MAX_PAGES):
-            query = {"maxResults": "2500", "showDeleted": "true", "singleEvents": "false"}
+            query = dict(EVENT_QUERY)
             if sync_token:
                 query["syncToken"] = sync_token
             if page_token:
@@ -230,17 +241,33 @@ class GoogleCalendarSync:
             url = f"{API_ROOT}/calendars/{quote(cfg['calendar_id'], safe='')}/events?{urlencode(query)}"
             result = self.transport("GET", url, {"Authorization": f"Bearer {access_token}"}, None)
             items = result.get("items", [])
-            if not isinstance(items, list):
+            owner_snapshot = (
+                owner_snapshot and result.get("kind") == "calendar#events"
+                and result.get("accessRole") == "owner" and "items" in result
+            )
+            if not isinstance(items, list) or any(
+                not isinstance(item, dict) or not isinstance(item.get("id"), str)
+                or not item["id"].strip() for item in items
+            ):
                 raise GoogleCalendarError("Google Calendar event list is invalid")
-            events.extend(item for item in items if isinstance(item, dict))
+            for item in items:
+                event_id = item["id"].strip()
+                if event_id in event_ids:
+                    raise GoogleCalendarError("Google Calendar returned duplicate event IDs")
+                event_ids.add(event_id)
+            events.extend(items)
             if len(events) > MAX_EVENTS:
                 raise GoogleCalendarError("Google Calendar sync exceeds 5000 changed events")
-            page_token = str(result.get("nextPageToken", ""))
+            page_token = result.get("nextPageToken", "")
+            next_sync = result.get("nextSyncToken", "")
+            if (not isinstance(page_token, str) or not isinstance(next_sync, str)
+                    or (page_token and next_sync) or (page_token and page_token in page_tokens)):
+                raise GoogleCalendarError("Google Calendar pagination is invalid")
             if not page_token:
-                next_sync = str(result.get("nextSyncToken", ""))
                 if not next_sync:
                     raise GoogleCalendarError("Google Calendar did not return nextSyncToken")
-                return events, next_sync
+                return events, next_sync, owner_snapshot
+            page_tokens.add(page_token)
         raise GoogleCalendarError("Google Calendar sync exceeds 20 pages")
 
     @staticmethod
@@ -303,7 +330,13 @@ class GoogleCalendarSync:
             "recurrence": {"rrule": recurrence, "rdates": [], "exdates": [], "timezone": timezone_id} if recurrence else {},
             "_deleted_stub": bool(cancelled and not start),
             **metadata,
-            "_source": {"provider": "google-calendar", "source_id": event_id, "etag": str(value.get("etag", "")), "updated": str(value.get("updated", "")), "ical_uid": str(value.get("iCalUID", ""))},
+            "_source": {
+                "provider": "google-calendar", "source_id": event_id, "etag": str(value.get("etag", "")),
+                "updated": str(value.get("updated", "")), "ical_uid": str(value.get("iCalUID", "")),
+                "standalone": not cancelled and not value.get("recurrence")
+                and not value.get("recurringEventId") and not value.get("originalStartTime")
+                and value.get("eventType", "default") == "default",
+            },
         }
 
     def synchronize(self, actor: str, apply: bool = False, conflict_policy: str = "") -> dict[str, Any]:
@@ -333,6 +366,28 @@ class GoogleCalendarSync:
             for key in ("title", "reason", "start", "end", "timezone", "participants", "organizer", "recurrence", "ical_status", "transparency", "classification", "priority", "location", "event_url", "resources", "conferences")
         } | {"status": "cancelled", "ical_status": "cancelled", "_source": source_copy}
 
+    @staticmethod
+    def _missing_from_snapshot(local: dict, raw_ids: set[str], scope: str, config_key: str,
+                               owner_snapshot: bool) -> tuple[list[dict], int]:
+        missing, unverified = [], 0
+        for source_id, previous in local.items():
+            source = previous["source"]
+            if (source_id in raw_ids or previous.get("status", "active") != "active"
+                    or source.get("snapshot_absent")):
+                continue
+            if (not owner_snapshot or source.get("scope") != scope
+                    or source.get("observation_key") != config_key
+                    or not source.get("standalone") or previous.get("recurrence")):
+                unverified += 1
+                continue
+            # Treat it like a cancellation stub, never a hard delete. An
+            # explicit keep-local acknowledgement suppresses repeat conflicts.
+            missing.append({
+                "_deleted_stub": True, "title": previous.get("title", ""),
+                "_source": {**source, "etag": ABSENT_ETAG, "updated": "", "snapshot_absent": True},
+            })
+        return missing, unverified
+
     def _synchronize(self, actor: str, apply: bool, conflict_policy: str, *, connection, recheck=lambda: True) -> dict[str, Any]:
         cfg, target = connection
         config_key = self.config_key(actor, cfg, target)
@@ -341,12 +396,19 @@ class GoogleCalendarSync:
         current = account_state if account_state.get("config_key") == config_key else {}
         token = str(current.get("sync_token", ""))
         reset = bool(account_state.get("sync_token") and not token)
+        expired = False
         try:
-            raw, next_token = self._fetch(cfg, token)
+            raw, next_token, owner_snapshot = self._fetch(cfg, token)
         except GoogleGone:
-            raw, next_token = self._fetch(cfg)
-            reset = True
+            if not token:
+                raise
+            raw, next_token, owner_snapshot = self._fetch(cfg)
+            reset = expired = True
         mapped = [self.map_event(item) for item in raw]
+        received = len(mapped)
+        for item in mapped:
+            if owner_snapshot and item["_source"]["standalone"]:
+                item["_source"]["observation_key"] = config_key
         if apply and (not recheck() or self.config_key(actor, *self._connection(actor)) != config_key):
             raise GoogleCalendarError("Google Calendar configuration or permission changed during the pull")
         local = {}
@@ -354,14 +416,23 @@ class GoogleCalendarSync:
             source = item.get("source", {})
             if not isinstance(source, dict) or source.get("provider") != "google-calendar":
                 continue
+            source_id = source.get("source_id")
+            if not isinstance(source_id, str) or not source_id:
+                continue
             if item.get("owner") != target["owner"] or item.get("calendar_id", "default") != cfg["target_calendar_id"]:
                 continue
             if source.get("scope") == scope:
-                local[source["source_id"]] = item
+                local[source_id] = item
             elif not source.get("scope") and item.get("created_by") == f"google:{actor}":
                 # Safely adopt the pre-scope record on the first keyed pull.
                 if not account_state.get("config_key") or current:
-                    local.setdefault(source["source_id"], item)
+                    local.setdefault(source_id, item)
+        missing, unverified = [], 0
+        if expired:
+            missing, unverified = self._missing_from_snapshot(
+                local, {item["id"].strip() for item in raw}, scope, config_key, owner_snapshot,
+            )
+        mapped.extend(missing)
         conflicts = []
         applicable = []
         keep_local = []
@@ -375,8 +446,14 @@ class GoogleCalendarSync:
                     local.pop(source["source_id"], None)
             locally_changed = previous and previous.get("updated_by") != f"google:{actor}" and previous.get("updated_at", "") > previous.get("source", {}).get("synced_at", "")
             remotely_changed = not previous or previous.get("source", {}).get("etag") != source["etag"]
+            refresh_observation = (
+                previous and not locally_changed and source.get("observation_key")
+                and source["observation_key"] != previous["source"].get("observation_key")
+            )
             if locally_changed and remotely_changed:
                 conflict = {"source_id": source["source_id"], "title": previous.get("title", ""), "remote_title": item["title"], "local_updated_at": previous.get("updated_at", ""), "remote_updated_at": source["updated"]}
+                if source.get("snapshot_absent"):
+                    conflict["remote_absent"] = True
                 if conflict_policy == "google":
                     candidate = self._cancelled_values(item, previous)
                     if candidate is not None:
@@ -385,14 +462,19 @@ class GoogleCalendarSync:
                     keep_local.append((previous, source))
                 else:
                     conflicts.append(conflict)
-            elif remotely_changed or (previous and not previous["source"].get("scope") and not locally_changed):
+            elif (remotely_changed or refresh_observation
+                  or (previous and not previous["source"].get("scope") and not locally_changed)):
                 # Deleted incremental resources do not necessarily carry
                 # DTSTART/DTEND. Preserve the last known interval so the local
                 # lifecycle can be changed without inventing a timestamp.
                 candidate = self._cancelled_values(item, previous)
                 if candidate is not None:
                     applicable.append(candidate)
-        result = {"received": len(mapped), "applicable": len(applicable), "conflicts": conflicts, "reset": reset, "applied": 0, "kept_local": 0, "conflict_policy": conflict_policy}
+        result = {
+            "received": received, "applicable": len(applicable), "conflicts": conflicts, "reset": reset,
+            "applied": 0, "kept_local": 0, "conflict_policy": conflict_policy,
+            "snapshot_missing": len(missing), "snapshot_unverified": unverified, "cancelled_from_snapshot": 0,
+        }
         if apply:
             for item in applicable:
                 item = dict(item)
@@ -405,6 +487,8 @@ class GoogleCalendarSync:
                 )
                 self.calendars.record_event_move(event, cfg["target_calendar_id"], actor)
                 result["applied"] += 1
+                if source.get("snapshot_absent"):
+                    result["cancelled_from_snapshot"] += 1
             for previous, remote_source in keep_local:
                 source = {**remote_source, "synced_at": utc_now()}
                 self.events.acknowledge_external_version(previous["event_id"], actor, source, previous.get("updated_at", ""))

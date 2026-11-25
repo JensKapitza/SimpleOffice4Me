@@ -20,11 +20,19 @@ from app.calendar_collections import CalendarCollections
 from app.calendar_store import CalendarStore
 from app.db import get_db
 from app.google_calendar_automatic import CRASH_RETRY_SECONDS, INTERVAL_SECONDS
-from app.google_calendar_sync import GoogleCalendarError, GoogleCalendarSync
+from app.google_calendar_sync import GoogleCalendarError, GoogleCalendarSync, GoogleGone
 from app.google_calendar_worker import run_google_calendar_once
 
 CALENDAR = "/documents/calendar"
 AUTO = CALENDAR + "/google/automatic"
+
+
+def owner_page(items, **cursor):
+    return {"kind": "calendar#events", "accessRole": "owner", "items": items, **cursor}
+
+
+def one_off(event_id, **kwargs):
+    return google_event(event_id, **kwargs) | {"recurrence": []}
 
 
 class AutomaticGoogleCalendarTests(PublicHttpTestCase):
@@ -339,3 +347,125 @@ class AutomaticGoogleCalendarTests(PublicHttpTestCase):
         events = store.events("alice")
         self.assertEqual([legacy["event_id"]], [event["event_id"] for event in events])
         self.assertTrue(events[0]["source"]["scope"])
+
+    def test_full_owner_snapshot_after_410_cancels_missing_standalone_and_keeps_raw_present(self):
+        absent, present = one_off("absent"), one_off("present")
+        transport = ScriptedTransport([
+            owner_page([absent, present], nextSyncToken="old"),
+            GoogleGone("expired"),
+            owner_page([], nextPageToken="second-page"),
+            owner_page([present], nextSyncToken="new"),
+            owner_page([absent], nextSyncToken="restored"),
+        ])
+        self._settings("enable")
+        self.assertEqual(1, self._worker(transport))
+        store = CalendarStore(self.root)
+        old = {row["source"]["source_id"]: row for row in store.events("alice")}
+        local = store.add("Only local", "Fixture", absent["start"]["dateTime"], absent["end"]["dateTime"], "", "alice")
+        CalendarCollections(self.root).create("Elsewhere", "alice", calendar_id="elsewhere")
+        values = GoogleCalendarSync.map_event(one_off("other-destination"))
+        source = {**old["absent"]["source"], "source_id": "other-destination", "scope": "another-target"}
+        other = store.upsert_external_event(values, "google:alice", source, owner="alice", calendar_id="elsewhere")
+        bob = store.upsert_external_event(values, "google:bob", {**source, "scope": "another-account"}, owner="bob")
+        self.now += INTERVAL_SECONDS
+        self.assertEqual(1, self._worker(transport))
+        events = {row["source"]["source_id"]: row for row in store.events("alice") if isinstance(row["source"], dict)}
+        self.assertEqual("cancelled", events["absent"]["status"])
+        self.assertEqual(old["absent"]["event_id"], events["absent"]["event_id"])
+        self.assertEqual(old["absent"]["start"], events["absent"]["start"])
+        self.assertEqual("active", events["present"].get("status", "active"))
+        self.assertEqual(old["present"], events["present"])
+        self.assertEqual(local, store.get(local["event_id"], "alice"))
+        self.assertEqual(other, store.get(other["event_id"], "alice"))
+        self.assertEqual(bob, store.get(bob["event_id"], "bob"))
+        queries = self._token_urls(transport)
+        self.assertEqual(["old"], queries[1]["syncToken"])
+        self.assertNotIn("syncToken", queries[2])
+        self.assertEqual(["second-page"], queries[3]["pageToken"])
+        for query in queries:
+            self.assertEqual({"maxResults", "showDeleted", "singleEvents", "showHiddenInvitations"},
+                             set(query) - {"syncToken", "pageToken"})
+            self.assertEqual(["true"], query["showHiddenInvitations"])
+        result = self._status()["last_result"]
+        self.assertEqual(1, result["received"])
+        self.assertEqual(1, result["cancelled_from_snapshot"])
+        self.assertIn("als abgesagt markiert", self.user.get(CALENDAR).text)
+
+        self.now += INTERVAL_SECONDS
+        self.assertEqual(1, self._worker(transport))
+        restored = store.get(old["absent"]["event_id"], "alice")
+        self.assertEqual("active", restored.get("status", "active"))
+        self.assertFalse(restored["source"].get("snapshot_absent"))
+
+    def test_absence_respects_local_conflict_resolution_and_remembers_keep_local(self):
+        previous, remaining = one_off("kept"), one_off("still-present")
+        transport = ScriptedTransport([
+            owner_page([previous, remaining], nextSyncToken="old"),
+            GoogleGone("expired"), owner_page([remaining], nextSyncToken="full"),
+            GoogleGone("expired"), owner_page([remaining], nextSyncToken="resolved"),
+            GoogleGone("expired again"), owner_page([remaining], nextSyncToken="next"),
+        ])
+        self._settings("enable")
+        self.assertEqual(1, self._worker(transport))
+        store = CalendarStore(self.root)
+        event = next(row for row in store.events("alice") if row["source"]["source_id"] == "kept")
+        store.update(event["event_id"], "Local retained", event["reason"], event["start"], event["end"], "",
+                     "alice", "private", "", [], metadata=event)
+        self.now += INTERVAL_SECONDS
+        self.assertEqual(1, self._worker(transport))
+        self.assertEqual("conflict", self._status()["automatic"]["outcome"])
+        self.assertEqual("active", store.get(event["event_id"], "alice").get("status", "active"))
+        with patch.object(GoogleCalendarSync, "_http", side_effect=transport):
+            for suffix in ("/google/conflicts/local", "/google/sync"):
+                response = self.user.post(CALENDAR + suffix, headers=self._csrf_headers(self.user, CALENDAR))
+                self.assertEqual(302, response.status_code)
+        current = store.get(event["event_id"], "alice")
+        self.assertEqual(("active", "Local retained"), (current.get("status", "active"), current["title"]))
+        self.assertTrue(current["source"]["snapshot_absent"])
+        self.assertEqual(0, self._status()["last_result"]["snapshot_missing"])
+        self.assertEqual("ok", self._status()["automatic"]["outcome"])
+
+    def test_incomplete_or_non_owner_snapshot_never_infers_absence(self):
+        mapped = one_off("missing")
+        transport = ScriptedTransport([
+            owner_page([mapped], nextSyncToken="old"),
+            GoogleGone("expired"), owner_page([], nextPageToken="second"), owner_page([]),
+            GoogleGone("expired"), owner_page([], nextSyncToken="new") | {"accessRole": "reader"},
+        ])
+        self._settings("enable")
+        self.assertEqual(1, self._worker(transport))
+        store = CalendarStore(self.root)
+        self.now += INTERVAL_SECONDS
+        self.assertEqual(1, self._worker(transport))
+        self.assertEqual("error", self._status()["automatic"]["outcome"])
+        self.assertEqual("old", GoogleCalendarSync(self.root)._state()["alice"]["sync_token"])
+        self.assertEqual("active", store.events("alice")[0].get("status", "active"))
+        self.now += INTERVAL_SECONDS
+        self.assertEqual(1, self._worker(transport))
+        self.assertEqual("active", store.events("alice")[0].get("status", "active"))
+        self.assertEqual(1, self._status()["last_result"]["snapshot_unverified"])
+        self.assertIn("nicht sicher abgeglichen", self.user.get(CALENDAR).text)
+
+    def test_missing_series_exceptions_and_unproven_events_are_never_cancelled_by_snapshot(self):
+        series = google_event("series")
+        exception = one_off("instance") | {"recurringEventId": "series", "originalStartTime": {"date": "2026-11-01"}}
+        unknown = one_off("unproven")
+        transport = ScriptedTransport([
+            owner_page([series, exception], nextSyncToken="old"),
+            {"items": [unknown], "nextSyncToken": "middle"},
+            GoogleGone("expired"), owner_page([], nextSyncToken="new"),
+        ])
+        self._settings("enable")
+        self.assertEqual(1, self._worker(transport))
+        self.now += INTERVAL_SECONDS
+        self.assertEqual(1, self._worker(transport))
+        store = CalendarStore(self.root)
+        values = GoogleCalendarSync.map_event(one_off("legacy"))
+        old_source = values.pop("_source")
+        legacy = store.upsert_external_event(values, "google:alice", old_source, owner="alice", calendar_id="default")
+        self.now += INTERVAL_SECONDS
+        self.assertEqual(1, self._worker(transport))
+        self.assertEqual(4, len(store.events("alice")))
+        self.assertEqual(legacy, store.get(legacy["event_id"], "alice"))
+        self.assertTrue(all(row.get("status", "active") == "active" for row in store.events("alice")))
+        self.assertEqual(4, self._status()["last_result"]["snapshot_unverified"])

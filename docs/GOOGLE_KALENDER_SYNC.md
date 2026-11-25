@@ -188,6 +188,21 @@ Es werden weder lokale Termine noch Google-Daten gelöscht.
 
 ## Tests und bekannte Grenzen
 
+Nach einem abgelaufenen Cursor (`410 Gone`) können ältere Löschhinweise
+bei Google bereits verschwunden sein. Nur wenn alle Seiten eines vollständigen,
+ungefilterten Ersatzabrufs (einschließlich ausgeblendeter Einladungen) Google-
+Eigentümerzugriff bestätigen, werden früher unter derselben Quell-, Konto-
+und Zielkonfiguration beobachtete, jetzt fehlende Einzeltermine lokal
+**abgesagt**, nicht gelöscht. Lokale Änderungen gehen in die normale
+Konfliktentscheidung; „Lokale Versionen behalten“ bestätigt die festgestellte
+Abwesenheit, ohne den lokalen Termin zu ändern. Fehlende Serien, Ausnahmen,
+Alteinträge ohne gesicherte Zuordnung und andere Konten/Ziele werden aus
+Abwesenheit nicht geändert. Unvollständige oder ungültige Antworten schreiben
+keinen neuen Cursor; Fälle ohne ausreichenden Nachweis werden auf der
+Kalenderseite angezeigt. Explizit gemeldete Google-Absagen bleiben davon
+unberührt. Siehe [Google Events](https://developers.google.com/workspace/calendar/api/v3/reference/events)
+und [Events.list](https://developers.google.com/workspace/calendar/api/v3/reference/events/list).
+
 Automatisierte Tests decken Mapping, IANA-Zeitzonen, Serien, Teilnehmer,
 Konferenzlinks, Vorschau ohne Kalenderänderung, initialen und inkrementellen
 Abruf, stabile Parameter, Paginationgrenzen, `410 Gone`, Löschstubs,
