@@ -104,6 +104,9 @@ class KidsMatchingHttpTests(PublicHttpTestCase):
         for path in ("/kids", "/kids/zuordnen"):
             with self.subTest(path=path):
                 html = self.client.get(path).get_data(as_text=True)
+                # The random CSRF token may itself contain "cdn"/"http" – it is
+                # not a request. Strip it so the test only sees real references.
+                html = re.sub(r'<meta name="csrf-token"[^>]*>', "", html)
                 self.assertNotIn("http://", html)
                 self.assertNotIn("https://", html)
                 self.assertNotIn("cdn", html.lower())
