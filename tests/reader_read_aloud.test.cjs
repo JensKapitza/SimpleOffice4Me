@@ -38,6 +38,7 @@ function response(bytes = wav(), type = 'audio/wav', status = 200) {
 
 function fixture({
   url = endpoint, ocrUrl, token = 'fixture-csrf', page = '4', hasAudio = true, playResults = [], pageCount,
+  epub = false,
 } = {}) {
   const root = new Element();
   root.dataset = {
@@ -52,7 +53,11 @@ function fixture({
     speechPdfSourceTimeout: 'PDF Vorbereitung Zeitlimit', speechPdfStageUnavailable: 'Temporärer Speicher',
   };
   const reader = new Element();
-  reader.dataset = {documentVersion: 'version-2', pageCount};
+  reader.dataset = {documentVersion: 'version-2', pageCount, format: epub ? 'epub' : 'pdf'};
+  if (epub) {
+    reader.dataset.speechChapter = '0';
+    reader.dataset.speechChapterSegments = '0';
+  }
   const position = {value: page, dispatchEvent: event => {
     if (event.type === 'change') reader.fire('reader:page-changed', {detail: {page: Number(position.value)}});
   }};
@@ -64,6 +69,7 @@ function fixture({
     controls.continuous = new Element();
     controls.jump = new Element();
   }
+  if (epub) for (const key of ['prev-segment', 'next-segment', 'part']) controls[key] = new Element();
   root.querySelector = selector => controls[selector.slice(13, -1)] ?? null;
   const window = new Element();
   window.location = new URL(base + '/reader/book');
@@ -107,6 +113,12 @@ function fixture({
   });
   return {
     ...controls, window, requests, audios, created, revoked, position,
+    typePage: value => { position.value = String(value); },
+    commitChapter: (chapter, parts) => {
+      reader.dataset.speechChapter = String(chapter);
+      reader.dataset.speechChapterSegments = String(parts);
+      reader.fire('reader:chapter-displayed');
+    },
     goTo: value => {
       position.value = String(value);
       reader.fire('reader:page-changed', {detail: {page: value}});
@@ -579,4 +591,33 @@ test('subsequent playback blocked by browser waits for the same audio to be manu
   second.fire('ended');
   assert.equal(f.requests.length, 2);
   assert.equal(f.revoked.length, 2);
+});
+
+test('EPUB reads only the selected segment of a committed chapter, without prefetch or stale audio', async () => {
+  const f = fixture({epub: true});
+  assert.equal(f.start.disabled, true);
+  f.commitChapter(2, 3);
+  assert.equal(f.start.disabled, false);
+  f.typePage(5);
+  f['next-segment'].fire('click');
+  assert.match(f.part.textContent, /2.*3/);
+  assert.equal(f.requests.length, 0);
+  const old = f.start.fire('click');
+  assert.deepEqual(JSON.parse(f.requests[0].opts.body), {page: 2, document_version: 'version-2', segment: 2});
+  f.commitChapter(1, 1);
+  assert.equal(f.requests[0].opts.signal.aborted, true);
+  f.requests[0].resolve(response());
+  await old;
+  assert.equal(f.audios.length, 0);
+  assert.match(f.part.textContent, /1.*1/);
+  const current = f.start.fire('click');
+  assert.deepEqual(JSON.parse(f.requests[1].opts.body), {page: 1, document_version: 'version-2', segment: 1});
+  f.requests[1].resolve(response());
+  await current;
+  f.audios[0].fire('ended');
+  assert.equal(f.requests.length, 2);
+  assert.equal(f.revoked.length, 1);
+  f.commitChapter(3, 0);
+  assert.equal(f.start.disabled, true);
+  assert.equal(f.part.textContent, 'Kein Text');
 });

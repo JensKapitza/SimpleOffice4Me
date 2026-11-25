@@ -50,16 +50,19 @@ def limit_read_aloud_request() -> Response | None:
 
 def read_aloud_request() -> tuple[int, str]:
     """Parse the shared player's small locator envelope; never accept text."""
-    page, version, _ = _read_locator()
+    page, version, _, _ = _read_locator()
     return page, version
 
 
 def read_aloud_ocr_request() -> tuple[int, str, int]:
     """Accept an optional fixed quarter-turn only for the explicit Reader OCR."""
-    return _read_locator(allow_ocr_rotation=True)
+    page, version, clockwise, _ = _read_locator(allow_ocr_rotation=True)
+    return page, version, clockwise
 
 
-def _read_locator(*, allow_ocr_rotation: bool = False) -> tuple[int, str, int]:
+def _read_locator(
+    *, allow_ocr_rotation: bool = False, include_segment: bool = False
+) -> tuple[int, str, int, int]:
     if not request.is_json:
         raise ReadAloudError("invalid_request", 400)
     if request.content_length is not None and request.content_length > _MAX_REQUEST_BYTES:
@@ -74,7 +77,8 @@ def _read_locator(*, allow_ocr_rotation: bool = False) -> tuple[int, str, int]:
     if not isinstance(value, dict):
         raise ReadAloudError("invalid_request", 400)
     clockwise = value.pop("ocr_clockwise", 0) if allow_ocr_rotation else 0
-    if set(value) != {"page", "document_version"}:
+    keys = {"page", "document_version", "segment"} if include_segment else {"page", "document_version"}
+    if set(value) != keys:
         raise ReadAloudError("invalid_request", 400)
     if type(clockwise) is not int or clockwise not in {0, 90, 270}:
         raise ReadAloudError("invalid_rotation", 400)
@@ -83,7 +87,15 @@ def _read_locator(*, allow_ocr_rotation: bool = False) -> tuple[int, str, int]:
         raise ReadAloudError("invalid_page", 400)
     if not isinstance(version, str) or not version or len(version) > 160:
         raise ReadAloudError("invalid_version", 400)
-    return page, version, clockwise
+    segment = value.get("segment", 1)
+    if type(segment) is not int or not 1 <= segment <= 10_000:
+        raise ReadAloudError("invalid_segment", 400)
+    return page, version, clockwise, segment
+
+
+def read_aloud_epub_request() -> tuple[int, str, int]:
+    page, version, _, segment = _read_locator(include_segment=True)
+    return page, version, segment
 
 
 def configured_piper_model(language: str) -> str:

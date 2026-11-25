@@ -56,6 +56,9 @@
           <div data-reader-native-pdf class="text-center d-none"><img data-reader-pdf-image class="img-fluid" alt="PDF-Seite" loading="lazy" decoding="async"></div>
           <iframe data-reader-pdf-frame title="PDF Reader" src="{{ url_for('documents.image_preview', document_id=document.document_id) }}" style="width:100%;height:75vh;border:0"></iframe>
           {% else %}
+          {% with speech_url=url_for('reader.read_aloud', document_id=document.document_id), speech_kind='epub' %}
+            {% include 'reader/_read_aloud.html' %}
+          {% endwith %}
           <article data-reader-epub-body class="reader-epub-body mx-auto" style="max-width:72ch;min-height:65vh;font-size:1.05rem;line-height:1.7"></article>
           {% endif %}
         </div></div>
@@ -64,5 +67,5 @@
   </div>
 </main>
 <script src="{{ url_for('static', filename='js/document_reader.js') }}" defer></script>
-{% if book.format == 'pdf' %}{% include "reader/_read_aloud_script.html" %}{% endif %}
+{% include "reader/_read_aloud_script.html" %}
 {% endblock %}
