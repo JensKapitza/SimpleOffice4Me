@@ -28,7 +28,10 @@ STATE = Path("/var/lib/simpleoffice4me")
 FIXTURE_ENV = "SIMPLEOFFICE_FEDERATION_DEPLOYMENT_FIXTURE"
 TLS = STATE / "fixture-tls"
 PLAIN = "http://127.0.0.1:8080"
-SIZE = 9 * 1024 * 1024 + 97
+# Larger than the maximum block, so even a single max-size boundary
+# produces multiple network blocks. Avoid excess recurring manifest work.
+SIZE = 4 * 1024 * 1024 + 97
+QUEUE_HTTP_TIMEOUT = 100
 SERVER_SETTINGS = "/admin/settings/server"
 TRANSFER_EVENTS = {"scoped_content_blocks_reused", "content_blocks_reused", "download_chunk_completed"}
 REQUEST_EVENTS = {"download_requested", "download_deferred", "download_completed"}
@@ -236,7 +239,10 @@ def run_queue(browser, job):
     page = browser.page(job["path"])
     form = page.select_one('form[action$="/queue/run"]')
     require(form is not None, "Queue processing control absent")
-    return browser.submit(form, {"limit": 1})
+    # This regular POST is synchronous. Cold scoped transfers build and
+    # verify manifests in both peers; the browser fixture's generic 30s
+    # isn't an application limit. Only this operation gets a longer wait.
+    return browser.submit(form, {"limit": 1}, timeout=QUEUE_HTTP_TIMEOUT)
 
 
 def verify_import(browser, job, page=None):
@@ -259,15 +265,24 @@ def verify_import(browser, job, page=None):
     return {**job, "document_id": doc_id, "bytes": len(got), "sha256": computed, "status": "complete"}
 
 
+def progress(step, peer):
+    """Emit only fixed test stages and the already-public fixture peer ID."""
+    require(peer in PEERS and step in {"uploaded", "queued", "imported"}, "Unexpected progress marker")
+    print(f"fixture-progress {step} {peer}", file=sys.stderr, flush=True)
+
+
 def initial_roundtrip(fixture):
     browsers = open_sites(fixture)
     for name, browser in browsers.items():
         upload(browser, name, "initial")
+        progress("uploaded", name)
     a, b = PEERS
     receipts = {}
     for local, remote in ((a, b), (b, a)):
         job = queue(browsers[local], remote, "initial")
+        progress("queued", local)
         receipts[local] = verify_import(browsers[local], job, run_queue(browsers[local], job))
+        progress("imported", local)
     require(receipts[a]["sha256"] != receipts[b]["sha256"], "Opposite transfers should not reuse identical data")
     return {"receipts": receipts}
 

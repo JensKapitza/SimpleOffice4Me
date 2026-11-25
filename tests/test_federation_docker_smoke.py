@@ -8,16 +8,16 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from tools.federation_docker_peer import FIXTURE_ENV, PEERS, SIZE, _guard_local_fixture, payload
-from tools.smoke_federation_docker import _events, _failure, create_tls, main, validate_download_counts
+from tools.federation_docker_peer import FIXTURE_ENV, PEERS, QUEUE_HTTP_TIMEOUT, SIZE, _guard_local_fixture, payload, run_queue
+from tools.smoke_federation_docker import Deployment, _events, _failure, create_tls, main, validate_download_counts
 
 
 class FederationDockerFixtureTests(unittest.TestCase):
     def test_nonempty_multichunk_samples_are_distinct_and_reproducible(self):
         samples = [payload(name, case) for name in PEERS for case in ("initial", "outage")]
-        self.assertTrue(all(len(sample) == SIZE and SIZE > 2 * 4 * 1024 * 1024 for sample in samples))
+        self.assertTrue(all(len(sample) == SIZE and SIZE > 4 * 1024 * 1024 for sample in samples))
         self.assertEqual(len(samples), len({hashlib.sha256(sample).digest() for sample in samples}))
         self.assertEqual(samples[0], payload(PEERS[0], "initial"))
 
@@ -50,6 +50,29 @@ class FederationDockerFixtureTests(unittest.TestCase):
         self.assertEqual({"exit": 1, "class": "urllib.error.HTTPError", "http_status": 404},
                          _failure(SimpleNamespace(returncode=1, stderr=
                              "urllib.error.HTTPError: HTTP Error 404: hidden/https://private?token=secret")))
+
+    def test_only_synchronous_queue_post_gets_a_longer_bounded_wait(self):
+        browser = Mock()
+        run_queue(browser, {"path": "/admin/federation?view=transfers"})
+        browser.page.assert_called_once_with("/admin/federation?view=transfers")
+        browser.submit.assert_called_once_with(
+            browser.page.return_value.select_one.return_value, {"limit": 1}, timeout=QUEUE_HTTP_TIMEOUT,
+        )
+        self.assertLess(30, QUEUE_HTTP_TIMEOUT)
+        self.assertLess(QUEUE_HTTP_TIMEOUT, 120)
+
+    def test_exec_inherits_stderr_only_logging_from_container_config(self):
+        deployment = Deployment("image", None, None, None)
+        deployment.fixture["addresses"] = dict(zip(PEERS, ("10.213.5.2", "10.213.5.3")))
+        self.assertIn("SIMPLEOFFICE_LOG_STDERR_ONLY=1", deployment._owner_env())
+
+    def test_only_allowlisted_stage_names_and_peers_appear_in_failure_diagnostics(self):
+        result = SimpleNamespace(returncode=1, stderr="fixture-progress uploaded deployment-b\n"
+                                                  "fixture-progress queued deployment-a\n"
+                                                  "fixture-progress queued non-fixture-peer\n"
+                                                  "TimeoutError: private diagnostic\n")
+        self.assertEqual(_failure(result), {"exit": 1, "class": "TimeoutError",
+                                           "peer": "deployment-a", "last_progress": "queued"})
 
     def test_scope_requires_actual_multiblock_diagnostic_evidence(self):
         job = {"job": "fixture-only"}

@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -89,8 +90,11 @@ def _failure(result):
     status = re.search(r"HTTP Error (\d{3})", text)
     # Our require() diagnostics are literal code-owned text; discard everything
     # after the first line and any value containing URL/header syntax.
+    progress = re.findall(r"^fixture-progress (uploaded|queued|imported) (deployment-[ab])$", text, re.MULTILINE)
     assertion = re.search(r"^AssertionError: ([A-Za-z0-9 .,-]{1,176})$", text, re.MULTILINE)
     out = {"exit": result.returncode, "class": error[1] if error else "command"}
+    if progress:
+        out["last_progress"], out["peer"] = progress[-1]
     if status:
         out["http_status"] = int(status[1])
     if assertion:
@@ -153,6 +157,8 @@ class Deployment:
             "HOME": str(STATE), "XDG_CONFIG_HOME": str(STATE / "config"),
             "SIMPLEOFFICE_HOST": "127.0.0.1", "SIMPLEOFFICE_PORT": "8080",
             "SIMPLEOFFICE_CONTAINER_ROLE": "web",
+            # docker exec does not inherit exports done by the entrypoint.
+            "SIMPLEOFFICE_LOG_STDERR_ONLY": "1",
             "SIMPLEOFFICE_BACKGROUND_INDEX": "0", "SIMPLEOFFICE_OSM_INDEX": "0",
             "SIMPLEOFFICE_DATALOGGER": "0", "SIMPLEOFFICE_MCP": "0",
             "SIMPLEOFFICE_GITHUB_ERROR_REPORTING": "0", "SIMPLEOFFICE_ERROR_REPORT_URL": "",
@@ -208,6 +214,7 @@ class Deployment:
 
     def invoke(self, phase, peer=None):
         require(phase in START_STAGES, "Unknown fixture command")
+        started = time.monotonic()
         self.note(phase, "running", **({"peer": peer} if peer else {}))
         if peer:
             args = ("exec", "-i", "-e", "PYTHONPATH=/run/test-python", self.name(peer), PYTHON,
@@ -223,15 +230,16 @@ class Deployment:
                     *_docker_env({"PYTHONPATH": "/run/test-python", **self._private_env()}),
                     "--entrypoint", PYTHON, self.image, "-m", "tools.federation_docker_peer", phase)
         result = self.command(*args, fixture=self.fixture, timeout=235, check=False)
+        elapsed = round(time.monotonic() - started, 3)
         if result.returncode:
             detail = _failure(result)
-            self.note(phase, "failed", **detail)
+            self.note(phase, "failed", elapsed_seconds=elapsed, **detail)
             raise RuntimeError(f"{phase} failed: {json.dumps(detail)}")
         try:
             answer = json.loads(result.stdout.strip().splitlines()[-1])
         except (IndexError, ValueError) as exc:
             raise RuntimeError(f"{phase} did not return fixture JSON") from exc
-        self.note(phase, "passed", **({"peer": peer} if peer else {}))
+        self.note(phase, "passed", elapsed_seconds=elapsed, **({"peer": peer} if peer else {}))
         return answer
 
     def restart(self):

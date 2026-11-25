@@ -208,8 +208,11 @@ python -m tools.smoke_federation_docker \
 The form parser is fixture-only and not installed in the application image.
 The runner registers the first admin normally on each host, exchanges and
 confirms both QR pairings using ordinary admin forms, sets matching document
-grants, then uploads two independent synthetic multi-block files and pulls
-one in each direction through the catalog and queue. It verifies the
+grants, then uploads two independent synthetic files (4 MiB plus 97 bytes
+each, above the 4 MiB maximum block size) and pulls one in each direction
+through the catalog and queue. The synchronous queue form alone gets a
+bounded 100-second fixture client wait for cold manifest generation.
+Production timeouts are unchanged. It verifies the
 visible local document link, SHA-256, every byte and the block/download
 record. After restarting both containers, identities, job links and bytes
 must still match.
