@@ -34,6 +34,48 @@
     }
   }
 
+  let projection;
+
+  function searchProjection(text) {
+    // Older browsers keep the previous literal behavior rather than guessing
+    // Unicode boundaries and highlighting the wrong characters.
+    if (typeof Intl !== 'object' || typeof Intl.Segmenter !== 'function') return {text, canonical: false};
+    if (/^[\x00-\x7F]*$/.test(text)) return {text, canonical: true};
+
+    const normalized = text.normalize('NFC');
+    const boundaries = new Int32Array(normalized.length + 1).fill(-1);
+    const parts = [];
+    let offset = 0;
+    for (const {segment, index} of new Intl.Segmenter(undefined, {granularity: 'grapheme'}).segment(text)) {
+      boundaries[offset] = index;
+      const part = segment.normalize('NFC');
+      parts.push(part);
+      offset += part.length;
+    }
+    if (parts.join('') !== normalized) return {text, canonical: false};
+    boundaries[offset] = text.length;
+    return {text: normalized, boundaries, canonical: true};
+  }
+
+  function* findRanges(text, boundaries, pattern) {
+    let hit;
+    while ((hit = pattern.exec(text)) !== null) {
+      const from = hit.index;
+      const to = from + hit[0].length;
+      const start = boundaries ? boundaries[from] : from;
+      const end = boundaries ? boundaries[to] : to;
+      if (start >= 0 && end >= 0) {
+        yield [start, end];
+      } else {
+        // Skip a partial grapheme without consuming any later valid start
+        // that the rejected match might overlap.
+        let next = from + 1;
+        while (next < boundaries.length && boundaries[next] < 0) next++;
+        pattern.lastIndex = next;
+      }
+    }
+  }
+
   function applySearch(fromEnd = false) {
     const needle = query();
     renderedQuery = needle;
@@ -42,26 +84,32 @@
       if (count) count.textContent = '';
       return;
     }
-    // No single Unicode character consumes more than two UTF-16 units.
-    if (needle.length > original.length * 2) {
+    // Reject enormous pastes before Unicode work, but compare lengths after
+    // NFC because some single characters decompose to more than two units.
+    if (needle.length > 96_000) {
       clearMarks();
       showPosition([], -1);
       return;
     }
-    // Literal, case-insensitive matches on the original text preserve its offsets
-    // even when a lowercase copy would change length (for example, after İ).
-    const pattern = new RegExp(needle.replace(/[.*+?^{}$()|[\]\\]/g, '\\$&'), 'giu');
+    projection ??= searchProjection(original);
+    const normalizedNeedle = projection.canonical ? needle.normalize('NFC') : needle;
+    if (normalizedNeedle.length > projection.text.length) {
+      clearMarks();
+      showPosition([], -1);
+      return;
+    }
+    const pattern = new RegExp(normalizedNeedle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'giu');
     const matches = [];
     const fragment = document.createDocumentFragment();
     let position = 0;
-    for (const hit of original.matchAll(pattern)) {
-      fragment.append(document.createTextNode(original.slice(position, hit.index)));
+    for (const [start, end] of findRanges(projection.text, projection.boundaries, pattern)) {
+      fragment.append(document.createTextNode(original.slice(position, start)));
       const mark = document.createElement('mark');
       mark.setAttribute('data-preview-match', '');
-      mark.textContent = hit[0];
+      mark.textContent = original.slice(start, end);
       fragment.append(mark);
       matches.push(mark);
-      position = hit.index + hit[0].length;
+      position = end;
     }
     if (matches.length) {
       fragment.append(document.createTextNode(original.slice(position)));
