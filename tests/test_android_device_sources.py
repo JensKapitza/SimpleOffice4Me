@@ -53,10 +53,18 @@ class AndroidDeviceSourceTests(PublicHttpTestCase):
             self.assertEqual(b"", response.data)
             self.assertEqual("no-store", response.headers["Cache-Control"])
 
-    def test_non_apk_and_forwarded_requests_do_not_access_overview_or_gate(self):
-        self.assertEqual(404, self.mobile.get(PAGE, base_url=ORIGIN).status_code)
-        self.assertEqual(404, self.mobile.get(PAGE, base_url=ORIGIN, headers=APK,
-                                             environ_overrides={"REMOTE_ADDR": "192.0.2.21"}).status_code)
+    def test_non_apk_and_forwarded_requests_get_help_without_provider_controls(self):
+        for origin, headers, environ in (
+            ("http://127.0.0.1:8080", {}, {}),
+            (ORIGIN, {}, {}),
+            (ORIGIN, APK, {"REMOTE_ADDR": "192.0.2.21"}),
+            (ORIGIN, {**APK, "X-Forwarded-For": "192.0.2.21"}, {}),
+        ):
+            page = self.mobile.get(PAGE, base_url=origin, headers=headers, environ_overrides=environ)
+            self.assertEqual(200, page.status_code)
+            self.assertNotIn(b"data-device-source=", page.data)
+            self.assertNotIn(b'id="android-device-sources"', page.data)
+        self.assertEqual(404, self.gate("contacts", headers={"User-Agent": "Desktop Browser"}).status_code)
         self.assertEqual(404, self.gate("contacts", headers={"X-Forwarded-For": "192.0.2.21"}).status_code)
 
     def test_csrf_login_and_input_are_required_but_no_payload_is_accepted(self):

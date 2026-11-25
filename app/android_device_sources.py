@@ -35,10 +35,9 @@ def _source_context():
 @bp.get("/")
 @login_required
 def index():
-    if not _local_apk_request():
-        abort(404)
-    allowed = [source for source in SOURCES if has_feature(g.user, source)]
-    if not allowed:
+    local_apk = _local_apk_request()
+    allowed = [source for source in SOURCES if has_feature(g.user, source)] if local_apk else []
+    if local_apk and not allowed:
         abort(403)
     response = make_response(render_template("android/device_sources.html", sources=allowed))
     response.headers["Cache-Control"] = "no-store"

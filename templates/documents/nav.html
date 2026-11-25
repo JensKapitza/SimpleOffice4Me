@@ -44,6 +44,7 @@
               {% if feature_enabled('mail') %}<li><a class="dropdown-item" href="{{ url_for('chat.index') }}">Chat</a></li><li><a class="dropdown-item" href="{{ url_for('mail_reader.index') }}">Mail</a></li><li><a class="dropdown-item" href="{{ url_for('mail_index.index') }}">{{ 'Spam/duplicates' if g.language == 'en' else 'Spam/Dubletten' }}</a></li>{% endif %}
               {% if feature_enabled('calendar') %}<li><a class="dropdown-item" href="{{ url_for('documents.calendar') }}">{{ tr('calendar') }}</a></li>{% endif %}
               {% if feature_enabled('contacts') %}<li><a class="dropdown-item" href="{{ url_for('documents.contacts') }}">{{ tr('contacts') }}</a></li><li><a class="dropdown-item" href="{{ url_for('fritzbox_contacts.index') }}">FRITZ!Box</a></li>{% endif %}
+              {% if show_android_device_sources|default(false) %}<li><a class="dropdown-item" href="{{ url_for('android_device_sources.index') }}">{{ 'Device sources' if g.language == 'en' else 'Gerätequellen' }}</a></li>{% endif %}
             </ul>
           </div>
         {% endif %}
@@ -113,7 +114,6 @@
             <li><a class="dropdown-item" href="{{ url_for('documents.logbook') }}">{{ tr('logbook') }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('documents.first_run_setup') }}">{{ 'Setup' if g.language == 'en' else 'Einrichten' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('documents.settings') }}">{{ tr('settings') }}</a></li>
-            {% if show_android_device_sources|default(false) %}<li><a class="dropdown-item" href="{{ url_for('android_device_sources.index') }}">{{ 'Device sources' if g.language == 'en' else 'Gerätequellen' }}</a></li>{% endif %}
             <li><a class="dropdown-item" href="{{ url_for('quick_share.index') }}">{{ 'QR & sound' if g.language == 'en' else 'QR & Ton' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('browser_bookmarks.index') }}">{{ 'Bookmarks' if g.language == 'en' else 'Lesezeichen' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('vault.index') }}">{{ 'Password vault' if g.language == 'en' else 'Passwort-Vault' }}</a></li>
