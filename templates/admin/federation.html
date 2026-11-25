@@ -702,7 +702,12 @@
     </section>
 
     <section class="card shadow-sm mb-4">
-      <div class="card-header"><strong>Transfers{% if selected_document %}{{ ' of this document' if g.language == 'en' else ' dieses Dokuments' }}{% endif %}</strong></div>
+      <div class="card-header">
+        <strong>Transfers{% if selected_document %}{{ ' of this document' if g.language == 'en' else ' dieses Dokuments' }}{% endif %}</strong>
+        {% if has_document_catalog_candidate and transfers|selectattr('direction', 'eq', 'incoming')|selectattr('status', 'eq', 'complete')|rejectattr('has_capability')|list %}
+          <div class="small text-secondary">{{ 'For direct receipts: if you know the sender, select that peer in the catalogue. Downloads need a shared entry. If missing, check sharing with the sender and refresh the index manually under Peers.' if g.language == 'en' else 'Für direkte Eingänge: Wenn du die Quelle kennst, wähle diesen Peer im Katalog aus. Für einen Download muss die Datei dort freigegeben sein. Fehlt sie, kläre die Freigabe und aktualisiere den Index manuell unter „Peers“.' }}</div>
+        {% endif %}
+      </div>
       <div class="table-responsive">
         <table class="table align-middle mb-0">
           <thead><tr><th scope="col">{{ 'Direction' if g.language == 'en' else 'Richtung' }}</th><th scope="col">{{ 'Source → target' if g.language == 'en' else 'Quelle → Ziel' }}</th><th scope="col">Status</th><th scope="col">{{ 'Progress' if g.language == 'en' else 'Fortschritt' }}</th><th scope="col">{{ 'Error' if g.language == 'en' else 'Fehler' }}</th><th scope="col"></th></tr></thead>
@@ -715,7 +720,12 @@
                 <td>{{ item.transferred_bytes }} / {{ item.total_bytes }}</td>
                 <td class="text-danger small text-break">{{ item.error }}</td>
                 <td>
-                  {% if item.direction == 'outgoing' and item.status != 'complete' %}
+                  {% if item.direction == 'incoming' and item.status == 'complete' and not item.has_capability %}
+                    <div class="small">{{ 'This direct transfer did not import a file into Documents.' if g.language == 'en' else 'Dieser Direkttransfer hat keine Datei in „Dokumente“ importiert.' }}</div>
+                    {% if has_document_catalog_candidate %}
+                      <a class="small" href="{{ url_for('federation_admin.dashboard', view='files', _anchor='remote-files') }}">{{ 'Browse file catalogues' if g.language == 'en' else 'Dateikataloge ansehen' }}</a>
+                    {% endif %}
+                  {% elif item.direction == 'outgoing' and item.status != 'complete' %}
                     <form method="post" action="{{ url_for('federation_admin.run_transfer', job_id=item.transfer_id) }}">
                       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                       <input type="hidden" name="_return_view" value="transfers">
