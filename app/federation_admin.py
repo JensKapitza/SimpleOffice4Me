@@ -122,6 +122,16 @@ def _sending_peer(store: FederationStore, peer_id: str) -> dict:
     return peer
 
 
+def _has_document_catalog_candidate(peers: list[dict]) -> bool:
+    """Only suggest the catalogue when the local receive setup is present."""
+    for peer in peers:
+        policy = peer.get("policy")
+        documents = policy.get("documents") if isinstance(policy, dict) else None
+        if peer["enabled"] and peer["has_token"] and isinstance(documents, dict) and documents.get("receive") is True:
+            return True
+    return False
+
+
 def _document_choices(documents: list[dict], query: str, limit: int = 60) -> list[dict]:
     query = query.strip().casefold()
     result = []
@@ -277,6 +287,7 @@ def dashboard():
         "admin/federation.html",
         peers=peers,
         transfers=transfers,
+        has_document_catalog_candidate=active_view == "transfers" and _has_document_catalog_candidate(peers),
         events=store.events(100),
         stats=store.stats(),
         documents=_document_choices(local_documents, query),
