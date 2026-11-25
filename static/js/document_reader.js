@@ -23,6 +23,17 @@
   let contrast = false;
   let saveTimer = null;
   const pageCount = Math.max(0, Number(root.dataset.pageCount || 0));
+  // The publisher TOC may omit chapters. Older cached markup can only provide
+  // a lower bound in the form of the last linked spine position.
+  const epubChapterCount = () => {
+    const count = Number(root.dataset.chapterCount);
+    if (Number.isSafeInteger(count) && count > 0) return count;
+    return [...root.querySelectorAll('[data-reader-chapter]')].reduce((highest, item) => {
+      const index = Number(item.dataset.readerChapter);
+      return Number.isSafeInteger(index) && index >= 0 ? Math.max(highest, index + 1) : highest;
+    }, 1);
+  };
+  const chapterCount = format === 'epub' ? epubChapterCount() : 0;
 
   const showError = (message, source) => {
     if (!errorBox) return;
@@ -46,7 +57,7 @@
     ? {page: current}
     : {chapter: currentChapterId || String(current), chapter_index: current, anchor: '', cfi: '', offset: currentOffset};
   const percent = () => {
-    const total = format === 'pdf' ? pageCount : Number(root.querySelectorAll('[data-reader-chapter]').length || 1);
+    const total = format === 'pdf' ? pageCount : chapterCount;
     return total > 0 ? Math.min(100, Math.max(0, Math.round(((current + (format === 'pdf' ? 0 : 1)) / total) * 100))) : 0;
   };
   const scheduleSave = () => {
@@ -69,8 +80,7 @@
   const addNote = root.querySelector('[data-reader-add-note]');
   if (format === 'epub' && addNote) addNote.disabled = true;
   const loadEpub = async (index) => {
-    const total = root.querySelectorAll('[data-reader-chapter]').length || 1;
-    requestedEpub = Math.max(0, Math.min(total - 1, Number(index) || 0));
+    requestedEpub = Math.max(0, Math.min(chapterCount - 1, Math.trunc(Number(index) || 0)));
     const target = requestedEpub;
     const requestId = ++epubRequest;
     try {
@@ -87,7 +97,7 @@
         errorBox?.classList.add('d-none');
         errorSource = undefined;
       }
-      updateStatus(total);
+      updateStatus(chapterCount);
       if (!restoredOffset && resumeEpubIndex === current && currentOffset > 0) {
         restoredOffset = true;
         const offset = currentOffset;

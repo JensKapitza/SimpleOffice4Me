@@ -17,12 +17,13 @@
        data-pdf-url="{{ url_for('documents.image_preview', document_id=document.document_id) }}"
        data-epub-url="{{ url_for('reader.epub_chapter', document_id=document.document_id, index=0).rsplit('/',1)[0] }}"
        data-page-count="{{ book.page_count }}"
+       {% if book.format == 'epub' %}data-chapter-count="{{ book.chapters }}"{% endif %}
        data-saved-percent="{{ reader_state.percent }}"
        data-saved-locator='{{ reader_state.locator|tojson }}'>
     <div class="row g-3">
       <aside class="col-12 col-lg-3 col-xl-2">
         <div class="card mb-3"><div class="card-header"><strong>Navigation</strong></div><div class="card-body">
-          <div class="d-flex gap-2 align-items-center"><button class="btn btn-outline-secondary" type="button" data-reader-prev aria-label="Vorherige Seite">←</button><input class="form-control text-center" type="number" min="1" value="1" data-reader-position aria-label="Seite oder Kapitel"><button class="btn btn-outline-secondary" type="button" data-reader-next aria-label="Nächste Seite">→</button></div>
+          <div class="d-flex gap-2 align-items-center"><button class="btn btn-outline-secondary" type="button" data-reader-prev aria-label="Vorherige Seite">←</button><input class="form-control text-center" type="number" min="1"{% if book.format == 'epub' %} max="{{ book.chapters }}"{% endif %} value="1" data-reader-position aria-label="Seite oder Kapitel"><button class="btn btn-outline-secondary" type="button" data-reader-next aria-label="Nächste Seite">→</button></div>
           <div class="small text-secondary mt-2" data-reader-status></div>
         </div></div>
         {% if book.toc %}<div class="card mb-3"><div class="card-header"><strong>Inhalt</strong></div><div class="list-group list-group-flush">{% for item in book.toc %}<button type="button" class="list-group-item list-group-item-action text-start" data-reader-chapter="{{ item.index }}" data-reader-chapter-id="{{ item.chapter }}">{{ item.title }}</button>{% endfor %}</div></div>{% endif %}

@@ -19,7 +19,7 @@ from app.pdf_limits import MAX_PDF_BYTES
 
 def epub_bytes(
     *, unsafe: bool = False, encrypted: bool = False, cover: bool = False,
-    toc_format: str = "", chapter_xml: str | None = None,
+    toc_format: str = "", chapter_xml: str | None = None, sparse_toc: bool = False,
 ) -> bytes:
     output = io.BytesIO()
     chapter_count = 2 if toc_format else 1
@@ -67,7 +67,7 @@ def epub_bytes(
                 "OEBPS/nav.xhtml",
                 '<html xmlns="http://www.w3.org/1999/xhtml" '
                 'xmlns:epub="http://www.idpf.org/2007/ops"><body><nav epub:type="toc">'
-                '<ol><li><a href="chapter.xhtml">Vorspann</a></li>'
+                '<ol>' + ('' if sparse_toc else '<li><a href="chapter.xhtml">Vorspann</a></li>') +
                 '<li><a href="chapter2.xhtml#section">Hauptteil</a></li></ol>'
                 '</nav><a href="https://example.invalid/tracker">Extern</a></body></html>',
             )
@@ -75,8 +75,9 @@ def epub_bytes(
             archive.writestr(
                 "OEBPS/toc.ncx",
                 '<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/"><navMap>'
-                '<navPoint id="one"><navLabel><text>Vorspann NCX</text></navLabel>'
-                '<content src="chapter.xhtml"/></navPoint>'
+                + ('' if sparse_toc else '<navPoint id="one"><navLabel><text>Vorspann NCX</text></navLabel>'
+                   '<content src="chapter.xhtml"/></navPoint>')
+                +
                 '<navPoint id="two"><navLabel><text>Hauptteil NCX</text></navLabel>'
                 '<content src="chapter2.xhtml#section"/></navPoint>'
                 '</navMap></ncx>',
@@ -290,6 +291,24 @@ class ReaderRoutesTests(unittest.TestCase):
                     f"/documents/reader/{document['document_id']}/epub/2"
                 ).status_code,
             )
+
+    def test_reader_reports_spine_length_even_when_publisher_lists_only_last_chapter(self):
+        store = DocumentStore(self.documents)
+        for toc_format in ("epub3", "ncx"):
+            with self.subTest(toc_format=toc_format):
+                document = store.import_upload(
+                    io.BytesIO(epub_bytes(toc_format=toc_format, sparse_toc=True)),
+                    f"sparse-{toc_format}.epub", "admin",
+                )
+                url = f"/documents/reader/{document['document_id']}"
+                response = self.client.get(url)
+                self.assertEqual(200, response.status_code)
+                self.assertIn(b'data-chapter-count="2"', response.data)
+                self.assertEqual(1, response.data.count(b'data-reader-chapter='))
+                self.assertIn(b'data-reader-chapter="1"', response.data)
+                self.assertIn("Kapitel Eins", self.client.get(url + "/epub/0").get_json()["html"])
+                self.assertIn("Zweites Kapitel", self.client.get(url + "/epub/1").get_json()["html"])
+                self.assertEqual(404, self.client.get(url + "/epub/2").status_code)
 
     def test_broken_optional_epub_navigation_does_not_block_reading(self):
         document = DocumentStore(self.documents).import_upload(
