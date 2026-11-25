@@ -6,7 +6,7 @@ const path = require('node:path');
 
 const source = fs.readFileSync(path.join(__dirname, '../static/js/kids_shared.js'), 'utf8');
 
-function fixture() {
+function fixture({delayedPlay = false} = {}) {
   const events = [];
   const players = [];
   const piperSpoken = [];
@@ -16,7 +16,11 @@ function fixture() {
       events.push(`create:${url}`);
     }
     addEventListener(type, fn) { (this.listeners[type] = this.listeners[type] || []).push(fn); }
-    play() { events.push(`play:${this.url}`); return Promise.resolve(); }
+    play() {
+      events.push(`play:${this.url}`);
+      if (delayedPlay) return new Promise((_, reject) => { this.rejectPlay = reject; });
+      return Promise.resolve();
+    }
     pause() {
       events.push(`pause:${this.url}`);
       (this.listeners.pause || []).forEach(fn => fn());
@@ -83,6 +87,25 @@ test('stopAudio cancels pending clips', async () => {
   await tick(); await tick();
   assert.ok(!f.events.includes('play:/base/de/two.mp3'));
   assert.equal(await done, false);
+});
+
+test('late media errors and play rejections cannot start stale speech after a new tap', async () => {
+  const f = fixture({delayedPlay: true});
+  const question = f.api.playClips('/base', '', 'de', [{key: 'question', fallback: 'alte Frage'}], 'de-DE');
+  await tick();
+  const first = f.api.playClips('/base', '', 'de', [{key: 'num_1', fallback: 'eins'}], 'de-DE');
+  // The old error can arrive after a tap but before its replacement player exists.
+  f.players[0].fail();
+  await tick();
+  const second = f.api.playClips('/base', '', 'de', [{key: 'num_2', fallback: 'zwei'}], 'de-DE');
+  await tick();
+  f.players[1].rejectPlay(new Error('Late playback failure'));
+  await tick();
+  assert.equal(await question, false);
+  assert.equal(await first, false);
+  assert.deepEqual(f.piperSpoken, []);
+  f.players[2].end();
+  assert.equal(await second, true);
 });
 
 test('shuffle still spreads items', () => {

@@ -9,7 +9,13 @@
 .kids-numbers-prompt { min-height:1.5rem; margin:0; color:#34495e; font-size:1.25rem; font-weight:600; }
 .kids-numbers-stars { min-height:2rem; font-size:1.6rem; letter-spacing:.1em; margin:.25rem 0; }
 .kids-numbers-stage { display:flex; flex-wrap:wrap; gap:.75rem; align-items:stretch; justify-content:center; padding:1rem 0; }
+.kids-numbers-counting { flex:1 1 100%; min-width:0; }
 .kids-numbers-picture { flex:1 1 100%; display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:.12em; min-height:150px; width:100%; padding:.75rem; border-radius:1rem; background:#f3f8ff; font-size:clamp(2.4rem,9vw,4rem); line-height:1.25; }
+.kids-numbers-count-tile { position:relative; display:grid; place-items:center; min-width:52px; min-height:52px; padding:.2em .34em; border:2px solid #cbddef; border-radius:.75rem; background:#fff; color:#17324d; font:inherit; cursor:pointer; touch-action:manipulation; }
+.kids-numbers-count-tile:focus-visible { outline:3px solid #17324d; outline-offset:2px; }
+.kids-numbers-count-tile[aria-disabled=true] { border-color:#218838; background:#e1f6e7; cursor:default; }
+.kids-numbers-count-badge { position:absolute; top:0; right:0; min-width:1.55em; padding:.12em .3em; border-radius:.6rem; background:#1c6335; color:#fff; font-size:clamp(.9rem, 3vw, 1.15rem); font-weight:700; line-height:1.25; }
+
 .kids-numbers-answer { min-width:76px; min-height:76px; flex:1 1 0; max-width:220px; padding:.5rem; border:2px solid #d7e4f2; border-radius:1rem; background:#fff; color:#142e49; font-size:clamp(2.2rem,8vw,3.4rem); font-weight:700; touch-action:manipulation; transition:opacity .3s ease,transform .12s ease,background-color .15s ease; }
 .kids-numbers-answer:hover { transform:scale(1.03); }
 .kids-numbers-answer.is-correct { border-color:#218838; background:#dff5e5; }
