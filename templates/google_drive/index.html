@@ -16,6 +16,14 @@
     <div class="alert alert-success" role="status">Google Drive wurde über die native Android-Autorisierung abgeglichen.</div>
   {% elif android_result == 'cancelled' %}
     <div class="alert alert-info" role="status" aria-live="polite">Google-Drive-Freigabe wurde abgebrochen. Es wurden keine neuen Rechte übernommen.</div>
+  {% elif android_result == 'play-services' %}
+    <div class="alert alert-warning" role="alert">Die Google Play-Dienste fehlen, sind deaktiviert oder benötigen ein Update. Interne und freigegebene SD-Ordner kannst du unabhängig davon nutzen.</div>
+  {% elif android_result == 'offline' %}
+    <div class="alert alert-warning" role="alert">Die Google-Autorisierung konnte das Netzwerk nicht erreichen. Prüfe die Verbindung und starte die Freigabe erneut.</div>
+  {% elif android_result == 'configuration' %}
+    <div class="alert alert-warning" role="alert">Die Android-OAuth-Konfiguration wurde von Google abgelehnt. Prüfe den Android-OAuth-Client für <code>de.simpleoffice4me.android</code>, den SHA-Fingerabdruck der installierten APK-Signatur und ob die Drive API im selben Google-Cloud-Projekt aktiviert ist.</div>
+  {% elif android_result == 'denied' %}
+    <div class="alert alert-warning" role="alert">Google hat die benötigte Einzeldatei-Berechtigung <code>drive.file</code> nicht erteilt. Die lokale Nutzung bleibt verfügbar.</div>
   {% elif android_result == 'unavailable' %}
     <div class="alert alert-warning" role="alert">Native Google-Autorisierung ist auf diesem Android-Gerät nicht verfügbar. Bitte Google Play-Dienste und die Android-OAuth-Konfiguration prüfen.</div>
   {% elif android_result == 'error' %}
@@ -33,7 +41,7 @@
     </div>
   {% elif android_client %}
     <div class="alert alert-secondary small">
-      Die APK verwendet Google Play Services mit dem Android-OAuth-Client und fordert nur <code>drive.file</code> an. Ein Google-Web-Client-Secret wird dafür nicht in die APK eingebettet.
+      Die APK verwendet Google Play-Dienste und fordert nur <code>drive.file</code> an. Der Abgleich betrifft den von SimpleOffice verwalteten Drive-Ordner, nicht das gesamte Google Drive. Andere Drive-Ordner sind in <a href="{{ url_for('documents.local_storage') }}">Lokale Ordner</a> nur nutzbar, wenn der Android-Systemdialog sie zur Freigabe anbietet.
     </div>
   {% endif %}
 
@@ -128,7 +136,9 @@
     <div class="card-body">
       <p>Neue lokale Dateien werden in den verwalteten Drive-Ordner hochgeladen. Neue normale Drive-Dateien werden lokal angelegt. Google Docs, Sheets und Slides bleiben Cloud-Dokumente und werden nur verlinkt.</p>
       <p class="small text-secondary">Wenn beide Seiten seit dem letzten erfolgreichen Sync geändert wurden, überschreibt SimpleOffice nichts automatisch, sondern markiert einen Konflikt. Entfernte Drive-Dateien löschen lokale Daten ebenfalls nicht automatisch.</p>
+      <p class="small mb-2">Bereits synchronisierte Dateien liegen lokal und sind über die normale Dokumentsuche auffindbar. Google-native Dateien bleiben in der Liste darunter als Cloud-Einträge.</p>
       <div class="d-flex flex-wrap gap-2 pb-2" style="padding-bottom:max(.5rem, env(safe-area-inset-bottom)) !important;">
+        {% if drive_state.last_sync_at %}<a class="btn btn-outline-primary" data-drive-local-search href="{{ url_for('documents.document_search', q='path~"' ~ local_sync_folder ~ '/"') }}">Lokale Drive-Dateien durchsuchen</a>{% endif %}
         <form method="post" action="{{ url_for('google_drive_admin.sync_now') }}">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <button class="btn btn-success" type="submit" {% if not drive_allowed or not drive_state.enabled %}disabled{% endif %}><i class="fas fa-arrows-rotate me-1" aria-hidden="true"></i>Jetzt synchronisieren</button>
@@ -156,7 +166,7 @@
           {% for item in drive_links %}
           <tr data-drive-link-row data-status="{{ item.status }}" data-search="{{ ((item.remote_name or item.drive_file_id) ~ ' ' ~ (item.local_relative_path or '') ~ ' ' ~ item.mime_type ~ ' ' ~ item.status ~ ' ' ~ (item.last_error or ''))|lower }}">
             <td>{{ item.remote_name or item.drive_file_id }}</td>
-            <td>{% if item.local_relative_path %}<code>{{ item.local_relative_path }}</code>{% else %}<span class="text-secondary">nur Cloud</span>{% endif %}</td>
+            <td>{% if item.local_relative_path %}{% if item.document_id %}<a data-drive-local-document href="{{ url_for('documents.detail', document_id=item.document_id) }}"><code>{{ item.local_relative_path }}</code></a>{% else %}<code>{{ item.local_relative_path }}</code>{% endif %}{% else %}<span class="text-secondary">nur Cloud</span>{% endif %}</td>
             <td><span class="small">{{ item.mime_type }}</span></td>
             <td>
               {% if item.status == 'synced' %}<span class="badge text-bg-success">synchron</span>

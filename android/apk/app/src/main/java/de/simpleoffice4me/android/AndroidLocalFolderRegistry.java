@@ -35,11 +35,11 @@ final class AndroidLocalFolderRegistry {
         this.preferences = this.context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
-    synchronized String listJson() {
+    synchronized String listJson(String owner) {
         JSONArray result = new JSONArray();
         for (String id : sortedIds()) {
             JSONObject entry = readEntry(id);
-            if (entry != null) {
+            if (entry != null && accessibleTo(entry, owner)) {
                 try {
                     result.put(publicEntry(entry));
                 } catch (JSONException error) {
@@ -50,58 +50,71 @@ final class AndroidLocalFolderRegistry {
         return result.toString();
     }
 
-    synchronized String saveSelection(Intent result, String replaceId) throws JSONException {
+    synchronized String saveSelection(Intent result, String replaceId, String owner) throws JSONException {
         Uri treeUri = result == null ? null : result.getData();
         if (treeUri == null || !"content".equalsIgnoreCase(treeUri.getScheme())) {
             throw new IllegalArgumentException("Der ausgewählte Ordner hat keine gültige Android-Berechtigung.");
         }
+        if (!validOwner(owner) || !DocumentsContract.isTreeUri(treeUri)) {
+            throw new IllegalArgumentException("Es ist eine aktive Gerätequellen-Seite und ein freigegebener Ordner erforderlich.");
+        }
+        String treeId = DocumentsContract.getTreeDocumentId(treeUri);
+        if (("com.android.externalstorage.documents".equals(treeUri.getAuthority()) && treeId.endsWith(":"))
+                || ("com.android.providers.downloads.documents".equals(treeUri.getAuthority()) && "downloads".equals(treeId))) {
+            throw new IllegalArgumentException("Bitte einen Unterordner auswählen, nicht das Stammverzeichnis.");
+        }
         String id = replaceId == null || replaceId.trim().isEmpty()
                 ? UUID.randomUUID().toString() : validId(replaceId);
         JSONObject previous = readEntry(id);
-        if (replaceId != null && !replaceId.trim().isEmpty() && previous == null) {
+        if (replaceId != null && !replaceId.trim().isEmpty() && (previous == null || !accessibleTo(previous, owner))) {
             throw new IllegalArgumentException("Der zu ersetzende lokale Ordner wurde nicht gefunden.");
         }
         int grantFlags = result.getFlags()
-                & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                & Intent.FLAG_GRANT_READ_URI_PERMISSION;
         if ((grantFlags & Intent.FLAG_GRANT_READ_URI_PERMISSION) == 0) {
             throw new SecurityException("Android hat keinen Lesezugriff auf den ausgewählten Ordner erteilt.");
         }
         ContentResolver resolver = context.getContentResolver();
-        resolver.takePersistableUriPermission(treeUri, grantFlags);
-        boolean reusedGrant = previous != null && treeUri.toString().equals(previous.optString("uri", ""));
+        String name = folderName(treeUri);
 
         JSONObject entry = new JSONObject();
         entry.put("id", id);
         entry.put("uri", treeUri.toString());
         entry.put("grants", grantFlags);
-        entry.put("name", folderName(treeUri));
+        entry.put("name", name);
+        entry.put("source_owner", owner);
         entry.put("description", previous == null ? "" : previous.optString("description", ""));
         entry.put("created_at", previous == null ? System.currentTimeMillis() : previous.optLong("created_at"));
         entry.put("updated_at", System.currentTimeMillis());
 
         Set<String> ids = new HashSet<>(preferences.getStringSet(IDS_KEY, new HashSet<>()));
         if (!ids.contains(id) && ids.size() >= MAX_FOLDERS) {
-            if (!reusedGrant) releaseGrant(resolver, treeUri, grantFlags);
             throw new IllegalStateException("Höchstens 100 lokale Ordner können gespeichert werden.");
         }
         ids.add(id);
-        boolean saved = preferences.edit()
-                .putString(PREFIX + id, entry.toString())
-                .putStringSet(IDS_KEY, ids)
-                .commit();
-        if (!saved) {
-            if (!reusedGrant) releaseGrant(resolver, treeUri, grantFlags);
-            throw new IllegalStateException("Die lokale Ordnerfreigabe konnte nicht gespeichert werden.");
-        }
-        if (previous != null && !treeUri.toString().equals(previous.optString("uri", ""))) {
-            releaseGrant(resolver, Uri.parse(previous.optString("uri", "")), previous.optInt("grants"));
+        // Queue completion and named-source registration can overlap. Use the same
+        // lock as queue grant cleanup so one cannot release the other's grant.
+        synchronized (AndroidFolderImportGrantStore.class) {
+            int newlyGranted = grantFlags & ~persistedFlags(resolver, treeUri);
+            resolver.takePersistableUriPermission(treeUri, grantFlags);
+            boolean saved = preferences.edit()
+                    .putString(PREFIX + id, entry.toString())
+                    .putStringSet(IDS_KEY, ids)
+                    .commit();
+            if (!saved) {
+                releaseGrant(resolver, treeUri, newlyGranted);
+                throw new IllegalStateException("Die lokale Ordnerfreigabe konnte nicht gespeichert werden.");
+            }
+            if (previous != null) {
+                releaseUnusedGrant(resolver, Uri.parse(previous.optString("uri", "")), previous.optInt("grants"));
+            }
         }
         return publicEntry(entry).toString();
     }
 
-    synchronized String rename(String idValue, String nameValue, String descriptionValue) throws JSONException {
+    synchronized String rename(String idValue, String nameValue, String descriptionValue, String owner) throws JSONException {
         String id = validId(idValue);
-        JSONObject entry = requireEntry(id);
+        JSONObject entry = requireEntry(id, owner);
         String name = cleanText(nameValue, MAX_NAME);
         String description = cleanText(descriptionValue, MAX_DESCRIPTION);
         if (name.isEmpty()) throw new IllegalArgumentException("Bitte einen Anzeigenamen eingeben.");
@@ -114,32 +127,75 @@ final class AndroidLocalFolderRegistry {
         return publicEntry(entry).toString();
     }
 
-    synchronized String check(String idValue) throws JSONException {
-        JSONObject entry = requireEntry(validId(idValue));
+    synchronized String check(String idValue, String owner) throws JSONException {
+        JSONObject entry = requireEntry(validId(idValue), owner);
         JSONObject result = publicEntry(entry);
         result.put("status", accessStatus(Uri.parse(entry.optString("uri", ""))));
         return result.toString();
     }
 
-    synchronized boolean remove(String idValue) {
+    synchronized boolean remove(String idValue, String owner) {
         String id = validId(idValue);
         JSONObject entry = readEntry(id);
-        if (entry == null) return false;
+        if (entry == null || !accessibleTo(entry, owner)) return false;
         Uri uri = Uri.parse(entry.optString("uri", ""));
         Set<String> ids = new HashSet<>(preferences.getStringSet(IDS_KEY, new HashSet<>()));
         ids.remove(id);
-        boolean removed = preferences.edit().remove(PREFIX + id).putStringSet(IDS_KEY, ids).commit();
-        if (removed) releaseGrant(context.getContentResolver(), uri, entry.optInt("grants"));
-        return removed;
+        synchronized (AndroidFolderImportGrantStore.class) {
+            boolean removed = preferences.edit().remove(PREFIX + id).putStringSet(IDS_KEY, ids).commit();
+            if (removed) releaseUnusedGrant(context.getContentResolver(), uri, entry.optInt("grants"));
+            return removed;
+        }
     }
 
-    synchronized Uri treeUriForImport(String idValue) {
-        JSONObject entry = requireEntry(validId(idValue));
+    synchronized Uri treeUriForImport(String idValue, String owner) {
+        JSONObject entry = requireEntry(validId(idValue), owner);
         Uri uri = Uri.parse(entry.optString("uri", ""));
         if (!hasReadGrant(context.getContentResolver(), uri)) {
             throw new SecurityException("Ordnerzugriff wurde widerrufen. Bitte den Ordner erneut auswählen.");
         }
         return uri;
+    }
+
+    synchronized Uri treeUriForSearch(String idValue, String owner) {
+        JSONObject entry = requireEntry(validId(idValue), owner);
+        if (!validOwner(owner) || !owner.equals(entry.optString("source_owner"))) {
+            throw new SecurityException("Permission must be selected for this local profile");
+        }
+        return treeUriForImport(idValue, owner);
+    }
+
+    static boolean validOwner(String owner) {
+        return owner != null && owner.matches("[0-9a-f]{64}");
+    }
+
+    private static boolean accessibleTo(JSONObject entry, String owner) {
+        String selectedOwner = entry.optString("source_owner");
+        return selectedOwner.isEmpty() || selectedOwner.equals(owner);
+    }
+
+    static boolean retainsReadGrant(Context context, Uri uri) {
+        AndroidLocalFolderRegistry registry = new AndroidLocalFolderRegistry(context);
+        return (registry.savedGrantFlags(uri) & Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0;
+    }
+
+    private int savedGrantFlags(Uri uri) {
+        int sharedFlags = 0;
+        for (String id : sortedIds()) {
+            JSONObject entry = readEntry(id);
+            if (entry != null && uri.toString().equals(entry.optString("uri"))) {
+                sharedFlags |= entry.optInt("grants");
+            }
+        }
+        return sharedFlags;
+    }
+
+    private void releaseUnusedGrant(ContentResolver resolver, Uri uri, int removedFlags) {
+        int retained = savedGrantFlags(uri);
+        if (AndroidFolderImportGrantStore.ownsTemporaryReadGrant(context, uri)) {
+            retained |= Intent.FLAG_GRANT_READ_URI_PERMISSION;
+        }
+        releaseGrant(resolver, uri, removedFlags & ~retained);
     }
 
     private List<String> sortedIds() {
@@ -160,9 +216,11 @@ final class AndroidLocalFolderRegistry {
         }
     }
 
-    private JSONObject requireEntry(String id) {
+    private JSONObject requireEntry(String id, String owner) {
         JSONObject entry = readEntry(id);
-        if (entry == null) throw new IllegalArgumentException("Lokaler Ordner wurde nicht gefunden.");
+        if (entry == null || !accessibleTo(entry, owner)) {
+            throw new IllegalArgumentException("Lokaler Ordner wurde nicht gefunden.");
+        }
         return entry;
     }
 
@@ -175,6 +233,7 @@ final class AndroidLocalFolderRegistry {
                 .put("name", entry.optString("name"))
                 .put("description", entry.optString("description"))
                 .put("status", status)
+                .put("search_ready", validOwner(entry.optString("source_owner")))
                 .put("created_at", entry.optLong("created_at"))
                 .put("updated_at", entry.optLong("updated_at"));
     }
@@ -199,10 +258,16 @@ final class AndroidLocalFolderRegistry {
     }
 
     private static boolean hasReadGrant(ContentResolver resolver, Uri uri) {
+        return (persistedFlags(resolver, uri) & Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0;
+    }
+
+    private static int persistedFlags(ContentResolver resolver, Uri uri) {
         for (android.content.UriPermission permission : resolver.getPersistedUriPermissions()) {
-            if (uri.equals(permission.getUri()) && permission.isReadPermission()) return true;
+            if (!uri.equals(permission.getUri())) continue;
+            return (permission.isReadPermission() ? Intent.FLAG_GRANT_READ_URI_PERMISSION : 0)
+                    | (permission.isWritePermission() ? Intent.FLAG_GRANT_WRITE_URI_PERMISSION : 0);
         }
-        return false;
+        return 0;
     }
 
     private String folderName(Uri treeUri) {
@@ -249,7 +314,7 @@ final class AndroidLocalFolderRegistry {
     }
 
     private static void releaseGrant(ContentResolver resolver, Uri uri, int flags) {
-        if (uri == null) return;
+        if (uri == null || flags == 0) return;
         try {
             resolver.releasePersistableUriPermission(uri, flags);
         } catch (SecurityException ignored) {

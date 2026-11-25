@@ -106,7 +106,15 @@ test('real Node inspector pauses before entry, evaluates module scope, and detac
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'smoke-inspector-test-'));
   const entry = path.join(root, 'entry.cjs');
   const marker = path.join(root, 'started');
-  fs.writeFileSync(entry, `require('node:fs').writeFileSync(${JSON.stringify(marker)}, globalThis.preMainValue);\nsetInterval(() => {}, 1000);\n`);
+  // Publish the marker only after writing the complete value. A direct write
+  // creates an empty file first, which the parent could observe while polling.
+  fs.writeFileSync(entry, `
+    const fs = require('node:fs');
+    const marker = ${JSON.stringify(marker)};
+    fs.writeFileSync(marker + '.pending', globalThis.preMainValue);
+    fs.renameSync(marker + '.pending', marker);
+    setInterval(() => {}, 1000);
+  `);
   const child = spawn(process.execPath, ['--inspect-brk=127.0.0.1:0', entry], {stdio: ['ignore', 'pipe', 'pipe']});
   let inspector, output = '', exit;
   child.stderr.on('data', chunk => { output += chunk.toString(); });

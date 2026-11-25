@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
-<main id="main-content" class="container-xl py-4" data-local-folder-page data-upload-url="{{ url_for('documents.upload') }}" data-csrf-token="{{ csrf_token() }}">
+<main id="main-content" class="container-xl py-4" data-local-folder-page data-android-folder-owner="{{ android_folder_owner }}" data-upload-url="{{ url_for('documents.upload') }}" data-csrf-token="{{ csrf_token() }}">
   <a class="small text-decoration-none" href="{{ url_for('documents.settings') }}">← {{ 'Settings' if g.language == 'en' else 'Einstellungen' }}</a>
   <header class="d-flex flex-wrap justify-content-between align-items-end gap-3 my-3">
     <div>
@@ -16,6 +16,19 @@
   <div class="alert alert-warning" id="local-folder-fallback" role="status" aria-live="polite" hidden>
     {{ 'This browser offers no persistent folder picker. Files can still be picked via' if g.language == 'en' else 'Dieser Browser bietet keine dauerhafte Ordnerauswahl an. Dateien können weiterhin über' }} <a href="{{ url_for('documents.index') }}">{{ 'importing documents' if g.language == 'en' else 'Dokumente importieren' }}</a> {{ 'selected.' if g.language == 'en' else 'ausgewählt werden.' }}
   </div>
+  <section class="card mb-3" id="local-folder-search-panel" hidden>
+    <div class="card-body">
+      <h2 class="h5" id="local-folder-search-title">{{ 'Files in the selected folder' if g.language == 'en' else 'Dateien im ausgewählten Ordner' }}</h2>
+      <p class="small text-secondary">{{ 'Only file names in the granted folder and its subfolders are searched on this device. Nothing is copied or sent to SimpleOffice. For Drive, only what the Android picker makes available or the separate managed Drive sync is supported.' if g.language == 'en' else 'Durchsucht werden nur Dateinamen im freigegebenen Ordner und seinen Unterordnern auf diesem Gerät. Dabei wird nichts kopiert oder an SimpleOffice übertragen. Für Drive gilt: nur vom Android-Dialog angebotene Quellen oder der getrennte Abgleich des verwalteten Drive-Ordners.' }} <a href="{{ url_for('google_drive_admin.index') }}">Google Drive</a></p>
+      <label class="form-label" for="local-folder-search-input">{{ 'Search file names' if g.language == 'en' else 'Dateinamen suchen' }}</label>
+      <div class="d-flex flex-wrap gap-2 mb-2">
+        <input type="search" class="form-control w-auto" id="local-folder-search-input" maxlength="120">
+        <button class="btn btn-outline-secondary" id="local-folder-search-refresh" type="button">{{ 'Refresh' if g.language == 'en' else 'Neu einlesen' }}</button>
+      </div>
+      <p class="small text-secondary" id="local-folder-search-status" role="status" aria-live="polite"></p>
+      <ul class="list-group" id="local-folder-search-results" aria-labelledby="local-folder-search-title"></ul>
+    </div>
+  </section>
   <section id="local-folder-list" class="row g-3" aria-label="{{ 'Stored local folders' if g.language == 'en' else 'Gespeicherte lokale Ordner' }}"></section>
   <div class="alert alert-light border mt-3" id="local-folder-empty" role="status" aria-live="polite" hidden>
     {{ 'No local folder shared yet. Picking one needs an explicit confirmation in the system dialog.' if g.language == 'en' else 'Noch kein lokaler Ordner freigegeben. Die Auswahl benötigt eine ausdrückliche Bestätigung im Systemdialog.' }}

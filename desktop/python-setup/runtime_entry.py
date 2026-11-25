@@ -72,17 +72,19 @@ def main() -> None:
     proxy_status = configure_lan_proxy(app, app.config["DOCUMENT_ROOT"], "127.0.0.1", backend_port)
     if proxy_status["state"] == "error":
         print(f"Desktop LAN proxy could not start: {proxy_status['message']}", flush=True)
+    from app.google_calendar_worker import google_calendar_background
     try:
-        serve(
-            app,
-            host="127.0.0.1",
-            port=backend_port,
-            threads=max(2, min(int(server["wsgi_threads"]), 16)),
-            channel_timeout=120,
-            max_request_body_size=int(app.config["MAX_CONTENT_LENGTH"]),
-            expose_tracebacks=False,
-            ident="SimpleOffice4Me Desktop",
-        )
+        with google_calendar_background(app):
+            serve(
+                app,
+                host="127.0.0.1",
+                port=backend_port,
+                threads=max(2, min(int(server["wsgi_threads"]), 16)),
+                channel_timeout=120,
+                max_request_body_size=int(app.config["MAX_CONTENT_LENGTH"]),
+                expose_tracebacks=False,
+                ident="SimpleOffice4Me Desktop",
+            )
     finally:
         lan_proxy_runtime.stop(state="stopped", message="Desktop backend stopped")
 

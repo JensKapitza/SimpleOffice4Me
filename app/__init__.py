@@ -349,6 +349,8 @@ replication_store.init_app(app)
 
 from . import documents
 app.register_blueprint(documents.bp)
+from .google_calendar_worker import google_calendar_worker_command
+app.cli.add_command(google_calendar_worker_command)
 
 from . import quick_share
 app.register_blueprint(quick_share.bp)
@@ -480,6 +482,9 @@ app.register_blueprint(v3_workboard_routes.bp)
 
 from . import v3_android_offline_routes
 app.register_blueprint(v3_android_offline_routes.bp)
+
+from . import android_device_sources
+app.register_blueprint(android_device_sources.bp)
 
 from . import reader_routes
 app.register_blueprint(reader_routes.bp)

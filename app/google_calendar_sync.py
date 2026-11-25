@@ -6,20 +6,26 @@ selected local calendar, but never pushes local data to Google.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import http.client
 import json
 import os
 import ssl
+import tempfile
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import quote, urlencode, urlsplit
+
+from flask import current_app
 
 from . import marketplace_credentials as _marketplace
 from .calendar_metadata import normalize_metadata
 from .calendar_store import CalendarStore
 from .calendar_collections import CalendarCollections
-from .document_store import CONTROL_DIR, atomic_json_write, utc_now
+from .document_store import CONTROL_DIR, utc_now
 from .file_lock import exclusive_file_lock
+from .google_calendar_automatic import AutomaticGoogleCalendar, wall_clock
 from .revision_history import RevisionHistory
 
 TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -28,6 +34,14 @@ MAX_BYTES = 5 * 1024 * 1024
 MAX_PAGES = 20
 MAX_EVENTS = 5000
 TIMEOUT = 10
+# No time, type or invitation filters. Identity/cursor evidence binds to
+# this exact query so older, differently filtered cursors are never reused.
+EVENT_QUERY = {
+    "maxResults": "2500", "showDeleted": "true", "singleEvents": "false",
+    "showHiddenInvitations": "true",
+}
+ABSENT_ETAG = "simpleoffice:absent-from-verified-google-snapshot"
+
 
 
 class GoogleCalendarError(ValueError):
@@ -42,13 +56,15 @@ Transport = Callable[[str, str, dict[str, str], bytes | None], dict[str, Any]]
 
 
 class GoogleCalendarSync:
-    def __init__(self, root: str | Path, transport: Transport | None = None):
+    def __init__(self, root: str | Path, transport: Transport | None = None, *, clock=wall_clock):
         self.root = Path(root).expanduser().resolve()
         self.state_path = self.root / CONTROL_DIR / "google-calendar-sync.json"
         self.events = CalendarStore(self.root)
         self.calendars = CalendarCollections(self.root)
         self.history = RevisionHistory(self.root)
         self.transport = transport or self._http
+        self.clock = clock
+        self.automatic = AutomaticGoogleCalendar(self)
 
     @staticmethod
     def _accounts() -> dict[str, dict[str, str]]:
@@ -70,28 +86,32 @@ class GoogleCalendarSync:
         except GoogleCalendarError:
             return False
 
-    def status(self, actor: str) -> dict[str, Any]:
+    def status(self, actor: str, *, user_id: int | None = None) -> dict[str, Any]:
         state = self._state().get(actor, {})
         try:
             cfg = self._config(actor, required=False)
+            target = self.calendars.get(cfg["target_calendar_id"], actor, write=True) if cfg else {}
             error = ""
-        except GoogleCalendarError as exc:
-            cfg = {}
+        except ValueError as exc:
+            cfg, target = {}, {}
             error = str(exc)
+        key = self.config_key(actor, cfg, target) if cfg else ""
+        current = state if key and state.get("config_key") == key else {}
         return {
             "configured": bool(cfg),
             "calendar_id": cfg.get("calendar_id", "") if cfg else "",
             "target_calendar_id": cfg.get("target_calendar_id", "default") if cfg else "default",
-            "last_sync": state.get("last_sync", ""),
-            "has_sync_token": bool(state.get("sync_token")),
-            "last_result": state.get("last_result", {}),
+            "last_sync": current.get("last_sync", ""),
+            "has_sync_token": bool(current.get("sync_token")),
+            "last_result": current.get("last_result", {}),
+            "automatic": self.automatic.status(key, state, user_id),
             "configuration_error": error,
         }
 
     def _config(self, actor: str, required: bool = True) -> dict[str, str]:
         value = self._accounts().get(actor, {})
         required_keys = ("client_id", "client_secret", "refresh_token", "calendar_id")
-        if not value or any(not str(value.get(key, "")).strip() for key in required_keys):
+        if not isinstance(value, dict) or any(not isinstance(value.get(key), str) or not value[key].strip() for key in required_keys):
             if required:
                 raise GoogleCalendarError("Google Calendar is not configured for this user")
             return {}
@@ -99,6 +119,56 @@ class GoogleCalendarSync:
             key: str(value.get(key, "")).strip()
             for key in (*required_keys, "target_calendar_id")
         } | {"target_calendar_id": str(value.get("target_calendar_id", "default")).strip() or "default"}
+
+    def _connection(self, actor: str) -> tuple[dict[str, str], dict]:
+        cfg = self._config(actor)
+        return cfg, self.calendars.get(cfg["target_calendar_id"], actor, write=True)
+
+    @staticmethod
+    def _key(values) -> str:
+        secret = current_app.secret_key
+        key = secret.encode() if isinstance(secret, str) else bytes(secret)
+        return hmac.new(key, json.dumps(values, sort_keys=True).encode(), hashlib.sha256).hexdigest()
+
+    def config_key(self, actor: str, cfg: dict[str, str], target: dict) -> str:
+        return self._key([actor, target["owner"], cfg, EVENT_QUERY])
+
+    def _scope(self, actor: str, cfg: dict[str, str], target: dict) -> str:
+        remote = cfg["calendar_id"]
+        # The alias 'primary' can refer to a different Google account after
+        # replacement of its refresh token. Explicit calendar IDs are stable.
+        identity = [actor, target["owner"], cfg["target_calendar_id"], remote]
+        if remote == "primary":
+            identity.extend([cfg["client_id"], cfg["refresh_token"]])
+        return self._key(identity)
+
+    def account_lock(self, actor: str, *, blocking: bool = True):
+        actor_key = hashlib.sha256(actor.encode()).hexdigest()
+        return exclusive_file_lock(self.state_path.parent / f".google-calendar-sync-{actor_key}.lock", blocking=blocking)
+
+    def _update_state(self, actor: str, update) -> None:
+        # The atomic writer uses one path; merge each account change under a
+        # separate file-wide lock without holding it across remote calls.
+        with exclusive_file_lock(self.state_path.with_suffix(".lock")):
+            state = self._state()
+            changed = update(state.get(actor, {}))
+            if changed:
+                state[actor] = changed
+            else:
+                state.pop(actor, None)
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=self.state_path.parent, delete=False,
+                prefix=".google-calendar-state-",
+            ) as stream:
+                temporary = Path(stream.name)
+                try:
+                    json.dump(state, stream, ensure_ascii=False, indent=2)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                    stream.close()
+                    temporary.replace(self.state_path)
+                finally:
+                    temporary.unlink(missing_ok=True)
 
     @staticmethod
     def _http(method: str, url: str, headers: dict[str, str], body: bytes | None) -> dict[str, Any]:
@@ -155,13 +225,15 @@ class GoogleCalendarSync:
             raise GoogleCalendarError("Google OAuth did not return an access token")
         return token
 
-    def _fetch(self, actor: str, sync_token: str = "") -> tuple[list[dict[str, Any]], str]:
-        cfg = self._config(actor)
+    def _fetch(self, cfg: dict[str, str], sync_token: str = "") -> tuple[list[dict[str, Any]], str, bool]:
         access_token = self._token(cfg)
         events: list[dict[str, Any]] = []
         page_token = ""
+        page_tokens: set[str] = set()
+        event_ids: set[str] = set()
+        owner_snapshot = True
         for _ in range(MAX_PAGES):
-            query = {"maxResults": "2500", "showDeleted": "true", "singleEvents": "false"}
+            query = dict(EVENT_QUERY)
             if sync_token:
                 query["syncToken"] = sync_token
             if page_token:
@@ -169,17 +241,33 @@ class GoogleCalendarSync:
             url = f"{API_ROOT}/calendars/{quote(cfg['calendar_id'], safe='')}/events?{urlencode(query)}"
             result = self.transport("GET", url, {"Authorization": f"Bearer {access_token}"}, None)
             items = result.get("items", [])
-            if not isinstance(items, list):
+            owner_snapshot = (
+                owner_snapshot and result.get("kind") == "calendar#events"
+                and result.get("accessRole") == "owner" and "items" in result
+            )
+            if not isinstance(items, list) or any(
+                not isinstance(item, dict) or not isinstance(item.get("id"), str)
+                or not item["id"].strip() for item in items
+            ):
                 raise GoogleCalendarError("Google Calendar event list is invalid")
-            events.extend(item for item in items if isinstance(item, dict))
+            for item in items:
+                event_id = item["id"].strip()
+                if event_id in event_ids:
+                    raise GoogleCalendarError("Google Calendar returned duplicate event IDs")
+                event_ids.add(event_id)
+            events.extend(items)
             if len(events) > MAX_EVENTS:
                 raise GoogleCalendarError("Google Calendar sync exceeds 5000 changed events")
-            page_token = str(result.get("nextPageToken", ""))
+            page_token = result.get("nextPageToken", "")
+            next_sync = result.get("nextSyncToken", "")
+            if (not isinstance(page_token, str) or not isinstance(next_sync, str)
+                    or (page_token and next_sync) or (page_token and page_token in page_tokens)):
+                raise GoogleCalendarError("Google Calendar pagination is invalid")
             if not page_token:
-                next_sync = str(result.get("nextSyncToken", ""))
                 if not next_sync:
                     raise GoogleCalendarError("Google Calendar did not return nextSyncToken")
-                return events, next_sync
+                return events, next_sync, owner_snapshot
+            page_tokens.add(page_token)
         raise GoogleCalendarError("Google Calendar sync exceeds 20 pages")
 
     @staticmethod
@@ -242,7 +330,13 @@ class GoogleCalendarSync:
             "recurrence": {"rrule": recurrence, "rdates": [], "exdates": [], "timezone": timezone_id} if recurrence else {},
             "_deleted_stub": bool(cancelled and not start),
             **metadata,
-            "_source": {"provider": "google-calendar", "source_id": event_id, "etag": str(value.get("etag", "")), "updated": str(value.get("updated", "")), "ical_uid": str(value.get("iCalUID", ""))},
+            "_source": {
+                "provider": "google-calendar", "source_id": event_id, "etag": str(value.get("etag", "")),
+                "updated": str(value.get("updated", "")), "ical_uid": str(value.get("iCalUID", "")),
+                "standalone": not cancelled and not value.get("recurrence")
+                and not value.get("recurringEventId") and not value.get("originalStartTime")
+                and value.get("eventType", "default") == "default",
+            },
         }
 
     def synchronize(self, actor: str, apply: bool = False, conflict_policy: str = "") -> dict[str, Any]:
@@ -251,8 +345,14 @@ class GoogleCalendarSync:
             raise GoogleCalendarError("invalid Google Calendar conflict policy")
         if conflict_policy and not apply:
             raise GoogleCalendarError("conflicts can only be resolved while applying")
-        with exclusive_file_lock(self.state_path.parent / f".google-calendar-sync-{actor}.lock"):
-            return self._synchronize(actor, apply, conflict_policy)
+        with self.account_lock(actor, blocking=False) as acquired:
+            if not acquired:
+                raise GoogleCalendarError("Google Calendar sync is already running")
+            connection = self._connection(actor)
+            result = self._synchronize(actor, apply, conflict_policy, connection=connection)
+            if apply:
+                self.automatic.manual_result(actor, self.config_key(actor, *connection), bool(result["conflicts"]))
+            return result
 
     @staticmethod
     def _cancelled_values(item: dict[str, Any], previous: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -266,32 +366,94 @@ class GoogleCalendarSync:
             for key in ("title", "reason", "start", "end", "timezone", "participants", "organizer", "recurrence", "ical_status", "transparency", "classification", "priority", "location", "event_url", "resources", "conferences")
         } | {"status": "cancelled", "ical_status": "cancelled", "_source": source_copy}
 
-    def _synchronize(self, actor: str, apply: bool, conflict_policy: str) -> dict[str, Any]:
-        cfg = self._config(actor)
-        target = self.calendars.get(cfg["target_calendar_id"], actor, write=True)
-        state = self._state(); account_state = state.get(actor, {})
-        token = str(account_state.get("sync_token", ""))
-        reset = False
+    @staticmethod
+    def _missing_from_snapshot(local: dict, raw_ids: set[str], scope: str, config_key: str,
+                               owner_snapshot: bool) -> tuple[list[dict], int]:
+        missing, unverified = [], 0
+        for source_id, previous in local.items():
+            source = previous["source"]
+            if (source_id in raw_ids or previous.get("status", "active") != "active"
+                    or source.get("snapshot_absent")):
+                continue
+            if (not owner_snapshot or source.get("scope") != scope
+                    or source.get("observation_key") != config_key
+                    or not source.get("standalone") or previous.get("recurrence")):
+                unverified += 1
+                continue
+            # Treat it like a cancellation stub, never a hard delete. An
+            # explicit keep-local acknowledgement suppresses repeat conflicts.
+            missing.append({
+                "_deleted_stub": True, "title": previous.get("title", ""),
+                "_source": {**source, "etag": ABSENT_ETAG, "updated": "", "snapshot_absent": True},
+            })
+        return missing, unverified
+
+    def _synchronize(self, actor: str, apply: bool, conflict_policy: str, *, connection, recheck=lambda: True) -> dict[str, Any]:
+        cfg, target = connection
+        config_key = self.config_key(actor, cfg, target)
+        scope = self._scope(actor, cfg, target)
+        account_state = self._state().get(actor, {})
+        current = account_state if account_state.get("config_key") == config_key else {}
+        token = str(current.get("sync_token", ""))
+        reset = bool(account_state.get("sync_token") and not token)
+        expired = False
         try:
-            raw, next_token = self._fetch(actor, token)
+            raw, next_token, owner_snapshot = self._fetch(cfg, token)
         except GoogleGone:
-            raw, next_token = self._fetch(actor, "")
-            reset = True
+            if not token:
+                raise
+            raw, next_token, owner_snapshot = self._fetch(cfg)
+            reset = expired = True
         mapped = [self.map_event(item) for item in raw]
-        local = {
-            item.get("source", {}).get("source_id"): item
-            for item in self.events.events(actor)
-            if isinstance(item.get("source"), dict) and item["source"].get("provider") == "google-calendar"
-        }
+        received = len(mapped)
+        for item in mapped:
+            if owner_snapshot and item["_source"]["standalone"]:
+                item["_source"]["observation_key"] = config_key
+        if apply and (not recheck() or self.config_key(actor, *self._connection(actor)) != config_key):
+            raise GoogleCalendarError("Google Calendar configuration or permission changed during the pull")
+        local = {}
+        for item in self.events.events(actor):
+            source = item.get("source", {})
+            if not isinstance(source, dict) or source.get("provider") != "google-calendar":
+                continue
+            source_id = source.get("source_id")
+            if not isinstance(source_id, str) or not source_id:
+                continue
+            if item.get("owner") != target["owner"] or item.get("calendar_id", "default") != cfg["target_calendar_id"]:
+                continue
+            if source.get("scope") == scope:
+                local[source_id] = item
+            elif not source.get("scope") and item.get("created_by") == f"google:{actor}":
+                # Safely adopt the pre-scope record on the first keyed pull.
+                if not account_state.get("config_key") or current:
+                    local.setdefault(source_id, item)
+        missing, unverified = [], 0
+        if expired:
+            missing, unverified = self._missing_from_snapshot(
+                local, {item["id"].strip() for item in raw}, scope, config_key, owner_snapshot,
+            )
+        mapped.extend(missing)
         conflicts = []
         applicable = []
         keep_local = []
         for item in mapped:
             source = item["_source"]; previous = local.get(source["source_id"])
+            source["scope"] = scope
+            if previous and not previous["source"].get("scope"):
+                old_uid = previous["source"].get("ical_uid")
+                if old_uid and source["ical_uid"] and old_uid != source["ical_uid"]:
+                    previous = None
+                    local.pop(source["source_id"], None)
             locally_changed = previous and previous.get("updated_by") != f"google:{actor}" and previous.get("updated_at", "") > previous.get("source", {}).get("synced_at", "")
             remotely_changed = not previous or previous.get("source", {}).get("etag") != source["etag"]
+            refresh_observation = (
+                previous and not locally_changed and source.get("observation_key")
+                and source["observation_key"] != previous["source"].get("observation_key")
+            )
             if locally_changed and remotely_changed:
                 conflict = {"source_id": source["source_id"], "title": previous.get("title", ""), "remote_title": item["title"], "local_updated_at": previous.get("updated_at", ""), "remote_updated_at": source["updated"]}
+                if source.get("snapshot_absent"):
+                    conflict["remote_absent"] = True
                 if conflict_policy == "google":
                     candidate = self._cancelled_values(item, previous)
                     if candidate is not None:
@@ -300,39 +462,57 @@ class GoogleCalendarSync:
                     keep_local.append((previous, source))
                 else:
                     conflicts.append(conflict)
-            elif remotely_changed:
+            elif (remotely_changed or refresh_observation
+                  or (previous and not previous["source"].get("scope") and not locally_changed)):
                 # Deleted incremental resources do not necessarily carry
                 # DTSTART/DTEND. Preserve the last known interval so the local
                 # lifecycle can be changed without inventing a timestamp.
                 candidate = self._cancelled_values(item, previous)
                 if candidate is not None:
                     applicable.append(candidate)
-        result = {"received": len(mapped), "applicable": len(applicable), "conflicts": conflicts, "reset": reset, "applied": 0, "kept_local": 0, "conflict_policy": conflict_policy}
+        result = {
+            "received": received, "applicable": len(applicable), "conflicts": conflicts, "reset": reset,
+            "applied": 0, "kept_local": 0, "conflict_policy": conflict_policy,
+            "snapshot_missing": len(missing), "snapshot_unverified": unverified, "cancelled_from_snapshot": 0,
+        }
         if apply:
             for item in applicable:
                 item = dict(item)
                 source = {**item.pop("_source"), "synced_at": utc_now()}
-                event = self.events.upsert_external_event(item, f"google:{actor}", source, owner=target["owner"], calendar_id=cfg["target_calendar_id"], access_actor=actor)
+                previous = local.get(source["source_id"])
+                event = self.events.upsert_external_event(
+                    item, f"google:{actor}", source, owner=target["owner"],
+                    calendar_id=cfg["target_calendar_id"], access_actor=actor,
+                    expected=previous,
+                )
                 self.calendars.record_event_move(event, cfg["target_calendar_id"], actor)
                 result["applied"] += 1
+                if source.get("snapshot_absent"):
+                    result["cancelled_from_snapshot"] += 1
             for previous, remote_source in keep_local:
                 source = {**remote_source, "synced_at": utc_now()}
                 self.events.acknowledge_external_version(previous["event_id"], actor, source, previous.get("updated_at", ""))
                 result["kept_local"] += 1
+            last_result = {key: value for key, value in result.items() if key != "conflicts"}
+            updated = {"config_key": config_key, "last_result": last_result}
             if not conflicts:
-                state[actor] = {"sync_token": next_token, "last_sync": utc_now(), "last_result": {key: value for key, value in result.items() if key != "conflicts"}}
-                atomic_json_write(self.state_path, state)
+                updated.update(sync_token=next_token, last_sync=utc_now())
             else:
-                state[actor] = {**account_state, "last_result": {**{key: value for key, value in result.items() if key != "conflicts"}, "conflict_count": len(conflicts), "conflict_titles": [item["title"] for item in conflicts[:20]]}}
-                atomic_json_write(self.state_path, state)
+                last_result.update(conflict_count=len(conflicts), conflict_titles=[item["title"] for item in conflicts[:20]])
+                updated.update(sync_token=token, last_sync=current.get("last_sync", ""))
+            self._update_state(actor, lambda value: {**value, **updated})
             self.history.record("google_calendar_sync_applied", actor, "google-calendar-sync", actor, result)
         else:
             self.history.record("google_calendar_sync_previewed", actor, "google-calendar-sync", actor, result)
         return result
 
     def disable(self, actor: str) -> None:
-        with exclusive_file_lock(self.state_path.parent / f".google-calendar-sync-{actor}.lock"):
-            state = self._state(); state.pop(actor, None); atomic_json_write(self.state_path, state)
+        with self.account_lock(actor, blocking=False) as acquired:
+            if not acquired:
+                raise GoogleCalendarError("Google Calendar sync is already running")
+            self._update_state(actor, lambda value: {
+                "automatic": {**value["automatic"], "due": 0, "outcome": "waiting", "failures": 0, "last_attempt": 0}
+            } if value.get("automatic") else {})
             self.history.record("google_calendar_sync_state_cleared", actor, "google-calendar-sync", actor, {"at": utc_now()})
 
     def _state(self) -> dict[str, Any]:

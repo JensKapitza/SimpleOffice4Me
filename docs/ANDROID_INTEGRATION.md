@@ -171,6 +171,44 @@ fortgesetzt werden. Die Dateianzahl eines Importvorgangs ist nicht begrenzt.
 - liefert ein Dokumentanbieter keine Dateigröße, wird der Batch vor dem Upload
   abgebrochen, statt eine unbeschränkte Anfrage zu starten.
 
+### Dateinamen im freigegebenen Android-Ordner finden
+
+1. In der installierten APK mit einem lokalen SimpleOffice-Konto anmelden und
+   **Einstellungen → Lokale Ordner** öffnen.
+2. Einen konkreten Unterordner im Android-Systemdialog auswählen (intern,
+   SD-Karte, USB oder ein anderer Anbieter, falls der Dialog ihn anbietet).
+   Neue Freigaben für diese Ansicht sind nur lesend. Eine ältere gespeicherte
+   Auswahl für die Suche zu diesem Konto einmal ausdrücklich neu erteilen.
+3. Die Dateinamensuche läuft sofort an. Bei einer bereits gespeicherten Quelle
+   **Dateinamen durchsuchen** wählen. Die Ansicht liest maximal 600 Einträge,
+   bis zu 400 Datei-Treffer und höchstens zwölf Unterordner-Ebenen. Für
+   größere Bestände einen kleineren Ordner auswählen. Das ist keine OCR oder
+   Volltextsuche und keine Freigabe an die PC-Oberfläche.
+4. **Datei öffnen** übergibt nach einer erneuten Berechtigungs-/Existenzprüfung
+   nur diesen Treffer lesend an einen ausdrücklich gewählten Android-Viewer.
+   Über die getrennte Importfunktion kann man weiterhin bewusst eine Kopie
+   zu den normalen SimpleOffice-Dokumenten hinzufügen.
+
+Die Dateinamen, relativen Anzeigenamen und kurzlebigen Öffnungskennungen werden
+weder gespeichert noch an Flask geschickt. Die Suche geschieht auf dem Gerät;
+bei Neuaufruf oder **Neu einlesen** wird die Quelle erneut geprüft. Eine
+fehlende Freigabe wird von einem nicht erreichbaren Provider/SD/USB getrennt.
+Nach Entfernen der letzten gleichlautenden registrierten Freigabe bleibt kein
+Suchergebnis; eine zweite Referenz oder ein aktiv übernommener Importgrant
+verliert nicht versehentlich seinen Zugriff.
+
+Das native Drive-Menü ist separat: Es bietet einen Link zur Suche in bereits
+gespiegelten Dateien des app-verwalteten Drive-Ordners. Google-native Dateien
+bleiben Cloud-Einträge. Der Android-Dateidialog kann Drive-Ordner nur liefern,
+wenn der installierte Provider die Ordnerfreigabe unterstützt. Kein neuer
+Google Picker, kein Zugriff auf die gesamte Drive; siehe
+[Drive-Synchronisation](GOOGLE_DRIVE_SYNC.md).
+
+Die Gerätetest-Matrix mit einem **ausschließlich synthetischen** Testordner
+aus interner Quelle, SD/USB (falls vorhanden), entzogener Erlaubnis,
+verschobenem PDF und Drive-Testkonto separat dokumentieren. Lokale JVM-
+Provider-Fixtures und Browser-DOM-Simulation ersetzen keinen APK-/Gerätetest.
+
 ### Geräteabnahme für den rekursiven SAF-Import (PR #857 / Issue #801)
 
 Diese Prüfung muss auf einem echten Android-Gerät oder einem Emulator mit

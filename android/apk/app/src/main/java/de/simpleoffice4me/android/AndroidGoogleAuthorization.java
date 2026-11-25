@@ -13,7 +13,10 @@ import com.google.android.gms.auth.api.identity.AuthorizationClient;
 import com.google.android.gms.auth.api.identity.AuthorizationRequest;
 import com.google.android.gms.auth.api.identity.AuthorizationResult;
 import com.google.android.gms.auth.api.identity.Identity;
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.GoogleApiAvailability;
 import com.google.android.gms.common.api.ApiException;
+import com.google.android.gms.common.api.CommonStatusCodes;
 import com.google.android.gms.common.api.Scope;
 
 import org.json.JSONArray;
@@ -70,9 +73,13 @@ final class AndroidGoogleAuthorization {
         AuthorizationRequest request = AuthorizationRequest.builder()
                 .setRequestedScopes(Arrays.asList(new Scope(DRIVE_SCOPE)))
                 .build();
+        if (GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(activity) != ConnectionResult.SUCCESS) {
+            finish("play-services");
+            return "ok";
+        }
         client.authorize(request)
                 .addOnSuccessListener(this::handleInitialResult)
-                .addOnFailureListener(error -> finish("error"));
+                .addOnFailureListener(error -> finish(authorizationFailure(error)));
         return "ok";
     }
 
@@ -86,7 +93,7 @@ final class AndroidGoogleAuthorization {
         try {
             handleAuthorizedResult(client.getAuthorizationResultFromIntent(data));
         } catch (ApiException error) {
-            finish("error");
+            finish(authorizationFailure(error));
         }
         return true;
     }
@@ -184,6 +191,20 @@ final class AndroidGoogleAuthorization {
             output.write(buffer, 0, read);
         }
         return output.toByteArray();
+    }
+
+    private static String authorizationFailure(Exception error) {
+        if (!(error instanceof ApiException)) return "error";
+        switch (((ApiException) error).getStatusCode()) {
+            case CommonStatusCodes.CANCELED:
+                return "cancelled";
+            case CommonStatusCodes.NETWORK_ERROR:
+                return "offline";
+            case CommonStatusCodes.DEVELOPER_ERROR:
+                return "configuration";
+            default:
+                return "error";
+        }
     }
 
     private void finish(String status) {

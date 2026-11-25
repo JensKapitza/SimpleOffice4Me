@@ -77,11 +77,34 @@ def resolve_google_calendar_conflicts(strategy: str):
     return redirect(url_for("documents.calendar") + "#google-calendar-sync")
 
 
+@bp.post("/calendar/google/automatic")
+@login_required
+def google_calendar_automatic():
+    action = request.form.get("action", "")
+    if action not in {"enable", "disable"}:
+        abort(400)
+    en = g.language == "en"
+    try:
+        _google_calendar().automatic.configure(str(g.user["username"]), int(g.user["id"]), action == "enable")
+    except (ValueError, OSError):
+        flash("Automatic Google Calendar sync could not be configured." if en else
+              "Der automatische Google-Kalender-Abgleich konnte nicht eingerichtet werden.")
+    else:
+        flash("Automatic Google Calendar sync setting saved." if en else
+              "Einstellung für den automatischen Google-Kalender-Abgleich gespeichert.")
+    return redirect(url_for("documents.calendar", _anchor="google-calendar-sync"), code=303)
+
+
 @bp.post("/calendar/google/reset")
 @login_required
 def reset_google_calendar_sync():
-    _google_calendar().disable(str(g.user["username"]))
-    flash(translate(g.language, "docadmin.google.state.removed"))
+    try:
+        _google_calendar().disable(str(g.user["username"]))
+    except (GoogleCalendarError, OSError):
+        flash("Google Calendar sync is running; please retry." if g.language == "en" else
+              "Der Google-Kalender-Abgleich läuft gerade. Bitte erneut versuchen.")
+    else:
+        flash(translate(g.language, "docadmin.google.state.removed"))
     return redirect(url_for("documents.calendar") + "#google-calendar-sync")
 
 
