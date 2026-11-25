@@ -122,6 +122,8 @@ test('silent playback leaves the visible question and retry controls intact in e
   for (let step = 1; step <= 4; step++) {
     const prompt = game.ui.prompt.textContent;
     const buttons = options(game);
+    assert.ok(!game.ui.stage.children.some(node => node.className === 'kids-numbers-quantity-cue'));
+    assert.ok(buttons.every(button => !button.children.some(node => node.className === 'kids-numbers-dots')));
     const quantities = buttons.map(x => Number((x.getAttribute('aria-label') || x.textContent).match(/^\d+/)[0]));
     const expected = prompt.startsWith('Wie viele') ? correctCount(game) : prompt.startsWith('Tippe auf')
       ? Number(prompt.match(/\d+/)[0]) : prompt.includes('mehr') ? Math.max(...quantities) : Math.min(...quantities);

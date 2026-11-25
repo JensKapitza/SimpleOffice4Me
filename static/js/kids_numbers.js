@@ -186,6 +186,19 @@
     return area;
   }
 
+  function quantityDots(amount) {
+    const dots = document.createElement('span');
+    dots.className = 'kids-numbers-dots';
+    // The adjacent numeral or spoken/visible prompt already names the amount.
+    dots.setAttribute('aria-hidden', 'true');
+    for (let index = 0; index < amount; index += 1) {
+      const dot = document.createElement('span');
+      dot.className = 'kids-numbers-dot';
+      dots.append(dot);
+    }
+    return dots;
+  }
+
   function showCount(task, options) {
     const amount = 1 + Math.floor(Math.random() * options.max);
     task.amount = amount;
@@ -197,7 +210,9 @@
     ], spoken);
     stage.append(countingPicture(amount, task.item));
     distinctNumbers(options.choices, options.max, amount).forEach(value => {
-      stage.append(makeAnswerButton(String(value), value === amount));
+      const button = makeAnswerButton(String(value), value === amount);
+      if (level === 'easy') button.append(quantityDots(value));
+      stage.append(button);
     });
   }
 
@@ -210,6 +225,13 @@
       {key: `num_${amount}`, fallback: String(amount)},
       {key: nounAudio(task.item, amount), fallback: noun(task.item, amount)},
     ], spoken);
+    if (level === 'easy') {
+      const cue = document.createElement('div');
+      cue.className = 'kids-numbers-quantity-cue';
+      cue.setAttribute('aria-hidden', 'true');
+      cue.append(quantityDots(amount));
+      stage.append(cue);
+    }
     distinctNumbers(options.choices, options.max, amount).forEach(value => {
       const button = makeAnswerButton(picture(value, task.item), value === amount);
       button.classList.add('kids-numbers-group');
