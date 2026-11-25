@@ -7,7 +7,7 @@
       </div>
       <span class="badge text-bg-light border align-self-start">EXIF · GPS · {{ 'capture time' if g.language == 'en' else 'Aufnahmezeit' }} · SHA-256</span>
     </div>
-    <form action="{{ url_for('photo_upload.upload_photo') }}" method="post" enctype="multipart/form-data" id="photo-snapshot-form">
+    <form action="{{ url_for('photo_upload.upload_photo') }}" method="post" enctype="multipart/form-data" id="photo-snapshot-form" data-photo-details-base="{{ url_for('documents.index') }}">
       <input type="hidden" name="_csrf_token" id="photo-snapshot-csrf" value="{{ csrf_token() }}">
       <input type="hidden" name="client_relative_path" value="camera/direct">
       <input type="hidden" name="client_last_modified_at" id="photo-snapshot-client-at" value="">
@@ -28,6 +28,11 @@
           <button class="btn btn-primary btn-lg" id="photo-snapshot-submit" type="submit"><i class="fas fa-camera me-1" aria-hidden="true"></i>{{ 'Capture & save' if g.language == 'en' else 'Aufnehmen & speichern' }}</button>
         </div>
       </div>
+      <div class="form-check mt-2">
+        <input class="form-check-input" type="checkbox" id="photo-snapshot-ocr" name="run_ocr" value="1" aria-describedby="photo-snapshot-ocr-help">
+        <label class="form-check-label" for="photo-snapshot-ocr">{{ 'Run OCR immediately and open photo details' if g.language == 'en' else 'OCR sofort ausführen und Fotodetails öffnen' }}</label>
+        <div id="photo-snapshot-ocr-help" class="form-text">{{ 'For an identical photo, its existing details and OCR status are opened.' if g.language == 'en' else 'Bei einem identischen Foto werden die vorhandenen Details mit dem bisherigen OCR-Stand geöffnet.' }}</div>
+      </div>
       <div class="small text-secondary mt-2" id="photo-snapshot-status" aria-live="polite"></div>
     </form>
   </div>
@@ -38,7 +43,11 @@
   const fileInput = document.getElementById('photo-snapshot-file');
   const button = document.getElementById('photo-snapshot-submit');
   const status = document.getElementById('photo-snapshot-status');
-  if (!form || !fileInput || !button || !status) return;
+  const ocr = document.getElementById('photo-snapshot-ocr');
+  if (!form || !fileInput || !button || !status || !ocr) return;
+  const controls = [button, fileInput, ocr];
+  const unlock = () => controls.forEach(control => { control.disabled = false; });
+  window.addEventListener('pageshow', event => { if (event.persisted) unlock(); });
   const english = {{ 'true' if g.language == 'en' else 'false' }};
   const text = (en, de) => (english ? en : de);
   const timezone = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (_) { return ''; } })();
@@ -53,20 +62,43 @@
     document.getElementById('photo-snapshot-batch').value = `snapshot-${Date.now()}`;
     status.textContent = `${file.name} · ${(file.size / 1024 / 1024).toFixed(1)} MiB ${text('ready to save.', 'bereit zum Speichern.')}`;
   });
+  function photoDetailUrl(payload) {
+    if (typeof payload.document_id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(payload.document_id)
+        || typeof payload.detail_url !== 'string') return null;
+    try {
+      const expected = new URL(form.dataset.photoDetailsBase + payload.document_id, window.location.href);
+      const detail = new URL(payload.detail_url, window.location.href);
+      if (detail.origin === window.location.origin && detail.href === expected.href) return detail.href;
+    } catch (_) { /* Omitted or malformed detail links use the gallery. */ }
+    return null;
+  }
+
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const file = fileInput.files && fileInput.files[0];
-    if (!file) return;
-    button.disabled = true;
-    status.textContent = text('Saving snapshot and reading metadata …', 'Schnappschuss wird gespeichert und Metadaten werden eingelesen …');
+    if (!file || button.disabled) return;
     try {
-      const response = await fetch(form.action, {method: 'POST', body: new FormData(form), credentials: 'same-origin', headers: {'X-CSRF-Token': document.getElementById('photo-snapshot-csrf').value}});
+      const body = new FormData(form);
+      const wantsOcr = body.get('run_ocr') === '1';
+      controls.forEach(control => { control.disabled = true; });
+      status.textContent = wantsOcr
+        ? text('Saving photo and running local OCR …', 'Foto wird gespeichert und lokal eingelesen …')
+        : text('Saving snapshot and reading metadata …', 'Schnappschuss wird gespeichert und Metadaten werden eingelesen …');
+      const response = await fetch(form.action, {method: 'POST', body, credentials: 'same-origin', headers: {'X-CSRF-Token': document.getElementById('photo-snapshot-csrf').value}});
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+      const detail = wantsOcr ? photoDetailUrl(payload) : null;
+      if (detail) {
+        status.textContent = payload.duplicate
+          ? text('This photo was already stored. Opening photo details …', 'Dieses Foto war bereits gespeichert. Fotodetails werden geöffnet …')
+          : text('Photo saved. Opening photo details …', 'Foto gespeichert. Fotodetails werden geöffnet …');
+        window.location.href = detail;
+        return;
+      }
       status.textContent = payload.duplicate ? text('This photo was already stored. Opening image overview …', 'Dieses Foto war bereits gespeichert. Bilderübersicht wird geöffnet …') : text('Saved. Refreshing image overview …', 'Gespeichert. Bilderübersicht wird aktualisiert …');
       window.location.href = '{{ url_for("documents.images") }}';
     } catch (error) {
-      button.disabled = false;
+      unlock();
       status.textContent = `${text('Snapshot could not be saved:', 'Schnappschuss konnte nicht gespeichert werden:')} ${error.message || error}`;
     }
   });
