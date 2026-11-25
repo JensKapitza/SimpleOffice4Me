@@ -907,3 +907,12 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | PR #1224 (4 Pins), Folge-Issue #1225 (glib/Tauri), #1156-Statuskommentar. |
 | Tests und Soll-Ist-Vergleich | Soll: #1156-Akzeptanz. Ist: alle Nachweise erbracht (Fix/Ausnahme je Fund); Merges + Schluss ausstehend. |
 | Review und Abschluss | Offen: #1217/#1221/#1224 bei Grün mergen, #1154/#1156 schließen. |
+
+## 25. November 2026 · Merge-Runde 4: 13 Merges, Browser-Root-Fix, #1156 geschlossen
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | 6 Browser-Rots (#1232/#1233/#1250/#1251/#1252/#1256) per Subagent auf 1 Main-Fehler zurückgeführt: `templates/documents/setup.html` trug Inline-`<style>` im `<main>` (seit #1184, Nu-Checker-Fehler). #1251 hatte zusätzlich echten Python-Gate-Fail. 9 grüne PRs per 2 Review-Subagenten geprüft. |
+| Implementierung | Fix als #1272 gestellt (Style in `styles`-Block, Regressionstest); Peer löste parallel sauberer via externer `document-setup.css` → #1272 obsolet-geschlossen, Main-Fehler behoben. Gemergt: #1232/#1220/#1252/#1254 + #1261–#1268/#1270 (13). #1224-Doku-Konflikt vereint/gepusht (Peer mergte nach Grün). #1156 mit Nachweis kommentiert+geschlossen. |
+| Tests und Soll-Ist-Vergleich | Soll: Runde 4 + #1156-Schluss. Ist: Setup-Render 200 (Style im Head, kein `<style>` im Body, Klasse erhalten), 11/11 Setup-Tests; 9/9 Reviews MERGE-READY; lokale #1251-Vollsuite (47F+7E) als Env-Rauschen erkannt → CI-Rerun, Peer fixte Branch + mergte. Peer mergte parallel #1230/#1233/#1244/#1256/#1260/#1224/#1231/#1238/#1269/#1271/#1294. |
+| Review und Abschluss | Offen: Welle #1284+ (Reviews laufen), rote Peer-PRs #1299 (OSSAR/macOS), #1300 (Python-Gate+CodeQL), #1301 (CodeQL+OSSAR) — fremde Fehler, nur benannt. |
