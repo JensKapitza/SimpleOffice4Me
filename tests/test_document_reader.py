@@ -93,6 +93,39 @@ def epub_bytes(
     return output.getvalue()
 
 
+def font_marker(uri="OEBPS/fonts/example.ttf", algorithm="http://www.idpf.org/2008/embedding"):
+    return (
+        f'<enc:EncryptedData><enc:EncryptionMethod Algorithm="{algorithm}"/>'
+        f'<enc:CipherData><enc:CipherReference URI="{uri}"/></enc:CipherData></enc:EncryptedData>'
+    )
+
+
+def epub_with_font_metadata(*, marker=None, extra_items="", extra_spine="", extra_members=None):
+    font = "fonts/example.ttf"
+    amendments = extra_members or {}
+    if marker is None:
+        marker = font_marker()
+    encrypted = (
+        '<encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container" '
+        'xmlns:enc="http://www.w3.org/2001/04/xmlenc#">' + marker + '</encryption>'
+    )
+    output = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(epub_bytes(cover=True))) as source, zipfile.ZipFile(output, "w") as target:
+        for name in source.namelist():
+            content = source.read(name)
+            if name == "OEBPS/content.opf":
+                item = f'<item id="embedded" href="{font}" media-type="font/ttf"/>'
+                content = content.replace(b"</manifest>", (item + extra_items + "</manifest>").encode())
+                content = content.replace(b"</spine>", (extra_spine + "</spine>").encode())
+            target.writestr(name, amendments.get(name, content))
+        target.writestr("OEBPS/" + font, b"opaque placeholder, never decoded")
+        target.writestr("META-INF/encryption.xml", encrypted)
+        for name, data in amendments.items():
+            if name not in source.namelist():
+                target.writestr(name, data)
+    return output.getvalue()
+
+
 class ReaderStoreTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -173,6 +206,42 @@ class EpubReaderTests(unittest.TestCase):
         cover = EpubBook(epub_bytes(cover=True)).cover()
         self.assertIsNotNone(cover)
         self.assertEqual("image/png", cover[1])
+
+    def test_font_only_metadata_does_not_open_or_serve_any_embedded_asset(self):
+        raw = epub_with_font_metadata()
+        original_read = zipfile.ZipFile.read
+
+        def read(archive, entry, *args, **kwargs):
+            name = entry.filename if isinstance(entry, zipfile.ZipInfo) else entry
+            self.assertFalse(name.endswith((".ttf", ".png")))
+            return original_read(archive, entry, *args, **kwargs)
+
+        with patch.object(zipfile.ZipFile, "read", read):
+            book = EpubBook(raw)
+            self.assertIn("Hallo &amp; sicher.", book.chapter(0)["html"])
+            self.assertIsNone(book.cover())
+
+    def test_font_compatibility_fails_closed_for_other_metadata_or_ambiguous_declarations(self):
+        latin = "OEBPS/fonts/example.ttf"
+        cases = {
+            "unknown algorithm": {"marker": font_marker(latin, "urn:example:unknown")},
+            "non-font content target": {"marker": font_marker() + font_marker("OEBPS/chapter.xhtml")},
+            "missing target": {"marker": font_marker("OEBPS/fonts/absent.ttf")},
+            "relative alias": {"marker": font_marker("OEBPS/fonts/./example.ttf")},
+            "duplicate marker": {"marker": font_marker() * 2},
+            "duplicate declaration": {
+                "extra_items": '<item id="another" href="fonts/example.ttf" media-type="font/ttf"/>',
+            },
+            "archive spelling ambiguity": {"extra_members": {"OEBPS/fonts/Example.ttf": b"font placeholder"}},
+            "spine resource listed as font": {"extra_spine": '<itemref idref="embedded"/>'},
+            "rights sidecar": {"extra_members": {"META-INF/rights.xml": b"<rights/>"}},
+            "ambiguous metadata": {"extra_members": {"META-INF/Encryption.xml": b"<encryption/>"}},
+            "unexpected metadata field": {"marker": font_marker().replace("/></enc:CipherData>",
+                '><enc:Transforms/></enc:CipherReference></enc:CipherData>')},
+        }
+        for reason, values in cases.items():
+            with self.subTest(reason=reason), self.assertRaises(ValueError):
+                EpubBook(epub_with_font_metadata(**values))
 
     def test_epub_chapter_xml_depth_and_element_count_are_bounded(self):
         deeply_nested = "<html><body>" + "<span>" * 257 + "text" + "</span>" * 257 + "</body></html>"
@@ -261,6 +330,17 @@ class ReaderRoutesTests(unittest.TestCase):
         )
         self.assertEqual(200, metadata.status_code)
         self.assertIn("Manueller Titel", metadata.get_data(as_text=True))
+
+    def test_authenticated_reader_opens_font_only_epub_as_text_with_no_cover(self):
+        source = epub_with_font_metadata()
+        document = DocumentStore(self.documents).import_upload(io.BytesIO(source), "font-only.epub", "admin")
+        reader = f"/documents/reader/{document['document_id']}"
+        self.assertEqual(self.client.get(reader).status_code, 200)
+        chapter = self.client.get(reader + "/epub/0")
+        self.assertEqual(chapter.status_code, 200)
+        self.assertIn("Hallo &amp; sicher.", chapter.get_json()["html"])
+        self.assertEqual(self.client.get(reader + "/cover").status_code, 404)
+        self.assertEqual((self.documents / document["last_path"]).read_bytes(), source)
 
     def test_personal_book_and_shelf_html_are_private_and_not_stored(self):
         from bs4 import BeautifulSoup

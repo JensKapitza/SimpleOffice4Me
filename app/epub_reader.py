@@ -4,6 +4,7 @@ from __future__ import annotations
 import html
 import posixpath
 import re
+import unicodedata
 import zipfile
 from io import BytesIO
 from xml.etree import ElementTree
@@ -12,6 +13,10 @@ from typing import Any
 
 from defusedxml import ElementTree as SafeET
 from defusedxml.common import DefusedXmlException
+
+from .epub_font_metadata import (
+    MAX_FONT_METADATA_BYTES, OCF_NAMESPACE, XML_BASE, obfuscated_font_paths, validate_font_declarations,
+)
 
 MAX_EPUB_BYTES = 100 * 1024 * 1024
 MAX_ENTRIES = 5_000
@@ -136,6 +141,7 @@ class EpubBook:
             raise ValueError("EPUB exceeds the supported size")
         self.raw = raw
         self.entries: dict[str, zipfile.ZipInfo] = {}
+        self._unused_fonts: set[str] = set()
         self.manifest: dict[str, dict[str, str]] = {}
         self.spine: list[str] = []
         self.title = ""
@@ -148,6 +154,8 @@ class EpubBook:
 
     def _read(self, archive: zipfile.ZipFile, name: str) -> bytes:
         safe = _safe_name(name)
+        if safe in self._unused_fonts:
+            raise ValueError("Embedded EPUB fonts are not read")
         info = self.entries.get(safe)
         if info is None:
             raise ValueError("EPUB references a missing archive member")
@@ -168,6 +176,29 @@ class EpubBook:
             raise
         except (ElementTree.ParseError, DefusedXmlException) as exc:
             raise ValueError("EPUB contains invalid XML") from exc
+
+    def _detect_font_metadata(self, archive: zipfile.ZipFile) -> set[str]:
+        metadata = "META-INF/encryption.xml"
+        candidates = [name for name in self.entries if name.casefold() == metadata.casefold()]
+        if not candidates:
+            return set()
+        if (candidates != [metadata] or self.entries[metadata].file_size > MAX_FONT_METADATA_BYTES
+                or any(name.casefold() == "meta-inf/rights.xml" for name in self.entries)):
+            raise ValueError("Unsupported encrypted EPUB metadata")
+
+        # Do not let case variants or alternate path spellings make the otherwise
+        # exact font declaration ambiguous on another reader or platform.
+        names: set[str] = set()
+        for name, info in self.entries.items():
+            canonical = unicodedata.normalize("NFC", name).casefold()
+            if canonical in names or info.filename != name:
+                raise ValueError("Ambiguous EPUB archive with font metadata")
+            names.add(canonical)
+
+        paths = obfuscated_font_paths(self._xml(self._read(archive, metadata)))
+        if not paths.issubset(self.entries):
+            raise ValueError("Unverified EPUB font reference")
+        return paths
 
     def _load(self) -> None:
         try:
@@ -195,8 +226,7 @@ class EpubBook:
                 if info.file_size > MAX_ENTRY_BYTES:
                     raise ValueError("EPUB member exceeds the supported size")
                 self.entries[name] = info
-            if "META-INF/encryption.xml" in self.entries:
-                raise ValueError("DRM or encrypted EPUB content is not supported")
+            self._unused_fonts = self._detect_font_metadata(archive)
 
             container = self._xml(self._read(archive, "META-INF/container.xml"))
             rootfile = next(
@@ -205,7 +235,15 @@ class EpubBook:
             )
             if rootfile is None:
                 raise ValueError("EPUB package document is missing")
+            if self._unused_fonts and (
+                container.tag != f"{{{OCF_NAMESPACE}}}container"
+                or sum(_local(node.tag) == "rootfile" for node in container.iter()) != 1
+                or any(XML_BASE in node.attrib for node in container.iter())
+            ):
+                raise ValueError("Ambiguous EPUB rendition with font metadata")
             package_name = _safe_name(rootfile.attrib["full-path"])
+            if self._unused_fonts and rootfile.attrib["full-path"] != package_name:
+                raise ValueError("Ambiguous EPUB package path")
             package = self._xml(self._read(archive, package_name))
             for node in package.iter():
                 tag = _local(node.tag)
@@ -222,6 +260,8 @@ class EpubBook:
                     item_id = str(node.attrib.get("id", "")).strip()
                     href = str(node.attrib.get("href", "")).strip()
                     if item_id and href:
+                        if self._unused_fonts and item_id in self.manifest:
+                            raise ValueError("Ambiguous EPUB manifest declarations")
                         properties = str(node.attrib.get("properties", ""))[:500]
                         self.manifest[item_id] = {
                             "path": _join(package_name, href),
@@ -244,6 +284,11 @@ class EpubBook:
                         self.spine.append(ref)
                 elif tag == "spine":
                     self.ncx_item = self.ncx_item or str(node.attrib.get("toc", "")).strip()
+            if self._unused_fonts:
+                validate_font_declarations(package, self._unused_fonts, self.manifest)
+                reader_items = (*self.spine, self.nav_item, self.ncx_item, self.cover_item)
+                if any(self.manifest.get(item, {}).get("path") in self._unused_fonts for item in reader_items):
+                    raise ValueError("An obfuscated font was declared as EPUB content")
             self.spine = self.spine[:MAX_CHAPTERS]
             if not self.spine:
                 raise ValueError("EPUB reading order is empty")
@@ -344,6 +389,9 @@ class EpubBook:
         }
 
     def cover(self) -> tuple[bytes, str] | None:
+        if self._unused_fonts:
+            # The compatibility path is text-only; it never enables embedded asset serving.
+            return None
         item = self.manifest.get(self.cover_item)
         if not item:
             return None
