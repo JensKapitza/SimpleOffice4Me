@@ -570,6 +570,56 @@ class ReaderReadAloudTests(unittest.TestCase):
         self.assertNotIn(b"This is an ordinary test.", failed.data)
 
 
+    def test_busy_or_timed_out_speech_can_be_retried_without_changing_source(self):
+        from app.private_read_aloud import _slots
+
+        text = "Eine lokale Probe. Nach der Wartezeit geht es weiter."
+        document = self.document("speech-retry.txt", text.encode("utf-8"))
+        path = f"/documents/reader/{document['document_id']}/text"
+        for language, busy, timeout in (
+            ("de", "gerade ausgelastet", "zu lange gebraucht"),
+            ("en", "is busy", "took too long"),
+        ):
+            with self.client.session_transaction() as session:
+                session["simpleoffice_language"] = language
+            view = self.client.get(path)
+            self.assertEqual(200, view.status_code)
+            player = BeautifulSoup(view.data, "html.parser").select_one("[data-reader-read-aloud]")
+            self.assertIn(busy, player["data-speech-busy"])
+            self.assertIn(timeout, player["data-speech-timeout"])
+
+        with _slots, _slots, patch(self.speech_patch) as render:
+            unavailable = self.post(document)
+        render.assert_not_called()
+        self.assertEqual((503, {"error": "read_aloud_busy"}),
+                         (unavailable.status_code, unavailable.get_json()))
+        with patch(self.speech_patch, side_effect=TimeoutError("synthetic renderer deadline")):
+            late = self.post(document)
+        self.assertEqual((503, {"error": "read_aloud_timeout"}), (late.status_code, late.get_json()))
+        for refused in (unavailable, late):
+            self.assertEqual("private, no-store", refused.headers["Cache-Control"])
+            self.assertNotIn(text.encode(), refused.data)
+
+        model = os.environ.get("SIMPLEOFFICE_TEST_PIPER_MODEL")
+        real = model and shutil.which("piper") and Path(model).is_file()
+        if real:
+            with patch("app.private_read_aloud.configured_piper_model", return_value=model), \
+                    patch(self.speech_patch, wraps=render_tts) as synthesize:
+                recovered = self.post(document)
+            self.assertEqual(text, synthesize.call_args.args[0])
+            self.assertFalse(Path(synthesize.call_args.args[2]).exists())
+            self.assertEqual(200, recovered.status_code)
+            self.assertEqual("private, no-store", recovered.headers["Cache-Control"])
+            with wave.open(io.BytesIO(recovered.data), "rb") as audio:
+                self.assertGreater(audio.getnframes(), 1000)
+                self.assertTrue(any(audio.readframes(audio.getnframes())))
+        else:
+            with patch(self.speech_patch, side_effect=self.render_wave):
+                self.assert_private_audio(self.post(document))
+        sources = list(self.root.rglob("*.txt"))
+        self.assertEqual([text.encode()], [source.read_bytes() for source in sources])
+
+
 class ReaderSpeechJavascriptTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("node"), "Node.js is required")
     def test_same_origin_playback_and_cancellation(self):
