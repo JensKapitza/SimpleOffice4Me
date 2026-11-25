@@ -105,6 +105,19 @@ freigegebene Directory-Listings bleiben lesbar und zeigen gesperrte IDs nicht.
 Andere Protokolle mit eigenen Capability-/Peer-Nachweisen behalten ihre
 zusätzlichen Scope-Prüfungen.
 
+## Ausgehende Prüfergebnisse lesen
+
+Die signierte Prüfung unter **Peers** testet nur den Weg von dieser Instanz
+zur konfigurierten Adresse. **HTTP-Antwort erhalten; Peer nicht verifiziert**
+bedeutet, dass ein HTTP-Endpunkt geantwortet hat, beispielsweise auch ein
+Reverse-Proxy. Es bestätigt weder die Peer-Identität noch Zugriff auf Dienste.
+Bei 401/403 die Paarung und Zugriffsregeln auf der Gegenstelle prüfen; bei 404
+die gespeicherte Basisadresse und die Weiterleitung zum Federation-Endpunkt.
+Ohne nachgewiesene HTTP-Antwort zeigt die Verwaltung je nach Ergebnis den
+passenden Hinweis zu DNS, Verbindung, TLS oder lokaler Konfiguration. Die
+Gegenrichtung separat auf der anderen Instanz prüfen. In der freigegebenen
+Übersicht für Nutzer bleibt es beim allgemeinen Ergebnis ohne HTTP-Code.
+
 ## Prüfung und Grenzen
 
 `tests/test_federation_moderation.py` und

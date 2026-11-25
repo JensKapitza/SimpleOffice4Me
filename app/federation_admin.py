@@ -27,6 +27,7 @@ from .federation_peer_checks import check_file_send, check_print, check_qr, chec
 from .federation_store import FederationStore
 from .federation_worker import _materialize_blob, peer_capabilities, push_blob_to_peer, remote_availability
 from .federation_diagnostics import probe_peer as run_network_diagnostic
+from .federation_diagnostic_view import STALE_AFTER_SECONDS, diagnostic_readout
 from .v2.materialize import materialize_verified_object
 from .translations import translate
 
@@ -207,17 +208,19 @@ def dashboard():
         confirmation["status_label"] = "veraltet" if now - confirmation["confirmed_at"] > 300 else "aktuell"
     for peer in peers:
         rows = diagnostic_states.get(peer["peer_id"], [])
-        by_direction = {row["direction"]: row for row in rows if row["source"] in {"local", peer["peer_id"]}}
+        sources = {"outbound": "local", "inbound": peer["peer_id"]}
+        by_direction = {row["direction"]: row for row in rows if row["source"] == sources.get(row["direction"])}
         peer_diagnostics = {}
         for direction in ("outbound", "inbound"):
             row = by_direction.get(direction)
             if row is None:
                 peer_diagnostics[direction] = {
-                    "status_label": "unbekannt", "category": "", "latency_ms": 0,
+                    "status_label": "unknown" if g.language == "en" else "unbekannt",
+                    "category": "", "latency_ms": 0,
                     "checked_at_label": "noch nie", "last_success_label": "noch nie", "history": [],
                 }
                 continue
-            stale = now - row["checked_at"] > 300
+            stale = now - row["checked_at"] > STALE_AFTER_SECONDS
             stage_labels = {"dns": "DNS", "tcp": "TCP", "tls": "TLS", "http": "HTTP", "authentication": "Auth"}
             stage_states = {
                 "ok": "ok", "unknown": "unbekannt", "not_applicable": "nicht verwendet",
@@ -225,7 +228,7 @@ def dashboard():
                 "certificate_failed": "Zertifikat ungültig", "checking_signature": "Signaturprüfung",
                 "signature_failed": "Signatur ungültig", "invalid_response": "Antwort ungültig",
                 "identity_mismatch": "Peer-Identität stimmt nicht überein",
-                "authenticated_but_forbidden": "nicht autorisiert", "rejected": "abgelehnt",
+                "authenticated_but_forbidden": "Antwort verweigert; Identität nicht bestätigt", "rejected": "abgelehnt",
                 "accepted": "angenommen", "rate_limited": "gedrosselt",
             }
             stages = row.get("detail", {}).get("stages", {})
@@ -234,16 +237,18 @@ def dashboard():
                 for key, value in stages.items()
                 if key in stage_labels
             ) if isinstance(stages, dict) else ""
+            label, hint = diagnostic_readout(row, direction=direction, language=g.language, stale=stale)
             peer_diagnostics[direction] = {
                 **row,
-                "status_label": "veraltet" if stale else "erreichbar" if row["status"] == "success" else "nicht erreichbar",
+                "status_label": label,
+                "next_step": hint,
                 "checked_at_label": _diagnostic_time(row["checked_at"]),
                 "last_success_label": _diagnostic_time(row["last_success_at"]),
                 "stages_label": stages_label,
                 "history": [
                     {
                         **entry,
-                        "status_label": "erreichbar" if entry["status"] == "success" else "nicht erreichbar",
+                        "status_label": diagnostic_readout(entry, direction=direction, language=g.language)[0],
                         "checked_at_label": _diagnostic_time(entry["checked_at"]),
                     }
                     for entry in store.network_diagnostic_history(
@@ -563,29 +568,10 @@ def network_diagnostic_peer(peer_id: str):
     if result.get("status") == "success":
         flash(translate(g.language, "fed.server.ok").format(latency=result.get('latency_ms', 0)))
     else:
-        category = str(result.get("category") or "unknown")
-        labels = {
-            "configuration": "Peer-Konfiguration prüfen",
-            "target_changed": (
-                "Peer address changed during the check; run it again"
-                if g.language == "en" else "Peer-Adresse wurde während der Prüfung geändert; erneut prüfen"
-            ),
-            "dns": "DNS-Auflösung fehlgeschlagen",
-            "dns_timeout": "DNS-Auflösung überschritt das Zeitlimit oder der Resolver ist ausgelastet",
-            "policy": "Ziel durch Netzwerk-Sicherheitsrichtlinie blockiert",
-            "tcp": "TCP-Verbindung fehlgeschlagen oder Timeout",
-            "tcp_timeout": "TCP-Verbindung mit Timeout abgebrochen",
-            "http_timeout": "HTTP-Antwort überschritt das Zeitlimit",
-            "tls": "TLS-Verbindung fehlgeschlagen",
-            "tls_certificate": "TLS-Zertifikat konnte nicht verifiziert werden",
-            "http": "Peer lieferte eine unerwartete HTTP-Antwort",
-            "authentication": "Peer-Authentifizierung fehlgeschlagen",
-            "permission": "Peer hat die Diagnose nicht autorisiert",
-            "rate_limited": "Prüfung gedrosselt; bitte später erneut versuchen",
-            "response_too_large": "Peer-Antwort überschreitet die erlaubte Größe",
-            "invalid_request": "Peer hat eine ungültige Diagnoseanfrage gesendet",
-        }
-        flash(translate(g.language, "fed.server.failed").format(reason=labels.get(category, 'Ursache nicht klassifiziert')))
+        status, hint = diagnostic_readout(result, direction="outbound", language=g.language)
+        reverse = ("Run the check on the other instance for the reverse direction." if g.language == "en" else
+                   "Gegenrichtung auf der anderen Instanz prüfen.")
+        flash(translate(g.language, "fed.server.failed").format(reason=status) + f" {hint} {reverse}")
     return _redirect_dashboard(view="peers")
 
 

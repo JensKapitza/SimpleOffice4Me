@@ -249,7 +249,7 @@ class FederationAdminUiTests(FederationAdminUiFixture, unittest.TestCase):
         response = self.client.get("/admin/federation?view=peers")
         body = response.get_data(as_text=True)
         self.assertEqual(200, response.status_code)
-        self.assertIn("Server → konfigurierte Peer-Adresse: nicht erreichbar", body)
+        self.assertIn("Server → konfigurierte Peer-Adresse: Keine HTTP-Antwort nachgewiesen", body)
         self.assertIn("TLS: Zertifikat ungültig", body)
         self.assertIn(
             "Eingehende authentifizierte Anfrage von Peer → Server (kein aktiver Rücktest): erreichbar",
@@ -430,7 +430,7 @@ class FederationAdminUiTests(FederationAdminUiFixture, unittest.TestCase):
         self.assertIn("Federation-Status", body)
         self.assertIn('href="/federation/diagnostics"', body)
         self.assertIn("Shared Office", body)
-        self.assertIn("nicht erreichbar", body)
+        self.assertIn("Prüfung nicht bestätigt", body)
         self.assertNotIn("Hidden Office", body)
         self.assertNotIn("private.example", body)
         self.assertNotIn("tls_certificate", body)
