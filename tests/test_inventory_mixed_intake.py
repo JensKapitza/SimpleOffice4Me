@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import shutil
 import uuid
 from unittest import mock
@@ -11,7 +12,7 @@ import unittest
 
 from bs4 import BeautifulSoup
 
-from app import app
+from app import app, inventory_catalog
 from app.capture_inbox_store import CaptureInboxStore
 from app.inventory_catalog import lookup_catalog
 from app.inventory_intake_evidence import local_proposal, proposal_from_ids
@@ -139,6 +140,38 @@ class MixedIntakeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             proposal_from_ids(state, {"publisher": "fabricated"})
         self.assertEqual(ObjectStore(self.documents).objects(), [])
+
+    def test_catalog_cache_follows_google_credential_rotation_for_same_barcode(self):
+        code = "9780140328721"
+        key_a, key_b = "synthetic-google-alpha", "synthetic-google-beta"
+        inventory_catalog._cache.clear()
+        self.addCleanup(inventory_catalog._cache.clear)
+        google_calls = []
+
+        def provider(host, path, *, headers=None):
+            if host == "openlibrary.org":
+                return {}
+            self.assertEqual(host, "www.googleapis.com")
+            self.assertIn(code, path)
+            key = headers["X-Goog-Api-Key"]
+            google_calls.append(key)
+            title = "First Google Fixture" if key == key_a else "Second Google Fixture"
+            return {"totalItems": 1, "items": [{"volumeInfo": {"title": title, "publisher": "Synthetic",
+                "industryIdentifiers": [{"type": "ISBN_13", "identifier": code}]}}]}
+
+        with mock.patch("app.inventory_catalog_http.get_json", side_effect=provider):
+            for key, title in ((key_a, "First Google Fixture"), (key_a, "First Google Fixture"),
+                               (key_b, "Second Google Fixture"), (key_a, "First Google Fixture")):
+                with mock.patch.dict(os.environ, {"SIMPLEOFFICE_GOOGLE_BOOKS_API_KEY": key}):
+                    draft = self.photo(barcode=code, kind="book")
+                    response = self.post(f'/{draft["id"]}/catalog', revision="1", catalog_consent="1")
+                self.assertEqual(response.status_code, 200)
+                evidence = response.json["draft"]["evidence"]
+                self.assertIn(title, [row["value"] for row in evidence if row["field"] == "title"])
+                self.assertNotIn(key_a, response.get_data(as_text=True))
+                self.assertNotIn(key_b, response.get_data(as_text=True))
+        self.assertEqual([key_a, key_b], google_calls)
+        self.assertEqual([], ObjectStore(self.documents).objects())
 
     def test_verified_runtime_does_not_send_any_prompt_until_attested(self):
         draft = self.photo(title="Synthetic approved text")

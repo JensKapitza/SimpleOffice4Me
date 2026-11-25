@@ -9,10 +9,12 @@ from collections import OrderedDict
 from copy import deepcopy
 from dataclasses import dataclass
 import hashlib
+import hmac
 import http.client
 import json
 import os
 import re
+import secrets
 from threading import Lock
 import time
 from typing import Any, Callable
@@ -28,6 +30,8 @@ MAX_RESULTS = 5
 CACHE_TTL_SECONDS = 600
 CACHE_LIMIT = 128
 _cache_lock = Lock()
+# Local cache entries need no shared identity across application starts.
+_CACHE_NAMESPACE_KEY = secrets.token_bytes(32)
 _cache: OrderedDict[tuple[str, str, str], tuple[float, list[dict[str, Any]]]] = OrderedDict()
 Fetch = Callable[[str, str], dict[str, Any] | None]
 _CODE = re.compile(r"[0-9Xx -]{8,32}", re.ASCII)
@@ -229,11 +233,10 @@ def _request_book(provider: str, code: str, api_key: str) -> dict | None:
 def _cached_book(provider: str, code: str, api_key: str) -> list[dict] | None:
     if provider == "google_books" and not api_key:
         return None
-    # Cache namespace fingerprint, not credential storage: segregating cached
-    # rows per API key without retaining the raw key. A salted KDF cannot
-    # serve as a deterministic lookup key, so the finding is suppressed here.
-    # codeql[py/weak-sensitive-data-hashing]
-    key_marker = hashlib.sha256(api_key.encode()).hexdigest() if provider == "google_books" else ""
+    key_marker = (
+        hmac.digest(_CACHE_NAMESPACE_KEY, api_key.encode("utf-8"), "sha256").hex()
+        if provider == "google_books" else ""
+    )
     cache_key = (provider, code, key_marker)
     now = time.monotonic()
     with _cache_lock:
