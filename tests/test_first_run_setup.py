@@ -49,6 +49,13 @@ class FirstRunSetupTest(unittest.TestCase):
         self.assertIn("Schreiben", body)
         self.assertIn("Verwalten", body)
 
+    def test_setup_page_keeps_style_elements_in_head(self):
+        body = self.client.get("/documents/setup", base_url=self.base_url).get_data(as_text=True)
+        head, separator, rest = body.partition("</head>")
+        self.assertTrue(separator)
+        self.assertIn(".setup-mobile-safe", head)
+        self.assertNotIn("<style>", rest)
+
     def test_remote_setup_preserves_ipv6_hosts_and_quotes_mount_targets(self):
         from app.documents_core import _remote_setup_context
         for host in ("::1", "2001:db8::7"):
