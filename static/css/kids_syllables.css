@@ -10,6 +10,10 @@
 .kids-syll-stage { display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:.75rem; padding:1rem 0; }
 .kids-syll-picture { width:100%; display:flex; align-items:center; justify-content:center; min-height:150px; padding:.75rem; border-radius:1rem; background:#f3f8ff; font-size:clamp(3.5rem,14vw,6rem); line-height:1.2; }
 .kids-syll-dots { width:100%; display:flex; align-items:center; justify-content:center; gap:.6rem; min-height:56px; font-size:clamp(2rem,8vw,3rem); color:#4386c4; }
+.kids-syll-dot { display:grid; place-items:center; width:1.65em; height:1.5em; border:2px solid transparent; border-radius:.45em; line-height:1; }
+.kids-syll-dot.is-example-beat { border-color:#153d70; background:#d7e9ff; color:#153d70; }
+.kids-syll-example { min-height:56px; touch-action:manipulation; }
+.kids-syll-example[aria-pressed=true] { background:#d7e9ff; color:#153d70; }
 .kids-syll-clap { min-width:200px; min-height:120px; padding:1rem 2rem; border:3px solid #4386c4; border-radius:1.5rem; background:linear-gradient(145deg,#fff,#eaf3ff); color:#142e49; font-size:clamp(2.5rem,10vw,4rem); font-weight:700; touch-action:manipulation; }
 .kids-syll-clap:active { transform:scale(.96); background:#d9e9fb; }
 .kids-syll-answer { min-width:68px; min-height:68px; width:100%; max-width:190px; border:2px solid #d7e4f2; border-radius:1rem; background:#fff; color:#142e49; font-size:clamp(2rem,7vw,3.2rem); font-weight:700; touch-action:manipulation; transition:opacity .3s ease,transform .12s ease,background-color .15s ease; }
