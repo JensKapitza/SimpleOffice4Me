@@ -867,3 +867,12 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | Admin-Gate (403) auf Register-/Offload-Routen + 3 Regressionstests; Protokoll §6. |
 | Tests und Soll-Ist-Vergleich | Soll: alle 142 dispositioniert. Ist: 3/3 neu (ohne Fix Schreiben nach /tmp belegt), ruff/compileall grün; 142/142 abgedeckt (4 GAP-Instanzen gefixt, Rest dokumentiert). |
 | Review und Abschluss | PR gestellt; nach Merge #1154 mit Nachweis schließen. |
+
+## 25. November 2026 · Merge-Runde 3: #1154 geschlossen, Flake-Fix, 3 Merges
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | #1220-Scanner-Fail als Test-Flake entlarvt (CSRF-Zufall enthielt „cdn", kein PR-Fehler); #1217/#1221/#1219/#1222 bereits gemergt vorgefunden. |
+| Implementierung | Flake-Test gehärtet (PR #1228, gemergt); #1219/#1222/#1224-Reviews sauber; #1219+#1222 gemergt; #1224 rebased+gepusht; #1154 mit Nachweis geschlossen; #1220-Branch auf Main gebracht. |
+| Tests und Soll-Ist-Vergleich | Soll: Runde abschließen. Ist: 15/15 Kids-Tests, Robustheits-Probe (echte CDN-URL schlägt weiter fehl), ruff grün; Rest (#1220/#1224-Merge, #1156-Schluss) per Cron. |
+| Review und Abschluss | Offen: #1220/#1224-Merges + #1156-Schluss nach Grün. |
