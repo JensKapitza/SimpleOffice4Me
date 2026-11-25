@@ -325,10 +325,19 @@ def _create_inventory_item(
     capture: dict[str, Any] | None = None,
     capture_token: str = "",
     receipts_path: Path | None = None,
+    *,
+    form=None,
+    photo=None,
+    force_json: bool = False,
+    extra_fields: dict[str, str] | None = None,
 ):
+    if form is None:
+        form = request.form
+        photo = request.files.get("photo")
+    wants_json = force_json or _wants_json_response()
     actor = str(g.user["username"])
-    barcode = inventory._single_line(request.form.get("barcode", ""), 120)
-    explicit_isbn = str(request.form.get("isbn", "") or "").strip()
+    barcode = inventory._single_line(form.get("barcode", ""), 120)
+    explicit_isbn = str(form.get("isbn", "") or "").strip()
     isbn_value = explicit_isbn or inventory.isbn_from_barcode(barcode)
     isbn = ""
     if isbn_value:
@@ -340,19 +349,19 @@ def _create_inventory_item(
                 type(exc).__name__,
             )
             message = "ISBN ungültig. Bitte ISBN prüfen."
-            if _wants_json_response():
+            if wants_json:
                 return _json_response({"ok": False, "error": message, "fields": {"isbn": "invalid"}}, 400)
             flash(message)
             return redirect(_capture_index_url(capture, capture_token) if capture else url_for("inventory.index"))
-    item_type = inventory._single_line(request.form.get("item_type"), 80) or ("book" if isbn else "object")
+    item_type = inventory._single_line(form.get("item_type"), 80) or ("book" if isbn else "object")
     if capture:
         item_type = "book"
     elif isbn and item_type.casefold() == "object":
         item_type = "book"
     identifier = isbn or barcode
-    nfc_id = inventory._single_line(request.form.get("nfc_id", ""), 240)
+    nfc_id = inventory._single_line(form.get("nfc_id", ""), 240)
     duplicate = inventory._find_exact(identifier, nfc_id)
-    if duplicate and request.form.get("allow_duplicate") != "1":
+    if duplicate and form.get("allow_duplicate") != "1":
         if capture:
             from .library.routes import assign_object_to_location
 
@@ -364,34 +373,34 @@ def _create_inventory_item(
             except Exception:
                 current_app.logger.exception("inventory_capture_existing_assignment_failed object=%s", duplicate["object_id"])
                 message = f"Buch #{duplicate.get('display_id', '')} ist bereits vorhanden; Regalzuordnung fehlgeschlagen. Kein Duplikat angelegt."
-                if _wants_json_response():
+                if wants_json:
                     return _json_response({"ok": True, "saved": False, "duplicate": True, "assigned": False, **_item_result(duplicate), "message": message}, 200)
                 flash(message)
                 return redirect(url_for("inventory.item_detail", object_id=duplicate["object_id"]))
             if receipts_path:
                 _remember_capture_request(receipts_path, capture_token, item["object_id"], capture["location_id"], actor)
-            if _wants_json_response():
+            if wants_json:
                 message = f"Bereits vorhanden: #{item.get('display_id', '')} {item.get('name', '')}. Kein Duplikat angelegt."
                 return _json_response({"ok": True, "saved": False, "duplicate": True, "assigned": True, **_item_result(item, capture["location_id"]), "message": message}, 200)
             return _capture_success_redirect(item, capture["location_id"])
         message = f"Bereits vorhanden: #{duplicate.get('display_id', '')} {duplicate.get('name', '')}. Kein Duplikat angelegt."
-        if _wants_json_response():
+        if wants_json:
             return _json_response({"ok": True, "saved": False, "duplicate": True, **_item_result(duplicate), "message": message}, 200)
         flash(message)
         return redirect(url_for("inventory.item_detail", object_id=duplicate["object_id"]))
     try:
-        fields = inventory._object_fields(request.form, isbn)
-        title = inventory._single_line(request.form.get("title", ""), 300)
+        fields = {**inventory._object_fields(form, isbn), **(extra_fields or {})}
+        title = inventory._single_line(form.get("title", ""), 300)
         if capture and not title:
             message = "Bitte vor der Übernahme einen Buchtitel eingeben. Metadatenabruf und OCR sind optional."
-            if _wants_json_response():
+            if wants_json:
                 return _json_response({"ok": False, "error": message, "fields": {"title": "missing"}}, 400)
             flash(message)
             return redirect(_capture_index_url(capture, capture_token))
         if not title:
             title = f"{item_type} {identifier}".strip() if identifier else item_type
         tags = {"Inventar"}
-        tags.update(inventory._single_line(request.form.get("tags", ""), 500).split(","))
+        tags.update(inventory._single_line(form.get("tags", ""), 500).split(","))
         tags = {tag.strip() for tag in tags if tag.strip()}
         if item_type.casefold() in inventory.BOOK_TYPE_NAMES or isbn:
             tags.add("Buch")
@@ -402,15 +411,15 @@ def _create_inventory_item(
                 "name": title,
                 "type": item_type,
                 "status": "active",
-                "condition": str(request.form.get("condition", "") or "").strip(),
-                "description": str(request.form.get("description", "") or "").strip()[:8000],
+                "condition": str(form.get("condition", "") or "").strip(),
+                "description": str(form.get("description", "") or "").strip()[:8000],
                 "identifier": identifier,
-                "location": inventory._single_line(request.form.get("location", ""), 300),
+                "location": inventory._single_line(form.get("location", ""), 300),
                 "expires_at": "",
-                "quantity": str(request.form.get("quantity", "") or "").strip(),
-                "unit": str(request.form.get("unit", "") or "").strip(),
-                "share_inventory": "0" if str(request.form.get("share_private", "") or "") == "1" else "1",
-                "min_stock": str(request.form.get("min_stock", "") or "").strip(),
+                "quantity": str(form.get("quantity", "") or "").strip(),
+                "unit": str(form.get("unit", "") or "").strip(),
+                "share_inventory": "0" if str(form.get("share_private", "") or "") == "1" else "1",
+                "min_stock": str(form.get("min_stock", "") or "").strip(),
                 "tags": ",".join(sorted(tags, key=str.casefold)),
                 "fields": inventory._fields_text(fields),
             },
@@ -421,14 +430,14 @@ def _create_inventory_item(
             "inventory_capture_item_rejected exception_type=%s",
             type(exc).__name__,
         )
-        error_fields = _create_error_fields(request.form, inventory)
+        error_fields = _create_error_fields(form, inventory)
         if "market_price" in error_fields:
             message = "Preisangabe ungültig. Bitte Preis prüfen."
         elif "purchase_date" in error_fields:
             message = "Kaufdatum ungültig. Bitte Datum prüfen."
         else:
             message = "Angaben ungültig oder Objekt konnte nicht angelegt werden."
-        if _wants_json_response():
+        if wants_json:
             return _json_response({"ok": False, "error": message, "fields": error_fields}, 400)
         flash(message)
         return redirect(_capture_index_url(capture, capture_token) if capture else url_for("inventory.index"))
@@ -440,7 +449,7 @@ def _create_inventory_item(
     sidecar.record_snapshot(item["object_id"], fields, actor)
     notices: list[str] = []
     try:
-        sidecar.save_photo(item["object_id"], request.files.get("photo"), actor)
+        sidecar.save_photo(item["object_id"], photo, actor)
     except (OSError, ValueError) as exc:
         current_app.logger.info(
             "inventory_capture_photo_save_failed exception_type=%s",
@@ -448,7 +457,7 @@ def _create_inventory_item(
         )
         notices.append("Foto konnte nicht gespeichert werden; bitte später erneut versuchen.")
     try:
-        inspection = inventory._inspection_input(request.form)
+        inspection = inventory._inspection_input(form)
         if inspection:
             task = inventory._create_inspection_task(item, inspection, actor)
             try:
@@ -472,18 +481,18 @@ def _create_inventory_item(
         except Exception:
             current_app.logger.exception("inventory_capture_assignment_failed object=%s", item["object_id"])
             message = f"Buch #{item.get('display_id', '')} {item.get('name', '')} wurde gespeichert, aber das Regal konnte nicht zugeordnet werden. Bitte erneut aus der Inventarakte zuordnen."
-            if _wants_json_response():
+            if wants_json:
                 return _json_response({"ok": True, "saved": True, "assigned": False, **_item_result(item), "notices": [message], "message": message}, 200)
             flash(message)
             return redirect(url_for("inventory.item_detail", object_id=item["object_id"]))
         if notices:
             flash(" ".join(notices))
-        if _wants_json_response():
+        if wants_json:
             message = f"Buch #{item.get('display_id', '')} {item.get('name', '')} wurde gespeichert."
             return _json_response({"ok": True, "saved": True, "assigned": True, **_item_result(item, capture["location_id"]), "notices": notices, "message": message}, 200)
         return _capture_success_redirect(item, capture["location_id"])
     message = f"Inventarobjekt #{item.get('display_id', '')} wurde angelegt." + (" " + " ".join(notices) if notices else "")
-    if _wants_json_response():
+    if wants_json:
         return _json_response({"ok": True, "saved": True, **_item_result(item), "notices": notices, "message": message}, 200)
     flash(message)
     return redirect(url_for("inventory.item_detail", object_id=item["object_id"]))

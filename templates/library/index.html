@@ -7,6 +7,7 @@
       <h1 class="h2 mb-1">Bibliothek</h1>
       <p class="text-secondary mb-0">Regale beschriften, viele Bücher nacheinander einscannen und jedes Buch später mit einem Scan wiederfinden.</p>
     </div>
+    <a class="btn btn-outline-primary" href="{{ url_for('library.book_scan') }}">{{ 'Scan book pages' if g.language == 'en' else 'Buchseiten scannen' }}</a>
     <a class="btn btn-outline-secondary" href="{{ url_for('reader.shelf') }}"><i class="fa-solid fa-book-open me-1" aria-hidden="true"></i>PDF-/EPUB-Reader</a>
     <a class="btn btn-primary" href="#bulk-scan"><i class="fa-solid fa-camera me-1" aria-hidden="true"></i>Massen-Scan starten</a>
     {% if g.user and g.user["is_admin"] and not g.user["is_disabled"] %}<a class="btn btn-outline-primary" href="{{ url_for('library.export_books_csv') }}"><i class="fa-solid fa-file-export me-1" aria-hidden="true"></i>CSV</a><a class="btn btn-outline-secondary" href="{{ url_for('library.export_books_ris') }}">RIS (Zitavi)</a><a class="btn btn-outline-secondary" href="{{ url_for('library.export_books_bibtex') }}">BibTeX</a><a class="btn btn-outline-secondary" href="{{ url_for('library.export_books_calibre') }}">Calibre CSV/OPF</a>{% endif %}

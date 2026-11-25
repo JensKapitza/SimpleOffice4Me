@@ -22,6 +22,7 @@ from .federation_peer_auth import (
     authenticated_peer,
 )
 from .federation_store import FederationStore
+from .safe_paths import is_v2_control_path
 from .v2.contracts import ErrorCode, LogicalObjectId
 from .v2.storage_runtime import storage_for
 
@@ -77,7 +78,8 @@ def _catalog_rows() -> list[dict]:
     storage = storage_for(store.root, "federation-transfer")
     rows = []
     for item in store.list_documents():
-        if item.get("system_state") == "webdav_deleted" or item.get("deleted_at"):
+        if (item.get("system_state") == "webdav_deleted" or item.get("deleted_at")
+                or is_v2_control_path(str(item.get("last_path") or ""))):
             continue
         result = storage.stat(LogicalObjectId(str(item.get("document_id") or "")))
         if not result.ok:
@@ -85,6 +87,8 @@ def _catalog_rows() -> list[dict]:
                 continue
             raise RuntimeError("catalog storage metadata unavailable")
         stored = result.value
+        if is_v2_control_path(stored.location.relative_path):
+            continue
         digest = normalize_sha256(stored.version)
         rows.append({
             "document_id": stored.object_id.value,

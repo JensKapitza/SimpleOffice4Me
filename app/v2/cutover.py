@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ..safe_paths import is_v2_control_path
 from .blob_store import BlobIntegrityError, BlobStore
 from .encrypted_blob_store import EncryptedBlobIntegrityError, EncryptedBlobStore
 from .contracts import LogicalObjectId
@@ -102,6 +103,8 @@ def _shadow_inventory(root: str | Path) -> tuple[list[dict[str, Any]], list[str]
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
             if not isinstance(metadata, dict):
                 raise ValueError("metadata is not an object")
+            if any(is_v2_control_path(str(metadata.get(key) or "")) for key in ("last_path", "deleted_from")):
+                continue
             object_id = str(metadata.get("document_id") or "").strip()
             if not object_id:
                 raise ValueError("document_id is missing")
@@ -133,7 +136,8 @@ def _shadow_inventory(root: str | Path) -> tuple[list[dict[str, Any]], list[str]
                 requested = Path(location)
                 candidate = requested if requested.is_absolute() else source / requested
                 candidate = candidate.resolve(strict=True)
-                candidate.relative_to(source)
+                if is_v2_control_path(candidate.relative_to(source)):
+                    continue
                 if not candidate.is_file() or candidate.is_symlink():
                     raise ValueError("active document path is not a regular file")
                 location = candidate.relative_to(source).as_posix()

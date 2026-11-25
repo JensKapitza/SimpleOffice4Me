@@ -296,6 +296,8 @@ app.config['MCP_ENABLED'] = _mcp_config.is_enabled()
 
 @app.errorhandler(RequestEntityTooLarge)
 def request_too_large(_error):
+    if request.endpoint in {"library.book_scan", "library.book_scan_publications"}:
+        return library.book_scan_routes.upload_too_large()
     limit_mib = int(app.config['MAX_CONTENT_LENGTH']) // MIB
     return (
         f"Anfrage zu groß. Das konfigurierte Upload-Limit beträgt {limit_mib} MiB.\n",
@@ -509,6 +511,7 @@ from . import inventory_marketplace
 app.register_blueprint(inventory_marketplace.bp)
 from . import library
 app.register_blueprint(library.bp)
+app.register_blueprint(library.book_scan_federation_bp)
 from . import gamification_routes
 app.register_blueprint(gamification_routes.bp)
 from . import screen_share
@@ -562,6 +565,7 @@ PRIVATE_READ_ALOUD_ENDPOINTS = frozenset({
 
 @app.before_request
 def verify_browser_request():
+    library.book_scan_routes.limit_upload()
     fakturama_admin.limit_preview_upload()
     reader_runtime_check.limit_request()
     if request.endpoint in PRIVATE_READ_ALOUD_ENDPOINTS and request.method == "POST":

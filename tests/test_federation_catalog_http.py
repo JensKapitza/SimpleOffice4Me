@@ -64,6 +64,24 @@ class FederationCatalogHttpTest(unittest.TestCase):
         response = self.client.get("/federation/v1/catalog/documents")
         self.assertEqual(response.status_code, 401)
 
+    def test_rescan_preserves_control_state_without_listing_it_in_authorized_catalog(self):
+        marker = self.root / ".simpleoffice-v2" / "synthetic-control-fixture"
+        marker.parent.mkdir()
+        marker.write_bytes(b"synthetic internal state")
+        store = DocumentStore(self.root)
+        reported = []
+        store.scan(file_progress=reported.append)
+        self.assertNotIn(marker, reported)
+        self.assertEqual(b"synthetic internal state", marker.read_bytes())
+        ordinary = store.list_documents()
+        # Model stale V1 metadata without reading anything under the reserved path.
+        stale = {**self.first, "last_path": ".simpleoffice-v2/synthetic-control-fixture"}
+        path = "/federation/v1/catalog/documents"
+        with patch.object(DocumentStore, "list_documents", return_value=[stale, *ordinary]):
+            response = self.client.get(path, headers=peer_headers("remote-peer", "remote-peer-token", "GET", path))
+        self.assertEqual(200, response.status_code)
+        self.assertEqual(["Alpha.txt", "Beta.txt"], [entry["path"] for entry in response.json["documents"]])
+
     def test_catalog_accepts_peer_bound_hmac_without_legacy_bearer(self):
         path = "/federation/v1/catalog/documents"
         response = self.client.get(

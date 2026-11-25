@@ -11,6 +11,7 @@ import os
 import shutil
 import sqlite3
 from ..sqlite_utils import connect as sqlite_connect
+from ..safe_paths import is_v2_control_path
 import uuid
 from collections import Counter
 from dataclasses import asdict, dataclass
@@ -162,6 +163,8 @@ def build_migration_plan(root: str | Path) -> dict[str, Any]:
                     raise ValueError("metadata is not an object")
                 document_id = str(metadata.get("document_id") or "").strip()
                 last_path = str(metadata.get("last_path") or "").strip()
+                if is_v2_control_path(last_path):
+                    continue
                 if not document_id:
                     raise ValueError("document_id is missing")
                 if not last_path or last_path.startswith("[external]"):
@@ -169,7 +172,8 @@ def build_migration_plan(root: str | Path) -> dict[str, Any]:
                 requested = Path(last_path)
                 candidate = requested if requested.is_absolute() else source / requested
                 resolved = candidate.resolve(strict=True)
-                resolved.relative_to(source)
+                if is_v2_control_path(resolved.relative_to(source)):
+                    continue
                 if not resolved.is_file():
                     raise ValueError("document path is not a regular file")
                 actual_sha = _sha256_file(resolved)

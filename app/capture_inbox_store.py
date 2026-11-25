@@ -17,6 +17,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from .capture_intake_state import MAX_DRAFTS, IntakeRevisionConflict, new_draft
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
 
@@ -128,8 +129,9 @@ class CaptureInboxStore:
         extension: str,
         client_request_id: str = "",
         batch_id: str = "",
+        *, intake: dict[str, str] | None = None,
     ) -> tuple[dict[str, Any], bool]:
-        """Store one original photo; idempotent per actor.
+        """Store one photo (or mixed intake barcode); idempotent per actor.
 
         Returns (entry, duplicate). The same actor + client request id
         + same sha256 returns the existing entry (idempotent replay,
@@ -143,9 +145,10 @@ class CaptureInboxStore:
         clean_actor = str(actor or "").strip()
         if not clean_actor:
             raise ValueError("user is required")
-        if not data:
+        barcode_only = intake is not None and not data and not extension and bool(intake.get("barcode"))
+        if not data and not barcode_only:
             raise ValueError("photo is required")
-        if extension not in IMAGE_EXTENSIONS:
+        if not barcode_only and extension not in IMAGE_EXTENSIONS:
             raise ValueError("Nur JPEG, PNG und WebP werden unterstützt")
         request_id = str(client_request_id or "").strip()
         if request_id and not REQUEST_ID_RE.fullmatch(request_id):
@@ -153,7 +156,9 @@ class CaptureInboxStore:
         clean_batch = str(batch_id or "").strip().lower()
         if clean_batch and not BATCH_ID_RE.fullmatch(clean_batch):
             raise ValueError("Buchgruppe ist ungültig")
-        digest = hashlib.sha256(data).hexdigest()
+        if intake is not None and (clean_batch or not request_id):
+            raise ValueError("Eine Erfassungskennung ist für den Entwurf erforderlich.")
+        digest = hashlib.sha256(data).hexdigest() if data else None
         self.directory.mkdir(parents=True, exist_ok=True)
         with exclusive_file_lock(self.lock_path):
             index = self._read()
@@ -163,17 +168,33 @@ class CaptureInboxStore:
                     continue
                 if existing.get("actor") != clean_actor:
                     continue
+                if bool(existing.get("intake")) != (intake is not None):
+                    continue
                 if request_id and existing.get("client_request_id") == request_id:
                     original = existing.get("original", {})
                     stored = original.get("sha256") if isinstance(original, dict) else None
-                    if stored == digest:
+                    same_code = (not barcode_only or existing.get("capture_code") == intake["barcode"])
+                    if stored == digest and same_code:
                         return dict(existing), True
                     raise CaptureInboxConflict(
                         "Erfassungskennung wurde bereits mit einem anderen "
                         "Foto verwendet. Bitte neues Foto mit neuer Kennung senden."
                     )
+            intake_state = None
+            if intake is not None:
+                states = [
+                    entry["intake"] for entry in entries.values()
+                    if isinstance(entry, dict) and entry.get("actor") == clean_actor
+                    and isinstance(entry.get("intake"), dict)
+                ]
+                if sum(not state["confirmed"] for state in states) >= MAX_DRAFTS:
+                    raise ValueError("Zu viele offene Entwürfe. Bitte zuerst vorhandene erfassen.")
+                sequence = max((state["sequence"] for state in states), default=0) + 1
+                intake_state = new_draft(sequence, intake)
             for existing in entries.values():
-                if not isinstance(existing, dict):
+                if intake is not None:
+                    break
+                if not isinstance(existing, dict) or existing.get("intake"):
                     continue
                 if existing.get("actor") != clean_actor:
                     continue
@@ -195,11 +216,13 @@ class CaptureInboxStore:
                         f"(maximal {MAX_BATCH_PHOTOS} Fotos)."
                     )
             entry_id = uuid.uuid4().hex
-            filename = f"{uuid.uuid4().hex}{extension}"
-            target_dir = self.media_directory / entry_id
-            target_dir.mkdir(parents=True, exist_ok=True)
-            target = target_dir / filename
-            target.write_bytes(data)
+            filename = f"{uuid.uuid4().hex}{extension}" if data else ""
+            target = None
+            if data:
+                target_dir = self.media_directory / entry_id
+                target_dir.mkdir(parents=True, exist_ok=True)
+                target = target_dir / filename
+                target.write_bytes(data)
             now = utc_now()
             entry = {
                 "entry_id": entry_id,
@@ -213,7 +236,7 @@ class CaptureInboxStore:
                     "filename": filename,
                     "sha256": digest,
                     "size": len(data),
-                },
+                } if data else {},
                 "analysis": {},
                 "assignment": {},
                 "history": [{
@@ -222,6 +245,10 @@ class CaptureInboxStore:
                     "created_by": clean_actor,
                 }],
             }
+            if intake_state is not None:
+                entry["intake"] = intake_state
+            if barcode_only:
+                entry["capture_code"] = intake["barcode"]
             if clean_batch:
                 entry["batch_seq"] = _next_batch_seq(
                     entries, clean_actor, clean_batch)
@@ -231,10 +258,9 @@ class CaptureInboxStore:
                 index["version"] = 1
                 atomic_json_write(self.index_path, index)
             except Exception:
-                try:
+                if target is not None:
                     target.unlink(missing_ok=True)
-                finally:
-                    raise
+                raise
             return dict(entry), False
 
     def get(self, entry_id: str, actor: str) -> dict[str, Any] | None:
@@ -247,6 +273,32 @@ class CaptureInboxStore:
             return None
         return dict(entry)
 
+    def list_intake(self, actor: str) -> list[dict[str, Any]]:
+        rows = [
+            entry for entry in self._entries(self._read()).values()
+            if isinstance(entry, dict) and entry.get("actor") == actor and entry.get("intake")
+        ]
+        return sorted(rows, key=lambda entry: entry["intake"]["sequence"])
+
+    def update_intake(
+        self, entry_id: str, actor: str, revision: int, change: Any
+    ) -> dict[str, Any] | None:
+        """Compare and mutate in the same lock as original capture."""
+        if not ENTRY_ID_RE.fullmatch(entry_id):
+            return None
+        with exclusive_file_lock(self.lock_path):
+            index = self._read()
+            entry = self._entries(index).get(entry_id)
+            state = entry.get("intake") if isinstance(entry, dict) else None
+            if not isinstance(state, dict) or entry.get("actor") != actor:
+                return None
+            if state["confirmed"] or state["revision"] != revision:
+                raise IntakeRevisionConflict("Der Entwurf wurde geändert. Bitte neu laden.")
+            change(state)
+            entry["updated_at"] = utc_now()
+            atomic_json_write(self.index_path, index)
+            return entry
+
     def list(self, actor: str, status: str = "") -> list[dict[str, Any]]:
         """Newest-first inbox entries owned by actor, optional status filter."""
         clean_actor = str(actor or "")
@@ -254,7 +306,7 @@ class CaptureInboxStore:
             dict(entry)
             for entry in self._entries(self._read()).values()
             if isinstance(entry, dict) and entry.get("actor") == clean_actor
-            and (not status or entry.get("status") == status)
+            and not entry.get("intake") and (not status or entry.get("status") == status)
         ]
         rows.sort(key=lambda row: str(row.get("created_at", "")), reverse=True)
         return rows
@@ -304,6 +356,8 @@ class CaptureInboxStore:
             entries = self._entries(index)
             entry = entries.get(str(entry_id))
             if not isinstance(entry, dict) or entry.get("actor") != str(actor or ""):
+                return None
+            if entry.get("intake"):
                 return None
             previous = str(entry.get("batch_id", "") or "")
             if previous == clean_batch:
@@ -364,6 +418,8 @@ class CaptureInboxStore:
             entry = entries.get(str(entry_id))
             if not isinstance(entry, dict) or entry.get("actor") != str(actor or ""):
                 return None
+            if entry.get("intake"):
+                return None
             previous = str(entry.get("photo_role", "") or "")
             if previous == clean_role:
                 return dict(entry)
@@ -395,6 +451,8 @@ class CaptureInboxStore:
             entries = self._entries(index)
             entry = entries.get(str(entry_id))
             if not isinstance(entry, dict) or entry.get("actor") != str(actor or ""):
+                return None
+            if entry.get("intake"):
                 return None
             try:
                 fingerprint = json.dumps(analysis, sort_keys=True, default=str)
@@ -438,6 +496,8 @@ class CaptureInboxStore:
             entries = self._entries(index)
             entry = entries.get(str(entry_id))
             if not isinstance(entry, dict) or entry.get("actor") != str(actor or ""):
+                return None
+            if entry.get("intake"):
                 return None
             current = entry.get("assignment", {})
             if not isinstance(current, dict):
@@ -517,6 +577,8 @@ class CaptureInboxStore:
                 if not isinstance(entry, dict) or entry.get("actor") != str(actor or ""):
                     return None
                 if clean_batch and str(entry.get("batch_id", "") or "") != clean_batch:
+                    return None
+                if entry.get("intake"):
                     return None
                 current = entry.get("assignment", {})
                 if not isinstance(current, dict):
