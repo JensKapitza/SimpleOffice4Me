@@ -22,7 +22,7 @@ from .mail_case_store import MailCaseStore
 from .mail_case_attachments import MailCaseAttachmentStore
 from .mail_attachment_download import latest_scan_for_sha256, scan_attachment_for_download
 from .mail_client import MAX_MESSAGE_BYTES, MailStore, SmtpDeliveryStateUnknown, SmtpSubmission, _mail_ui_features
-from .mail_reader import MailReader
+from .mail_reader import MAX_PREVIEW_TEXT, MailReader
 from .mail_read_aloud import archive_mail_text, live_mail_text, requested_mail_version
 from .mail_signatures import get_signature_or_default
 from .mail_webclient import ImapWebClient, MailAccountPolicy, MailReadOnlyError, contact_recipients
@@ -391,6 +391,7 @@ def index():
         next_uid=next_uid,
         seen_dwell=MailAccountPolicy(store).seen_dwell(_actor(), selected["id"]) if selected else 5,
         archive_preview=archive_preview,
+        mail_plain_preview_limit=MAX_PREVIEW_TEXT,
         archive_rows=archive_rows,
         connection_error=connection_error,
         read_only=read_only,
