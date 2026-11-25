@@ -963,8 +963,12 @@ def analyze_image(document_id: str):
         document = _store().analyze_image(document_id, str(g.user["username"]))
         analysis = document["image_analysis"]
         if analysis.get("ocr_retry_status") == "unavailable":
-            flash("OCR could not run again. Previous text for this image was kept." if english else
-                  "OCR konnte nicht erneut ausgeführt werden. Der bisherige Text dieses Bildes bleibt erhalten.")
+            if analysis.get("ocr_characters"):
+                flash("OCR could not run again. Previous text for this image was kept." if english else
+                      "OCR konnte nicht erneut ausgeführt werden. Der bisherige Text dieses Bildes bleibt erhalten.")
+            else:
+                flash("OCR could not run again. The previous run found no readable text." if english else
+                      "OCR konnte nicht erneut ausgeführt werden. Beim letzten erfolgreichen Lauf wurde kein lesbarer Text gefunden.")
         elif analysis.get("ocr_status") != "completed":
             flash("Local OCR could not run. Check Tesseract and its language packs, then try again." if english else
                   "Lokale OCR konnte nicht ausgeführt werden. Prüfe Tesseract und die Sprachpakete und versuche es erneut.")

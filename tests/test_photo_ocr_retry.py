@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import io
+import os
+import tempfile
 import shutil
 import unittest
 from pathlib import Path
@@ -141,6 +143,70 @@ class PhotoOcrRetryTests(PublicHttpTestCase):
         self.assertEqual(302, self.client.post(url, data=data).status_code)
         self.assertTrue(self.found("NEUPROJEKT", uploaded["detail_url"]))
         self.assertFalse(self.found("ALTPROJEKT", uploaded["detail_url"]))
+
+    def status_page(self, detail):
+        reply = self.client.get(detail)
+        self.assertEqual(200, reply.status_code)
+        dom = BeautifulSoup(reply.data, "html.parser")
+        status = dom.select_one("[data-photo-ocr-status]")
+        self.assertIsNotNone(status)
+        return status, dom.select_one("#image-analysis details pre")
+
+    @unittest.skipUnless(shutil.which("tesseract"), "Test requires the actual local OCR engine")
+    def test_reopening_blank_photo_keeps_no_text_status_and_new_bytes_restart_recognition(self):
+        blank = self.picture("", "PNG")
+        corrected = self.picture("SICHTBARER KORREKTURBELEG", "PNG")
+        uploaded = self.upload("unscharf.png", blank)
+        detail = uploaded["detail_url"]
+        self.assertEqual("pending", self.status_page(detail)[0]["data-photo-ocr-status"])
+        url, data = self.read_form(detail, "#image-analysis form")
+        self.assertEqual(302, self.client.post(url, data=data).status_code)
+        status, text = self.status_page(detail)
+        self.assertEqual("empty", status["data-photo-ocr-status"])
+        self.assertIn("keinen lesbaren Text gefunden", status.get_text())
+        self.assertIsNone(text)
+        self.assertFalse(self.found("KORREKTURBELEG", detail))
+        store = self.store()
+        metadata = store.get_document(uploaded["document_id"])
+        source = store.root / metadata["last_path"]
+        self.assertEqual(source.read_bytes(), blank)
+        with tempfile.TemporaryDirectory() as empty_path, patch.dict(os.environ, {"PATH": empty_path}):
+            failed = self.client.post(url, data=data, follow_redirects=True)
+        self.assertIn("Beim letzten erfolgreichen Lauf wurde kein lesbarer Text gefunden", failed.get_data(as_text=True))
+        status, text = self.status_page(detail)
+        self.assertEqual("empty-retained", status["data-photo-ocr-status"])
+        self.assertIsNone(text)
+        store.replace_content(metadata["document_id"], corrected, "owner", expected_sha256=metadata["sha256"])
+        self.assertEqual("pending", self.status_page(detail)[0]["data-photo-ocr-status"])
+        self.assertFalse(self.found("KORREKTURBELEG", detail))
+        self.assertEqual(302, self.client.post(url, data=data).status_code)
+        status, text = self.status_page(detail)
+        self.assertEqual("recognized", status["data-photo-ocr-status"])
+        self.assertIn("KORREKTURBELEG", text.get_text())
+        self.assertTrue(self.found("KORREKTURBELEG", detail))
+        self.assertEqual(source.read_bytes(), corrected)
+
+    @unittest.skipUnless(shutil.which("tesseract"), "Test requires the actual local OCR engine")
+    def test_reopening_keeps_exact_ocr_and_explains_failed_retry_until_success(self):
+        original = self.picture("DOKUMENT ARCHIVMAPPE", "JPEG")
+        upload = self.upload("photo.jpg", original, run_ocr=True)
+        detail = upload["detail_url"]
+        status, text = self.status_page(detail)
+        exact = text.get_text()
+        self.assertIn("ARCHIVMAPPE", exact)
+        self.assertEqual("recognized", status["data-photo-ocr-status"])
+        url, data = self.read_form(detail, "#image-analysis form")
+        with tempfile.TemporaryDirectory() as empty_path, patch.dict(os.environ, {"PATH": empty_path}):
+            self.assertEqual(302, self.client.post(url, data=data).status_code)
+        status, text = self.status_page(detail)
+        self.assertEqual("retained", status["data-photo-ocr-status"])
+        self.assertIn("Bisher erkannter Text bleibt verfügbar", status.get_text())
+        self.assertEqual(exact, text.get_text())
+        self.assertTrue(self.found("ARCHIVMAPPE", detail))
+        self.assertEqual(302, self.client.post(url, data=data).status_code)
+        self.assertEqual("recognized", self.status_page(detail)[0]["data-photo-ocr-status"])
+        metadata = self.store().get_document(upload["document_id"])
+        self.assertEqual(original, (self.store().root / metadata["last_path"]).read_bytes())
 
     def test_no_readable_text_and_changed_source_are_reported_without_provisional_index(self):
         uploaded = self.upload("white.png", self.picture("", "PNG"))
