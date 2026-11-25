@@ -8,6 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from bs4 import BeautifulSoup
+
 from app import app
 from app import db as database
 from app.document_store import DocumentStore
@@ -27,7 +29,7 @@ class DocumentTextPreviewTests(unittest.TestCase):
         self.client = app.test_client()
         self.client.post("/auth/register", data={"username": "alice", "password": "alice-password-123"})
         self.client.post("/auth/login", data={"username": "alice", "password": "alice-password-123"})
-        store = DocumentStore(base / "documents")
+        store = self.store = DocumentStore(base / "documents")
         store.initialize()
         self.text_doc = store.import_upload(
             io.BytesIO("Alpha Bravo Alpha Charlie\nZeile zwei\n".encode("utf-8")), "notizen.txt", "alice",
@@ -53,10 +55,38 @@ class DocumentTextPreviewTests(unittest.TestCase):
         self.assertIn('aria-keyshortcuts="Enter Shift+Enter"', html)
 
     def test_extraction_status_is_shown_for_recognized_text(self):
-        html = self.client.get(f"/documents/{self.pdf_doc['document_id']}").get_data(as_text=True)
-        self.assertIn("data-text-preview-source", html)
-        self.assertIn("Kolibri", html)
-        self.assertIn("completed", html)
+        path = f"/documents/{self.pdf_doc['document_id']}"
+        pdf = self.store.get_document(self.pdf_doc["document_id"])
+        pdf["text_extraction"].update(source_sha256=pdf["sha256"], extracted_at="2026-11-24T18:47:02+01:00",
+                                      updated_by="synthetic-index-actor")
+        self.store._save_document(pdf)
+        for language, title in (("en", "Recognized text"), ("de", "Erkannter Text")):
+            with self.subTest(language=language):
+                with self.client.session_transaction() as session:
+                    session["simpleoffice_language"] = language
+                page = BeautifulSoup(self.client.get(path).data, "html.parser")
+                line = page.select_one("[data-text-preview-source]")
+                self.assertIn(title, line.get_text())
+                self.assertIn("Kolibri", page.get_text())
+                self.assertNotIn("synthetic-index-actor", line.get_text())
+                moment = line.select_one("time")
+                self.assertEqual("2026-11-24T17:47:02+00:00", moment["datetime"])
+                self.assertEqual("2026-11-24 17:47:02 UTC", moment.get_text(strip=True))
+
+    def test_extraction_time_is_absent_without_a_verified_aware_timestamp(self):
+        pdf = self.store.get_document(self.pdf_doc["document_id"])
+        path = f"/documents/{pdf['document_id']}"
+        for extracted, digest in (("not a date", pdf["sha256"]), ("2026-11-24T18:47:02", pdf["sha256"]),
+                                  ("2026-11-24T18:47:02+00:00", "d" * 64)):
+            with self.subTest(extracted=extracted, digest=digest):
+                pdf["text_extraction"].update(source_sha256=digest, extracted_at=extracted,
+                                              updated_by="synthetic-index-actor")
+                self.store._save_document(pdf)
+                page = BeautifulSoup(self.client.get(path).data, "html.parser")
+                line = page.select_one("[data-text-preview-source]")
+                if line:
+                    self.assertIsNone(line.select_one("time"))
+                    self.assertNotIn("synthetic-index-actor", line.get_text())
 
     def test_plain_text_has_no_extraction_line(self):
         html = self.client.get(f"/documents/{self.text_doc['document_id']}").get_data(as_text=True)
@@ -67,6 +97,31 @@ class DocumentTextPreviewTests(unittest.TestCase):
         self.assertNotIn("innerHTML", script)
         self.assertIn("clipboard", script)
         self.assertIn("data-preview-match", script)
+
+
+    def test_photo_uses_its_own_analysis_time_not_the_index_refresh_time(self):
+        from PIL import Image
+        from unittest.mock import patch
+
+        jpeg = io.BytesIO()
+        Image.new("RGB", (10, 10), "white").save(jpeg, format="JPEG")
+        jpeg.seek(0)
+        with patch.object(DocumentStore, "_image_ocr", return_value="recognized photo"):
+            photo = self.store.import_upload(jpeg, "camera.jpg", "alice")
+        photo = self.store.get_document(photo["document_id"])
+        photo["image_analysis"]["analyzed_at"] = "2026-11-24T08:01:02+00:00"
+        photo["text_extraction"]["extracted_at"] = "2026-11-24T10:30:02+00:00"
+        self.store._save_document(photo)
+        path = f"/documents/{photo['document_id']}"
+        line = BeautifulSoup(self.client.get(path).data, "html.parser").select_one("[data-text-preview-source]")
+        self.assertEqual("2026-11-24T08:01:02+00:00", line.select_one("time")["datetime"])
+        # A failed retry can keep last-good text without recording its earlier
+        # timestamp. The preview must not display a fresh success time then.
+        photo["image_analysis"]["ocr_retry_status"] = "unavailable"
+        self.store._save_document(photo)
+        line = BeautifulSoup(self.client.get(path).data, "html.parser").select_one("[data-text-preview-source]")
+        self.assertIsNotNone(line)
+        self.assertIsNone(line.select_one("time"))
 
 
 class TextPreviewFrontendTests(unittest.TestCase):
