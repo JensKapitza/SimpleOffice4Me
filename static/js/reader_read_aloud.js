@@ -3,6 +3,7 @@
 
   const wavMime = 'audio/wav';
   const maxWavBytes = 8 * 1024 * 1024;
+  const maxPagesPerRun = 5;
 
   function sameOriginUrl(value) {
     if (!value) return null;
@@ -32,6 +33,8 @@
     const reader = root.closest('[data-document-reader], #reader-root');
     const start = root.querySelector('[data-speech-start]');
     const ocr = root.querySelector('[data-speech-ocr]');
+    const continuous = root.querySelector('[data-speech-continuous]');
+    const jump = root.querySelector('[data-speech-jump]');
     const pause = root.querySelector('[data-speech-pause]');
     const stop = root.querySelector('[data-speech-stop]');
     const status = root.querySelector('[data-speech-status]');
@@ -39,6 +42,8 @@
 
     const position = reader?.querySelector('[data-reader-position]');
     const version = reader?.dataset.documentVersion;
+    const rawCount = Number(reader?.dataset.pageCount);
+    const lastPage = Number.isSafeInteger(rawCount) && rawCount <= 10000 && rawCount > 1 ? rawCount : 0;
     const url = sameOriginUrl(root.dataset.speechUrl);
     const ocrUrl = sameOriginUrl(root.dataset.speechOcrUrl);
     const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content || '';
@@ -47,18 +52,26 @@
       return Number.isSafeInteger(value) && value > 0 ? value : 1;
     };
     const label = (key, fallback) => root.dataset[key] || fallback;
+    const forPage = (key, fallback, page) => label(key, fallback).replace('{page}', String(page));
     const available = Boolean(version && url && csrf() && typeof Audio === 'function' &&
       typeof AbortController === 'function' && typeof URL.createObjectURL === 'function' &&
       typeof URL.revokeObjectURL === 'function');
     let active = null;
     let state = 'idle';
     let displayedPage = pageNumber();
+    let jumpPage = null;
 
     function render(nextState, message = '') {
       state = nextState;
       const canStart = available && ['idle', 'error', 'unavailable'].includes(state);
       start.disabled = !canStart;
       if (ocr) ocr.disabled = !canStart || !ocrUrl;
+      if (continuous) continuous.disabled = !canStart || !lastPage || pageNumber() >= lastPage;
+      if (jump) {
+        jump.hidden = jumpPage === null;
+        jump.disabled = jump.hidden;
+        if (!jump.hidden) jump.textContent = forPage('speechJumpLabel', 'Go to page {page}', jumpPage);
+      }
       pause.disabled = !['playing', 'paused'].includes(state);
       stop.disabled = !active;
       pause.textContent = state === 'paused'
@@ -66,9 +79,10 @@
       status.textContent = message;
     }
 
-    function release(nextState = 'idle', message = '') {
+    function release(nextState = 'idle', message = '', target = null) {
       const previous = active;
       active = null;
+      jumpPage = target;
       if (previous) {
         previous.controller.abort();
         if (previous.audio) {
@@ -83,7 +97,7 @@
 
     function isCurrent(request) {
       if (active !== request) return false;
-      if (request.page !== pageNumber()) {
+      if (request.anchorPage !== pageNumber()) {
         release();
         return false;
       }
@@ -99,7 +113,9 @@
       render('loading', label('speechLoading', 'Preparing audio…'));
       try {
         await request.audio.play();
-        if (isCurrent(request)) render('playing', label('speechPlaying', 'Reading aloud.'));
+        if (isCurrent(request)) render('playing', request.continuing
+          ? forPage('speechReadingPage', 'Reading page {page}.', request.page)
+          : label('speechPlaying', 'Reading aloud.'));
       } catch (error) {
         if (!isCurrent(request)) return;
         if (error?.name === 'NotAllowedError') {
@@ -121,7 +137,11 @@
           const documentLimit = code === 'document_too_large' && root.dataset.speechPdfTooLarge;
           release('error', documentLimit || label('speechTooLarge', 'This page exceeds the read-aloud limit.'));
         } else if (statusCode === 422) {
-          if (request.ocr && (code === 'ocr_no_text' || code === 'no_text')) {
+          if (request.continuing && code === 'no_text') {
+            release('error', forPage('speechContinuousBlank',
+              'Stopped at page {page}: no text layer. Use OCR manually if needed.', request.page),
+            request.page === request.anchorPage ? null : request.page);
+          } else if (request.ocr && (code === 'ocr_no_text' || code === 'no_text')) {
             release('error', label('speechOcrNoText', 'OCR found no readable text on this page.'));
           } else if (code === 'no_text') {
             release('error', label('speechNoText', 'No readable text on this page.'));
@@ -148,21 +168,50 @@
       }
     }
 
-    async function startPage(endpoint, button) {
+    function ended(request) {
+      if (!isCurrent(request)) return;
+      if (!request.continuing) return release();
+      if (state !== 'playing') return;
+      if (request.page === request.endPage) {
+        if (request.page === lastPage) {
+          return release('idle', label('speechContinuousEnd', 'End of PDF.'));
+        }
+        return release('idle', label('speechContinuousLimit', 'Page limit reached. Start again to continue.'),
+          request.page + 1);
+      }
+      release();
+      return fetchPage({endpoint: request.endpoint, anchorPage: request.anchorPage,
+        endPage: request.endPage, page: request.page + 1, ocr: false, continuing: true});
+    }
+
+    function startPage(endpoint, button) {
       if (!available || !endpoint || button.disabled) return;
+      const page = pageNumber();
+      const continuing = button === continuous;
+      if (continuing && page !== displayedPage) return;
+      return fetchPage({
+        endpoint, page, anchorPage: page, ocr: button === ocr, continuing,
+        endPage: continuing ? Math.min(lastPage, page + maxPagesPerRun - 1) : page,
+      });
+    }
+
+    async function fetchPage(run) {
       const token = csrf();
       if (!token) {
-        render('unavailable', label('speechUnavailable', 'Read aloud is unavailable.'));
+        release('unavailable', label('speechUnavailable', 'Read aloud is unavailable.'));
         return;
       }
 
-      const request = {page: pageNumber(), ocr: button === ocr, controller: new AbortController()};
+      jumpPage = null;
+      const request = {...run, controller: new AbortController(), objectUrl: null, audio: null};
       active = request;
       render('loading', request.ocr
         ? label('speechOcrLoading', 'Recognizing this page locally…')
-        : label('speechLoading', 'Preparing audio…'));
+        : request.continuing
+          ? forPage('speechPreparingPage', 'Preparing page {page}…', request.page)
+          : label('speechLoading', 'Preparing audio…'));
       try {
-        const response = await fetch(endpoint, {
+        const response = await fetch(request.endpoint, {
           method: 'POST',
           headers: {'Content-Type': 'application/json', Accept: wavMime, 'X-CSRF-Token': token},
           credentials: 'same-origin',
@@ -180,7 +229,7 @@
         if (!isCurrent(request)) return;
         request.objectUrl = URL.createObjectURL(blob);
         request.audio = new Audio();
-        request.audio.addEventListener('ended', () => { if (isCurrent(request)) release(); });
+        request.audio.addEventListener('ended', () => ended(request));
         request.audio.addEventListener('error', () => fail(request));
         request.audio.src = request.objectUrl;
         await play(request);
@@ -193,6 +242,7 @@
       label('speechUnavailable', 'Read aloud is unavailable.'));
     if (!available) return;
     start.addEventListener('click', () => startPage(url, start));
+    continuous?.addEventListener('click', () => startPage(url, continuous));
     if (ocrUrl && ocr) ocr.addEventListener('click', () => startPage(ocrUrl, ocr));
     pause.addEventListener('click', () => {
       if (!active || !active.audio || pause.disabled || !isCurrent(active)) return;
@@ -201,6 +251,13 @@
       render('paused', label('speechPaused', 'Paused.'));
     });
     stop.addEventListener('click', () => release());
+    jump?.addEventListener('click', () => {
+      if (jumpPage === null || !position) return;
+      const target = jumpPage;
+      release();
+      position.value = String(target);
+      position.dispatchEvent(new Event('change', {bubbles: true}));
+    });
     reader.addEventListener('reader:page-changed', event => {
       const nextPage = event.detail?.page ?? pageNumber();
       if (displayedPage === nextPage) return;

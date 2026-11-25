@@ -134,11 +134,32 @@ class ReaderReadAloudTests(unittest.TestCase):
         self.assertIn("media-src 'self' blob:", reader.headers["Content-Security-Policy"])
         controls = body.select_one("[data-reader-read-aloud]")
         self.assertEqual(self.route(document), controls["data-speech-url"])
+        self.assertIsNone(controls.select_one("[data-speech-continuous], [data-speech-jump]"))
         version = body.select_one("[data-document-reader]")["data-document-version"]
         with patch(self.speech_patch, side_effect=self.render_wave):
             result = self.post(document, page=2, version=version)
         self.assert_private_audio(result)
         self.assertEqual(["Second section <em>literal</em>"], self.spoken)
+
+    def test_pdf_renders_explicit_bounded_continue_control_with_same_native_endpoint(self):
+        document = self.document("two-pages.pdf", self.pdf())
+        for language, title in (
+            ("de", "Bis zu fünf Seiten vorlesen"), ("en", "Read up to five pages"),
+        ):
+            with self.subTest(language=language):
+                with self.client.session_transaction() as session:
+                    session["simpleoffice_language"] = language
+                response = self.client.get(f"/documents/reader/{document['document_id']}")
+                self.assertEqual(200, response.status_code)
+                reader = BeautifulSoup(response.data, "html.parser").select_one("[data-document-reader]")
+                self.assertEqual("2", reader["data-page-count"])
+                player = reader.select_one("[data-reader-read-aloud]")
+                self.assertEqual(self.route(document), player["data-speech-url"])
+                self.assertEqual(self.ocr_route(document), player["data-speech-ocr-url"])
+                option = player.select_one("button[data-speech-continuous]")
+                self.assertEqual(title, option.get_text(strip=True))
+                self.assertTrue(option.has_attr("disabled"), "inactive until the player boots")
+                self.assertTrue(player.select_one("button[data-speech-jump]").has_attr("hidden"))
 
     @unittest.skipUnless(shutil.which("pdftotext"), "Poppler pdftotext is needed for local PDF text")
     def test_pdf_uses_only_selected_page_and_a_scan_does_not_start_ocr_or_piper(self):
