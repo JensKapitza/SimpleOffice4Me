@@ -916,3 +916,12 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | Fix als #1272 gestellt (Style in `styles`-Block, Regressionstest); Peer löste parallel sauberer via externer `document-setup.css` → #1272 obsolet-geschlossen, Main-Fehler behoben. Gemergt: #1232/#1220/#1252/#1254 + #1261–#1268/#1270 (13). #1224-Doku-Konflikt vereint/gepusht (Peer mergte nach Grün). #1156 mit Nachweis kommentiert+geschlossen. |
 | Tests und Soll-Ist-Vergleich | Soll: Runde 4 + #1156-Schluss. Ist: Setup-Render 200 (Style im Head, kein `<style>` im Body, Klasse erhalten), 11/11 Setup-Tests; 9/9 Reviews MERGE-READY; lokale #1251-Vollsuite (47F+7E) als Env-Rauschen erkannt → CI-Rerun, Peer fixte Branch + mergte. Peer mergte parallel #1230/#1233/#1244/#1256/#1260/#1224/#1231/#1238/#1269/#1271/#1294. |
 | Review und Abschluss | Offen: Welle #1284+ (Reviews laufen), rote Peer-PRs #1299 (OSSAR/macOS), #1300 (Python-Gate+CodeQL), #1301 (CodeQL+OSSAR) — fremde Fehler, nur benannt. |
+
+## 25. November 2026 · Merge-Runde 5: 9 Merges (#1284–#1292/#1294)
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | 9 grüne PRs per 2 Review-Subagenten geprüft (volle Diffs, Call-Sites, CI+Mergeable). Peer mergte parallel mit. |
+| Implementierung | Selbst gemergt: #1284/#1285/#1287/#1288/#1289. Peer mergte: #1290/#1291/#1292/#1294 (Reviews retrospektiv MERGE-READY bestätigt, keine HOLDs). |
+| Tests und Soll-Ist-Vergleich | Soll: Welle 5 komplett. Ist: 9/9 Reviews MERGE-READY ohne Blocker; je-PR CI-Grün + Merge-State verifiziert; #1302-Doku gemergt. |
+| Review und Abschluss | Offen: #1307/#1308/#1309 (CI läuft), rot+fremd #1299 (OSSAR/macOS), #1300 (Python-Gate+CodeQL+Scanner), #1301 (CodeQL+OSSAR), #1303 (nur CodeQL 2s, Infra-verdächtig) — nur benannt. |
