@@ -11,7 +11,7 @@
   const status = root.querySelector("#local-folder-status");
   const dbName = "simpleoffice-local-folders";
   const storeName = "folders";
-  let androidBridge = null;
+  let androidBridge = window.SimpleOfficeLocalFolders || null;
   let directoryPickerAvailable = typeof window.showDirectoryPicker === "function" && Boolean(window.indexedDB);
 
   const showStatus = (message, kind = "info") => {
@@ -170,6 +170,147 @@
     return element;
   };
 
+  const panel = root.querySelector("#local-folder-search-panel");
+  const names = root.querySelector("#local-folder-search-input");
+  const nameList = root.querySelector("#local-folder-search-results");
+  const nameStatus = root.querySelector("#local-folder-search-status");
+  const reloadNames = root.querySelector("#local-folder-search-refresh");
+  const english = document.documentElement.lang.toLowerCase().startsWith("en");
+  const say = (de, en) => english ? en : de;
+  let source = null;
+  let indexed = [];
+  let scanId = "";
+  let openId = "";
+  let requestTimer = 0;
+  let limited = false;
+  let needsRefresh = false;
+  const canSearch = () => androidBridge && typeof androidBridge.scan === "function";
+  const requestId = () => {
+    if (typeof window.crypto.randomUUID === "function") return window.crypto.randomUUID();
+    // Older WebViews may expose getRandomValues without randomUUID.
+    const bytes = window.crypto.getRandomValues(new Uint8Array(16));
+    const value = Array.from(bytes, (item) => item.toString(16).padStart(2, "0")).join("");
+    return [value.slice(0, 8), value.slice(8, 12), value.slice(12, 16), value.slice(16, 20), value.slice(20)].join("-");
+  };
+
+  const resetNameResults = () => {
+    window.clearTimeout(requestTimer);
+    indexed = [];
+    scanId = "";
+    openId = "";
+    limited = false;
+    if (panel) nameList.replaceChildren();
+    if (canSearch()) androidBridge.clear();
+  };
+
+  const renderNames = () => {
+    if (!source || !panel) return;
+    nameList.replaceChildren();
+    const query = names.value.trim().normalize("NFC").toLocaleLowerCase();
+    const terms = query.split(/\s+/).filter(Boolean);
+    const matches = indexed.filter((file) => {
+      const key = file.name.normalize("NFC").toLocaleLowerCase();
+      return terms.every((term) => key.includes(term));
+    });
+    for (const file of matches.slice(0, 60)) {
+      const row = makeElement("li", "list-group-item d-flex flex-wrap align-items-center justify-content-between gap-2");
+      const title = makeElement("div", "text-break");
+      title.append(makeElement("strong", "", file.name));
+      if (file.parent) title.append(makeElement("div", "small text-secondary", file.parent));
+      const open = makeElement("button", "btn btn-sm btn-outline-primary", say("Datei öffnen", "Open file"));
+      open.type = "button";
+      open.setAttribute("aria-label", say(`Datei öffnen: ${file.name}`, `Open file: ${file.name}`));
+      open.addEventListener("click", () => {
+        if (openId) return;
+        openId = requestId();
+        if (androidBridge.open(file.id, openId) !== "pending") {
+          openId = "";
+          nameStatus.textContent = say("Datei nicht mehr verfügbar. Bitte neu einlesen.", "File is no longer available. Refresh the source.");
+        }
+      });
+      row.append(title, open);
+      nameList.append(row);
+    }
+    const found = matches.length
+      ? (matches.length > 60 ? say("Erste 60 Treffer. Verfeinere deine Suche.", "First 60 matches. Refine your search.") :
+        say(`${matches.length} Treffer aus „${source.name}“.`, `${matches.length} matches in “${source.name}”.`))
+      : say("Keine passenden Dateinamen gefunden.", "No matching file names found.");
+    nameStatus.textContent = found + (limited
+      ? say(" Der Suchbereich ist begrenzt; wähle bei Bedarf einen kleineren Unterordner.",
+            " The search is bounded; choose a smaller subfolder if necessary.") : "");
+  };
+
+  const startNameIndex = (entry, keepQuery = false) => {
+    if (!canSearch() || !panel || !entry) return;
+    resetNameResults();
+    source = entry;
+    needsRefresh = false;
+    panel.hidden = false;
+    if (!keepQuery) names.value = "";
+    if (!entry.search_ready) {
+      nameStatus.textContent = say("Wähle diesen früher gespeicherten Ordner erneut, um seine Dateinamen für dieses lokale Konto freizugeben.",
+        "Re-select this previously saved folder to allow file-name search for this local account.");
+      return;
+    }
+    scanId = requestId();
+    nameStatus.textContent = say(`Dateinamen in „${entry.name}“ werden lokal eingelesen …`, `Reading file names in “${entry.name}” on this device …`);
+    if (androidBridge.scan(entry.id, scanId) !== "pending") {
+      scanId = "";
+      nameStatus.textContent = say("Die lokale Suche konnte nicht gestartet werden.", "Local search could not start.");
+      return;
+    }
+    requestTimer = window.setTimeout(() => {
+      resetNameResults();
+      nameStatus.textContent = say("Die Quelle antwortet nicht. Prüfe Gerät bzw. Verbindung und lies sie erneut ein.",
+        "The source is not responding. Check the device or connection and refresh.");
+    }, 12000);
+  };
+
+  const onNameResume = () => {
+    if (needsRefresh && source && !document.hidden) startNameIndex(source, true);
+  };
+  if (panel) {
+    names.addEventListener("input", () => { if (!scanId && indexed.length) renderNames(); });
+    reloadNames.addEventListener("click", () => startNameIndex(source, true));
+  }
+  window.addEventListener("simpleoffice:folder-names", (event) => {
+    const detail = event.detail || {};
+    if (!scanId || detail.id !== scanId || document.hidden || !source) return;
+    scanId = "";
+    window.clearTimeout(requestTimer);
+    if (detail.status !== "available") {
+      resetNameResults();
+      nameStatus.textContent = detail.status === "permission_revoked"
+        ? say("Ordnerfreigabe fehlt. Wähle den Ordner erneut.", "Folder access is missing. Select it again.")
+        : say("Ordner nicht erreichbar. Prüfe SD/USB, Provider oder Offline-Verfügbarkeit.", "Folder unavailable. Check SD/USB, its provider or offline availability.");
+      return;
+    }
+    indexed = Array.isArray(detail.files) ? detail.files.slice(0, 400) : [];
+    limited = detail.limited === true;
+    renderNames();
+  });
+  window.addEventListener("simpleoffice:folder-open", (event) => {
+    const detail = event.detail || {};
+    if (!openId || detail.id !== openId || document.hidden) return;
+    openId = "";
+    if (detail.status === "chooser") return;
+    resetNameResults();
+    nameStatus.textContent = detail.status === "permission_revoked"
+      ? say("Die Ordnerfreigabe wurde widerrufen. Wähle ihn erneut.", "Folder permission was revoked. Select it again.")
+      : say("Datei nicht mehr erreichbar oder kein passender Viewer. Lies den Ordner erneut ein.", "File no longer reachable or no compatible viewer. Refresh the folder.");
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden && source) {
+      resetNameResults();
+      needsRefresh = true;
+    } else onNameResume();
+  });
+  window.addEventListener("simpleoffice:folder-source-resume", () => {
+    if (source) needsRefresh = true;
+    onNameResume();
+  });
+  window.addEventListener("pagehide", resetNameResults);
+
   const renderEntry = (entry, native) => {
     const card = makeElement("article", "card h-100");
     const body = makeElement("div", "card-body");
@@ -211,9 +352,25 @@
       } else {
         await removeBrowserEntry(entry.id);
       }
+      if (source && source.id === entry.id) {
+        resetNameResults();
+        source = null;
+        panel.hidden = true;
+      } else if (native && source) {
+        startNameIndex(source, true);
+      }
       await refresh();
       showStatus("Die lokale Freigabe wurde entfernt. Ordnerdateien blieben unverändert.", "success");
     });
+    if (native && canSearch()) {
+      const find = makeElement("button", "btn btn-sm btn-primary", say("Dateinamen durchsuchen", "Search file names"));
+      find.type = "button";
+      find.addEventListener("click", () => {
+        startNameIndex(entry);
+        names.focus();
+      });
+      actions.append(find);
+    }
     actions.append(check, change, edit, remove);
     body.append(actions);
     body.append(makeElement("hr", "my-3"), importControl(entry, native));
@@ -303,6 +460,7 @@
     const result = event.detail || {};
     await refresh();
     showStatus(result.message || "Ordnerauswahl abgeschlossen.", result.state === "selected" ? "success" : "warning");
+    if (result.state === "selected" && result.entry) startNameIndex(result.entry);
   });
 
   refresh();

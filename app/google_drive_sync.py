@@ -568,7 +568,8 @@ def sync_google_drive(user_id: int, actor: str) -> dict[str, int | str]:
         "folders": 0, "skipped": 0, "remote_deleted": 0, "remote_seen": 0,
     }
     try:
-        root_id = str(state.get("root_folder_id", "")).strip()
+        # SQLite uses NULL until the first successful sync and again for a full rescan.
+        root_id = str(state.get("root_folder_id") or "").strip()
         if not root_id:
             root = client.find_managed_root() or client.create_folder(DRIVE_ROOT_NAME, root_marker=True)
             root_id = str(root.get("id", "")).strip()
@@ -580,7 +581,7 @@ def sync_google_drive(user_id: int, actor: str) -> dict[str, int | str]:
                 (root_id, DRIVE_ROOT_NAME, int(user_id)),
             )
             db.commit()
-        page_token = str(state.get("page_token", "")).strip()
+        page_token = str(state.get("page_token") or "").strip()
         if page_token:
             new_token = _process_changes(
                 client, store, db, user_id, root_id, page_token,

@@ -1,0 +1,26 @@
+{% extends "layout.html" %}
+{% block title %}{{ 'Device sources' if g.language == 'en' else 'Gerätequellen' }}{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container py-3">
+<div{% if sources %} id="android-device-sources"{% endif %}>
+  <h1>{{ 'Device sources' if g.language == 'en' else 'Gerätequellen' }}</h1>
+  <p>{{ 'View a small preview from the Android system calendar or contacts. Each source is authorized separately. Nothing is imported, saved, or shared.' if g.language == 'en' else 'Sieh eine kleine Vorschau aus dem Android-Systemkalender oder den Systemkontakten. Jede Quelle wird einzeln freigegeben. Es wird nichts importiert, gespeichert oder geteilt.' }}</p>
+  {% if sources %}
+  <div class="d-flex gap-2 flex-wrap">
+  {% for source in sources %}
+    <button type="button" class="btn btn-primary" data-device-source="{{ source }}" disabled>
+      {% if g.language == 'en' %}{{ 'View calendar' if source == 'calendar' else 'View contacts' }}
+      {% else %}{{ 'Kalender ansehen' if source == 'calendar' else 'Kontakte ansehen' }}{% endif %}
+    </button>
+  {% endfor %}
+  </div>
+  <p class="mt-3" data-device-source-status role="status"
+    data-english="{{ '1' if g.language == 'en' else '0' }}">{{ 'The native Android app is required.' if g.language == 'en' else 'Dafür ist die native Android-App erforderlich.' }}</p>
+  {% else %}
+  <p class="alert alert-info" role="status" aria-live="polite">{{ 'Open Device sources from inside the installed Android APK. This browser cannot access the device calendar or contacts.' if g.language == 'en' else 'Öffne die Gerätequellen in der installierten Android-APK. Dieser Browser kann nicht auf Gerätekalender oder Kontakte zugreifen.' }}</p>
+  {% endif %}
+  <p class="text-body-secondary">{{ 'This is not a Google account connection. Manage app permissions in Android settings.' if g.language == 'en' else 'Das ist keine Verbindung zu einem Google-Konto. App-Berechtigungen verwaltest du in den Android-Einstellungen.' }}</p>
+</div>
+</main>
+{% endblock %}
