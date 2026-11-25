@@ -147,6 +147,13 @@ def _redirect_document_action(document_id: str):
     return _redirect_dashboard(document_id=document_id, q=query)
 
 
+def _peer_failure_message(exc: Exception) -> str:
+    """Turn common peer setup failures into a safe, actionable message."""
+    if getattr(exc, "code", None) == 401:
+        return translate(g.language, "fed.auth.rejected")
+    return str(exc)[:200]
+
+
 def _chat_form_values() -> dict:
     return {
         "send": request.form.get("chat_send") == "1",
@@ -492,7 +499,7 @@ def probe_peer(peer_id: str):
             versions=capabilities.get('versions', []), range=capabilities.get('range', False),
             delegation=capabilities.get('delegated_push', False)))
     except Exception as exc:
-        flash(translate(g.language, "fed.probe.failed").format(exc=exc))
+        flash(translate(g.language, "fed.probe.failed").format(exc=_peer_failure_message(exc)))
     return _redirect_dashboard()
 
 
@@ -504,7 +511,7 @@ def peer_test_file(peer_id: str):
         flash(translate(g.language, "fed.test.file.ok").format(
             sha=str(result.get("sha256", ""))[:12], ms=result.get("latency_ms", 0)))
     except Exception as exc:
-        flash(translate(g.language, "fed.test.failed").format(exc=str(exc)[:200]))
+        flash(translate(g.language, "fed.test.failed").format(exc=_peer_failure_message(exc)))
     return _redirect_dashboard(view="peers")
 
 
@@ -519,7 +526,7 @@ def peer_test_tone(peer_id: str):
             flash(translate(g.language, "fed.test.tone.rendered").format(
                 exc=result.get("player_error", "")))
     except Exception as exc:
-        flash(translate(g.language, "fed.test.failed").format(exc=str(exc)[:200]))
+        flash(translate(g.language, "fed.test.failed").format(exc=_peer_failure_message(exc)))
     return _redirect_dashboard(view="peers")
 
 
@@ -531,7 +538,7 @@ def peer_test_print(peer_id: str):
         flash(translate(g.language, "fed.test.print.ok").format(
             printer=result.get("printer_id", ""), job=result.get("job_id", "")[:8]))
     except Exception as exc:
-        flash(translate(g.language, "fed.test.failed").format(exc=str(exc)[:200]))
+        flash(translate(g.language, "fed.test.failed").format(exc=_peer_failure_message(exc)))
     return _redirect_dashboard(view="peers")
 
 

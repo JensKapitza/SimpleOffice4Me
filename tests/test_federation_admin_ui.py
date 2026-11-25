@@ -672,10 +672,10 @@ class FederationAdminUiTests(FederationAdminUiFixture, unittest.TestCase):
         body = response.get_data(as_text=True)
 
         self.assertEqual(200, response.status_code)
-        self.assertIn("Discovery und QR-Import speichern zunächst nur die Peer-Identität", body)
+        self.assertIn("Discovery und normaler QR-Import speichern nur Identitäten", body)
         self.assertIn("Verbindung einrichten", body)
         self.assertIn("view=peers&amp;edit_peer=office-b", body)
-        self.assertIn("Trust jeweils lokal", body)
+        self.assertIn("weder Trust noch Datenrechte", body)
 
     def test_pairing_code_issue_is_no_store_and_does_not_grant_access(self):
         with app.app_context():

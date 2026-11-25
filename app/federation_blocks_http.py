@@ -20,6 +20,7 @@ from .federation_blocks import (
     sha512_bytes,
 )
 from .federation_core import normalize_sha256
+from .federation_store import FederationStore
 from . import federation_local_identity as _identity
 from .safe_paths import resolve_under
 
@@ -33,11 +34,23 @@ def _authorized() -> bool:
     if not legacy_peer_allowed(current_app.config["DOCUMENT_ROOT"], request):
         return False
     expected = _identity.shared_token()
-    if not expected:
-        return bool(current_app.testing)
     header = request.headers.get("Authorization", "")
     supplied = header[7:].strip() if header.startswith("Bearer ") else ""
-    return bool(supplied) and hmac.compare_digest(expected, supplied)
+    if expected and supplied and hmac.compare_digest(expected, supplied):
+        return True
+    # Keep the existing test-client contract: test requests without configured
+    # federation credentials are authorized before production peer proofs.
+    if current_app.testing and not expected:
+        return True
+    if request.endpoint == "federation_blocks_http.block_roundtrip_test":
+        try:
+            from .federation_peer_auth import authenticate
+            root = current_app.config["DOCUMENT_ROOT"]
+            peer_id = authenticate(root, request)
+            return peer_id not in FederationStore(root).banned_peer_ids()
+        except (TypeError, ValueError):
+            return False
+    return False
 
 
 @bp.before_request

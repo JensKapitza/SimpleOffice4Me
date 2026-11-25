@@ -53,6 +53,7 @@ PERSISTENCE_COVERAGE = {
     "federation_directory_store": "excluded:directory data requires discovery consent filtering",
     "federation_mail": "excluded:federated mail may contain remote private content",
     "federation_rendezvous_store": "excluded:rendezvous state contains endpoint and nonce data",
+    "federation_connection_invite": "excluded:single-use pairing secrets and peer setup metadata are not a user data projection",
     "federation_peer_schema": "excluded:peer protocol schemas are internal implementation state",
     "federation_moderation": "excluded:peer bans, pinned blacklist sources and reports are private security state",
     "federation_moderation_schema": "excluded:peer bans and reports are security and moderation state",

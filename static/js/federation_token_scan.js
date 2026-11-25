@@ -13,12 +13,14 @@
 
   document.addEventListener('DOMContentLoaded', () => {
     const cameraButton = document.getElementById('token-qr-camera-button');
+    const imageButton = document.getElementById('token-qr-image-button');
+    const imageInput = document.getElementById('token-qr-image-file');
     const closeButton = document.getElementById('token-qr-camera-close');
     const preview = document.getElementById('token-qr-camera-preview');
     const cameraPanel = document.getElementById('token-qr-camera-panel');
     const output = document.getElementById('peer-token');
     const status = document.getElementById('token-qr-status');
-    if (!cameraButton || !closeButton || !preview || !cameraPanel || !output || !status) return;
+    if (!cameraButton || !imageButton || !imageInput || !closeButton || !preview || !cameraPanel || !output || !status) return;
     const isGerman = (document.documentElement.lang || '').toLowerCase().startsWith('de');
 
     let stream = null;
@@ -41,6 +43,76 @@
       return window.jsQR(frame.data, frame.width, frame.height, { inversionAttempts: 'attemptBoth' })?.data || '';
     }
 
+    function adoptToken(value) {
+      const token = String(value || '').trim();
+      if (!isTokenPayload(token)) return false;
+      output.value = token;
+      output.dispatchEvent(new Event('input', { bubbles: true }));
+      status.textContent = isGerman
+        ? 'Token erkannt und übernommen.'
+        : 'Token recognized and adopted.';
+      return true;
+    }
+
+    async function decodeImage(file) {
+      if (!file || !String(file.type || '').startsWith('image/')) {
+        status.textContent = isGerman ? 'Bitte ein QR-Bild auswählen.' : 'Choose a QR code image.';
+        return;
+      }
+      if (file.size > 20 * 1024 * 1024) {
+        status.textContent = isGerman
+          ? 'Das QR-Bild ist zu groß (maximal 20 MB).'
+          : 'QR image is too large (maximum 20 MB).';
+        return;
+      }
+      try {
+        let source;
+        let release = () => {};
+        if (typeof window.createImageBitmap === 'function') {
+          source = await window.createImageBitmap(file);
+          release = () => source.close?.();
+        } else {
+          const objectUrl = URL.createObjectURL(file);
+          source = await new Promise((resolve, reject) => {
+            const image = new Image();
+            image.onload = () => resolve(image);
+            image.onerror = () => reject(new Error('Image could not be read'));
+            image.src = objectUrl;
+          }).finally(() => URL.revokeObjectURL(objectUrl));
+        }
+        const width = source.videoWidth || source.width || source.naturalWidth || 0;
+        const height = source.videoHeight || source.height || source.naturalHeight || 0;
+        if (!width || !height || width > 12000 || height > 12000 || width * height > 48_000_000) {
+          release();
+          status.textContent = isGerman
+            ? 'Bildgröße kann nicht sicher verarbeitet werden. Bitte ein kleineres QR-Foto wählen.'
+            : 'Image dimensions cannot be processed safely. Choose a smaller QR photo.';
+          return;
+        }
+        let value;
+        try {
+          value = decodePixels(source).trim();
+        } finally {
+          release();
+        }
+        if (adoptToken(value)) return;
+        status.textContent = isGerman
+          ? 'Kein gültiges Peer-Token im Bild gefunden. Bitte ein scharfes QR-Foto wählen.'
+          : 'No valid peer token found in this image. Choose a clear QR photo.';
+      } catch (_error) {
+        status.textContent = isGerman
+          ? 'QR-Bild konnte nicht gelesen werden. Bitte ein anderes Bild wählen.'
+          : 'QR image could not be read. Choose another image.';
+      }
+    }
+
+    imageButton.addEventListener('click', () => imageInput.click());
+    imageInput.addEventListener('change', () => {
+      const file = imageInput.files?.[0];
+      if (file) void decodeImage(file);
+      imageInput.value = '';
+    });
+
     function stopCamera() {
       cameraGeneration += 1;
       scanning = false;
@@ -60,9 +132,13 @@
     cameraButton.addEventListener('click', async () => {
       if (scanning || stream) return;
       if (!navigator.mediaDevices?.getUserMedia) {
-        status.textContent = isGerman
-          ? 'Keine Kamera verfügbar. Token manuell einfügen.'
-          : 'No camera available. Paste the token manually.';
+        status.textContent = window.isSecureContext === false
+          ? (isGerman
+            ? 'Live-Scan braucht HTTPS. QR-Bild auswählen oder Token einfügen.'
+            : 'Live scanning needs HTTPS. Choose a QR image or paste the token.')
+          : (isGerman
+            ? 'Kamera nicht verfügbar. QR-Bild auswählen oder Token einfügen.'
+            : 'Camera unavailable. Choose a QR image or paste the token.');
         return;
       }
       cameraButton.disabled = true;
@@ -119,11 +195,7 @@
             if (!value) value = decodePixels(preview).trim();
             if (value) {
               if (isTokenPayload(value)) {
-                output.value = value.trim();
-                output.dispatchEvent(new Event('input', { bubbles: true }));
-                status.textContent = isGerman
-                  ? 'Token-QR-Code erkannt und übernommen.'
-                  : 'Token QR code recognized and adopted.';
+                adoptToken(value);
                 stopCamera();
                 return;
               }
@@ -142,8 +214,12 @@
         if (requestedStream) requestedStream.getTracks().forEach((track) => track.stop());
         if (stream === requestedStream) stream = null;
         status.textContent = isGerman
-          ? 'Kamera konnte nicht geöffnet werden.'
-          : 'Camera could not be opened.';
+          ? (window.isSecureContext === false
+            ? 'Live-Scan braucht HTTPS. QR-Bild auswählen oder Token einfügen.'
+            : 'Kamera nicht verfügbar. Berechtigung prüfen oder QR-Bild auswählen.')
+          : (window.isSecureContext === false
+            ? 'Live scanning needs HTTPS. Choose a QR image or paste the token.'
+            : 'Camera unavailable. Check permission or choose a QR image.');
         cameraButton.disabled = false;
       }
     });

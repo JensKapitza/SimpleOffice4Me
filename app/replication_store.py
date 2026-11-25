@@ -336,6 +336,7 @@ def init_app(app) -> None:
         federation_contacts_http,
         federation_discovery_http,
         federation_discovery_runtime,
+        federation_connection_invite_admin,
         admin_federation_discovery,
         federation_status,
         federation_moderation_admin,
@@ -368,6 +369,7 @@ def init_app(app) -> None:
     app.register_blueprint(resource_commander_admin.bp)
     app.register_blueprint(federation_network_admin.bp)
     app.register_blueprint(federation_peer_admin.bp)
+    app.register_blueprint(federation_connection_invite_admin.bp)
     app.register_blueprint(admin_lists_admin.bp)
     app.register_blueprint(clamav_scanner_admin.bp)
     app.register_blueprint(finance_admin.bp)

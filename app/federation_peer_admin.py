@@ -12,7 +12,7 @@ from .federation_discovery_feedback import direct_discovery_feedback
 from .federation_discovery_lan import discover_lan, local_lan_addresses, scan_ports
 from .federation_discovery_publish import publish
 from .federation_discovery_service import discover_country, discover_direct, discover_email
-from .federation_hello import report_hello_import
+from .federation_hello import report_hello_import, send_connection_invite
 from .federation_lan_receive_state import LanReceiveState
 from . import federation_local_identity
 from . import federation_network
@@ -24,8 +24,8 @@ from .federation_identity_admin import (
 from .federation_local_profile import local_profile
 from .federation_pairing import FederationPairingTokens
 from .federation_pairing_client import PairingClientError, claim_pairing_code, remote_pairing_status
-from .federation_qr import decode_peer, encode_peer
-from .federation_qr_image import render_qr_svg
+from .federation_qr import decode_connection_invite, decode_peer, encode_peer
+from .federation_qr_image import render_qr_svg, unavailable_qr_svg as _unavailable_qr_svg
 from .federation_store import FederationStore
 from .federation_trust_eval import recommendations
 from .federation_trust_exchange import sync_claims
@@ -304,20 +304,6 @@ def _lan_connect_profiles():
             continue
         result.append({"address": address, "port": port, "endpoint": endpoint, "payload": encode_peer(profile)})
     return result
-
-
-def _unavailable_qr_svg() -> str:
-    return (
-        '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240" '
-        'role="img" aria-label="Federation QR nicht verfügbar">'
-        '<rect width="240" height="240" fill="white"/>'
-        '<rect x="1" y="1" width="238" height="238" fill="none" stroke="#adb5bd" stroke-width="2"/>'
-        '<text x="120" y="112" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#495057">'
-        'QR nicht verfügbar</text>'
-        '<text x="120" y="134" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#6c757d">'
-        'Public-URL konfigurieren</text>'
-        '</svg>'
-    )
 
 
 @bp.get("")
@@ -605,7 +591,19 @@ def rotate_identity_token():
 def import_qr():
     imported_peer_id = ""
     try:
-        profile = decode_peer(request.form.get("payload", ""))
+        raw_payload = str(request.form.get("payload", "") or "").strip()
+        if raw_payload.startswith("sofp://pair/"):
+            invitation = decode_connection_invite(raw_payload)
+            profile = invitation["peer"]
+            imported_peer_id = profile["peer_id"]
+            send_connection_invite(_root(), invitation, request.host_url)
+            flash(
+                (f"Verbindung eingerichtet: {imported_peer_id}. Das Peer-Token ist auf beiden Geräten aktiv. Trust und Datenrechte bleiben unverändert und müssen separat freigegeben werden." if g.language != "en" else f"Connection set up: {imported_peer_id}. The peer token is active on both devices. Trust and data permissions remain unchanged and must be granted separately.")
+            )
+            return redirect(url_for(
+                "federation_admin.dashboard", view="peers", edit_peer=imported_peer_id,
+            ))
+        profile = decode_peer(raw_payload)
         imported_peer_id = profile["peer_id"]
         trust = FederationTrustStore(_root())
         store = FederationStore(_root())
