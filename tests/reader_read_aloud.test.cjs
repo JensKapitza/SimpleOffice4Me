@@ -37,7 +37,7 @@ function response(bytes = wav(), type = 'audio/wav', status = 200) {
 }
 
 function fixture({
-  url = endpoint, ocrUrl, token = 'fixture-csrf', page = '4', hasAudio = true, playResults = [],
+  url = endpoint, ocrUrl, token = 'fixture-csrf', page = '4', hasAudio = true, playResults = [], pageCount,
 } = {}) {
   const root = new Element();
   root.dataset = {
@@ -50,12 +50,18 @@ function fixture({
     speechPdfSourceTimeout: 'PDF Vorbereitung Zeitlimit', speechPdfStageUnavailable: 'Temporärer Speicher',
   };
   const reader = new Element();
-  reader.dataset = {documentVersion: 'version-2'};
-  const position = {value: page};
+  reader.dataset = {documentVersion: 'version-2', pageCount};
+  const position = {value: page, dispatchEvent: event => {
+    if (event.type === 'change') reader.fire('reader:page-changed', {detail: {page: Number(position.value)}});
+  }};
   reader.querySelector = selector => selector === '[data-reader-position]' ? position : null;
   root.closest = () => reader;
   const controls = Object.fromEntries(['start', 'pause', 'stop', 'status'].map(key => [key, new Element()]));
   if (ocrUrl !== undefined) controls.ocr = new Element();
+  if (pageCount !== undefined) {
+    controls.continuous = new Element();
+    controls.jump = new Element();
+  }
   root.querySelector = selector => controls[selector.slice(13, -1)] ?? null;
   const window = new Element();
   window.location = new URL(base + '/reader/book');
@@ -90,10 +96,10 @@ function fixture({
       querySelectorAll: selector => selector === '[data-reader-read-aloud]' ? [root] : [],
       querySelector: selector => selector === 'meta[name="csrf-token"]' ? {content: token} : null,
     },
-    window, URL: BrowserUrl, fetch, AbortController, Audio: hasAudio ? Audio : undefined,
+    window, URL: BrowserUrl, fetch, AbortController, Event, Audio: hasAudio ? Audio : undefined,
   });
   return {
-    ...controls, window, requests, audios, created, revoked,
+    ...controls, window, requests, audios, created, revoked, position,
     goTo: value => {
       position.value = String(value);
       reader.fire('reader:page-changed', {detail: {page: value}});
@@ -358,4 +364,135 @@ test('an absent or unsafe OCR URL cannot be requested and leaves native speech u
     await f.ocr.fire('click');
     assert.equal(f.requests.length, 0);
   }
+});
+
+
+const pdfRun = options => fixture({ocrUrl: ocrEndpoint, pageCount: '14', ...options});
+const bodyPage = request => JSON.parse(request.opts.body).page;
+
+async function respond(f, reading, reply = response()) {
+  f.requests.at(-1).resolve(reply);
+  await reading;
+}
+
+test('PDF continuation is explicit; ordinary and OCR buttons still read only one page', async () => {
+  for (const button of ['start', 'ocr']) {
+    const f = pdfRun();
+    assert.equal(f.requests.length, 0);
+    assert.equal(f.continuous.disabled, false);
+    assert.equal(f.jump.hidden, true);
+    await respond(f, f[button].fire('click'));
+    f.audios[0].fire('ended');
+    assert.equal(f.requests.length, 1);
+    assert.equal(f.stop.disabled, true);
+  }
+  for (const pageCount of ['NaN', '4', '3.4', '10001']) {
+    const f = pdfRun({pageCount});
+    assert.equal(f.continuous.disabled, true);
+    await f.continuous.fire('click');
+    assert.equal(f.requests.length, 0);
+  }
+});
+
+test('five native pages are requested serially, each prior audio is released and no view auto-jumps', async () => {
+  const f = pdfRun();
+  await respond(f, f.continuous.fire('click'));
+  assert.equal(f.status.textContent, 'Reading page 4.');
+  await f.pause.fire('click');
+  f.audios[0].fire('ended');
+  assert.equal(f.requests.length, 1);
+  await f.pause.fire('click');
+  for (let page = 5; page <= 8; page++) {
+    const previousAudio = f.audios.at(-1);
+    const pending = previousAudio.fire('ended');
+    previousAudio.fire('ended'); // duplicate or queued callback from a disposed clip
+    assert.equal(f.requests.length, page - 3);
+    assert.deepEqual(JSON.parse(f.requests.at(-1).opts.body), {page, document_version: 'version-2'});
+    assert.equal(f.requests.at(-1).url, base + endpoint);
+    assert.equal(f.revoked.length, page - 4);
+    assert.equal(f.position.value, '4');
+    await respond(f, pending);
+    assert.equal(f.status.textContent, `Reading page ${page}.`);
+  }
+  f.audios.at(-1).fire('ended');
+  assert.deepEqual(f.requests.map(bodyPage), [4, 5, 6, 7, 8]);
+  assert.equal(f.revoked.length, 5);
+  assert.equal(f.jump.textContent, 'Go to page 9');
+  f.jump.fire('click');
+  assert.equal(f.position.value, '9');
+  assert.equal(f.requests.length, 5);
+  assert.equal(f.jump.hidden, true);
+});
+
+test('no-text page stops conclusively and offers navigation but never starts OCR or skips ahead', async () => {
+  const f = pdfRun();
+  await respond(f, f.continuous.fire('click'));
+  const reading = f.audios[0].fire('ended');
+  await respond(f, reading, response('{"error":"no_text"}', 'application/json', 422));
+  assert.equal(f.requests.length, 2);
+  assert.equal(f.requests[1].url, base + endpoint);
+  assert.equal(f.position.value, '4');
+  assert.match(f.status.textContent, /Stopped at page 5/);
+  assert.equal(f.jump.hidden, false);
+  f.jump.fire('click');
+  assert.equal(f.position.value, '5');
+  assert.equal(f.requests.length, 2);
+  await respond(f, f.ocr.fire('click'));
+  assert.equal(f.requests.length, 3);
+  assert.equal(f.requests[2].url, base + ocrEndpoint);
+  assert.equal(bodyPage(f.requests[2]), 5);
+  f.audios.at(-1).fire('ended');
+  assert.equal(f.requests.length, 3);
+});
+
+test('known final page ends a shorter run, without a follow-up request or resume link', async () => {
+  const f = pdfRun({pageCount: '5'});
+  await respond(f, f.continuous.fire('click'));
+  await respond(f, f.audios.at(-1).fire('ended'));
+  f.audios.at(-1).fire('ended');
+  assert.deepEqual(f.requests.map(bodyPage), [4, 5]);
+  assert.equal(f.status.textContent, 'End of PDF.');
+  assert.equal(f.jump.hidden, true);
+});
+
+test('manual navigation, stop, pagehide and stale permission/version end subsequent in-flight playback', async () => {
+  for (const cancel of [f => f.goTo(7), f => f.stop.fire('click'), f => f.window.fire('pagehide')]) {
+    const f = pdfRun();
+    await respond(f, f.continuous.fire('click'));
+    const pending = f.audios.at(-1).fire('ended');
+    cancel(f);
+    assert.equal(f.requests[1].opts.signal.aborted, true);
+    await respond(f, pending);
+    assert.equal(f.created.length, 1);
+    assert.equal(f.requests.length, 2);
+    assert.equal(f.stop.disabled, true);
+  }
+  for (const [code, message] of [[404, 'Fehler'], [409, 'Neu laden']]) {
+    const f = pdfRun();
+    await respond(f, f.continuous.fire('click'));
+    await respond(f, f.audios.at(-1).fire('ended'), response('{}', 'application/json', code));
+    assert.equal(f.status.textContent, message);
+    assert.equal(f.requests.length, 2);
+    assert.equal(f.stop.disabled, true);
+  }
+});
+
+test('subsequent playback blocked by browser waits for the same audio to be manually resumed', async () => {
+  const f = pdfRun({playResults: [
+    () => Promise.resolve(),
+    () => Promise.reject(new DOMException('blocked', 'NotAllowedError')),
+  ]});
+  await respond(f, f.continuous.fire('click'));
+  await respond(f, f.audios.at(-1).fire('ended'));
+  const second = f.audios.at(-1);
+  assert.equal(f.status.textContent, 'Bereit');
+  assert.equal(f.requests.length, 2);
+  assert.equal(f.pause.disabled, false);
+  await f.pause.fire('click');
+  assert.equal(second.playCount, 2);
+  assert.equal(f.status.textContent, 'Reading page 5.');
+  f.stop.fire('click');
+  second.fire('ended');
+  assert.equal(f.requests.length, 2);
+  assert.equal(f.revoked.length, 2);
 });

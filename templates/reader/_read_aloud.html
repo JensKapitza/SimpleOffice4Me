@@ -17,6 +17,12 @@
      data-speech-stale="{{ 'This document changed. Reload the page to read the current version.' if g.language == 'en' else 'Das Dokument hat sich geändert. Lade die Seite neu, um die aktuelle Version vorzulesen.' }}"
      data-speech-too-large="{{ 'This page or section exceeds the read-aloud limit.' if g.language == 'en' else 'Diese Seite oder dieser Abschnitt überschreitet die Vorlesegrenze.' }}"
      {% if speech_kind == 'pdf' %}
+     data-speech-preparing-page="{{ 'Preparing page {page}…' if g.language == 'en' else 'Seite {page} wird vorbereitet …' }}"
+     data-speech-reading-page="{{ 'Reading page {page}.' if g.language == 'en' else 'Seite {page} wird vorgelesen.' }}"
+     data-speech-continuous-blank="{{ 'Stopped at page {page}: no text layer. Use OCR manually if needed.' if g.language == 'en' else 'Stopp auf Seite {page}: keine Textebene. Bei Bedarf OCR manuell starten.' }}"
+     data-speech-continuous-limit="{{ 'Five pages read. Go to the next page to continue.' if g.language == 'en' else 'Fünf Seiten vorgelesen. Wechsle zur nächsten Seite, um weiterzuhören.' }}"
+     data-speech-continuous-end="{{ 'End of PDF.' if g.language == 'en' else 'Ende des PDFs.' }}"
+     data-speech-jump-label="{{ 'Go to page {page}' if g.language == 'en' else 'Zu Seite {page} wechseln' }}"
      data-speech-pdf-too-large="{{ ('This PDF exceeds %s MiB. Split it into smaller PDFs to read aloud.' if g.language == 'en' else 'Dieses PDF überschreitet %s MiB. Teile es zum Vorlesen in kleinere PDFs.') | format(speech_pdf_limit_mib) }}"
      data-speech-pdf-stage-unavailable="{{ 'The server could not prepare the PDF. Check its temporary storage and try again.' if g.language == 'en' else 'Der Server konnte das PDF nicht vorbereiten. Prüfe den temporären Speicher und versuche es erneut.' }}"
      data-speech-pdf-source-timeout="{{ 'Preparing the PDF took too long. Try again or split the PDF.' if g.language == 'en' else 'Das Vorbereiten des PDFs hat zu lange gedauert. Versuche es erneut oder teile das PDF.' }}"
@@ -26,13 +32,17 @@
      data-speech-play-required="{{ 'Audio is ready. Select Resume to play.' if g.language == 'en' else 'Die Sprachausgabe ist bereit. Tippe auf Fortsetzen.' }}">
   <div class="d-flex flex-wrap gap-2">
     <button class="btn btn-sm btn-outline-primary" type="button" data-speech-start disabled>{{ 'Read aloud' if g.language == 'en' else 'Vorlesen' }}</button>
+    {% if speech_kind == 'pdf' %}
+    <button class="btn btn-sm btn-outline-primary" type="button" data-speech-continuous disabled>{{ 'Read up to five pages' if g.language == 'en' else 'Bis zu fünf Seiten vorlesen' }}</button>
+    <button class="btn btn-sm btn-outline-secondary" type="button" data-speech-jump hidden disabled>{{ 'Go to page' if g.language == 'en' else 'Zur Seite wechseln' }}</button>
+    {% endif %}
     {% if speech_kind == 'pdf' and speech_ocr_url %}
     <button class="btn btn-sm btn-outline-primary" type="button" data-speech-ocr disabled>{{ 'OCR and read aloud' if g.language == 'en' else 'OCR und vorlesen' }}</button>
     {% endif %}
     <button class="btn btn-sm btn-outline-secondary" type="button" data-speech-pause disabled>Pause</button>
     <button class="btn btn-sm btn-outline-secondary" type="button" data-speech-stop disabled>{{ 'Stop' if g.language == 'en' else 'Stopp' }}</button>
   </div>
-  {% if speech_kind == 'pdf' %}<div class="form-text">{{ 'Reads the selected page. OCR recognizes text in a scan without changing the PDF.' if g.language == 'en' else 'Liest die ausgewählte Seite. OCR erkennt den Text einer gescannten Seite, ohne das PDF zu ändern.' }}</div>{% endif %}
+  {% if speech_kind == 'pdf' %}<div class="form-text">{{ 'Continuous reading starts at the selected page and stops at a page without a text layer. It never starts OCR or moves the view automatically.' if g.language == 'en' else 'Mehrere Seiten werden ab der ausgewählten Seite vorgelesen. Bei einer Seite ohne Textebene stoppt das Vorlesen, ohne OCR zu starten oder die Ansicht zu verschieben.' }}</div>{% endif %}
   <div class="form-text">
     {% if g.user and g.user.is_admin %}
     <a href="{{ url_for('admin.documents_media_settings', _anchor='local-read-aloud') }}">{{ 'Set up or test local read-aloud' if g.language == 'en' else 'Lokales Vorlesen einrichten oder prüfen' }}</a>
