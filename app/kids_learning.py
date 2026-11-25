@@ -3,12 +3,13 @@ import base64
 import io
 import ipaddress
 import json
+import os
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from flask import Blueprint, abort, current_app, jsonify, render_template, request, send_file, url_for
 
-from . import kids_piper_assets
+from . import kids_hand_assets, kids_piper_assets
 from .auth import login_required
 from .federation_qr_image import render_qr_svg
 from .settings_store import SettingsStore
@@ -131,6 +132,28 @@ def index():
 def mini_games():
     """Short, touch-friendly games for a quick break in the Kids area."""
     return render_template("kids/mini_games.html", kids_mode=True)
+
+
+def _hand_game_asset_directory() -> str:
+    return str(current_app.config.get("KIDS_HAND_GAME_ASSET_DIR")
+               or os.environ.get("SIMPLEOFFICE_KIDS_HAND_GAME_ASSET_DIR", ""))
+
+
+@bp.get("/handzeichen")
+@login_required
+def hand_game():
+    """Play fantasy hand signs. The camera is only accessible in this page."""
+    return render_template("kids/hand_game.html", kids_mode=True,
+                           hand_game_ready=kids_hand_assets.ready(_hand_game_asset_directory()))
+
+
+@bp.get("/handzeichen/assets/<name>")
+@login_required
+def hand_game_asset(name):
+    data = kids_hand_assets.asset(_hand_game_asset_directory(), name)
+    if data is None:
+        abort(404)
+    return send_file(io.BytesIO(data), mimetype=kids_hand_assets.ASSETS[name][0])
 
 
 @bp.get("/silben")

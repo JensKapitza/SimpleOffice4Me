@@ -1,0 +1,30 @@
+.kids-hand {max-width: 64rem; --hand-accent: #6641a5;}
+.kids-hand [hidden] {display: none !important;}
+.kids-hand-intro, .kids-hand-duel, .kids-hand-guide, .kids-hand-target {border: 1px solid var(--bs-border-color); padding: 1rem; border-radius: 1.2rem; background: var(--bs-tertiary-bg);}
+.kids-hand-intro {border-inline-start: .45rem solid var(--hand-accent);}
+.kids-hand-intro p:last-child {margin-bottom: 0;}
+.kids-hand-tag {font-weight: 700; margin-bottom: .35rem;}
+.kids-hand-privacy {margin: .8rem 0;}
+.kids-hand-camera-actions {display: flex; flex-wrap: wrap; align-items: center; gap: .65rem;}
+.kids-mirror {padding: .5rem;}
+.kids-hand-play {display: grid; gap: .8rem; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);}
+.kids-hand-frame {position: relative; overflow: hidden; align-self: start; border-radius: 1.2rem; background: #15102b; color: white;}
+.kids-hand-frame video {display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: contain;}
+.kids-hand-frame canvas {position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none;}
+.kids-hand-frame[data-mirrored="true"] :is(video, canvas) {transform: scaleX(-1);}
+.kids-hand-badge {position: absolute; margin: 0; inset: auto .65rem .65rem; text-align: center; background: #15102beb; border-radius: .65rem; padding: .55rem; font-weight: 650;}
+.kids-hand-target {grid-column: -2 / -1; text-align: center; min-inline-size: 0;}
+.kids-hand-frame[hidden] + .kids-hand-target {grid-column: 1 / -1;}
+.kids-hand-icon, .kids-hand-pose {display: inline-block; font-size: clamp(2.65rem, 8vw, 4.7rem); line-height: 1.15;}
+.kids-hand-feedback {min-block-size: 1.6rem; font-weight: 700;}
+.kids-hand-target[data-win="true"] {outline: .2rem solid #23824f; outline-offset: -.2rem;}
+.kids-hand-steps {display: flex; flex-wrap: wrap; justify-content: center; list-style: none; padding: 0; gap: .3rem;}
+.kids-hand-steps li {border: .12rem solid var(--bs-border-color); min-inline-size: 2.2rem; border-radius: .45rem; padding: .2rem;}
+.kids-hand-steps li[aria-current="step"] {color: white; border-color: var(--hand-accent); background: var(--hand-accent); font-weight: 700;}
+.kids-hand-steps li[data-complete="true"] {border-color: #23824f;}
+.kids-hand-round {margin-top: .5rem;}
+.kids-hand-guide-list {display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); gap: .55rem;}
+.kids-hand-guide-list div {text-align: center; background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: .7rem; padding: .5rem;}
+.kids-hand-guide-list :is(span, b, small) {display: block;}
+.kids-hand-guide-list span {font-size: 1.7rem;}
+@media (max-width: 650px) {.kids-hand-play {grid-template-columns: minmax(0, 1fr);}}

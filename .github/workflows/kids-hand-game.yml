@@ -1,0 +1,66 @@
+name: Kids local hand model
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/kids-hand-game.yml'
+      - 'app/kids_hand_assets.py'
+      - 'app/kids_learning.py'
+      - 'static/js/kids_hand_*.mjs'
+      - 'templates/kids/hand_game.html'
+      - 'tests/**/kids_hand_game*'
+      - 'tests/**/test_kids_hand_game*'
+      - 'tools/make_kids_hand_test_video.py'
+      - 'tools/provision_kids_hand_game.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+concurrency:
+  group: kids-hand-game-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  local-model-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Install application and existing browser-test tooling
+        run: |
+          python -m pip install --editable '.[web-export,test]'
+          python -m playwright install --with-deps chromium
+      - name: Stage official pinned model and public regression picture (CI only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/hand-game"
+          dir="$RUNNER_TEMP/hand-game"
+          args=(--proto '=https' --tlsv1.2 --fail --silent --show-error --max-time 75 --retry 2)
+          curl "${args[@]}" 'https://registry.npmjs.org/@mediapipe/tasks-vision/-/tasks-vision-0.10.21.tgz' -o "$dir/package.tgz"
+          curl "${args[@]}" 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task' -o "$dir/model.task"
+          curl "${args[@]}" 'https://storage.googleapis.com/mediapipe-assets/pointing_up.jpg' -o "$dir/pointing.jpg"
+          python tools/provision_kids_hand_game.py --package "$dir/package.tgz" --model "$dir/model.task" --destination "$dir/assets"
+          python tools/make_kids_hand_test_video.py "$dir/pointing.jpg" "$dir"
+      - name: Verify landmarks, one hold, no-hand negative, duel rules and camera stop
+        env:
+          SIMPLEOFFICE_KIDS_HAND_GAME_ASSET_DIR: ${{ runner.temp }}/hand-game/assets
+          SIMPLEOFFICE_KIDS_HAND_PUBLIC_TEST_VIDEO: ${{ runner.temp }}/hand-game/pointing.y4m
+          SIMPLEOFFICE_KIDS_HAND_BLANK_TEST_VIDEO: ${{ runner.temp }}/hand-game/blank.y4m
+          PYTHONPATH: .:tests
+        run: |
+          node --test tests/kids_hand_game.test.mjs
+          python -m unittest -v test_kids_hand_game test_kids_hand_game_browser
