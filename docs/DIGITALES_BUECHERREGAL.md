@@ -62,6 +62,8 @@ Der erkannte Text kommt als unsichtbare PDF-Textebene hinter den sichtbaren Seit
 
 Öffne ein PDF oder eine UTF-8-`.txt`-Datei über **Im Reader öffnen** in der Dokumentansicht. **Vorlesen** liest die im Reader gewählte PDF-Seite beziehungsweise den aktuellen Textabschnitt. **Pause**, **Fortsetzen** und **Stopp** steuern die Wiedergabe. Wenn der Browser nach der Vorbereitung nicht automatisch spielt, startet **Fortsetzen** das fertige Audio. Ein Seitenwechsel beendet die bisherige Wiedergabe.
 
+**Bis zu fünf Seiten vorlesen** liest nur vorhandenen PDF-Text. Trifft die Wiedergabe auf eine Scanseite, wechsle ausdrücklich dorthin und wähle **OCR und vorlesen**. Für die nächste Seite wechselst du danach wieder selbst zur gewünschten Stelle und startest das Vorlesen. Am PDF-Ende bietet der Reader einen Sprung zur letzten vorgelesenen Seite an. Erst der gewählte Sprung ändert die Ansicht; das Vorlesen selbst speichert keine neue Leseposition.
+
 ### Stimme für den Reader einrichten
 
 1. Stelle die lokale Piper-CLI im `PATH` des SimpleOffice-Prozesses bereit und prüfe dort `piper --help`.

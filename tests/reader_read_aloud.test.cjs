@@ -541,14 +541,20 @@ test('temporary failure on a later page offers a manual jump without advancing o
   assert.equal(f.requests[2].url, base + endpoint);
 });
 
-test('known final page ends a shorter run, without a follow-up request or resume link', async () => {
+test('known final page ends a shorter run and offers only a manual jump to the last page', async () => {
   const f = pdfRun({pageCount: '5'});
   await respond(f, f.continuous.fire('click'));
   await respond(f, f.audios.at(-1).fire('ended'));
   f.audios.at(-1).fire('ended');
   assert.deepEqual(f.requests.map(bodyPage), [4, 5]);
   assert.equal(f.status.textContent, 'End of PDF.');
+  assert.equal(f.position.value, '4');
+  assert.equal(f.jump.hidden, false);
+  assert.equal(f.jump.textContent, 'Go to page 5');
+  f.jump.fire('click');
+  assert.equal(f.position.value, '5');
   assert.equal(f.jump.hidden, true);
+  assert.deepEqual(f.requests.map(bodyPage), [4, 5]);
 });
 
 test('manual navigation, stop, pagehide and stale permission/version end subsequent in-flight playback', async () => {
