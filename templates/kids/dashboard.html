@@ -69,6 +69,21 @@
       <strong>{{ 'Reaction course' if g.language == 'en' else 'Reaktionsparcours' }}</strong>
       <small>{{ 'Press numbered stations on screen or with an ESP32' if g.language == 'en' else 'Drücke nummerierte Stationen am Bildschirm oder mit einem ESP32' }}</small>
     </a>
+    <a class="kids-symbol-card" href="{{ url_for('kids_learning.logic_workshop', _anchor='schalter') }}">
+      <span aria-hidden="true">🔋💡🍎</span>
+      <strong>{{ 'Logic lab: switches and machines' if g.language == 'en' else 'Logikwerkstatt: Schalter & Maschinen' }}</strong>
+      <small>{{ 'Light a bulb, move a gate or fill a jar of applesauce' if g.language == 'en' else 'Lampe anmachen, Tor bewegen oder Apfelmus ins Glas füllen' }}</small>
+    </a>
+    <a class="kids-symbol-card" href="{{ url_for('kids_learning.logic_workshop', _anchor='mengen') }}">
+      <span aria-hidden="true">🔴🟦🟨</span>
+      <strong>{{ 'Logic lab: shapes and sets' if g.language == 'en' else 'Logikwerkstatt: Formen & Mengen' }}</strong>
+      <small>{{ 'Find shapes that fit AND, OR or NOT' if g.language == 'en' else 'Finde Formen, die zu UND, ODER oder NICHT passen' }}</small>
+    </a>
+    <a class="kids-symbol-card" href="{{ url_for('kids_learning.logic_workshop', _anchor='sicherheit') }}">
+      <span aria-hidden="true">🖼️</span>
+      <strong>{{ 'Picture story: stay safe around electricity' if g.language == 'en' else 'Bildergeschichte: Sicher bei Strom' }}</strong>
+      <small>{{ 'See safe choices picture by picture' if g.language == 'en' else 'Schau Bild für Bild, was du sicher tun kannst' }}</small>
+    </a>
     <a class="kids-symbol-card" href="{{ url_for('electrical_learning.index', audience='kids') }}">
       <span aria-hidden="true">🔌</span>
       <strong>{{ 'Electricity safety' if g.language == 'en' else 'Strom sicher erkennen' }}</strong>

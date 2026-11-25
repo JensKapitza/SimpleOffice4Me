@@ -1,0 +1,33 @@
+<div class="logic-circuit" data-circuit-display data-a="off" data-b="off" data-lit="off">
+  <div data-circuit="single"><svg viewBox="0 0 320 120" aria-hidden="true">
+    <path class="logic-wire" d="M 32,32 H 105 M 145,32 H 277 V 95 H 32 V 32"/>
+    <path class="logic-lamp-path" d="M 145,32 H 277 V 95 H 32"/>
+    <path class="logic-contact-open logic-contact-a" d="M 105,32 L 143,16"/>
+    <path class="logic-contact-closed logic-contact-a" d="M 105,32 H 145"/>
+    <text x="35" y="74">🔋</text><text x="120" y="67">A</text><text x="250" y="73">💡</text>
+  </svg></div>
+  <div data-circuit="and" hidden><svg viewBox="0 0 320 120" aria-hidden="true">
+    <path class="logic-wire" d="M 32,32 H 80 M 120,32 H 170 M 210,32 H 277 V 95 H 32 V 32"/>
+    <path class="logic-lamp-path" d="M 210,32 H 277 V 95 H 32"/>
+    <path class="logic-contact-open logic-contact-a" d="M 80,32 L 118,16"/>
+    <path class="logic-contact-closed logic-contact-a" d="M 80,32 H 120"/>
+    <path class="logic-contact-open logic-contact-b" d="M 170,32 L 208,16"/>
+    <path class="logic-contact-closed logic-contact-b" d="M 170,32 H 210"/>
+    <text x="35" y="74">🔋</text><text x="94" y="67">A</text><text x="184" y="67">B</text><text x="250" y="73">💡</text>
+  </svg></div>
+  <div data-circuit="or" hidden><svg viewBox="0 0 320 120" aria-hidden="true">
+    <path class="logic-wire" d="M 25,62 H 82 V 26 H 130 M 170,26 H 220 V 62 M 82,62 V 80 H 130 M 170,80 H 220 V 62 H 280 V 104 H 25 V 62"/>
+    <path class="logic-lamp-path" d="M 220,62 H 280 V 104 H 25"/>
+    <path class="logic-contact-open logic-contact-a" d="M 130,26 L 168,10"/>
+    <path class="logic-contact-closed logic-contact-a" d="M 130,26 H 170"/>
+    <path class="logic-contact-open logic-contact-b" d="M 130,80 L 168,64"/>
+    <path class="logic-contact-closed logic-contact-b" d="M 130,80 H 170"/>
+    <text x="30" y="92">🔋</text><text x="144" y="54">A</text><text x="144" y="103">B</text><text x="251" y="87">💡</text>
+  </svg></div>
+  <div data-circuit="not" hidden><svg viewBox="0 0 320 120" aria-hidden="true">
+    <path class="logic-wire" d="M 86,60 H 125 M 190,60 H 244 M 125,29 L 176,60 L 125,91 Z"/>
+    <path class="logic-lamp-path" d="M 190,60 H 244"/>
+    <circle class="logic-inverter" cx="183" cy="60" r="7"/>
+    <text x="55" y="65">A</text><text x="249" y="67">💡</text>
+  </svg></div>
+</div>

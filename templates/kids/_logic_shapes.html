@@ -1,0 +1,39 @@
+<section id="mengen" class="logic-region" aria-labelledby="logic-sets" data-logic-unit="sets">
+  <h2 id="logic-sets">{{ 'Shapes and sets' if en else 'Formen und Mengen' }}</h2>
+  <p>{{ 'All the tiles below are our whole collection. A means red, B means circle. A red circle belongs to both. Pick tiles that fit the rule.' if en else 'Alle Karten unten sind unsere ganze Sammlung. A heißt rot, B heißt Kreis. Ein roter Kreis gehört zu beiden. Wähle die Karten, die zur Regel passen.' }}</p>
+  <div class="logic-venn" aria-hidden="true"><span>A</span><span>B</span></div>
+  <label for="logic-set-select">{{ 'Pick a rule' if en else 'Wähle eine Regel' }}</label>
+  <select class="form-select" id="logic-set-select" data-set-operation disabled>
+    <option value="and">{{ 'AND · intersection' if en else 'UND · Schnittmenge' }}</option>
+    <option value="or">{{ 'OR · union' if en else 'ODER · Vereinigung' }}</option>
+    <option value="not">{{ 'NOT · everything except red' if en else 'NICHT · alles außer Rot' }}</option>
+    <option value="difference">{{ 'A minus B · difference' if en else 'A ohne B · Differenz' }}</option>
+  </select>
+  <p data-set-rule></p>
+  <div class="logic-set-grid">
+    {% for zone, de, eng, tiles in [
+      ('a','Nur A: rot','Only A: red',[('rs','red','square','Rotes Quadrat','Red square'), ('rt','red','triangle','Rotes Dreieck','Red triangle')]),
+      ('both','A und B: rot und rund','A and B: red and round',[('rc','red','circle','Roter Kreis','Red circle')]),
+      ('b','Nur B: rund','Only B: round',[('bc','blue','circle','Blauer Kreis','Blue circle'), ('yc','yellow','circle','Gelber Kreis','Yellow circle')]),
+      ('neither','Weder A noch B','Neither A nor B',[('bs','blue','square','Blaues Quadrat','Blue square'), ('yt','yellow','triangle','Gelbes Dreieck','Yellow triangle')])
+    ] %}
+    <section class="logic-set-zone" data-zone="{{ zone }}" aria-labelledby="logic-zone-{{ zone }}">
+      <h3 id="logic-zone-{{ zone }}">{{ eng if en else de }}</h3>
+      <div class="logic-actions">
+      {% for id, color, shape, title_de, title_en in tiles %}
+        <button class="btn btn-outline-secondary logic-tile" type="button" data-token="{{ id }}"
+                data-color="{{ color }}" data-shape="{{ shape }}" aria-pressed="false" disabled>
+          <span class="logic-shape" aria-hidden="true"></span><span>{{ title_en if en else title_de }}</span><small data-token-hint></small>
+        </button>
+      {% endfor %}
+      </div>
+    </section>
+    {% endfor %}
+  </div>
+  <div class="logic-actions">
+    <button class="btn btn-primary" type="button" data-set-check disabled>{{ 'Check my shapes' if en else 'Meine Auswahl prüfen' }}</button>
+    <button class="btn btn-outline-secondary" type="button" data-set-reveal disabled>{{ 'Show the answer' if en else 'Lösung zeigen' }}</button>
+    <button class="btn btn-outline-secondary" type="button" data-set-reset disabled>{{ 'Clear selection' if en else 'Auswahl leeren' }}</button>
+  </div>
+  <p class="logic-result" data-set-result role="status"></p>
+</section>
