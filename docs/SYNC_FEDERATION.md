@@ -42,6 +42,35 @@ Ein externes Archiv erhält im Wurzelordner die kleine Datei `.simpleoffice-arch
 
 Die Suche liest nur den Wurzelordner eines Laufwerks und folgt keinen Links. So ist sie schnell und durchsucht keine fremden Daten. Der konkrete Einhängepunkt wird zuletzt gesehen gespeichert; nicht angeschlossene Archive bleiben als „nicht verbunden“ sichtbar.
 
+## Lokaler HTTPS-Smoke-Test für Kopplung und Direkttransfer
+
+Auf Linux in der Repository-Wurzel ausführen. Benötigt einen unterstützten
+Python-Interpreter, das lokale `openssl`-Kommando und die Projektabhängigkeiten
+mit dem Testextra für Beautiful Soup. Wenn noch keine virtuelle Umgebung
+vorhanden ist:
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -e '.[test]'
+.venv/bin/python tools/smoke_federation_loopback.py
+```
+
+Der Test startet zwei echte Anwendungsprozesse an freien Ports auf
+`127.0.0.1`. Ein nur für den Test erzeugtes CA-Zertifikat prüft HTTPS und den
+IP-Namen wirklich; die System-Vertrauensliste wird nicht verändert. Mit
+temporären Admin-Konten erfolgen Anmeldung, QR-Profilimport, beidseitige
+Bestätigung per Kopplungscode und explizite Dokumentfreigaben. Eine leere
+Datei wird von A nach B geschickt (kein Chunk-PUT), eine synthetische
+TXT-Datei von B nach A. Erwartet werden abgeschlossene Vorgänge auf beiden
+Seiten und die byteidentischen Empfänge auch nach Neustart beider Prozesse.
+Der Test nutzt weder ein bestehendes Konto noch einen externen Peer; seine
+Dateien und Zertifikate liegen in einem temporären Verzeichnis.
+
+Das ist kein Test für Router, Firewall, reale Netzwerknamen oder die
+durchgehende Browser-Oberfläche. Ein Direkteingang wird dabei nicht als
+Dokument importiert. Fehlt unter Linux das lokale `openssl` oder läuft der
+Test auf einer anderen Plattform, meldet er `SKIP` (Exit-Code 77).
+
 ## Föderation: aktueller Stand und Kompatibilitätsgrenze
 
 Föderation ist keine reine Zukunftsplanung mehr. SimpleOffice4Me besitzt heute
