@@ -149,6 +149,8 @@ def _invisible_text_overlay(
     image_width: int, image_height: int, existing_text: str = "",
 ) -> bytes:
     """Build a PDF text page whose glyphs are searchable but not painted."""
+    from .pdf_ocr_latin_encoding import ocr_latin_font
+
     if width <= 0 or height <= 0 or image_width <= 0 or image_height <= 0:
         raise ValueError("Ungültige PDF- oder OCR-Seitengröße")
     stream = io.BytesIO()
@@ -169,8 +171,9 @@ def _invisible_text_overlay(
         y = height - (top + box_height) * height / image_height
         font_size = max(1.0, min(36.0, box_height * height / image_height))
         invisible_text.setTextOrigin(x, y)
-        invisible_text.setFont("Helvetica", font_size)
-        natural_width = stringWidth(line, "Helvetica", font_size)
+        font = ocr_latin_font(line)
+        invisible_text.setFont(font, font_size)
+        natural_width = stringWidth(line, font, font_size)
         measured_width = min(box_width, image_width - left) * width / image_width
         # Selecting text should cover the rendered scan, not the natural
         # Helvetica width. Clamp malformed or extreme OCR boxes.
