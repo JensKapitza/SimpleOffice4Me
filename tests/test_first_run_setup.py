@@ -5,6 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from bs4 import BeautifulSoup
+
 from app import app
 from app.calendar_collections import CalendarCollections
 from app.contact_store import ContactStore
@@ -48,6 +50,39 @@ class FirstRunSetupTest(unittest.TestCase):
         self.assertIn("Lesen", body)
         self.assertIn("Schreiben", body)
         self.assertIn("Verwalten", body)
+
+    def test_mobile_setup_styles_load_from_the_head_only_on_setup(self):
+        asset_url = "/static/css/document-setup.css"
+        for path in ("/documents/setup", "/documents/setup/access"):
+            with self.subTest(path=path):
+                if path.endswith("/access"):
+                    response = self.client.post(path, base_url=self.base_url)
+                else:
+                    response = self.client.get(path, base_url=self.base_url)
+                self.addCleanup(response.close)
+                self.assertEqual(200, response.status_code)
+                page = BeautifulSoup(response.data, "html.parser")
+                self.assertIsNotNone(page.select_one("main#main-content.setup-mobile-safe"))
+                self.assertIsNone(page.select_one("body style"))
+                stylesheet = page.select_one('head link[rel="stylesheet"][href$="/css/document-setup.css"]')
+                self.assertIsNotNone(stylesheet)
+                self.assertEqual(asset_url, stylesheet["href"])
+
+        response = self.client.get(asset_url, base_url=self.base_url)
+        self.addCleanup(response.close)
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("text/css", response.mimetype)
+        css = response.get_data(as_text=True)
+        for rule in (
+            r"\.setup-mobile-safe\s*\{[^}]*overflow-wrap:\s*anywhere",
+            r"\.setup-mobile-safe pre\s*\{[^}]*white-space:\s*pre-wrap",
+            r"@media\s*\(max-width:\s*575px\)\s*\{\s*\.setup-mobile-safe\s*\{[^}]*padding-bottom:\s*6rem !important",
+            r"\.setup-mobile-safe \.btn\s*\{[^}]*white-space:\s*normal",
+        ):
+            self.assertRegex(css, rule)
+        dashboard = self.client.get("/documents/dashboard", base_url=self.base_url)
+        self.addCleanup(dashboard.close)
+        self.assertNotIn("/css/document-setup.css", dashboard.get_data(as_text=True))
 
     def test_remote_setup_preserves_ipv6_hosts_and_quotes_mount_targets(self):
         from app.documents_core import _remote_setup_context
