@@ -10,6 +10,7 @@ from app import app_config_store
 from app.document_store import DocumentStore
 from app.federation_core import build_manifest
 from app.federation_http import bp
+from app.federation_store import FederationStore
 from app.v2.cutover import activate_v2, prepare_shadow
 from app.v2.migration import create_migration_backup, transfer_legacy_documents
 
@@ -139,6 +140,64 @@ class FederationHttpTest(unittest.TestCase):
         )
 
         self.assertEqual(404, response.status_code)
+
+    def test_prepare_promotes_verified_empty_file_without_a_chunk_and_reuses_digest(self):
+        source = self.root / "empty.txt"
+        source.touch()
+        manifest = build_manifest(source)
+        url = "/federation/v1/transfers/prepare"
+        data = {"transfer_id": "empty-download", "blob_hash": manifest["blob_hash"], "size": 0, "manifest": manifest}
+        self.assertEqual(401, self.client.post(url, json=data).status_code)
+        first = self.client.post(url, json=data, headers=self.auth)
+        self.assertEqual(201, first.status_code)
+        self.assertEqual("complete", first.json["status"])
+        self.assertEqual(0, first.json["transferred_bytes"])
+        with self.app.app_context():
+            jobs = FederationStore(self.root)
+            saved = jobs.get_transfer(data["transfer_id"])
+            final = jobs.incoming / f'{manifest["blob_hash"]}.blob'
+        self.assertEqual(str(final), saved["final_path"])
+        self.assertEqual(b"", final.read_bytes())
+        stable_inode = final.stat().st_ino
+        self.assertEqual(200, self.client.post(url, json=data, headers=self.auth).status_code)
+        second = self.client.post(url, json={**data, "transfer_id": "another-empty"}, headers=self.auth)
+        self.assertEqual("complete", second.json["status"])
+        self.assertEqual(stable_inode, final.stat().st_ino)
+        self.assertEqual([], list(final.parent.glob("*.part")))
+
+    def test_old_prepared_empty_job_resumes_only_via_authenticated_matching_prepare(self):
+        source = self.root / "legacy-empty.txt"
+        source.touch()
+        manifest = build_manifest(source)
+        url = "/federation/v1/transfers/prepare"
+        job_id = "legacy-empty-transfer"
+        with self.app.app_context():
+            jobs = FederationStore(self.root)
+            jobs.create_transfer(job_id, direction="incoming", operation="COPY", status="prepared",
+                                 blob_hash=manifest["blob_hash"], manifest=manifest)
+            partial = jobs.incoming / f"{job_id}.part"
+            partial.touch()
+            jobs.update_transfer(job_id, final_path=str(partial))
+        status = self.client.get(f"/federation/v1/transfers/{job_id}/status", headers=self.auth)
+        self.assertEqual("prepared", status.json["status"])
+        self.assertTrue(partial.is_file())
+        retry = self.client.post(url, json={"transfer_id": job_id, "blob_hash": manifest["blob_hash"],
+                                           "size": 0, "manifest": manifest}, headers=self.auth)
+        self.assertEqual((200, "complete"), (retry.status_code, retry.json["status"]))
+        self.assertFalse(partial.exists())
+
+    def test_incompatible_empty_hash_is_not_staged(self):
+        source = self.root / "empty-metadata-mismatch.txt"
+        source.touch()
+        manifest = build_manifest(source)
+        manifest["blob_hash"] = "1" * 64
+        response = self.client.post("/federation/v1/transfers/prepare", json={
+            "transfer_id": "invalid-empty-checksum", "blob_hash": manifest["blob_hash"],
+            "size": 0, "manifest": manifest,
+        }, headers=self.auth)
+        self.assertEqual(400, response.status_code)
+        with self.app.app_context():
+            self.assertIsNone(FederationStore(self.root).get_transfer("invalid-empty-checksum"))
 
     def test_prepare_put_and_complete_incoming_transfer(self):
         source = self.root / "incoming-source.bin"

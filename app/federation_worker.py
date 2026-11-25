@@ -16,6 +16,7 @@ from .document_store import DocumentStore
 from .federation_core import (
     bitmap_decode,
     build_manifest,
+    empty_transfer_manifest,
     normalize_sha256,
     transfer_progress,
     verify_chunk,
@@ -555,7 +556,13 @@ def _prepare_remote(
     source_peer: str = "",
 ) -> dict[str, Any]:
     existing = _remote_status(base_url, transfer["transfer_id"], token)
-    if existing is not None:
+    # GET remains read-only. A direct receiver from an older version may
+    # have prepared an empty manifest but never seen a final chunk.
+    if existing is not None and not (
+        not delegated and existing.get("status") == "prepared"
+        and existing.get("direction") == "incoming" and existing.get("blob_hash") == manifest.get("blob_hash")
+        and empty_transfer_manifest(manifest)
+    ):
         return existing
     payload = {
         "transfer_id": transfer["transfer_id"],

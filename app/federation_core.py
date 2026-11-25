@@ -71,6 +71,19 @@ def manifest_valid(manifest: dict) -> bool:
         return int(manifest["chunk_count"]) == len(manifest["chunks"]) and normalize_sha256(manifest["blob_hash"]) and normalize_sha256(manifest["merkle_root"]) and all(c["index"] == i and normalize_sha256(c["hash"]) for i, c in enumerate(manifest["chunks"]))
     except (KeyError, TypeError, ValueError): return False
 
+def empty_transfer_manifest(manifest: dict) -> bool:
+    """An empty SOFP file has no chunks and the empty SHA-256 in both fields."""
+    digest = sha256_bytes(b"")
+    return (
+        isinstance(manifest, dict)
+        and type(manifest.get("size")) is int and manifest["size"] == 0
+        and type(manifest.get("chunk_count")) is int and manifest["chunk_count"] == 0
+        and manifest.get("chunks") == []
+        and manifest.get("blob_hash") == digest
+        and manifest.get("merkle_root") == digest
+    )
+
+
 def bitmap_encode(indices: set[int], total: int) -> str:
     data = bytearray((total + 7) // 8)
     for i in indices:
