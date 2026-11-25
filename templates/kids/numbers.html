@@ -3,20 +3,29 @@
 {% block title %}{{ 'Counting fun' if g.language == 'en' else 'Zählspaß' }} · SimpleOffice{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/kids_numbers.css', v=app_build.version) }}">{% endblock %}
 {% block body %}
-<main id="main-content" class="kids-numbers-page container py-3 py-lg-4" data-kids-numbers data-language="{{ g.language }}" data-audio-base="{{ url_for('static', filename='audio/kids/games/numbers') }}" data-audio-version="{{ app_build.version }}" data-tts-url="{{ url_for('kids_learning.sprache') }}">
+{% set preschool = request.args.get('practice') == 'preschool' %}
+<main id="main-content" class="kids-numbers-page container py-3 py-lg-4" data-kids-numbers{% if preschool %} data-preschool-round="true"{% endif %} data-language="{{ g.language }}" data-audio-base="{{ url_for('static', filename='audio/kids/games/numbers') }}" data-audio-version="{{ app_build.version }}" data-tts-url="{{ url_for('kids_learning.sprache') }}">
   <script type="application/json" id="kids-numbers-config">{{ numbers_config|tojson }}</script>
   <header class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4">
     <div><h1 class="h2 mb-1">{{ 'Counting fun' if g.language == 'en' else 'Zählspaß' }} 🔢</h1><p class="text-secondary mb-0">{{ 'See how many, count along and meet the numbers. Everything is read aloud, no reading needed.' if g.language == 'en' else 'Schau wie viele es sind, zähle mit und lerne die Zahlen kennen. Alles wird vorgelesen, Lesen ist nicht nötig.' }}</p></div>
   </header>
+  {% if preschool %}
+  <p class="badge text-bg-primary mb-3 text-wrap text-start">{{ 'Preschool round · 1 of 2: Counting' if g.language == 'en' else 'Vorschulrunde · 1 von 2: Zählen' }}</p>
+  {% endif %}
   <p class="small text-warning-emphasis mb-2" data-speech-status role="status" aria-live="polite"></p>
 
   <section class="kids-numbers-setup" data-setup aria-labelledby="kids-numbers-setup-title">
+    {% if preschool %}
+    <h2 class="h4 mb-3" id="kids-numbers-setup-title">{{ 'Let’s count!' if g.language == 'en' else 'Wir zählen jetzt!' }}</h2>
+    <button type="button" class="btn btn-primary btn-lg" data-level="easy">{{ 'Start counting' if g.language == 'en' else 'Zählen starten' }} 🔢</button>
+    {% else %}
     <h2 class="h4 mb-3" id="kids-numbers-setup-title">{{ 'How far can you count?' if g.language == 'en' else 'Wie weit kannst du zählen?' }}</h2>
     <div class="kids-numbers-levels" role="group" aria-label="{{ 'Difficulty' if g.language == 'en' else 'Schwierigkeit' }}">
       <button type="button" class="kids-numbers-level" data-level="easy"><span aria-hidden="true">🐣</span><strong>{{ 'Easy' if g.language == 'en' else 'Leicht' }}</strong><small>{{ 'Count to 3' if g.language == 'en' else 'Zählen bis 3' }}</small></button>
       <button type="button" class="kids-numbers-level" data-level="medium"><span aria-hidden="true">🐥</span><strong>{{ 'Medium' if g.language == 'en' else 'Mittel' }}</strong><small>{{ 'Count to 5' if g.language == 'en' else 'Zählen bis 5' }}</small></button>
       <button type="button" class="kids-numbers-level" data-level="hard"><span aria-hidden="true">🦉</span><strong>{{ 'Hard' if g.language == 'en' else 'Schwer' }}</strong><small>{{ 'Numbers to 10' if g.language == 'en' else 'Zahlen bis 10' }}</small></button>
     </div>
+    {% endif %}
   </section>
 
   <section class="kids-numbers-play card shadow-sm mt-4" data-play hidden aria-labelledby="kids-numbers-title">
@@ -31,7 +40,7 @@
       <p class="kids-numbers-feedback" data-feedback role="status" aria-live="polite"></p>
       <div class="d-flex flex-wrap gap-2 mt-3">
         <button class="btn btn-success btn-lg" type="button" data-next hidden>{{ 'Next' if g.language == 'en' else 'Weiter' }} ➡️</button>
-        <button class="btn btn-outline-secondary btn-lg" type="button" data-back>{{ 'Choose difficulty' if g.language == 'en' else 'Schwierigkeit wählen' }}</button>
+        <button class="btn btn-outline-secondary btn-lg" type="button" data-back>{{ ('Restart counting' if g.language == 'en' else 'Zählrunde neu starten') if preschool else ('Choose difficulty' if g.language == 'en' else 'Schwierigkeit wählen') }}</button>
       </div>
     </div>
   </section>
@@ -41,8 +50,15 @@
       <div class="kids-numbers-result-flower" aria-hidden="true">🌼✨</div>
       <h2 class="h3" data-result-title tabindex="-1"></h2>
       <p class="lead" data-result-copy></p>
+      {% if preschool %}
+      <div class="d-flex flex-wrap justify-content-center gap-2">
+        <a class="btn btn-primary btn-lg" href="{{ url_for('kids_learning.syllables', practice='preschool') }}">{{ 'Next: clap syllables' if g.language == 'en' else 'Weiter: Silben klatschen' }} 👏</a>
+        <button class="btn btn-outline-secondary btn-lg" type="button" data-play-again>{{ 'Count again' if g.language == 'en' else 'Nochmal zählen' }}</button>
+      </div>
+      {% else %}
       <button class="btn btn-primary btn-lg" type="button" data-play-again>{{ 'Play again' if g.language == 'en' else 'Nochmal spielen' }} 🔄</button>
       <button class="btn btn-outline-secondary btn-lg ms-sm-2 mt-2 mt-sm-0" type="button" data-result-back>{{ 'Choose difficulty' if g.language == 'en' else 'Schwierigkeit wählen' }}</button>
+      {% endif %}
     </div>
   </section>
 </main>

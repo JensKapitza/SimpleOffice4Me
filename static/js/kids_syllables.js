@@ -421,6 +421,6 @@
   root.querySelector('[data-syll-repeat]').addEventListener('click', () => { if (currentClips.length) playNow(currentClips); });
   next.addEventListener('click', nextQuestion);
   root.querySelector('[data-syll-back]').addEventListener('click', showPicker);
-  root.querySelector('[data-result-back]').addEventListener('click', showPicker);
+  root.querySelector('[data-result-back]')?.addEventListener('click', showPicker);
   root.querySelector('[data-play-again]').addEventListener('click', () => begin(level));
 })();

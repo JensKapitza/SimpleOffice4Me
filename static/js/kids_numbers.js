@@ -82,7 +82,8 @@
     const options = config.levels[level] || fallbackConfig.levels.easy;
     const kinds = options.compare ? ['count', 'show', 'more', 'less'] : ['count', 'show'];
     const list = [];
-    for (let index = 0; index < options.tasks; index += 1) {
+    const taskCount = root.dataset.preschoolRound === 'true' ? 4 : options.tasks;
+    for (let index = 0; index < taskCount; index += 1) {
       const kind = kinds[index % kinds.length];
       const item = config.items[Math.floor(Math.random() * config.items.length)];
       // Rotate kinds in shuffled blocks so every game mixes all task types.
@@ -276,7 +277,7 @@
   });
   root.querySelector('[data-repeat]').addEventListener('click', () => { if (currentClips.length) say(currentClips); });
   root.querySelector('[data-back]').addEventListener('click', toSetup);
-  root.querySelector('[data-result-back]').addEventListener('click', toSetup);
+  root.querySelector('[data-result-back]')?.addEventListener('click', toSetup);
   root.querySelector('[data-play-again]').addEventListener('click', () => begin(level));
   next.addEventListener('click', () => {
     taskIndex += 1;
