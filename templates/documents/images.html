@@ -103,18 +103,41 @@
   const form = document.getElementById('photo-bulk-form');
   const input = document.getElementById('photo-files');
   if (!form || !input) return;
+  const archive = document.getElementById('photo-archive');
+  const ocr = document.getElementById('photo-ocr');
   const selection = document.getElementById('photo-selection'); const start = document.getElementById('photo-start'); const section = document.getElementById('photo-progress-section'); const bar = document.getElementById('photo-progress'); const label = document.getElementById('photo-progress-label'); const percent = document.getElementById('photo-progress-percent'); const summary = document.getElementById('photo-summary'); const errors = document.getElementById('photo-errors'); const results = document.getElementById('photo-results'); const csrf = document.getElementById('photo-csrf').value;
   const formatBytes = (value) => { if (!Number.isFinite(value) || value <= 0) return '0 B'; const units = ['B','KiB','MiB','GiB']; const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1); return `${(value / (1024 ** index)).toFixed(index ? 1 : 0)} ${units[index]}`; };
   input.addEventListener('change', () => { const files = Array.from(input.files || []); selection.textContent = files.length ? `${files.length} ${english ? 'photo(s)' : 'Foto(s)'} · ${formatBytes(files.reduce((sum, file) => sum + file.size, 0))}` : (english ? 'No photos selected yet.' : 'Noch keine Fotos ausgewählt.'); });
-  form.addEventListener('submit', async (event) => {
-    event.preventDefault(); const files = Array.from(input.files || []); if (!files.length) return; start.disabled = true; input.disabled = true; section.classList.remove('d-none'); errors.innerHTML = ''; results.innerHTML = '';
+  async function uploadBatch(files, options) {
+    section.classList.remove('d-none');
+    errors.innerHTML = '';
+    results.innerHTML = '';
+    summary.textContent = '';
+    bar.style.width = '0%';
+    bar.setAttribute('aria-valuenow', '0');
+    percent.textContent = '0 %';
     const batchId = (globalThis.crypto && crypto.randomUUID) ? crypto.randomUUID() : `batch-${Date.now()}-${Math.random().toString(16).slice(2)}`; const timezone = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (_) { return ''; } })(); let imported = 0; let duplicates = 0; let failed = 0; let uploadedBytes = 0;
     for (let index = 0; index < files.length; index += 1) {
-      const file = files[index]; label.textContent = `${index + 1} / ${files.length}: ${file.name}`; const data = new FormData(); data.append('file', file, file.name); data.append('archive', document.getElementById('photo-archive').checked ? '1' : '0'); data.append('run_ocr', document.getElementById('photo-ocr').checked ? '1' : '0'); data.append('client_mime_type', file.type || ''); data.append('client_size', String(file.size)); data.append('client_last_modified_at', Number.isFinite(file.lastModified) && file.lastModified > 0 ? new Date(file.lastModified).toISOString() : ''); data.append('client_timezone', timezone); data.append('client_timezone_offset_minutes', String(new Date().getTimezoneOffset())); data.append('client_relative_path', file.webkitRelativePath || ''); data.append('batch_id', batchId); data.append('batch_index', String(index + 1)); data.append('batch_count', String(files.length));
+      const file = files[index]; label.textContent = `${index + 1} / ${files.length}: ${file.name}`; const data = new FormData(); data.append('file', file, file.name); data.append('archive', options.archive); data.append('run_ocr', options.runOcr); data.append('client_mime_type', file.type || ''); data.append('client_size', String(file.size)); data.append('client_last_modified_at', Number.isFinite(file.lastModified) && file.lastModified > 0 ? new Date(file.lastModified).toISOString() : ''); data.append('client_timezone', timezone); data.append('client_timezone_offset_minutes', String(new Date().getTimezoneOffset())); data.append('client_relative_path', file.webkitRelativePath || ''); data.append('batch_id', batchId); data.append('batch_index', String(index + 1)); data.append('batch_count', String(files.length));
       try { const response = await fetch(form.action, {method:'POST', body:data, headers:{'X-CSRF-Token':csrf}, credentials:'same-origin'}); const payload = await response.json().catch(() => ({ok:false,error:`HTTP ${response.status}`})); if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`); uploadedBytes += file.size; if (payload.duplicate) duplicates += 1; else imported += 1; const item = document.createElement('a'); item.className='list-group-item list-group-item-action py-2'; item.href=payload.detail_url; item.textContent=payload.duplicate ? `↩ ${file.name} · ${english ? 'identical content already present' : 'identischer Inhalt bereits vorhanden'}` : `✓ ${file.name} · ${payload.received_at || (english ? 'imported' : 'importiert')}`; results.prepend(item); } catch (error) { failed += 1; const alert=document.createElement('div'); alert.className='alert alert-warning py-2 mb-2'; alert.textContent=`${file.name}: ${error.message || error}`; errors.append(alert); }
       const value=Math.round(((index+1)/files.length)*100); bar.style.width=`${value}%`; bar.setAttribute('aria-valuenow',String(value)); percent.textContent=`${value} %`; summary.textContent= english ? `${imported} new · ${duplicates} already present · ${failed} errors · ${formatBytes(uploadedBytes)} transferred` : `${imported} neu · ${duplicates} bereits vorhanden · ${failed} Fehler · ${formatBytes(uploadedBytes)} übertragen`;
     }
-    label.textContent= english ? (failed ? `Done: ${imported} imported, ${duplicates} already present, ${failed} errors` : `Done: ${imported} imported, ${duplicates} already present`) : (failed ? `Fertig: ${imported} importiert, ${duplicates} bereits vorhanden, ${failed} Fehler` : `Fertig: ${imported} importiert, ${duplicates} bereits vorhanden`); start.disabled=false; input.disabled=false;
+    label.textContent= english ? (failed ? `Done: ${imported} imported, ${duplicates} already present, ${failed} errors` : `Done: ${imported} imported, ${duplicates} already present`) : (failed ? `Fertig: ${imported} importiert, ${duplicates} bereits vorhanden, ${failed} Fehler` : `Fertig: ${imported} importiert, ${duplicates} bereits vorhanden`);
+  }
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (start.disabled) return;
+    const files = Array.from(input.files || []);
+    if (!files.length) return;
+    const options = { archive: archive.checked ? '1' : '0', runOcr: ocr.checked ? '1' : '0' };
+    const controls = [start, input, archive, ocr];
+    controls.forEach(control => { control.disabled = true; });
+    try {
+      await uploadBatch(files, options);
+    } finally {
+      controls.forEach(control => { control.disabled = false; });
+    }
   });
 })();
 </script>
