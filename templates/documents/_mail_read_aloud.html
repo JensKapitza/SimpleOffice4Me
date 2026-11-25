@@ -1,5 +1,18 @@
 {% if speech_version %}
 <div data-document-reader data-document-version="{{ speech_version }}">
+  {% set speech_limit_message = 'This email could not be read aloud in one go. Nothing was played; open the readable message text below.' if g.language == 'en' else 'Diese E-Mail konnte nicht am Stück vorgelesen werden. Es wurde nichts abgespielt. Öffne unten den lesbaren Nachrichtentext.' %}
   {% with speech_kind='mail' %}{% include 'reader/_read_aloud.html' %}{% endwith %}
+  <div class="small mb-2" data-mail-speech-recovery>
+    <a href="{{ speech_text_href|default('#mail-message-text') }}" data-mail-speech-text-link>{{ 'Open readable message text' if g.language == 'en' else 'Lesbaren Nachrichtentext öffnen' }}</a>
+    {% if speech_preview_capped|default(false) %}
+    <p class="text-secondary mb-0" data-mail-speech-preview-limited>{{ 'The readable preview reached its display limit. The end may not be shown.' if g.language == 'en' else 'Die lesbare Vorschau hat ihre Anzeigegrenze erreicht. Das Ende wird möglicherweise nicht angezeigt.' }}</p>
+    {% endif %}
+    {% if speech_copy_complete|default(false) and feature_enabled('documents') %}
+    <details class="mt-1">
+      <summary>{{ 'Read a short selected passage aloud' if g.language == 'en' else 'Einen kurzen Ausschnitt vorlesen' }}</summary>
+      <p class="text-secondary mb-0">{{ 'Copy just the passage you want to hear (about 1,000 characters) into a UTF-8 TXT file. If you choose to keep that separate copy in Documents, upload it there and select “Open in Reader”, then “Read aloud”. No copy is created automatically.' if g.language == 'en' else 'Kopiere nur den gewünschten Ausschnitt (etwa 1.000 Zeichen) in eine UTF-8-TXT-Datei. Wenn du die separate Kopie in „Dokumente“ behalten möchtest, lade sie dort hoch. Wähle dann „Im Reader öffnen“ und „Vorlesen“. Es wird keine Kopie automatisch erstellt.' }}</p>
+    </details>
+    {% endif %}
+  </div>
 </div>
 {% endif %}

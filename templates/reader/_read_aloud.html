@@ -15,7 +15,7 @@
      data-speech-error="{{ 'Read-aloud could not play this section.' if g.language == 'en' else 'Dieser Abschnitt konnte nicht vorgelesen werden.' }}"
      data-speech-no-text="{{ ('This page has no readable text layer. Select ‘OCR and read aloud’ to recognize it.' if g.language == 'en' else 'Diese Seite hat keine lesbare Textebene. Wähle „OCR und vorlesen“, um den Text zu erkennen.') if speech_kind == 'pdf' else ('There is no readable text in this section.' if g.language == 'en' else 'Dieser Abschnitt enthält keinen lesbaren Text.') }}"
      data-speech-stale="{{ 'This document changed. Reload the page to read the current version.' if g.language == 'en' else 'Das Dokument hat sich geändert. Lade die Seite neu, um die aktuelle Version vorzulesen.' }}"
-     data-speech-too-large="{{ 'This page or section exceeds the read-aloud limit.' if g.language == 'en' else 'Diese Seite oder dieser Abschnitt überschreitet die Vorlesegrenze.' }}"
+     data-speech-too-large="{{ speech_limit_message|default('This page or section exceeds the read-aloud limit.' if g.language == 'en' else 'Diese Seite oder dieser Abschnitt überschreitet die Vorlesegrenze.') }}"
      {% if speech_kind == 'pdf' %}
      data-speech-preparing-page="{{ 'Preparing page {page}…' if g.language == 'en' else 'Seite {page} wird vorbereitet …' }}"
      data-speech-reading-page="{{ 'Reading page {page}.' if g.language == 'en' else 'Seite {page} wird vorgelesen.' }}"

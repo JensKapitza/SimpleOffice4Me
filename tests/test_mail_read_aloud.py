@@ -113,6 +113,44 @@ class MailReadAloudTests(unittest.TestCase):
         message.set_content(text)
         return self.mail.archive_outbound("alice", self.account, message.as_bytes(), "sent", {})
 
+    def test_mail_limit_links_to_readable_body_and_offers_copy_only_for_complete_preview(self):
+        from app.mail_reader import MAX_PREVIEW_TEXT
+
+        phrase = "A complete ordinary paragraph. "
+        ending = "End of authorized letter."
+        body = phrase * 170 + ending
+        message = EmailMessage()
+        message.set_content("<p>" + body + "</p>", subtype="html")
+        document = DocumentStore(self.root).import_upload(io.BytesIO(message.as_bytes()), "long-mail.eml", "alice")
+        address = f"/documents/{document['document_id']}/eml-preview"
+        html_response = self.alice.get(address + "?view=html")
+        self.assertEqual(200, html_response.status_code)
+        html_page = BeautifulSoup(html_response.data, "html.parser")
+        self.assertIsNotNone(html_page.select_one("iframe[sandbox]"))
+        player = html_page.select_one("[data-reader-read-aloud]")
+        self.assertRegex(player["data-speech-too-large"].casefold(), r"nothing was played|nichts abgespielt")
+        message_text = html_page.select_one("[data-mail-speech-text-link]")["href"]
+        self.assertTrue(message_text.endswith("?view=text#mail-message-text"))
+        readable = self.alice.get(message_text.split("#", 1)[0])
+        text_dom = BeautifulSoup(readable.data, "html.parser")
+        preview = text_dom.select_one("#mail-message-text")
+        self.assertEqual(" ".join(body.split()), " ".join(preview.get_text().split()))
+        self.assertIn("UTF-8", text_dom.select_one("[data-mail-speech-recovery] details").get_text())
+        rejected = self._post(self.alice, self._control(self.alice, address + "?view=html"))
+        self.assertEqual(413, rejected.status_code)
+        self.assertEqual("too_large", rejected.get_json()["error"])
+        self.assertEqual([], self.spoken)
+
+        clipped = EmailMessage()
+        clipped.set_content(("x" * (MAX_PREVIEW_TEXT + 2)) + " missing end")
+        item = DocumentStore(self.root).import_upload(io.BytesIO(clipped.as_bytes()), "clipped.eml", "alice")
+        clipped_url = f"/documents/{item['document_id']}/eml-preview"
+        clip_dom = BeautifulSoup(self.alice.get(clipped_url).data, "html.parser")
+        self.assertIsNotNone(clip_dom.select_one("[data-mail-speech-text-link]"))
+        self.assertIsNone(clip_dom.select_one("[data-mail-speech-recovery] details"))
+        self.assertIsNotNone(clip_dom.select_one("[data-mail-speech-preview-limited]"))
+        self.assertNotIn("missing end", clip_dom.select_one("#mail-message-text").get_text())
+
     def test_live_preview_reads_only_its_authorized_cached_version_without_imap(self):
         fake = FakeCacheImap()
         with patch("app.mail_webclient.ImapWebClient._connect", return_value=fake):

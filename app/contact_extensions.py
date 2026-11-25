@@ -28,7 +28,7 @@ from .business_document_preferences import (
 )
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
-from .mail_reader import _header, _message_text
+from .mail_reader import MAX_PREVIEW_TEXT, _header, _message_text
 from .mail_read_aloud import MAX_SPEECH_EML_BYTES, document_eml_text, requested_mail_version
 from .private_read_aloud import ReadAloudError, private_audio_response, read_aloud_error
 from .osm_address import LocalAddressIndex, field_suggestions, search_address, unique_candidate
@@ -554,7 +554,10 @@ def register(bp) -> None:
                        "default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; "
                        "img-src data:; font-src 'none'; form-action 'none'; base-uri 'none'"
                        '"><meta charset="utf-8">' + preview.get("html", "")) if view == "html" else ""
-        response = current_app.make_response(render_template("documents/eml_document_preview.html", preview=preview, document_id=document_id, view=view, html_srcdoc=html_srcdoc))
+        response = current_app.make_response(render_template(
+            "documents/eml_document_preview.html", preview=preview, document_id=document_id,
+            view=view, html_srcdoc=html_srcdoc, mail_plain_preview_limit=MAX_PREVIEW_TEXT,
+        ))
         response.headers["Cache-Control"] = "private, no-store"
         return response
 
