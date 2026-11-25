@@ -9,6 +9,8 @@
 .kids-mini-prompt { min-height:1.5rem; margin:0; color:#34495e; font-size:1.1rem; }
 .kids-mini-stage { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.75rem; align-items:center; justify-items:center; padding:1rem 0; }
 .kids-mini-stage.is-memory { grid-template-columns:repeat(3,minmax(0,150px)); justify-content:center; gap:1rem; }
+.kids-mini-memory-progress:not([hidden]) { display:flex; flex-wrap:wrap; justify-content:center; gap:.4rem; margin-top:.5rem; }
+.kids-mini-memory-slot { min-width:3.15rem; padding:.2rem .35rem; border:2px solid #d7e4f2; border-radius:.6rem; background:#f3f8ff; color:#17324d; font-size:1.1rem; text-align:center; white-space:nowrap; }
 .kids-mini-count-picture { grid-column:1/-1; display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:.12em; min-height:155px; width:100%; padding:.75rem; border-radius:1rem; background:#f3f8ff; font-size:clamp(2.6rem,10vw,4.5rem); line-height:1.2; }
 .kids-mini-answer,.kids-mini-memory-card { min-width:68px; min-height:68px; width:100%; max-width:190px; border:2px solid #d7e4f2; border-radius:1rem; background:#fff; color:#142e49; font-size:clamp(2rem,7vw,3.2rem); font-weight:700; touch-action:manipulation; transition:opacity .3s ease,transform .12s ease,background-color .15s ease; }
 .kids-mini-answer:hover,.kids-mini-memory-card:hover { transform:scale(1.03); }
