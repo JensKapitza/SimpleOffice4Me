@@ -19,7 +19,8 @@ class Element {
     this.innerHTML = '';
   }
   addEventListener(name, fn) { this.listeners.set(name, fn); }
-  fire(name = 'click') { return this.listeners.get(name)?.(); }
+  fire(name = 'click', event) { return this.listeners.get(name)?.(event); }
+  dispatchEvent(event) { this.fire(event.type, event); }
 }
 
 function reader(saved = {}) {
@@ -31,8 +32,10 @@ function reader(saved = {}) {
   const chapters = ['a', 'b', 'c'].map((id, index) => new Element({
     readerChapter: String(index), readerChapterId: id,
   }));
+  const listedIndexes = arguments[1]?.listedIndexes ?? [0, 1, 2];
+  root.dataset.chapterCount = String(chapters.length);
   root.querySelector = selector => elements[selector.slice(13, -1)] || null;
-  root.querySelectorAll = selector => selector === '[data-reader-chapter]' ? chapters : [];
+  root.querySelectorAll = selector => selector === '[data-reader-chapter]' ? listedIndexes.map(i => chapters[i]) : [];
   const gets = [];
   const writes = [];
   const timers = new Map();
@@ -56,6 +59,9 @@ function reader(saved = {}) {
     window: win, Headers, fetch, requestAnimationFrame: fn => frames.push(fn),
     setTimeout: (fn, delay) => { timers.set(++serial, {fn, delay}); return serial; },
     clearTimeout: id => timers.delete(id),
+    CustomEvent: class {
+      constructor(type, {detail} = {}) { this.type = type; this.detail = detail; }
+    },
   });
   return {
     elements, chapters, gets, writes, frames, scrolls, win,
@@ -135,6 +141,29 @@ test('old errors stay hidden; the latest failed selection returns controls to th
   assert.equal(r.gets[4].url, '/chapters/1');
   await r.finish(4, 'b');
   assert.equal(r.elements.error.classes.has('d-none'), true);
+});
+
+test('partial publisher tables of contents do not change the reading order or completed percentage', async () => {
+  const r = reader({}, {listedIndexes: [0]});
+  await r.finish(0, 'a');
+  assert.equal(r.elements.status.textContent, 'Kapitel 1 / 3 · 33%');
+  r.elements.next.fire();
+  await r.finish(1, 'b');
+  assert.equal(r.elements.status.textContent, 'Kapitel 2 / 3 · 67%');
+  r.elements.next.fire();
+  await r.finish(2, 'c');
+  await r.runTimers(350);
+  assert.equal(r.elements.status.textContent, 'Kapitel 3 / 3 · 100%');
+  assert.deepEqual(r.gets.map(g => g.url), ['/chapters/0', '/chapters/1', '/chapters/2']);
+  assert.deepEqual(r.writes[0].data.locator, locator('c', 2));
+
+  const s = reader({chapter: 'b', chapter_index: 1, offset: 75}, {listedIndexes: [2]});
+  assert.equal(s.gets[0].url, '/chapters/1');
+  await s.finish(0, 'b');
+  s.frames.shift()();
+  assert.deepEqual(s.scrolls, [475]);
+  s.chapters[2].fire();
+  assert.equal(s.gets[1].url, '/chapters/2');
 });
 
 test('saved stable chapter ID restores its offset even after an index change; a stale frame cannot scroll a newer view', async () => {
