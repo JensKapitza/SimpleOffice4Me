@@ -37,6 +37,10 @@
     <div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>
   {% endfor %}
 
+  {% if active_view == 'files' and focused_download %}
+    <p><a class="btn btn-sm btn-outline-primary" data-federation-download-focus href="{{ url_for('federation_admin.dashboard', view='transfers', download=focused_download.request_id, remote_peer=remote_peer or none, remote_q=remote_query or none, _anchor='download-' ~ focused_download.request_id) }}">{{ 'Show this download in the queue' if g.language == 'en' else 'Diesen Download in der Warteschlange zeigen' }}</a></p>
+  {% endif %}
+
   {% if active_view == 'overview' %}
     <div class="row g-3 mb-4">
       <div class="col-6 col-lg-3">
@@ -648,6 +652,11 @@
         <form method="post" action="{{ url_for('federation_admin.run_download_queue') }}" class="d-flex gap-2">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="_return_view" value="transfers">
+          {% if focused_download %}
+          <input type="hidden" name="download" value="{{ focused_download.request_id }}">
+          <input type="hidden" name="remote_peer" value="{{ remote_peer }}">
+          <input type="hidden" name="remote_q" value="{{ remote_query }}">
+          {% endif %}
           <label class="visually-hidden" for="queue-limit">{{ 'Maximum count' if g.language == 'en' else 'Maximale Anzahl' }}</label>
           <input class="form-control form-control-sm" id="queue-limit" type="number" name="limit" min="1" max="25" value="5" style="width:5rem">
           <button class="btn btn-sm btn-success text-nowrap" type="submit">{{ 'Process queue' if g.language == 'en' else 'Queue abarbeiten' }}</button>
@@ -671,12 +680,15 @@
           <div class="pt-2">{{ 'Effective priority = server + file + transfer. Processing the queue skips downloads whose retry delay has not elapsed.' if g.language == 'en' else 'Effektive Priorität = Server + Datei + Transfer. Beim Abarbeiten der Warteschlange werden Downloads mit laufender Wartezeit übersprungen.' }}</div>
         </details>
       </div>
+      {% if focused_download and (remote_peer or remote_query) %}
+        <p class="px-3"><a class="small" href="{{ url_for('federation_admin.dashboard', view='files', remote_peer=remote_peer or none, remote_q=remote_query or none, _anchor='remote-files') }}">{{ 'Back to filtered remote files' if g.language == 'en' else 'Zurück zu den gefilterten entfernten Dateien' }}</a></p>
+      {% endif %}
       <div class="table-responsive">
         <table class="table align-middle mb-0">
           <thead><tr><th scope="col">Status</th><th scope="col">{{ 'Peer / file' if g.language == 'en' else 'Peer / Datei' }}</th><th scope="col">Server</th><th scope="col">{{ 'File' if g.language == 'en' else 'Datei' }}</th><th scope="col">Transfer</th><th scope="col">{{ 'Effective' if g.language == 'en' else 'Effektiv' }}</th><th scope="col">{{ 'Error' if g.language == 'en' else 'Fehler' }}</th></tr></thead>
           <tbody>
             {% for item in download_queue %}
-              <tr>
+              <tr id="download-{{ item.request_id }}"{% if focused_download and item.request_id == focused_download.request_id %} class="table-primary"{% endif %}>
                 <td>
                   <span class="badge {{ 'text-bg-success' if item.status == 'complete' else 'text-bg-warning' if item.status in ['queued','retry','waiting_peer'] else 'text-bg-primary' if item.status == 'running' else 'text-bg-danger' }}">{{ item.status }}</span>
                   {% if item.retry_not_before %}
