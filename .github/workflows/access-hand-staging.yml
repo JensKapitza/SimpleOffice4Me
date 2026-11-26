@@ -13,6 +13,7 @@ on:
       - 'templates/documents/access_navigation_proof.html'
       - 'templates/documents/dashboard.html'
       - 'tests/*access_hand_staging*'
+      - 'tests/access_hand_simd_fixture.js'
       - 'tests/test_access_navigation_proof.py'
       - 'tools/*hand*test_video.py'
   workflow_dispatch:
@@ -47,6 +48,7 @@ jobs:
           python -m pip install --editable '.[web-export,test]'
           python -m playwright install --with-deps --no-shell chromium
       - name: Stage existing pinned runtime and public hand test frame (CI only)
+        id: pinned-fixture
         shell: bash
         run: |
           set -euo pipefail
@@ -68,3 +70,23 @@ jobs:
         run: |
           node --test tests/access_hand_staging.test.mjs tests/access_navigation_proof.test.mjs
           python -m unittest -v test_access_navigation_proof test_access_hand_staging_browser
+
+      - name: Compare same pinned CPU hand model with and without WASM SIMD (draft only)
+        if: ${{ !cancelled() && steps.pinned-fixture.outcome == 'success' && github.event_name == 'pull_request' && github.event.pull_request.number == 1318 }}
+        env:
+          SIMPLEOFFICE_KIDS_HAND_GAME_ASSET_DIR: ${{ runner.temp }}/hand-nav/assets
+          SIMPLEOFFICE_HAND_NAV_FIXTURES: ${{ runner.temp }}/hand-nav
+          SIMPLEOFFICE_HAND_NAV_BROWSER_REQUIRED: '1'
+          PYTHONPATH: .:tests
+        run: |
+          failed=0
+          for variant in baseline simd simd baseline; do
+            echo "Pinned hand comparison variant: $variant"
+            if SIMPLEOFFICE_HAND_SIMD_FIXTURE="$variant" python -m unittest -v test_access_hand_staging_browser; then
+              echo "Pinned hand comparison passed: $variant"
+            else
+              failed=1
+              echo "Pinned hand comparison failed: $variant"
+            fi
+          done
+          exit "$failed"
