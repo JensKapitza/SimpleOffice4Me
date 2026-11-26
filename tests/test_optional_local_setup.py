@@ -172,8 +172,10 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
             self.assertEqual("config-missing", self.status("speech-default"))
             Path(str(voice) + ".json").write_bytes(b"{}")
             page = self.client.get(SETUP)
-            states = [node["data-optional-status"] for node in document(page).select("#reader-speech [data-optional-status]")]
+            soup = document(page)
+            states = [node["data-optional-status"] for node in soup.select("#reader-speech dl [data-optional-status]")]
             self.assertEqual(["engine-found", "configured", "fallback"], states)
+            self.assertEqual("missing", soup.select_one("#voice-package [data-optional-status]")["data-optional-status"])
             self.assertEqual("shared", self.status("kids-voice"))
             self.assertNotIn(str(voice).encode(), page.data)
 
