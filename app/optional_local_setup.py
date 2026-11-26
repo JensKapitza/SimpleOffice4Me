@@ -105,8 +105,6 @@ def queue(root: str | Path, feature: str, *, manual_hand_directory: str = "") ->
     if feature not in FEATURES:
         raise ValueError("unknown optional capability")
     root = Path(root).resolve()
-    if feature == VOICE_PACKAGE and not shutil.which("piper"):
-        return "engine-missing"
     if feature == "kids-hand" and (manual_hand_directory or not optional_hand_game_install.install_supported()):
         return "manual"
     with exclusive_file_lock(_job_lock(root)):
