@@ -12,6 +12,9 @@
     <button class="btn btn-primary" id="local-folder-add" type="button">{{ 'Add local folder' if g.language == 'en' else 'Lokalen Ordner hinzufügen' }}</button>
   </header>
 
+  {% if paired_folder_pc_url %}
+  <p><a class="btn btn-outline-primary" href="{{ paired_folder_pc_url }}">{{ 'Search an Android folder from this PC' if g.language == 'en' else 'Android-Ordner am PC durchsuchen' }}</a></p>
+  {% endif %}
   <div class="alert alert-info" id="local-folder-status" role="status" aria-live="polite" hidden></div>
   <div class="alert alert-warning" id="local-folder-fallback" role="status" aria-live="polite" hidden>
     {{ 'This browser offers no persistent folder picker. Files can still be picked via' if g.language == 'en' else 'Dieser Browser bietet keine dauerhafte Ordnerauswahl an. Dateien können weiterhin über' }} <a href="{{ url_for('documents.index') }}">{{ 'importing documents' if g.language == 'en' else 'Dokumente importieren' }}</a> {{ 'selected.' if g.language == 'en' else 'ausgewählt werden.' }}

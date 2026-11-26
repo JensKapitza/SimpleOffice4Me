@@ -1,0 +1,55 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block title %}{{ 'Deleted contacts' if g.language == 'en' else 'Gelöschte Kontakte' }} · SimpleOffice{% endblock %}
+{% block body %}
+{% set en = g.language == 'en' %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-4">
+    <div>
+      <h1 class="h2">{{ 'Deleted contacts' if en else 'Gelöschte Kontakte' }}</h1>
+      <p class="text-secondary">{{ 'Review or restore contacts removed individually or during a merge.' if en else 'Hier kannst du einzeln oder beim Zusammenführen entfernte Kontakte prüfen und wiederherstellen.' }}</p>
+    </div>
+  </div>
+  {% for message in get_flashed_messages() %}
+  <div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>
+  {% endfor %}
+  <nav class="nav nav-tabs mb-3" aria-label="{{ 'Contact views' if en else 'Kontaktansichten' }}">
+    <a class="nav-link" href="{{ url_for('documents.contacts') }}">{{ 'Active contacts' if en else 'Aktive Kontakte' }}</a>
+    <a class="nav-link active" aria-current="page" href="{{ url_for('contact_audit.deleted_contacts') }}">{{ 'Deleted / merged' if en else 'Gelöscht / zusammengeführt' }}</a>
+  </nav>
+  <div class="row g-3">
+    {% for row in deleted_contacts %}
+    {% set contact = row.contact %}
+    <article class="col-lg-6">
+      <div class="card h-100">
+        <div class="card-header d-flex justify-content-between gap-2">
+          <h2 class="h6 mb-0">{{ contact.fields.display_name|default('No name' if en else 'Ohne Namen', true) }}</h2>
+          <span class="badge {{ 'text-bg-warning' if row.reason == 'merged' else 'text-bg-danger' }}">
+            {% if row.reason == 'merged' %}{{ 'Merged' if en else 'Zusammengeführt' }}{% else %}{{ 'Deleted' if en else 'Gelöscht' }}{% endif %}
+          </span>
+        </div>
+        <div class="card-body">
+          <dl class="row small mb-3">
+            {% for key, value in contact.fields.items() if value %}
+            <dt class="col-4">{{ key }}</dt><dd class="col-8 text-break" style="white-space:pre-wrap">{{ value }}</dd>
+            {% endfor %}
+          </dl>
+          <div class="text-secondary small">
+            {{ row.archived_at }} · {{ row.archived_by }}
+            {% if row.merged_into %} · {{ 'Target:' if en else 'Ziel:' }} {{ row.merged_into }}{% endif %}
+          </div>
+        </div>
+        <div class="card-footer">
+          <form method="post" action="{{ url_for('contact_audit.restore_deleted_contact', archive_id=row.archive_id) }}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-outline-primary" type="submit">{{ 'Restore and review' if en else 'Wiederherstellen und erneut prüfen' }}</button>
+          </form>
+        </div>
+      </div>
+    </article>
+    {% else %}
+    <div class="col-12"><div class="alert alert-secondary">{{ 'No deleted or merged contacts found.' if en else 'Keine gelöschten oder zusammengeführten Kontakte vorhanden.' }}</div></div>
+    {% endfor %}
+  </div>
+</main>
+{% endblock %}

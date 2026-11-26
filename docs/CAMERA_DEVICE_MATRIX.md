@@ -42,6 +42,12 @@ P = Berechtigungs-Dialog, S = Stream-Stopp beim Verlassen.
 
 ## Hinweise für die Abnahme
 
+- Shopping und Ortstermin: Wechsel von Live-Kamera zu Foto und Abbruch
+  müssen auch dann gelten, wenn ein älterer Decoder-Aufruf noch läuft. Bei
+  mehreren gewählten Fotos zählt nur das jüngste. Im Shopping darf eine
+  ältere lokale Produktsuche einen danach manuell korrigierten Barcode nicht
+  zurücksetzen. Der Node-Test deckt diese Reihenfolgen simuliert ab; die
+  Abnahme mit echten Geräten bleibt davon getrennt.
 - Android-Wrapper: `MainActivity` fängt `#shopping-barcode-scan` immer und
   `#start-barcode` (Inventar) nur ohne `BarcodeDetector` per nativem
   ML-Kit-Scan ab; Ergebnis/Status werden in die Seite zurückgespielt.

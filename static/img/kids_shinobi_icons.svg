@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg">
+  <!-- Original geometric illustrations for SimpleOffice4Me. -->
+  <symbol id="tavi" viewBox="0 0 96 96">
+    <path fill="#c1ecdf" d="M8 58C8 25 24 8 50 8c21 0 39 19 39 51 0 18-17 30-40 30C24 89 8 79 8 58Z"/>
+    <path fill="#29274c" d="M23 83c0-17 7-29 16-33h21c10 4 17 17 17 33a76 76 0 0 1-54 0Z"/>
+    <path fill="#433777" d="M23 47c-1-18 8-31 25-33 19 1 29 15 29 34-4 11-13 17-27 17-14 0-24-8-27-18Z"/>
+    <path fill="#eead77" d="M32 48c0-11 7-17 17-17 11 0 19 7 19 17 0 10-7 17-18 17s-18-7-18-17Z"/>
+    <path fill="#433777" d="M29 46c1-13 6-22 21-23 11 1 17 7 21 19-8-4-17-9-24-11-4 6-10 10-18 15Z"/>
+    <path fill="#177769" d="M32 69c11 8 27 9 42 0l-1 9c-15 9-29 7-41-2Z"/>
+    <path fill="none" stroke="#29274c" stroke-width="2.5" stroke-linecap="round" d="M40 48v1m19-1v1M44 55c4 4 8 4 12 0"/>
+    <path fill="#d5f275" stroke="#16594e" stroke-width="1.6" d="M68 29c0-6 5-10 11-10 0 6-3 10-11 10Z"/>
+  </symbol>
+  <symbol id="lantern" viewBox="0 0 64 64">
+    <path fill="none" stroke="#68462c" stroke-width="4" stroke-linecap="round" d="M23 15v-3a9 9 0 0 1 18 0v3M16 52h32"/>
+    <path fill="#ffce68" stroke="#68462c" stroke-width="4" d="M23 18h18l6 29H17z"/>
+    <path fill="none" stroke="#af533b" stroke-width="3" stroke-linecap="round" d="M32 30v8"/>
+  </symbol>
+  <symbol id="bridge" viewBox="0 0 64 64">
+    <path fill="#d0b2ef" stroke="#462d67" stroke-width="4" stroke-linejoin="round" d="M7 45h10v-7c2-6 8-11 15-11s13 5 15 11v7h10v-7C54 24 45 16 32 16S10 24 7 38z"/>
+    <path fill="none" stroke="#4c3475" stroke-width="3" stroke-linecap="round" d="M9 52c5-2 10-2 15 0s10 2 15 0 10-2 15 0"/>
+  </symbol>
+  <symbol id="leaf" viewBox="0 0 64 64">
+    <path fill="#b4e279" stroke="#275338" stroke-width="4" stroke-linejoin="round" d="M15 42C9 19 30 11 55 9c-1 24-13 45-34 41z"/>
+    <path fill="none" stroke="#275338" stroke-width="3.5" stroke-linecap="round" d="M10 55 42 22m-11 12l1-11m-6 17l12-1"/>
+  </symbol>
+  <symbol id="shell" viewBox="0 0 64 64">
+    <path fill="#ffabbe" stroke="#73364c" stroke-width="4" stroke-linejoin="round" d="M24 55 9 35C6 22 14 9 32 8c18 1 26 14 23 27L40 55z"/>
+    <path fill="none" stroke="#73364c" stroke-width="3" stroke-linecap="round" d="M32 50V18m-2 32L17 25m17 25 13-25"/>
+  </symbol>
+</svg>

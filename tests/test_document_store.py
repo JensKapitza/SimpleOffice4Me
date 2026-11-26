@@ -209,6 +209,33 @@ class DocumentStoreTest(unittest.TestCase):
             self.assertEqual(1, report.files)
             self.assertEqual(0, report.new_files)
             self.assertEqual(0, report.updated_files)
+            self.assertEqual(1, report.unchanged_files)
+
+    def test_interrupted_scan_resumes_at_unfinished_directory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            first_dir = root / "a-pending"
+            later_dir = root / "z-completed"
+            first_dir.mkdir(); later_dir.mkdir()
+            pending = first_dir / "pending.txt"
+            completed = later_dir / "completed.txt"
+            pending.write_text("pending", encoding="utf-8")
+            completed.write_text("completed", encoding="utf-8")
+            store = DocumentStore(root)
+
+            def interrupt(path):
+                if path == pending:
+                    raise KeyboardInterrupt("stop")
+
+            with self.assertRaises(KeyboardInterrupt):
+                store.scan(file_progress=interrupt)
+
+            seen = []
+            report = store.scan(file_progress=seen.append)
+            self.assertTrue(report.resumed)
+            self.assertIn(pending, seen)
+            self.assertNotIn(completed, seen)
+            self.assertFalse(store.scan_checkpoint_path.exists())
 
     def test_changed_existing_file_is_counted_as_updated_not_new(self):
         with tempfile.TemporaryDirectory() as temp:

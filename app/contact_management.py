@@ -489,6 +489,7 @@ class ContactManagement:
             from .v3_crm import finalize_contact_merge, prepare_contact_merge
             prepare_contact_merge(self.store.root, target_id, [source_id], actor)
             merged = self._merge_pair_locked(target, source, actor)
+            self.store._archive_contact_locked(source, actor, "merged", target_id)
             payload["contacts"] = [item for item in payload.get("contacts", []) if item.get("contact_id") not in {target_id, source_id}] + [merged]
             atomic_json_write(self.store.contacts_path, payload)
             self.store.history.record("contacts_merged", actor, "contacts", target_id, {"target_id": target_id, "source_id": source_id, "result": merged})
@@ -535,6 +536,7 @@ class ContactManagement:
             merged = copy.deepcopy(target)
             for source in sources:
                 merged = self._merge_pair_locked(merged, source, actor, snapshot=False)
+                self.store._archive_contact_locked(source, actor, "merged", str(target.get("contact_id", "")))
             payload["contacts"] = [
                 item for item in payload.get("contacts", [])
                 if str(item.get("contact_id", "")) not in set(unique_ids)
@@ -606,6 +608,7 @@ class ContactManagement:
             for target_id, source_id in normalized_pairs:
                 target, source = by_id[target_id], by_id[source_id]
                 merged = self._merge_pair_locked(target, source, actor, snapshot=False)
+                self.store._archive_contact_locked(source, actor, "merged", target_id)
                 merged_rows.append(merged)
                 audit_rows.append({"target_id": target_id, "source_id": source_id})
 
@@ -724,6 +727,12 @@ class ContactManagement:
                     raw_lines.append(safe)
         for index, raw in enumerate(raw_lines):
             merged[f"vcard_merged_{index:03d}_{ContactStore._vcard_property_name(raw).casefold()}"] = raw
+        alternate_phones = [self._raw_property_value(raw) for raw in raw_lines if ContactStore._vcard_property_name(raw) == "TEL"]
+        alternate_emails = [self._raw_property_value(raw) for raw in raw_lines if ContactStore._vcard_property_name(raw) == "EMAIL"]
+        if alternate_phones:
+            merged["additional_phones"] = " · ".join(dict.fromkeys(alternate_phones))
+        if alternate_emails:
+            merged["additional_emails"] = " · ".join(dict.fromkeys(alternate_emails))
 
         first_name = self._clean_name(merged.get("first_name"))
         last_name = self._clean_name(merged.get("last_name"))

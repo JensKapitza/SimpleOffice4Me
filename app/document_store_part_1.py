@@ -19,6 +19,7 @@ class _DocumentStorePart1:
         self.shares_path = self.control / SHARES_FILE
         self.ssh_sources_path = self.control / SSH_SOURCES_FILE
         self.scan_status_path = self.control / "scan-status.json"
+        self.scan_checkpoint_path = self.control / "scan-checkpoint.json"
         self.note_snapshots = self.control / "note-snapshots"
         self.document_access = self.control / "document-access"
         self.history = RevisionHistory(self.root)

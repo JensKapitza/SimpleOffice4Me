@@ -1,0 +1,27 @@
+.shinobi {max-width: 54rem;}
+.shinobi [hidden] {display: none !important;}
+.shinobi-intro, .shinobi-board {border: 1px solid var(--bs-border-color); border-radius: 1.15rem; background: var(--bs-tertiary-bg); padding: clamp(.85rem, 3vw, 1.45rem);}
+.shinobi-intro {display: flex; align-items: center; gap: .9rem; border-inline-start: .35rem solid #27836c;}
+.shinobi-tavi {flex: 0 0 clamp(3.7rem, 14vw, 6rem); width: clamp(3.7rem, 14vw, 6rem);}
+.shinobi-heading, .shinobi-controls {display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; justify-content: space-between;}
+.shinobi-controls {justify-content: flex-start;}
+.shinobi-instruction {font-weight: 650; margin: .8rem 0 .55rem;}
+.shinobi-trail, .shinobi-choices {display: grid; grid-template-columns: repeat(auto-fit, minmax(4.1rem, 1fr)); gap: .5rem; padding: 0; list-style: none;}
+.shinobi-trail {max-width: 30rem; margin-block-end: .8rem;}
+.shinobi-choices {max-width: 36rem;}
+.shinobi-trail li, .shinobi-choice {position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .15rem; min-height: 4.3rem; border-radius: .7rem; padding: .32rem; border: 2px solid var(--bs-border-color); text-align: center; color: var(--bs-body-color); background: var(--bs-body-bg);}
+.shinobi-choice {width: 100%; min-height: 5.4rem; cursor: pointer;}
+.shinobi-choice:hover {border-color: #27836c;}
+.shinobi-choice:focus-visible {outline: .2rem solid var(--bs-emphasis-color); outline-offset: .12rem;}
+.shinobi-trail svg, .shinobi-choice svg {display: block; width: clamp(2rem, 9vw, 3rem); height: auto; aspect-ratio: 1;}
+.shinobi-trail li[data-slot="current"] {border: 2px dashed var(--bs-emphasis-color); font-weight: 700;}
+.shinobi-trail li[data-slot="done"] {border-color: #27836c;}
+.shinobi-mark {position: absolute; top: .12rem; inset-inline-end: .25rem; font-weight: 800;}
+.shinobi-trail li[data-slot="next"] {opacity: .75;}
+.shinobi-choice[data-wrong] {border-style: dashed; border-color: var(--bs-warning-text-emphasis); background: var(--bs-warning-bg-subtle);}
+.shinobi-feedback {min-block-size: 1.4rem; margin: .65rem 0; font-weight: 650;}
+@media (max-width: 360px) {
+  .shinobi-intro {align-items: flex-start;}
+  .shinobi-trail, .shinobi-choices {gap: .25rem; grid-template-columns: repeat(auto-fit, minmax(3.6rem, 1fr));}
+  .shinobi-choice {font-size: .85rem;}
+}

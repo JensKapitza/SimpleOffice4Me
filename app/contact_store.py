@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .contact_company_data import append_company_data_addresses, append_company_data_source, company_name as _company_name, company_people_for_store
+from .contact_recovery import ContactConflict, ContactRecovery
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .revision_history import RevisionHistory
 from .file_lock import exclusive_file_lock
@@ -73,21 +74,14 @@ DEFAULT_SCHEMA = {
 }
 
 
-class ContactConflict(ValueError):
-    """A conditional contact write no longer matches the stored revision."""
-
-    def __init__(self, contact: dict[str, Any] | None = None):
-        super().__init__("contact was changed by another client")
-        self.contact = contact
-
-
-class ContactStore:
+class ContactStore(ContactRecovery):
     def __init__(self, root: str | Path):
         self.root = Path(root).expanduser().resolve()
         self.control = self.root / CONTROL_DIR
         self.contacts_path = self.control / "contacts.json"
         self.schema_path = self.control / "contact-schema.json"
         self.carddav_path = self.control / "carddav.json"
+        self.deleted_contacts_path = self.control / "deleted-contacts.json"
         self.history = RevisionHistory(self.root)
 
     def initialize(self) -> None:
@@ -99,6 +93,8 @@ class ContactStore:
                 atomic_json_write(self.contacts_path, {"contacts": []})
             if not self.carddav_path.exists():
                 atomic_json_write(self.carddav_path, {"enabled": False, "accounts": []})
+            if not self.deleted_contacts_path.exists():
+                atomic_json_write(self.deleted_contacts_path, {"contacts": []})
 
     @staticmethod
     def _vcard_export_fields_from_aliases(aliases: dict[str, Any]) -> list[str]:
@@ -944,21 +940,6 @@ class ContactStore:
                 result.extend(("\\", escaped))
             index += 2
         return "".join(result)
-
-    def delete(self, contact_id: str, actor: str, expected_updated_at: str | None = None) -> None:
-        self._require_actor(actor)
-        with exclusive_file_lock(self.control / ".contacts-write.lock"):
-            payload = self._read(self.contacts_path, {"contacts": []})
-            contact = next((item for item in payload["contacts"] if item.get("contact_id") == contact_id), None)
-            if contact is None:
-                raise ValueError("unknown contact")
-            if not self._can_manage(contact, self._principal(actor)):
-                raise ValueError("contact is not shared with this user")
-            if expected_updated_at is not None and contact.get("updated_at", "") != expected_updated_at:
-                raise ContactConflict(contact)
-            payload["contacts"] = [item for item in payload["contacts"] if item.get("contact_id") != contact_id]
-            atomic_json_write(self.contacts_path, payload)
-            self.history.record("contact_deleted", actor, "contacts", contact_id, contact)
 
     @staticmethod
     def _normalize(values: dict[str, str], schema: dict[str, Any]) -> dict[str, str]:

@@ -124,6 +124,8 @@ class ScanReport:
     symlinks: int = 0
     skipped_boundaries: int = 0
     errors: int = 0
+    unchanged_files: int = 0
+    resumed: bool = False
 
 # Mixins import private helpers too; this mirrors the original single-module
 # globals without changing DocumentStore behavior.

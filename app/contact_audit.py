@@ -121,6 +121,26 @@ def manage():
     )
 
 
+@bp.get("/documents/contacts/manage/deleted")
+@login_required
+def deleted_contacts():
+    store = ContactStore(current_app.config["DOCUMENT_ROOT"])
+    content = render_template("documents/contact_deleted.html", deleted_contacts=store.deleted_contacts(_actor()))
+    return content, 200, {"Cache-Control": "private, no-store"}
+
+
+@bp.post("/documents/contacts/manage/deleted/<archive_id>/restore")
+@login_required
+def restore_deleted_contact(archive_id: str):
+    try:
+        restored = ContactStore(current_app.config["DOCUMENT_ROOT"]).restore_deleted(archive_id, _actor())
+        flash("Kontakt wurde wiederhergestellt und kann erneut geprüft oder zusammengeführt werden.")
+        return redirect(url_for("documents.contact_detail", contact_id=restored["contact_id"]))
+    except ValueError as exc:
+        flash(str(exc))
+        return redirect(url_for("contact_audit.deleted_contacts"))
+
+
 @bp.get("/documents/contacts/manage/duplicates")
 @login_required
 def duplicates():
