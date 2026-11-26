@@ -27,9 +27,10 @@ class BookScannerBrowserTests(PublicHttpTestCase):
 
         root = app.config["DOCUMENT_ROOT"]
         federation = FederationStore(root)
-        for peer_id, permitted in (("scan-destination", True), ("scan-unselected", False)):
-            federation.save_peer(peer_id, peer_id, f"https://{peer_id}.invalid", "synthetic-only",
-                                 {"documents": {"send": permitted}})
+        with app.app_context():
+            for peer_id, permitted in (("scan-destination", True), ("scan-unselected", False)):
+                federation.save_peer(peer_id, peer_id, f"https://{peer_id}.invalid", "synthetic-only",
+                                     {"documents": {"send": permitted}})
         server = make_server("127.0.0.1", 0, app, threaded=True)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -67,4 +68,5 @@ class BookScannerBrowserTests(PublicHttpTestCase):
             offer = page.locator("[data-book-offer]")
             expect(offer).to_be_visible()
             code = offer.get_attribute("data-book-offer")
-            self.assertEqual(exact_pdf, Shares(root).read("scan-destination", code)[0])
+            with app.app_context():
+                self.assertEqual(exact_pdf, Shares(root).read("scan-destination", code)[0])
