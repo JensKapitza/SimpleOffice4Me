@@ -151,7 +151,6 @@ def reject_itip_message(message_id: str):
 @login_required
 def export_itip_message(event_id: str):
     method = request.args.get("method", "REQUEST")
-    normalized_method = method.strip().upper()
     try:
         payload = _itip().export(event_id, str(g.user["username"]), method, request.args.get("attendee", ""), request.args.get("partstat", ""), str(g.user["email"] or ""))
     except ValueError:
