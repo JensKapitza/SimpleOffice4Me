@@ -28,7 +28,7 @@
       </select>
       <label for="announcement-text" class="form-label">{{ 'Speak text' if g.language == 'en' else 'Text sprechen' }}</label>
       <textarea id="announcement-text" class="form-control mb-2" maxlength="2000" rows="2" aria-describedby="announcement-help"></textarea>
-      <p id="announcement-help" class="form-text">{{ 'Speech output needs the existing Piper program and a locally configured model. Signal tones are generated without a language model.' if g.language == 'en' else 'Sprachausgabe benötigt das vorhandene Piper-Programm und ein lokal konfiguriertes Modell. Signaltöne werden ohne Sprachmodell erzeugt.' }}</p>
+      <p id="announcement-help" class="form-text">{{ 'Speech output needs Piper and a locally configured model. On supported Linux systems, ./start.sh setup installs the engine; it does not download voices. Signal tones need no model.' if g.language == 'en' else 'Sprachausgabe benötigt Piper und ein lokal konfiguriertes Modell. Auf unterstützten Linux-Systemen installiert ./start.sh setup die Engine, lädt aber keine Stimmen herunter. Signaltöne brauchen kein Modell.' }}</p>
       <button type="button" class="btn btn-primary mb-3" id="announcement-say">{{ 'Queue text' if g.language == 'en' else 'Text einreihen' }}</button>
       <label for="announcement-preset" class="form-label d-block">{{ 'Signal tone' if g.language == 'en' else 'Signalton' }}</label>
       <div class="d-flex flex-wrap gap-2">

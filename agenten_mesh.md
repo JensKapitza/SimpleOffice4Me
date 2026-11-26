@@ -996,3 +996,13 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | Kein Patch möglich: kein Release mit glib ≥ 0.20 existiert; `[patch]`-Vendoring wegen ABI-Risiko verworfen. Befund mit Entblockungs-Kriterium als Issue-Kommentar dokumentiert. |
 | Tests und Soll-Ist-Vergleich | Soll: Upgrade-Pfad. Ist: zweifach belegter Negativbefund (Subagent + crates.io-API-Dependencies); kein Code geändert, keine Tests nötig; Issue bleibt offen als Watch-Item. |
 | Review und Abschluss | Medium/Crash-only/Linux-only ohne CVE; Neubewertung bei erstem Runtime-wry mit `wry ^0.58`. |
+## 26. November 2026 · Setup: lokale Piper- und RapidOCR-Wheels
+
+| Phase | Aufgabe und Ergebnis |
+| --- | --- |
+| Analyse | Die OCR-Pakete stehen in `pyproject.toml` unter dem optionalen Extra `ocr`; die reguläre Startinstallation zieht dieses Extra nicht mit ein. Der Startskript-Status konnte die optionalen Engines überspringen, wenn die übrige `.venv` bereits vollständig war. Piper fehlte ebenfalls standardmäßig. |
+| Planung | Auf unterstütztem Linux die vorhandenen Projektversionen von RapidOCR/ONNX Runtime und Piper in die Projekt-`.venv` aufnehmen. Wheels erzwingen, damit kein nativer Quellbuild die Installation blockiert. Termux überspringt diese optionalen Engines; Tesseract und der Start bleiben verfügbar. Stimmenmodelle werden nie automatisch geladen. `run`, `--check-system` und Opt-out-Variablen bleiben nicht installierend. |
+| Implementierung | `start.sh` prüft optionale Engines auch beim Schnellstart. Fehlende Pakete werden mit festen Projektversionen installiert; Piper wird gezielt in `$VENV/bin` geprüft und dessen Verzeichnis liegt im Laufzeit-PATH. Lesbare Warnungen und Opt-outs sind ergänzt. Admin- und Setup-Hinweise dokumentieren Engine-/Stimmen-Trennung. |
+| Tests | `bash -n start.sh`; `python -m unittest -q tests.test_start_script tests.test_object_vision_packaging tests.test_piper_settings`: 26 Tests bestanden. `git diff --check` bestanden. Installation echter nativer Wheels in der System-`.venv` wurde nicht ausgeführt. |
+| Soll-Ist-Vergleich | Soll: beim regulären Linux-Setup sind Piper, RapidOCR und ONNX Runtime in der Projektumgebung verfügbar. Ist: Installer und Bereitschaftsprüfung implementiert. Auf dem aktuellen Host wurde die reale Wheelinstallation nicht validiert; Termux bleibt bewusst ausgenommen. |
+| Review und Abschluss | Kein automatischer Import von Stimmen/Modellen. Ausstehend sind PR-CI und eine einmalige echte Linux-Wheelinstallation samt Inferenz-Smoke-Test. |

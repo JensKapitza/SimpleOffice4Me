@@ -21,7 +21,7 @@
   <section class="card mb-3" id="reader-speech">
     <div class="card-body">
       <h2 class="h4">{{ '1. Local read-aloud in Reader & Mail' if en else '1. Lokales Vorlesen in Reader & Mail' }}</h2>
-      <p>{{ 'Playback requires Piper on the system running SimpleOffice. Voice files can be downloaded beforehand. You can also choose your own local voices for default and English in Media settings. This check does not run Piper or read any documents or email.' if en else 'Zum Vorlesen braucht das System, auf dem SimpleOffice läuft, die Piper-Engine. Die Stimmdateien kannst du vorher laden. In den Medien-Einstellungen kannst du auch eigene lokale Stimmen für Standard und Englisch wählen. Diese Prüfung startet Piper nicht und liest keine Dokumente oder E-Mails.' }}</p>
+      <p>{{ 'Playback requires Piper on the system running SimpleOffice. On supported Linux systems, ./start.sh setup installs the local Piper engine and RapidOCR/ONNX Runtime; voice files remain a separate choice in Media settings. This check does not run Piper or read documents or email.' if en else 'Zum Vorlesen braucht das System, auf dem SimpleOffice läuft, die Piper-Engine. Auf unterstützten Linux-Systemen installiert ./start.sh setup Piper sowie RapidOCR/ONNX Runtime. Stimmdateien wählst du separat in den Medien-Einstellungen. Diese Prüfung startet Piper nicht und liest keine Dokumente oder E-Mails.' }}</p>
       <dl>
         <dt>{{ 'Piper engine' if en else 'Piper-Engine' }}</dt>
         <dd id="speech-engine">{% with status=readiness.piper %}{% include 'optional_setup/_status.html' %}{% endwith %}</dd>

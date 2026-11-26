@@ -25,6 +25,9 @@ DISTRO_NAME="Linux"
 USE_SYSTEM_SITE_PACKAGES=0
 NATIVE_PACKAGES_FOUND=0
 STANDALONE=0
+PIPER_TTS_VERSION="1.8.0"
+RAPIDOCR_VERSION="3.10.0"
+ONNXRUNTIME_VERSION="1.32.0"
 
 usage() {
   cat <<'EOF'
@@ -75,6 +78,17 @@ pkg; pip probiert für die übrigen Laufzeitpakete zuerst fertige Wheels.
 Native Paketinstallation kann mit SIMPLEOFFICE_NATIVE_PACKAGES=0 deaktiviert
 werden. Eine vorhandene .venv wird nur dann neu erzeugt, wenn native Pakete
 sonst durch ihre Isolation nicht sichtbar wären.
+
+Unter Linux wird zusätzlich Piper TTS 1.8.0 als optionale lokale Sprachausgabe
+in die Projekt-.venv installiert. Das Paket enthält keine Stimmenmodelle; diese
+werden separat in den Medien-Einstellungen konfiguriert. Die Installation kann
+mit SIMPLEOFFICE_PIPER_INSTALL=0 deaktiviert werden. Unter Termux ist Piper
+wegen fehlender passender Wheels deaktiviert; ./start.sh run und --check-system
+installieren grundsätzlich nichts.
+
+RapidOCR und ONNX Runtime werden unter Linux ebenfalls als optionale OCR-Engine
+in die Projekt-.venv installiert. SIMPLEOFFICE_OCR_INSTALL=0 deaktiviert das.
+Unter Termux wird die Engine nicht installiert; Tesseract bleibt davon getrennt.
 
 Beispiele:
   ./start.sh --google-json /etc/simpleoffice/google-oauth.json \
@@ -213,6 +227,9 @@ case "$VENV" in
   /*) ;;
   *) VENV="$ROOT/$VENV" ;;
 esac
+# Make CLI tools installed into the project venv visible to the app's optional
+# runtime probes (including piper and the PDF/browser helpers).
+export PATH="$VENV/bin:$PATH"
 if [ "$VENV_EXPLICIT" -eq 1 ]; then
   export SIMPLEOFFICE_NATIVE_PACKAGES=0
 fi
@@ -533,6 +550,18 @@ requirements = {
     "tzdata": ">=2024.1",
 }
 
+optional_engines_ready() {
+  [ "$IS_TERMUX" -eq 1 ] && return 0
+  if [ "${SIMPLEOFFICE_PIPER_INSTALL:-1}" != "0" ] && [ ! -x "$VENV/bin/piper" ]; then
+    return 1
+  fi
+  if [ "${SIMPLEOFFICE_OCR_INSTALL:-1}" != "0" ] &&
+     ! "$VENV/bin/python" -c 'import rapidocr, onnxruntime' >/dev/null 2>&1; then
+    return 1
+  fi
+  return 0
+}
+
 problems = []
 for distribution, specifier in requirements.items():
     try:
@@ -658,7 +687,8 @@ if [ "$STANDALONE" -eq 0 ] && [ "$CHECK_SYSTEM" -eq 0 ] && [ "$START_MODE" != se
   if [ -x "$VENV/bin/python" ] &&
      "$VENV/bin/python" "$ROOT/simpleoffice_runtime_support.py" >/dev/null 2>&1 &&
      "$VENV/bin/python" -c 'from importlib.metadata import version; version("simpleoffice4me")' >/dev/null 2>&1 &&
-     "$VENV/bin/python" -m pip check >/dev/null 2>&1; then
+     "$VENV/bin/python" -m pip check >/dev/null 2>&1 &&
+     { [ "$START_MODE" = run ] || optional_engines_ready; }; then
     cd "$ROOT"
     exec "$VENV/bin/python" -m tools.launcher start
   fi
@@ -670,6 +700,7 @@ fi
 if [ "$STANDALONE" -eq 1 ]; then
   setup_standalone_runtime
 fi
+export PATH="$VENV/bin:$PATH"
 
 RUNTIME_PYTHON="$PYTHON"
 if [ -x "$VENV/bin/python" ]; then
@@ -770,6 +801,63 @@ else
   echo "pip ergänzt nur fehlende oder nicht passende Web-Abhängigkeiten in der lokalen .venv."
   "$VENV/bin/python" -m pip install --disable-pip-version-check --editable "$ROOT"
 fi
+
+install_optional_piper() {
+  [ "$IS_TERMUX" -eq 0 ] || {
+    echo "Piper-CLI wird unter Termux übersprungen (keine unterstützte Wheel-Installation)."
+    return 0
+  }
+  [ "${SIMPLEOFFICE_PIPER_INSTALL:-1}" != "0" ] || {
+    echo "Optionale Piper-Installation durch SIMPLEOFFICE_PIPER_INSTALL=0 deaktiviert."
+    return 0
+  }
+  if [ -x "$VENV/bin/piper" ]; then
+    echo "Piper-CLI ist bereits in der Projekt-.venv verfügbar: $VENV/bin/piper"
+    return 0
+  fi
+
+  echo "Installiere optionale lokale Piper-CLI ($PIPER_TTS_VERSION) als fertiges Wheel in $VENV ..."
+  if ! "$VENV/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: \
+      "piper-tts==$PIPER_TTS_VERSION"; then
+    echo "WARNUNG: Piper konnte nicht installiert werden; Reader/Mail-Vorlesen bleibt deaktiviert." >&2
+    return 0
+  fi
+  if [ ! -x "$VENV/bin/piper" ]; then
+    echo "WARNUNG: Piper-Paket wurde installiert, aber die CLI fehlt in der Projekt-.venv." >&2
+    return 0
+  fi
+  echo "Piper-CLI ist bereit. Stimmdateien werden separat konfiguriert."
+}
+
+install_optional_ocr() {
+  [ "$IS_TERMUX" -eq 0 ] || {
+    echo "RapidOCR/ONNX Runtime werden unter Termux übersprungen; dort bleibt Tesseract verfügbar."
+    return 0
+  }
+  [ "${SIMPLEOFFICE_OCR_INSTALL:-1}" != "0" ] || {
+    echo "Optionale RapidOCR-Installation durch SIMPLEOFFICE_OCR_INSTALL=0 deaktiviert."
+    return 0
+  }
+  if "$VENV/bin/python" -c 'import rapidocr, onnxruntime' >/dev/null 2>&1; then
+    echo "RapidOCR und ONNX Runtime sind bereits in $VENV verfügbar."
+    return 0
+  fi
+
+  echo "Installiere optionale RapidOCR/ONNX Runtime Wheels in $VENV ..."
+  if ! "$VENV/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: \
+      "rapidocr==$RAPIDOCR_VERSION" "onnxruntime==$ONNXRUNTIME_VERSION"; then
+    echo "WARNUNG: RapidOCR/ONNX Runtime konnten nicht installiert werden; Tesseract-OCR bleibt verfügbar." >&2
+    return 0
+  fi
+  if ! "$VENV/bin/python" -c 'import rapidocr, onnxruntime' >/dev/null 2>&1; then
+    echo "WARNUNG: RapidOCR/ONNX Runtime wurden installiert, lassen sich aber nicht importieren." >&2
+    return 0
+  fi
+  echo "RapidOCR und ONNX Runtime sind bereit. Modelle werden bei der Installation nicht geladen."
+}
+
+install_optional_ocr
+install_optional_piper
 
 # Both regular and standalone Linux starts use isolated Python environments.
 # Install optional browser export requirements into the *running* interpreter.

@@ -20,6 +20,14 @@ Netzwerk-Stimmen-Fallback.
 Signaltöne entstehen mit Python-Standardbibliothek als WAV. Nichts wird durch
 den Audio-Worker installiert oder heruntergeladen.
 
+Auf unterstütztem Linux installiert `./start.sh` bzw. `./start.sh setup` die
+Piper-CLI (`piper-tts==1.8.0`) als fertiges Wheel in die Projekt-`.venv`, falls
+Piper dort noch nicht installiert ist. `SIMPLEOFFICE_PIPER_INSTALL=0` überspringt die
+optionale Installation; `./start.sh run` und `--check-system` installieren
+nichts. Die Installation lädt keine Sprachmodelle. Unter Termux wird Piper
+wegen fehlender unterstützter Wheels übersprungen. In Docker muss Piper im
+Container vorhanden sein.
+
 Beim Start zur Synthese setzt SimpleOffice nur für den Piper-Unterprozess
 `ORT_DISABLE_TELEMETRY=1`. Das deaktiviert laut der
 [ONNX-Runtime-Dokumentation](https://github.com/microsoft/onnxruntime/blob/main/docs/Privacy.md#disabling-telemetry)
@@ -132,8 +140,11 @@ auf 45 Sekunden begrenzt und abbrechbar; Wiedergabe auf 300 Sekunden.
 ## Fehlerdiagnose und Recovery
 
 - **Keine lokalen Ausgänge:** Benutzersitzung und `pactl` prüfen, erneut scannen.
-- **Piper/Modell fehlt:** vorhandenes Modell konfigurieren; zunächst einen
-  Signalton testen. Der Audio-Ausgabe-Mini-Service lädt keine Modelle nach.
+- **Piper fehlt:** unter Linux `./start.sh setup` ausführen oder `piper-tts`
+  manuell installieren. `SIMPLEOFFICE_PIPER_INSTALL=0` überspringt die optionale
+  Installation. Danach in **Dokumente & Medien** ein lokales Modell auswählen;
+  die Startinstallation lädt keine Stimmenmodelle. Zunächst einen Signalton
+  testen. Der Audio-Ausgabe-Mini-Service lädt keine Modelle nach.
 - **Kids-Vorlesen (`GET /kids/lernen/sprache`, Anmeldung erforderlich):** kurze
   Lern- und Spieltexte (1–500 Zeichen, `lang` `de-DE`/`en-US`) rendert die
   lokale Piper-CLI und legt sie per Texthash auf dem Server ab (Cache
