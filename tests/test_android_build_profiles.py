@@ -66,6 +66,19 @@ class AndroidBuildProfilesTests(unittest.TestCase):
         self.assertIn("sha256sum --check Pillow-SHA256SUMS cryptography-SHA256SUMS cffi-SHA256SUMS argon2-cffi-bindings-SHA256SUMS", workflow)
         self.assertIn("--wheel-dir android/apk/app/wheelhouse", workflow)
 
+    def test_optional_hand_install_carries_its_license_without_storage_permissions(self):
+        gradle = GRADLE.read_text(encoding="utf-8")
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        manifest = (GRADLE.parent / "src/main/AndroidManifest.xml").read_text(encoding="utf-8")
+        runtime = (GRADLE.parent / "src/main/python/android_runtime.py").read_text(encoding="utf-8")
+        self.assertIn("include 'licenses/MEDIAPIPE-APACHE-2.0.txt'", gradle)
+        self.assertIn("- 'licenses/MEDIAPIPE-APACHE-2.0.txt'", workflow)
+        self.assertIn('unzip -p "$APK" "assets/simpleoffice/$HAND_LICENSE" | cmp - "$HAND_LICENSE"', workflow)
+        self.assertIn('str(runtime_root / "database" / "documents")', runtime)
+        self.assertIn("android.permission.CAMERA", manifest)
+        for permission in ("MANAGE_EXTERNAL_STORAGE", "READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE"):
+            self.assertNotIn("android.permission." + permission, manifest)
+
     def test_security_gate_precedes_artifact_upload(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         sbom_upload = workflow.index("- name: Upload APK-bundled Python SBOM")

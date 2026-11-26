@@ -8,7 +8,7 @@
       data-language="{{ 'en' if en else 'de' }}" data-ready="{{ 'yes' if hand_game_ready else 'no' }}"
       data-runtime="{{ url_for('kids_learning.hand_game_asset', name='vision_bundle.mjs') }}">
   <header class="kids-hand-intro mb-3">
-    <p class="kids-hand-tag">{{ 'PC webcam game' if en else 'Spiel für die PC-Webcam' }}</p>
+    <p class="kids-hand-tag">{{ 'Camera game' if en else 'Kameraspiel' }}</p>
     <h1>{{ 'Finger magic' if en else 'Fingerzauber' }} <span aria-hidden="true">✋💎</span></h1>
     <p>{{ 'Make a shape with one hand and collect lights! These are invented magic signs, not sign language.' if en else 'Forme mit einer Hand das Zeichen und sammle Lichter! Das sind erfundene Zauberzeichen, keine Gebärdensprache.' }}</p>
   </header>
