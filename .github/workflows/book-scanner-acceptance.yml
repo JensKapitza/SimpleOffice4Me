@@ -135,7 +135,20 @@ jobs:
       - name: Submit synthetic barcodes through the normal mobile form
         env:
           SIMPLEOFFICE_INTAKE_BROWSER_REQUIRED: '1'
-        run: python -m unittest -v tests.test_inventory_intake_browser tests.test_inventory_intake_native_browser
+        run: python -m unittest -v tests.test_inventory_intake_browser
+      - name: Check the native scanner form in the sandboxed system Chrome
+        shell: bash
+        env:
+          SIMPLEOFFICE_INTAKE_BROWSER_REQUIRED: '1'
+          SIMPLEOFFICE_INTAKE_CHROMIUM: /opt/google/chrome/chrome
+        run: |
+          set -euo pipefail
+          test -x "$SIMPLEOFFICE_INTAKE_CHROMIUM"
+          test "$(readlink -f "$SIMPLEOFFICE_INTAKE_CHROMIUM")" = /opt/google/chrome/chrome
+          test "$(stat -c '%U' "$SIMPLEOFFICE_INTAKE_CHROMIUM" /etc/apparmor.d/chrome | sort -u)" = root
+          grep -F '/opt/google/chrome/chrome' /etc/apparmor.d/chrome
+          grep -Eq '^[[:space:]]*userns[[:space:]]*,' /etc/apparmor.d/chrome
+          python -m unittest -v tests.test_inventory_intake_native_browser
 
   deployment:
     name: Two normal Docker peers with scanner and Reader
