@@ -356,9 +356,10 @@ class MixedIntakeTests(unittest.TestCase):
         self.assertEqual({}, current["selected"])
         self.assertEqual("A Book: Ä Edition", current["manual"]["title"])
         sources = self.get_page().select_one(f'#draft-{current["id"]} [data-intake-sources]')
-        self.assertTrue(sources.has_attr("open"))
+        self.assertFalse(sources.has_attr("open"))
+        self.assertEqual([], current["conflict_fields"])
         title = sources.select_one('[data-intake-source-field="title"]')
-        self.assertIn("Abweichende Angaben", title.get_text(" ", strip=True))
+        self.assertNotIn("Abweichende Angaben", title.get_text(" ", strip=True))
         title_sources = title.select('[data-intake-source-kind]')
         self.assertEqual(["Manuell", "Open Library", "Google Books", "OCR (mögliche Titelzeile)"],
                          [node.select_one(".badge").get_text(strip=True) for node in title_sources])
@@ -385,6 +386,26 @@ class MixedIntakeTests(unittest.TestCase):
         self.assertEqual("First printing", saved.json["draft"]["confirmed"]["fields"]["edition"])
         self.assertEqual("1988-11-01", saved.json["draft"]["confirmed"]["fields"]["published_date"])
         self.assertEqual(1, len(ObjectStore(self.documents).objects()))
+
+    def test_card_and_source_comparison_distinguish_title_conflicts_from_hints(self):
+        for text, conflict in (("Other cover line", False),
+                               ("Titel: A BOOK: A\u0308 EDITION", False),
+                               ("Titel: Different title", True)):
+            with self.subTest(text=text):
+                draft = self.photo(title="A Book: Ä Edition", kind="book")
+                draft = self.observe_label(draft, text)
+                self.assertEqual({}, draft["catalog"])
+                self.assertEqual(["title"] if conflict else [], draft["conflict_fields"])
+                self.assertEqual("question" if conflict else "in_review", draft["state"])
+                card = self.get_page().select_one(f'#draft-{draft["id"]}')
+                self.assertEqual("Rückfrage: Titel" if conflict else "In Prüfung",
+                                 card.select_one("[data-intake-state]").get_text(" ", strip=True))
+                source_panel = card.select_one("[data-intake-sources]")
+                self.assertEqual(conflict, source_panel.has_attr("open"))
+                rows = source_panel.select('[data-intake-source-field="title"] li')
+                self.assertEqual(2, len(rows))
+                self.assertEqual("A Book: Ä Edition", card.select_one('input[name="title"]')["value"])
+        self.assertEqual([], ObjectStore(self.documents).objects())
 
     def test_labelled_ocr_conflict_controls_review_in_both_orders(self):
         from tests.test_inventory_catalog import ISBN
@@ -419,6 +440,9 @@ class MixedIntakeTests(unittest.TestCase):
         draft = self.photo(barcode=ISBN, kind="book", title="A Book: Ä Edition")
         wrong = self.review_sources(draft, different=True).json["draft"]
         self.assertEqual("conflicting_edition", wrong["catalog"]["reason"])
+        self.assertIn("published_date", wrong["conflict_fields"])
+        card = self.get_page().select_one(f'#draft-{wrong["id"]}')
+        self.assertIn("Erscheinungsjahr", card.select_one("[data-intake-state]").get_text(" ", strip=True))
         wrong_ref = next(r for r in wrong["evidence"] if r["kind"] == "external_catalog" and r["field"] == "published_date")
         with mock.patch("app.inventory_intake_routes.local_proposal", side_effect=lambda state, _:
                         proposal_from_ids(state, {"published_date": wrong_ref["source_id"]})):

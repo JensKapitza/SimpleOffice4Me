@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from unicodedata import normalize
 
 from .inventory_catalog import edition_field_key, normalize_catalog_code, proven_edition_ids
 
@@ -116,11 +117,11 @@ def current_proposal(state: dict) -> dict:
     return {**proposal, "fields": [row for row in proposal.get("fields", [])
                                   if not row.get("candidate_id") or row["candidate_id"] in proven]}
 
-def status(state: dict) -> str:
+def status(state: dict, *, has_conflict: bool = False) -> str:
     if state["confirmed"]:
         return "confirmed"
     catalog = catalog_view(state)
-    if catalog.get("stale") or catalog.get("status") in {"review", "unavailable", "not_found"}:
+    if has_conflict or catalog.get("stale") or catalog.get("status") in {"review", "unavailable", "not_found"}:
         return "question"
     if state["ocr"].get("status") in {"failed", "unavailable", "empty"}:
         return "question"
@@ -150,9 +151,19 @@ def selectable_fields(state: dict) -> list[dict]:
     rows = evidence_rows(state)
     selected = state["selected"]
     proven = proven_edition_ids(catalog_view(state))
+    values: dict[str, set[str]] = {}
+    for row in rows:
+        # A guessed OCR title and a derivative AI proposal are not new observations.
+        if row.get("unlabelled") or row["kind"] == "local_ai":
+            continue
+        field = row["field"]
+        value = " ".join(normalize("NFC", row["value"]).casefold().split())
+        if field == "published_date":
+            value = edition_field_key(field, row["value"]) or value
+        values.setdefault(field, set()).add(value)
+    conflicts = {field for field, options in values.items() if len(options) > 1}
     return [
-        {**row, "conflict": len({item["value"].casefold() for item in rows
-                                if item["field"] == row["field"]}) > 1,
+        {**row, "conflict": row["field"] in conflicts,
          "selectable": not row.get("candidate_id") or _compatible_edition_ids({
              row["candidate_id"],
              *(value["candidate_id"] for field, value in selected.items()
