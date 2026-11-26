@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   appleSignal, appleStep, compareSelection, gateSignal, gateStep, logic, matchingIds,
+  nextSetOperation, SetChallenge, SET_MAX_ATTEMPTS,
 } from '../static/js/kids_logic_rules.mjs';
 
 test('all four input combinations, inclusive OR, and NOT ignores the second input', () => {
@@ -55,4 +56,39 @@ test('sets use whole displayed universe; overlaps appear exactly once and differ
   assert.deepEqual(matchingIds(rows,'difference'),['rs']);
   assert.deepEqual(compareSelection(rows,'or',['rc','rc','ys','elsewhere']),{missing:['rs','bc'],outside:['ys']});
   assert.deepEqual(compareSelection(rows,'difference',['rs']),{missing:[],outside:[]});
+});
+
+test('set challenges keep answers hidden for five failed checks, then reveal and continue cleanly', () => {
+  const tiles = [
+    {id:'rc',color:'red',shape:'circle'}, {id:'rs',color:'red',shape:'square'},
+    {id:'bc',color:'blue',shape:'circle'}, {id:'ys',color:'yellow',shape:'square'},
+  ];
+  const task = new SetChallenge(tiles, 'and');
+  assert.equal(task.canReveal, false);
+  assert.equal(task.reveal(), false);
+  assert.equal(task.toggle('unknown'), false);
+  assert.deepEqual(task.check(), {missing:['rc'],outside:[],result:'wrong',attempts:1});
+  for (let attempt = 2; attempt < SET_MAX_ATTEMPTS; attempt += 1) assert.equal(task.check().result, 'wrong');
+  const last = task.check();
+  assert.equal(last.result, 'limit');
+  assert.equal(last.missing[0], 'rc');
+  assert.equal(task.canReveal, true);
+  assert.equal(task.toggle('rc'), false, 'answers cannot be edited after the fifth try');
+  assert.equal(task.check().result, 'locked');
+  assert.equal(task.reveal(), true);
+  assert.equal(task.reveal(), false);
+  task.next();
+  assert.equal(task.operation, 'or');
+  assert.equal(task.attempts, 0);
+  assert.equal(task.selected.size, 0);
+  assert.equal(task.solved, false);
+  for (const id of ['rc', 'rs', 'bc']) assert.equal(task.toggle(id), true);
+  assert.equal(task.check().result, 'correct');
+  assert.equal(task.solved, true);
+  assert.equal(task.canReveal, false);
+  assert.deepEqual(['and','or','not','difference'].map(nextSetOperation),
+    ['or','not','difference','and']);
+  assert.throws(() => task.setOperation('xor'), RangeError);
+  assert.throws(() => new SetChallenge([tiles[0], tiles[0]]), TypeError);
+  assert.throws(() => new SetChallenge([null]), TypeError);
 });
