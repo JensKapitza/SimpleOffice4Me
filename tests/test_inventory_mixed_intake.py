@@ -355,12 +355,29 @@ class MixedIntakeTests(unittest.TestCase):
         self.assertEqual({r["field"]: r["supports"] for r in rows}, {k: [v] for k, v in refs.items()})
         self.assertEqual({}, current["selected"])
         self.assertEqual("A Book: Ä Edition", current["manual"]["title"])
+        sources = self.get_page().select_one(f'#draft-{current["id"]} [data-intake-sources]')
+        self.assertTrue(sources.has_attr("open"))
+        title = sources.select_one('[data-intake-source-field="title"]')
+        self.assertIn("Abweichende Angaben", title.get_text(" ", strip=True))
+        title_sources = title.select('[data-intake-source-kind]')
+        self.assertEqual(["Manuell", "Open Library", "Google Books", "OCR (mögliche Titelzeile)"],
+                         [node.select_one(".badge").get_text(strip=True) for node in title_sources])
+        self.assertEqual(2, sum(node.select_one('[translate="no"]').get_text(strip=True) == "A Book: Ä Edition"
+                                for node in title_sources))
+        self.assertIn("Titel nicht eindeutig erkannt", title_sources[-1].get_text(" ", strip=True))
+        edition = sources.select_one('[data-intake-source-field="edition"]')
+        self.assertIn("Belegt durch Open Library",
+                      edition.select_one('[data-intake-source-kind="local_ai"]').get_text(" ", strip=True))
         self.assertEqual([], ObjectStore(self.documents).objects())
         for row in rows:
             r = self.post(base + "/choose", revision=str(current["revision"]), source_id=row["source_id"])
             self.assertEqual(200, r.status_code, r.data)
             current = r.json["draft"]
         self.assertEqual([], ObjectStore(self.documents).objects())
+        visible = self.get_page().select_one(f'#draft-{current["id"]} [data-intake-sources]')
+        selected_edition = visible.select_one('[data-intake-source-field="edition"] [data-intake-source-kind="local_ai"]')
+        self.assertIn("Ausgewählt", selected_edition.get_text(" ", strip=True))
+        self.assertIsNone(selected_edition.select_one('button[name="source_id"]'))
         stale = self.post(base + "/confirm", revision=str(reviewed["revision"]))
         self.assertEqual(409, stale.status_code)
         saved = self.post(base + "/confirm", revision=str(current["revision"]), publisher="", edition="", published_date="")
