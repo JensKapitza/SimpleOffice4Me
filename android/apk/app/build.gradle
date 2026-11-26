@@ -271,6 +271,8 @@ tasks.register('syncSimpleOfficeAssets', Sync) {
         include 'templates/**'
         include 'static/**'
         include 'tools/**'
+        // The optional Finger magic installer refuses to run without this notice.
+        include 'licenses/MEDIAPIPE-APACHE-2.0.txt'
         include 'simpleoffice_*.py'
         include 'pyproject.toml'
         exclude '**/__pycache__/**'

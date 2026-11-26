@@ -1,4 +1,4 @@
-# Fingerzauber am PC / Finger magic on a PC
+# Fingerzauber / Finger magic
 
 **Kinder → Fingerzauber.** Ohne Kamera lässt sich die Zeichenübersicht ansehen.
 Mit Kamera kannst du Kristall, Stern, Schild und Funke üben oder zu zweit
@@ -11,13 +11,22 @@ Fingeralphabet und keine Übersetzung der Deutschen Gebärdensprache (DGS).
 
 ## Einmalige Einrichtung durch Erwachsene / One-time administrator setup
 
-Ein aktueller PC-Browser auf **HTTPS oder localhost** und eine Webcam werden
-benötigt. Das Spiel lädt keine Modell- oder Laufzeitdateien aus dem Internet.
+Im PC-Browser werden **HTTPS oder localhost** und eine Webcam benötigt.
+Beim Spielen werden keine Modell- oder Laufzeitdateien aus dem Internet geladen.
 Administratoren können die geprüften Versionen unter **Übersicht → Lokale Extras
 → Fingerzauber** ausdrücklich laden lassen. Die Dateien werden serverseitig einmal
 von npm/Google geholt und vor der Freigabe auf Größe und Prüfsummen geprüft.
 Ohne Einwilligung, beim Start und beim Öffnen des Spiels erfolgen keine externen
-Downloads. Manuell bereitgestellte Ordner bleiben vorrangig. Fehlt im installierten
+Downloads. In der Android-APK nutzt **Lokale Extras → Fingerzauber → Dateien laden**
+denselben Installationsweg und den privaten Speicher der App. Ein Modell auf
+dem PC ist nicht automatisch auf dem Smartphone vorhanden. Die APK liefert
+die zugehörige Lizenzdatei, aber keine Modelldateien mit. Dafür ist weder
+„Zugriff auf alle Dateien“ noch das Freigeben der SD-Karte nötig. Nach
+abgeschlossener Einrichtung **Fingerzauber öffnen → Kamera einschalten** und
+bei Nachfrage nur die Kameraberechtigung erlauben. Ein physisches Android-
+Gerät und die Kompatibilität seines WebViews müssen getrennt geprüft werden.
+
+Manuell bereitgestellte Ordner bleiben vorrangig. Fehlt im installierten
 Paket die Lizenzdatei oder ist keine Verbindung zu den festen Anbietern möglich,
 bleibt die folgende manuelle Einrichtung verfügbar.
 
