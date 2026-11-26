@@ -124,6 +124,43 @@ class S3OverlayTests(unittest.TestCase):
         self.assertEqual("sandbox", ranged.headers["Content-Security-Policy"])
         ranged.close()
 
+    def test_book_scan_leases_stay_local_and_are_not_s3_objects(self):
+        from app.library.book_scan_pdf import ScanError
+        from app.library.book_scan_shares import Shares
+
+        def listed_keys():
+            response = self.request("GET", "/s3/simpleoffice?list-type=2")
+            self.assertEqual(200, response.status_code)
+            self.assertIn(b"<IsTruncated>false</IsTruncated>", response.data)
+            return sorted(re.findall(rb"<Key>([^<]+)</Key>", response.data))
+
+        root = self.root / "documents"
+        ordinary = f"documents/{self.document['document_id']}/original/readme.txt"
+        baseline = listed_keys()
+        self.assertIn(ordinary.encode(), baseline)
+        payload = b"%PDF-1.4\nsynthetic private scan snapshot"
+        digest = hashlib.sha256(payload).hexdigest()
+        with patch("app.library.book_scan_shares.eligible_peer"), \
+                patch("app.library.book_scan_shares.local_peer_id", return_value="source"):
+            shares = Shares(root)
+            offer = shares.publish(1, "selected-recipient", payload, digest)["offer"]
+            self.assertTrue(shares.path.is_file())
+            reopened = Shares(root)
+            self.assertEqual((payload, digest), reopened.read("selected-recipient", offer))
+
+            # Ordinary indexing and a signed S3 listing keep the baseline projection.
+            DocumentStore(root).scan()
+            self.assertEqual(baseline, listed_keys())
+            reply = self.request("GET", f"/s3/simpleoffice/{ordinary}")
+            self.assertEqual(200, reply.status_code)
+            self.assertEqual(b"S3 overlay test data", reply.data)
+            reply.close()
+
+            reopened.revoke(1, offer)
+            with self.assertRaisesRegex(ScanError, "offer"):
+                Shares(root).read("selected-recipient", offer)
+            self.assertEqual(baseline, listed_keys())
+
     def test_meta_schema_and_capabilities_are_stable_and_listed(self):
         overlay = self.request("GET", "/s3/simpleoffice/_meta/overlay.json")
         schema = self.request("GET", "/s3/simpleoffice/_meta/schema.json")

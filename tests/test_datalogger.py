@@ -9,6 +9,7 @@ from email.message import Message
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from bs4 import BeautifulSoup
 from werkzeug.security import generate_password_hash
 
 from app import app
@@ -248,6 +249,40 @@ class DataLoggerWebTest(unittest.TestCase):
         self.assertTrue(response.data.startswith(b'%PDF-'))
         self.assertEqual(self.reader.get(base + '/report.csv' + query).status_code, 404)
         self.assertEqual(self.owner.get(base + '/report.csv?start_day=yesterday').status_code, 400)
+
+    def test_logger_control_groups_have_names_on_rendered_pages(self):
+        with patch("app.datalogger.platform_kind", return_value="linux"):
+            overview = self.owner.get("/datalogger/")
+        self.assertEqual(200, overview.status_code)
+        overview_html = BeautifulSoup(overview.data, "html.parser")
+        presets = overview_html.select_one('[role="group"][aria-label="Server-Messvorlagen"]')
+        self.assertIsNotNone(presets)
+        self.assertIsNotNone(presets.select_one('form[action$="/uptime_seconds"] button[type="submit"]'))
+
+        created = self.owner.post("/datalogger/channels", data={"name": "Synthetic report channel"})
+        detail = self.owner.get(created.headers["Location"])
+        self.assertEqual(200, detail.status_code)
+        detail_html = BeautifulSoup(detail.data, "html.parser")
+        exports = detail_html.select_one('[role="group"][aria-label="Export für den angezeigten Zeitraum"]')
+        self.assertIsNotNone(exports)
+        self.assertEqual(
+            ["report.csv", "report.txt", "report.pdf", "data.json"],
+            [link["href"].split("?", 1)[0].rsplit("/", 1)[-1] for link in exports.select("a[href]")],
+        )
+
+        source_form = detail_html.select_one('form[action$="/sources"]')
+        for group_id, fields in (
+            ("source-measurement-heading", {"metric": "Messgröße", "json_path": "JSON-Pfad"}),
+            ("source-destination-heading", {"path": "Pfad", "url": "URL"}),
+        ):
+            group = source_form.select_one(f'[role="group"][aria-labelledby="{group_id}"]')
+            self.assertIsNotNone(group)
+            self.assertIsNotNone(group.find(id=group_id))
+            for name, label_text in fields.items():
+                inputs = group.select(f'input[name="{name}"]')
+                self.assertEqual(1, len(inputs))
+                labels = group.find_all("label", attrs={"for": inputs[0]["id"]})
+                self.assertEqual([label_text], [label.get_text(strip=True) for label in labels])
 
     def test_server_preset_is_visible_private_and_idempotent(self):
         url = '/datalogger/server-presets/uptime_seconds'

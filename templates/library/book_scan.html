@@ -1,0 +1,40 @@
+{% extends "layout.html" %}
+{% set en = g.language == 'en' %}
+{% block body %}
+<section class="container py-3" aria-labelledby="book-scan-heading" data-book-scanner data-max-pages="{{ page_limit }}"
+      data-max-page-bytes="{{ byte_limit }}" data-max-total-bytes="{{ total_limit }}"
+      data-lang="{{ 'en' if en else 'de' }}">
+  <a href="{{ url_for('library.index') }}">{{ 'Back to library' if en else 'Zurück zur Bibliothek' }}</a>
+  <h1 class="h3 mt-2" id="book-scan-heading">{{ 'Scan book pages' if en else 'Buchseiten scannen' }}</h1>
+  <p>{{ 'Add JPEG or PNG pages, check their order and rotate individual pages before downloading a PDF.' if en else 'JPEG- oder PNG-Seiten hinzufügen, die Reihenfolge prüfen und einzelne Seiten drehen. Danach das Buch als PDF herunterladen.' }}</p>
+  <p>{{ 'The working selection stays in this tab until you create the PDF. SimpleOffice does not save or share the result automatically.' if en else 'Die Auswahl bleibt bis zur PDF-Erstellung in diesem Tab. SimpleOffice speichert oder teilt das Ergebnis nicht automatisch.' }}</p>
+  <noscript><p>{{ 'This page needs JavaScript for preview, order and rotation. Enable it and reload.' if en else 'Für Vorschau, Sortieren und Drehen braucht diese Seite JavaScript. Bitte aktivieren und neu laden.' }}</p></noscript>
+  <form action="{{ url_for('library.book_scan') }}" method="post" enctype="multipart/form-data">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <fieldset disabled data-scan-controls>
+      <legend class="h5">{{ 'Pages' if en else 'Seiten' }}</legend>
+      <div class="row g-3 mb-3">
+        <div class="col-sm-6">
+          <label class="form-label" for="book-scan-files">{{ 'Select image files' if en else 'Bilddateien auswählen' }}</label>
+          <input id="book-scan-files" class="form-control" type="file" accept="image/jpeg,image/png" multiple data-pick-pages>
+        </div>
+        <div class="col-sm-6">
+          <label class="form-label" for="book-scan-camera">{{ 'Take a page photo' if en else 'Seite fotografieren' }}</label>
+          <input id="book-scan-camera" class="form-control" type="file" accept="image/jpeg,image/png" capture="environment" data-pick-pages>
+        </div>
+      </div>
+      <p class="small text-secondary">{{ 'Up to 24 pages, 32 MiB and 64 megapixels total per batch. The selection is lost if the tab is closed.' if en else 'Bis zu 24 Seiten, 32 MiB und insgesamt 64 Megapixel je Durchgang. Beim Schließen des Tabs geht die Auswahl verloren.' }}</p>
+      <ol class="list-group list-group-numbered mb-3" data-scan-pages></ol>
+      <p role="status" aria-live="polite" data-scan-message></p>
+      <button type="submit" class="btn btn-primary" data-scan-download disabled>{{ 'Create private PDF' if en else 'Privates PDF erstellen' }}</button>
+    </fieldset>
+  </form>
+  <p class="mt-3">
+    {{ 'To read or run OCR later, you can import the PDF deliberately into Documents. Peers with document/catalog grants may then see it. Do not import a private scan into a library you already share.' if en else 'Zum Lesen oder für OCR kannst du das PDF später bewusst in Dokumente importieren. Peers mit Dokument- und Katalogfreigabe können es dann sehen. Private Scans nicht in einen bereits föderativ freigegebenen Bestand importieren.' }}
+  </p>
+  {% if g.user['is_admin'] %}
+  <p><a href="{{ url_for('library.book_scan_publications') }}">{{ 'Share a reviewed scan with one peer' if en else 'Geprüften Scan gezielt mit einem Peer teilen' }}</a></p>
+  {% endif %}
+</section>
+<script src="{{ url_for('static', filename='js/library_book_scanner.js') }}" defer></script>
+{% endblock %}

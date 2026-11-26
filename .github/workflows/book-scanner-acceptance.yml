@@ -1,0 +1,159 @@
+name: Book scanner acceptance
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: &scanner_paths
+      - '.github/workflows/book-scanner-acceptance.yml'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'deploy/docker/entrypoint.sh'
+      - 'pyproject.toml'
+      - 'app/__init__.py'
+      - 'app/auth.py'
+      - 'app/access_control.py'
+      - 'app/request_audit.py'
+      - 'app/safe_paths.py'
+      - 'app/s3_overlay/**'
+      - 'app/library/book_scan*.py'
+      - 'app/capture_inbox_store.py'
+      - 'app/capture_intake_state.py'
+      - 'app/inventory*.py'
+      - 'app/object_store.py'
+      - 'app/object_vision.py'
+      - 'app/contextflow/vision.py'
+      - 'app/library/__init__.py'
+      - 'app/documents*.py'
+      - 'app/document_store*.py'
+      - 'app/reader*.py'
+      - 'app/federation*.py'
+      - 'app/lan_proxy*.py'
+      - 'app/v2/**'
+      - 'templates/library/**'
+      - 'templates/inventory/**'
+      - 'templates/layout.html'
+      - 'templates/admin/**'
+      - 'static/js/library_book_scanner.js'
+      - 'static/js/inventory_intake.js'
+      - 'tests/*book_scan*'
+      - 'tests/*inventory_intake*'
+      - 'tests/test_inventory_mixed_intake.py'
+      - 'tests/test_inventory_catalog.py'
+      - 'tests/test_federation_catalog_http.py'
+      - 'tests/test_s3_overlay.py'
+      - 'tests/test_s3_overlay_coverage.py'
+      - 'tools/launcher.py'
+      - 'tools/smoke_book_scans.py'
+      - 'tools/smoke_scanner_catalog.py'
+      - 'tools/*federation*.py'
+  pull_request:
+    paths: *scanner_paths
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  TEST_IMAGE: simpleoffice4me:book-scanner-acceptance
+
+jobs:
+  private-scope:
+    name: Three configured peers with exact isolation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    steps:
+      - name: Initialize evidence
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/book-scan-scope"
+          printf 'workflow_sha=%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/book-scan-scope/run.txt"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - name: Install checked-in test extras and stock recognition tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends openssl poppler-utils tesseract-ocr tesseract-ocr-eng
+          command -v tesseract
+          tesseract --list-langs | grep -Fx eng
+          python -m pip install -e '.[test]'
+      - name: Check scanner routes, review controls, storage and lease lifecycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest tests.test_library_book_scan tests.test_library_book_scan_shares \
+            tests.test_v2_authorization tests.test_federation_catalog_http tests.test_template_accessibility \
+            tests.test_inventory_mixed_intake tests.test_inventory_catalog \
+            tests.test_s3_overlay_coverage \
+            tests.test_s3_overlay.S3OverlayTests.test_book_scan_leases_stay_local_and_are_not_s3_objects
+          node --test tests/library_book_scanner.test.cjs tests/inventory_intake_js.test.cjs
+      - name: Verify chosen and unselected peers through normal HTTPS forms
+        shell: bash
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          python -m tools.smoke_book_scans --loopback --evidence "$RUNNER_TEMP/book-scan-scope/result.json"
+          test -s "$RUNNER_TEMP/book-scan-scope/result.json"
+          python -m tools.smoke_scanner_catalog | tee "$RUNNER_TEMP/book-scan-scope/catalog-result.log"
+          test -s "$RUNNER_TEMP/book-scan-scope/catalog-result.log"
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: book-scan-scope-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/book-scan-scope/
+          if-no-files-found: warn
+          retention-days: 14
+
+  deployment:
+    name: Two normal Docker peers with scanner and Reader
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Initialize evidence
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/book-scan-deployment"
+          printf 'workflow_sha=%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/book-scan-deployment/run.txt"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - name: Prepare disposable form-client dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/book-scan-html"
+          python -m pip install --target "$RUNNER_TEMP/book-scan-html" 'beautifulsoup4==4.15.0'
+      - name: Build ordinary SimpleOffice image without publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker info --format '{{.ServerVersion}}'
+          docker build --progress=plain --tag "$TEST_IMAGE" . \
+            |& tee "$RUNNER_TEMP/book-scan-deployment/build.log"
+      - name: Verify private scanner, signed sharing, revocation and remote Reader in Docker
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m tools.smoke_book_scans --docker-image "$TEST_IMAGE" \
+            --html-deps "$RUNNER_TEMP/book-scan-html" \
+            --artifacts "$RUNNER_TEMP/book-scan-deployment"
+          test -s "$RUNNER_TEMP/book-scan-deployment/book-scan-result.txt"
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: book-scan-deployment-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/book-scan-deployment/
+          if-no-files-found: warn
+          retention-days: 14

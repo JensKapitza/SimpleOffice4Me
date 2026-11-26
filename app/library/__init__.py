@@ -5,6 +5,8 @@ import re
 from . import printer as _printer
 from .routes import bp
 from . import object_care as _object_care  # noqa: F401  # register shared object-care routes
+from . import book_scan_routes as _book_scan_routes  # noqa: F401  # register scan-page export
+from .book_scan_shares_routes import federation_bp as book_scan_federation_bp
 from . import scan_routes as _scan_routes  # noqa: F401  # register bulk-scan session routes
 from . import scan_dispatch_routes as _scan_dispatch_routes  # noqa: F401  # register scan-dispatch routes
 from . import hold_routes as _hold_routes  # noqa: F401  # register temporary-hold routes

@@ -46,6 +46,7 @@ PERSISTENCE_COVERAGE = {
     # Federation payload/state is withheld until each resource has an explicit
     # trust and directional visibility policy. Secrets are never exportable.
     "federation_store": "excluded:transfer state and peer payloads are not a user-facing read model",
+    "library.book_scan_shares": "excluded:temporary V1 snapshots are local, bound to an owner and one authenticated peer; S3 credentials cannot enforce the scan lease, expiry or revocation",
     "federation_trust_store": "excluded:trust decisions require a dedicated audited projection",
     "federation_attestations": "excluded:attestation internals are not user-facing data",
     "federation_blocks": "excluded:transport block state is operational and not a domain export",

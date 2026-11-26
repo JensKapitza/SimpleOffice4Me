@@ -330,6 +330,7 @@ def start(configure_only: bool = False) -> None:
     from app import app
     from app.audio_streamer import manager as audio_manager
     from app.audio_output_worker import worker as announcement_worker
+    from app.library.book_scan_shares import start_share_maintenance
     options = waitress_options(config, int(app.config["MAX_CONTENT_LENGTH"]), document_root)
     host = str(options["host"])
     port = int(options["port"])
@@ -388,6 +389,7 @@ def start(configure_only: bool = False) -> None:
         raise SystemExit(128 + signum)
     for signum in (signal.SIGINT, signal.SIGTERM):
         previous_handlers[signum] = signal.signal(signum, request_stop)
+    share_maintenance_stop = start_share_maintenance(document_root)
     try:
         audio_manager.start_background()
         announcement_worker.start_background()
@@ -406,6 +408,7 @@ def start(configure_only: bool = False) -> None:
                 raise
             print(f"SimpleOffice4Me wurde nicht gestartet: http://{host}:{port} wurde zwischen Vorprüfung und Serverstart belegt.", file=sys.stderr, flush=True)
     finally:
+        share_maintenance_stop.set()
         audio_manager.stop_all()
         announcement_worker.stop()
         from app.lan_proxy import lan_proxy_runtime

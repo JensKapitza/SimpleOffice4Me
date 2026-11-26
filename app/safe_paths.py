@@ -12,6 +12,12 @@ from werkzeug.security import safe_join
 from werkzeug.utils import secure_filename
 
 
+def is_v2_control_path(value: str | Path) -> bool:
+    """Identify the reserved top-level V2 namespace in a managed relative path."""
+    normalized = Path(str(value or "").replace(chr(92), "/"))
+    return bool(normalized.parts and os.path.normcase(normalized.parts[0]) == ".simpleoffice-v2")
+
+
 def safe_filename(value: str, *, fallback: str = "file", max_length: int = 180) -> str:
     """Return a single safe filename, never a caller-controlled path."""
     raw = str(value or "").replace("\\", "/").split("/")[-1].strip()

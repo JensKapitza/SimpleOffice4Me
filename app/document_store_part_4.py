@@ -4,6 +4,7 @@ from __future__ import annotations
 from contextlib import nullcontext
 
 from .document_store_core import *  # noqa: F401,F403
+from .safe_paths import is_v2_control_path
 from .file_lock import exclusive_file_lock
 
 
@@ -552,10 +553,13 @@ class _DocumentStorePart4:
                 errors += 1; self._event("folder_policy_invalid", {"path": self.relative(current_path), "error": str(exc)}); continue
             for path in entries:
                 if path.name in (POLICY_FILE, CONTROL_DIR, HISTORY_DIR, PREVIEW_CACHE_DIR): continue
+                if current_path == self.root and is_v2_control_path(path.name): continue
                 try:
                     if path.is_symlink():
                         symlinks += 1; target = path.resolve(strict=True); self._event("symlink_seen", {"path": self.relative(path), "target": str(target)})
                         if not options["follow_symlinks"]: continue
+                        if target.is_relative_to(self.root) and is_v2_control_path(target.relative_to(self.root)):
+                            continue
                         if target.is_dir(): pending.append(target)
                         elif target.is_file():
                             if file_progress: file_progress(target)
@@ -622,7 +626,8 @@ class _DocumentStorePart4:
                 path = value.resolve(strict=False)
                 try: relative = str(path.relative_to(self.root))
                 except ValueError: continue
-                if not relative or relative.split(os.sep, 1)[0] in {CONTROL_DIR, HISTORY_DIR, PREVIEW_CACHE_DIR, ".simpleoffice-v2"}: continue
+                if (not relative or is_v2_control_path(relative)
+                        or relative.split(os.sep, 1)[0] in {CONTROL_DIR, HISTORY_DIR, PREVIEW_CACHE_DIR}): continue
                 if path.is_file() and not path.is_symlink():
                     created, updated, duplicate = self._scan_file(path)
                     if post_file: post_file(path)
@@ -672,6 +677,8 @@ class _DocumentStorePart4:
         *,
         track_location_change: bool = True,
     ) -> tuple[bool, bool, bool]:
+        if path.is_relative_to(self.root) and is_v2_control_path(path.relative_to(self.root)):
+            raise ValueError("V2 control metadata is not a managed document")
         forced_id = ""
         if document_id_hint:
             try:

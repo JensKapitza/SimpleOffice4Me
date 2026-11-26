@@ -215,6 +215,7 @@ def store_upload(
     actor: str,
     root: str,
     batch_id: str = "",
+    *, intake: dict[str, str] | None = None,
 ) -> tuple[dict[str, Any], bool, bytes]:
     """Persist one inbox photo immediately; returns (entry, duplicate, raw).
 
@@ -233,8 +234,21 @@ def store_upload(
     if not raw or len(raw) > MAX_PHOTO_BYTES:
         raise ValueError("Foto fehlt oder überschreitet 12 MiB.")
     extension = _image_extension(raw)
+    if intake is not None:
+        from io import BytesIO
+
+        from PIL import Image
+
+        from .ocr_preprocessing import MAX_OCR_PIXELS
+
+        try:
+            with Image.open(BytesIO(raw), formats=["JPEG", "PNG", "WEBP"]) as image:
+                if image.width * image.height > MAX_OCR_PIXELS or getattr(image, "n_frames", 1) != 1:
+                    raise ValueError("Nur Einzelbilder bis 24 Megapixel.")
+        except (OSError, Image.DecompressionBombError) as exc:
+            raise ValueError("Bild nicht lesbar. Bitte erneut fotografieren.") from exc
     entry, duplicate = CaptureInboxStore(root).create(
-        actor, raw, extension, client_request_id, batch_id
+        actor, raw, extension, client_request_id, batch_id, intake=intake
     )
     return entry, duplicate, raw
 
@@ -273,6 +287,9 @@ def reanalyze_entry(
     from .capture_inbox_store import CaptureInboxStore
 
     store = CaptureInboxStore(root)
+    entry = store.get(entry_id, actor)
+    if not entry or entry.get("intake"):
+        raise ValueError("Erfassung ist nicht verfügbar")
     path = store.media_path(entry_id, actor)
     try:
         raw = path.read_bytes()

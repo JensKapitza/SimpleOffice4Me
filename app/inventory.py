@@ -885,3 +885,5 @@ from . import inventory_relation_routes as _relation_routes  # noqa: E402,F401
 from . import inventory_import_routes as _import_routes  # noqa: E402,F401
 from . import inventory_override_routes as _override_routes  # noqa: E402,F401
 from .translations import translate
+
+from . import inventory_intake_routes as _intake_routes  # noqa: E402,F401

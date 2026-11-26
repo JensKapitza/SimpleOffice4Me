@@ -222,10 +222,16 @@ def capture_preview(entry_id: str):
     """Serve the stored original to its owner (no-store, actor-scoped)."""
     from .capture_inbox_store import CaptureInboxStore
 
+    from .capture_intake_state import intake_storage_supported
+
     try:
-        path = CaptureInboxStore(
-            current_app.config["DOCUMENT_ROOT"]
-        ).media_path(entry_id, str(g.user["username"]))
+        root = current_app.config["DOCUMENT_ROOT"]
+        store = CaptureInboxStore(root)
+        actor = str(g.user["username"])
+        entry = store.get(entry_id, actor)
+        if entry and entry.get("intake") and not intake_storage_supported(root):
+            abort(404)
+        path = store.media_path(entry_id, actor)
     except CaptureInboxIndexError:
         abort(503, description=INDEX_ERROR)
     except ValueError:
@@ -253,7 +259,7 @@ def capture_assign(entry_id: str):
         known = CaptureInboxStore(root).get(entry_id, actor)
     except CaptureInboxIndexError:
         return jsonify({"ok": False, "error": INDEX_ERROR}), 503
-    if known is None:
+    if known is None or known.get("intake"):
         abort(404)
     data = request.get_json(silent=True) or request.form
     try:
@@ -297,7 +303,7 @@ def capture_reanalyze(entry_id: str):
         known = CaptureInboxStore(root).get(entry_id, actor)
     except CaptureInboxIndexError:
         return jsonify({"ok": False, "error": INDEX_ERROR}), 503
-    if known is None:
+    if known is None or known.get("intake"):
         abort(404)
     data = request.get_json(silent=True) or request.form
     consent = parse_batch_consent(data.get("consent_meta"))
@@ -583,7 +589,7 @@ def capture_move(entry_id: str):
         known = CaptureInboxStore(root).get(entry_id, actor)
     except CaptureInboxIndexError:
         return jsonify({"ok": False, "error": INDEX_ERROR}), 503
-    if known is None:
+    if known is None or known.get("intake"):
         abort(404)
     try:
         updated = CaptureInboxStore(root).set_batch(

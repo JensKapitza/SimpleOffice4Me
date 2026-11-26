@@ -1,0 +1,199 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-3 py-md-4">
+  <h1 class="h2">Bücher und Gegenstände erfassen</h1>
+  <p>Ein Foto oder gültiger Barcode ergibt einen privaten Entwurf. OCR und Katalogabgleich starten erst auf Wunsch. Nur bestätigte Entwürfe erscheinen im Inventar.</p>
+  <p><a href="{{ url_for('inventory.capture_inbox') }}">Zum Fotoeingang mit Buchgruppen</a>
+    · <a href="{{ url_for('library.book_scan') }}">Buchseiten als PDF scannen</a></p>
+  {% if not storage_supported %}
+  <p class="alert alert-warning">Private Entwurfsfotos sind mit dieser Speicherart noch nicht verfügbar. Buchseiten lassen sich weiterhin lokal als PDF erstellen.</p>
+  {% else %}
+  <form action="{{ url_for('inventory.capture_intake') }}" method="post" enctype="multipart/form-data" id="intake-capture" class="card card-body mb-3">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="capture_token" value="{{ capture_token }}">
+    <div class="row g-2 align-items-end">
+      <div class="col-sm">
+        <label for="intake-barcode" class="form-label">Barcode / ISBN (alternativ zum Foto)</label>
+        <input id="intake-barcode" name="barcode" class="form-control" maxlength="120" autocomplete="off">
+      </div>
+      <div class="col-sm">
+        <label for="intake-photo" class="form-label">Foto aufnehmen oder auswählen</label>
+        <input type="file" id="intake-photo" name="photo" class="form-control" accept="image/jpeg,image/png,image/webp" capture="environment">
+      </div>
+      <div class="col-sm-auto"><button type="submit" class="btn btn-primary">Privaten Entwurf anlegen</button></div>
+    </div>
+    <p class="small text-secondary mb-0 mt-2">Fotos werden nach der Auswahl automatisch als privater Entwurf gespeichert. JPEG, PNG oder WebP bis 12 MiB und 24 Megapixel. Barcode und Standort lassen sich auch später ergänzen.</p>
+  </form>
+  <div id="intake-pending" hidden class="card card-body mb-3">
+    <div data-intake-pending-photo class="ratio ratio-1x1 w-25" hidden></div>
+    <p class="mb-0 mt-2" role="status" aria-live="polite"></p>
+  </div>
+  <h2 class="h4">Erfasste Entwürfe</h2>
+  {% if not drafts %}<p>Noch keine Entwürfe erfasst.</p>{% endif %}
+  <div class="row g-3">
+    {% for draft in drafts %}
+    {% set uid = draft.id %}
+    <article class="col-12 col-md-6 col-xl-4" id="draft-{{ uid }}" aria-labelledby="title-{{ uid }}">
+      <div class="card h-100">
+        <div class="ratio ratio-1x1">
+          {% if draft.preview_url %}
+          <img src="{{ draft.preview_url }}" class="object-fit-cover rounded-top" loading="lazy" decoding="async" alt="Foto zu {{ draft.manual.get('title') or 'diesem Entwurf' }}">
+          {% else %}
+          <div class="d-grid align-content-center text-center bg-body-tertiary rounded-top">
+            <span class="fa-solid fa-barcode mb-2" aria-hidden="true"></span>
+            <span>Barcode erfasst · Ohne Foto</span>
+          </div>
+          {% endif %}
+        </div>
+        <div class="card-body">
+          <h3 class="h5" id="title-{{ uid }}">{{ draft.confirmed.fields.get('title') if draft.confirmed else (draft.manual.get('title') or 'Ohne Titel') }}</h3>
+          <p class="small"><strong>{{ {'confirmed':'Bestätigt', 'question':'Rückfrage', 'in_review':'In Prüfung'}[draft.state] }}</strong>
+            · <time datetime="{{ draft.created_at }}">{{ draft.created_at|replace('T', ' ')|truncate(16, true, '') }} UTC</time></p>
+          {% if draft.confirmed %}
+            <a href="{{ url_for('inventory.item_detail', object_id=draft.confirmed.object_id) }}">Inventareintrag öffnen</a>
+            {% for notice in draft.confirmed.notices %}<p>{{ notice }}</p>{% endfor %}
+          {% else %}
+          <form method="post" action="{{ url_for('inventory.edit_intake', entry_id=uid) }}" data-intake-editor class="vstack gap-2">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="revision" value="{{ draft.revision }}">
+            <span class="badge text-bg-secondary align-self-start">Manuell</span>
+            {% for field, label, length in [('title','Titel oder Name',300),('barcode','Barcode / ISBN',120),('manufacturer','Marke',240),('size','Größe / Menge',80),('unit','Einheit',30),('variant','Variante',160),('publisher','Verlag',300),('published_date','Erscheinungsjahr/-datum',80),('edition','Ausgabe',160)] %}
+              <div>
+                <label for="{{ field }}-{{ uid }}" class="form-label mb-0">{{ label }}</label>
+                <input name="{{ field }}" id="{{ field }}-{{ uid }}" class="form-control{% if field in draft.selected %} border-primary{% endif %}" value="{{ draft.manual.get(field, '') }}" maxlength="{{ length }}">
+                {% if field in draft.selected %}
+                  <div class="form-text">Ausgewählt: {{ draft.selected[field].value }} · {{ draft.selected[field].label }}</div>
+                {% endif %}
+                {% if field == 'barcode' and draft.preview_url %}
+                  <button type="button" data-intake-detect hidden class="btn btn-sm btn-outline-secondary mt-1">Barcode im Foto lesen</button>
+                  <span data-intake-detect-note class="form-text" role="status"></span>
+                {% endif %}
+              </div>
+            {% endfor %}
+            <label for="kind-{{ uid }}" class="form-label mb-0">Art</label>
+            <select id="kind-{{ uid }}" name="kind" class="form-select">
+              <option value="">Später auswählen</option>
+              <option value="book" {% if draft.manual.kind == 'book' %}selected{% endif %}>Buch</option>
+              <option value="object" {% if draft.manual.kind == 'object' %}selected{% endif %}>Gegenstand</option>
+            </select>
+            <label for="location-{{ uid }}" class="form-label mb-0">Regal oder Box (optional)</label>
+            <select id="location-{{ uid }}" name="location_id" class="form-select">
+              <option value="">Später zuordnen</option>
+              {% for location in locations %}
+                <option value="{{ location.location_id }}" {% if draft.manual.location_id == location.location_id %}selected{% endif %}>{{ location.name }}</option>
+              {% endfor %}
+            </select>
+            <p data-intake-dirty hidden class="form-text" role="status">Bitte Änderungen erst im Entwurf speichern, bevor weitere Quellen geprüft werden.</p>
+            <div class="d-flex gap-2 flex-wrap">
+              <button type="submit" class="btn btn-outline-secondary">Entwurf aktualisieren</button>
+              <button type="submit" formaction="{{ url_for('inventory.confirm_intake', entry_id=uid) }}" class="btn btn-success">Bestätigen und lokal speichern</button>
+            </div>
+          </form>
+          {% if draft.preview_url %}
+          <form method="post" action="{{ url_for('inventory.ocr_intake', entry_id=uid) }}" class="mt-3">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="revision" value="{{ draft.revision }}">
+            <button type="submit" class="btn btn-outline-secondary">Text lokal erkennen</button>
+          </form>
+          {% endif %}
+          <form method="post" action="{{ url_for('inventory.catalog_intake', entry_id=uid) }}" class="mt-3">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="revision" value="{{ draft.revision }}">
+            <label class="form-check-label d-block small mb-2">
+              <input class="form-check-input me-1" type="checkbox" name="catalog_consent" value="1" required>
+              Gespeicherten ISBN/EAN-Code an konfigurierte öffentliche Kataloge senden (kein Foto und kein privater Text).
+            </label>
+            <button type="submit" class="btn btn-outline-secondary" {% if not draft.manual.get('barcode') %}disabled{% endif %}>Katalog abgleichen</button>
+            {% if not draft.manual.get('barcode') %}<div class="form-text">Zuerst den Barcode im Entwurf speichern.</div>{% endif %}
+          </form>
+          {% if draft.selected %}
+          <form method="post" action="{{ url_for('inventory.choose_intake', entry_id=uid) }}" class="mt-3">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="revision" value="{{ draft.revision }}">
+            {% if not draft.compatible_selection %}
+              <p>Die ausgewählten Quellen passen nicht mehr zusammen. Entferne eine Auswahl, bevor du bestätigst.</p>
+            {% endif %}
+            {% for field, row in draft.selected.items() %}
+              <button type="submit" name="clear_field" value="{{ field }}" class="btn btn-sm btn-outline-secondary">Auswahl „{{ row.value }}“ entfernen</button>
+            {% endfor %}
+          </form>
+          {% endif %}
+          {% if draft.catalog %}
+          <div class="mt-2 border rounded p-2">
+            {% if draft.catalog.stale %}
+              Angaben zu Bestand, Ausgabe oder Variante geändert. Bitte für diese Eingaben erneut abgleichen.
+            {% else %}
+              {% set reasons = {
+                'independent_edition_match':'Titel und Ausgabe sind unabhängig abgeglichen. Vorschläge bitte ausdrücklich auswählen.',
+                'observed_title_differs':'Weicht der Titel auf dem Buch von den Katalogen ab? Bitte Titel und Ausgabe prüfen.',
+                'conflicting_edition':'Welche Ausgabe steht auf dem Buch? Die Kataloge unterscheiden sich.',
+                'edition_proof_refresh':'Älterer oder unvollständiger Abgleich. Bitte erneut prüfen, bevor Quellen kombiniert werden.',
+                'labelled_ocr_differs':'Ein beschriftetes Feld auf dem Foto widerspricht dem Katalog. Bitte prüfe beide Quellen.',
+                'edition_unconfirmed':'Welche Ausgabe liegt vor? Bitte Verlag, Jahr und ISBN vergleichen.',
+                'single_source':'Nur eine Quelle gefunden. Titel und genaue Ausgabe bitte prüfen.',
+                'verify_variant':'Welche Variante und Größe stehen auf der Verpackung?',
+                'missing_variant_details':'Variante oder Größe fehlen. Bitte auf der Verpackung prüfen.',
+                'conflicting_variant':'Welche Variante und Größe stimmen mit der Packung überein?',
+                'no_exact_match':'Kein exakter Treffer zu diesem Barcode. Bitte Code und Produkt prüfen.',
+                'provider_results_truncated':'Katalogantwort nicht vollständig. Bitte Ausgabe manuell prüfen.',
+                'provider_unavailable':'Katalogabgleich derzeit nicht verfügbar. Manuell fortfahren oder später erneut abgleichen.'
+              } %}
+              <p class="mb-2">{{ reasons.get(draft.catalog.reason, 'Katalogergebnisse bitte prüfen.') }}</p>
+              {% for provider, result in draft.catalog.providers.items() %}
+                <p class="small mb-0">{{ {'openlibrary':'Open Library','google_books':'Google Books','ebay':'eBay'}.get(provider, provider) }}: {{ {'matched':'Treffer','no_match':'kein exakter Treffer','unavailable':'nicht erreichbar','not_configured':'nicht eingerichtet'}.get(result, result) }}</p>
+              {% endfor %}
+            {% endif %}
+          </div>
+          {% endif %}
+          {% if draft.ocr %}
+            <details class="mt-2 border rounded p-2">
+              <summary>OCR · {{ 'Erkannter Text' if draft.ocr.text else 'Kein Text erkannt' }}</summary>
+              {% if draft.ocr.text %}<pre class="text-wrap my-2">{{ draft.ocr.text }}</pre>{% else %}
+                <p>Fotoqualität und lokales Tesseract prüfen oder manuell weiterarbeiten.</p>
+              {% endif %}
+            </details>
+          {% endif %}
+          {% if local_ai_available %}
+          <form method="post" action="{{ url_for('inventory.propose_intake', entry_id=uid) }}" class="mt-3">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="revision" value="{{ draft.revision }}">
+            <button type="submit" class="btn btn-outline-secondary">Lokale KI um belegte Vorschläge bitten</button>
+          </form>
+          {% else %}
+            <p class="form-text">Lokale KI nicht eingerichtet. Originalquellen und manuelle Eingabe bleiben nutzbar.</p>
+          {% endif %}
+          {% if draft.evidence %}
+          {% set field_names = {'title':'Titel','manufacturer':'Marke','size':'Größe / Menge','unit':'Einheit','variant':'Variante','publisher':'Verlag','published_date':'Erscheinungsjahr/-datum','edition':'Ausgabe'} %}
+          <details class="mt-3">
+            <summary>Quellen nebeneinander prüfen und auswählen</summary>
+            <ul class="list-unstyled mt-2">
+              {% for row in draft.evidence %}
+              <li class="border rounded p-2 mb-2{% if row.conflict %} border-warning{% endif %}">
+                <span class="badge text-bg-secondary">{{ row.label }}</span> <strong>{{ field_names[row.field] }}</strong>: {{ row.value }}
+                {% if row.conflict %}<div class="small">Abweichende Angaben zu diesem Feld</div>{% endif %}
+                {% if row.supports %}
+                  <div class="small">Belegt durch {% for base in draft.evidence if base.source_id in row.supports %}{{ base.label }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
+                {% endif %}
+                {% if row.selectable %}
+                  <form method="post" action="{{ url_for('inventory.choose_intake', entry_id=uid) }}" class="mt-1">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="revision" value="{{ draft.revision }}">
+                    <button type="submit" class="btn btn-sm btn-outline-secondary" name="source_id" value="{{ row.source_id }}">Diesen Wert auswählen</button>
+                  </form>
+                {% else %}<div class="small">Andere Ausgabe ausgewählt. Zuerst manuelle Werte oder den Katalog erneut wählen.</div>{% endif %}
+              </li>
+              {% endfor %}
+            </ul>
+          </details>
+          {% endif %}
+          {% endif %}
+        </div>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% endif %}
+</main>
+{% endblock %}
+{% block script %}<script defer src="{{ url_for('static', filename='js/inventory_intake.js') }}"></script>{% endblock %}
