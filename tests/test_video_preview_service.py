@@ -108,6 +108,7 @@ class VideoPreviewServiceTest(unittest.TestCase):
                     "piper_model": "",
                     "piper_reader_choice": "thorsten-scratch",
                     "piper_model_en": "",
+                    "android_private_speech": False,
                 },
                 store.settings()["media"],
             )
