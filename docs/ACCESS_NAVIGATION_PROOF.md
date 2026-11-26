@@ -170,3 +170,20 @@ which returns `NOT_SUPPORTED`. The hosted test now uses the documented
 [full Chromium in headless mode](https://playwright.dev/python/docs/browsers#chromium-new-headless-mode).
 This is a test-launcher correction, not a change to camera permissions or the
 model. A fresh hosted pass is required to establish genuine app acceptance.
+
+Native preview then worked in full Chromium, but the original frame loop
+still reset confirmation before the pointing sequence could navigate.
+A bounded check of the public synthetic fixture found true gesture matches.
+It showed that inference delay was counted both as part of the previous
+frame gap and as result age, and that the paint-clock handoff added up to
+17 ms before inference. The application now consumes each fresh native
+video-frame callback and keeps capture cadence, result age, and stall timing
+separate. Release, 190 ms result age, 260 ms gap, four-frame sustained
+gesture, and overall arming limits stay in force.
+
+The exact
+[full Chromium fixture gate](https://github.com/JensKapitza/SimpleOffice4Me/actions/runs/45762814549)
+passed both targets with one video-only track stopped before navigation,
+plus the already-held and blank negative cases. This remains staged hand-only
+operation with a pinned public test picture, not physical webcam or gaze
+acceptance. Temporary synthetic test diagnostics are not part of the gate.
