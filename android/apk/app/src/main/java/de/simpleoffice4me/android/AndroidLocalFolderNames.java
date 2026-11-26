@@ -75,7 +75,7 @@ final class AndroidLocalFolderNames {
             Uri tree = registry.treeUriForSearch(sourceId, owner);
             Snapshot result = new Snapshot(sourceId, owner, tree);
             AndroidFolderFilenameIndex.Snapshot inventory = AndroidFolderFilenameIndex.read(
-                    DocumentsContract.getTreeDocumentId(tree), directory -> children(tree, directory, signal),
+                    DocumentsContract.getTreeDocumentId(tree), directory -> children(resolver, tree, directory, signal),
                     signal::isCanceled);
             JSONArray files = new JSONArray();
             for (AndroidFolderFilenameIndex.FileName file : inventory.files) {
@@ -95,7 +95,8 @@ final class AndroidLocalFolderNames {
         }
     }
 
-    private AndroidFolderFilenameIndex.Reader children(Uri tree, String directory, CancellationSignal signal) {
+    static AndroidFolderFilenameIndex.Reader children(
+            ContentResolver resolver, Uri tree, String directory, CancellationSignal signal) {
         Uri childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(tree, directory);
         Cursor rows = resolver.query(childrenUri, COLUMNS, null, null, null, signal);
         if (rows == null) return null;

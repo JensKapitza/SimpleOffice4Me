@@ -449,3 +449,38 @@ GitHub Actions baut anschließend beide APK-Architekturen und prüft Signatur un
 Der allgemeine Android-Dateipfad führt zunächst in die normale Dokumentenablage. Eine spätere Erweiterung kann explizite Share-Ziele für EÜR-Belege, Bilder oder Chat-Anhänge ergänzen. Solche Ziele sollten ebenfalls den jeweiligen bestehenden serverseitigen Importweg verwenden und Dateien nicht direkt in interne Ablagen kopieren.
 
 Für Geräte ohne Google Play Services ist außerdem ein vollständig lokal gebündelter Barcode-Scanner als weiterer Ausbau sinnvoll; der derzeitige Google-Code-Scanner besitzt bereits einen manuellen Eingabe-Fallback, ist aber auf solchen ROMs nicht die optimale Lösung.
+
+## Einen freigegebenen Android-Ordner am PC durchsuchen
+
+Dieser Ablauf funktioniert nur mit der eingebetteten Android-App, im selben
+vertrauenswürdigen LAN und mit dem **gleichen SimpleOffice-Konto**. Es geht um
+**Dateinamen**, nicht um Downloads, Dateiinhalte oder Zugriff auf das ganze Handy.
+
+1. Am Handy als Administrator unter **Servereinstellungen** den vorhandenen
+   [HTTPS-LAN-Proxy](DESKTOP_LAN_PROXY_SCREEN_VIEWER.md) ausdrücklich für die
+   private LAN-Adresse aktivieren. Keinen Port im Router freigeben. Der PC muss
+   der Zertifikatskette vertrauen; bei einer Zertifikatswarnung nicht fortfahren.
+2. Am PC die angezeigte **HTTPS-Adresse des Handys** öffnen und normal mit
+   demselben Konto anmelden. Falls das lokale Konto noch kein Passwort hat,
+   zuerst am Handy in den Profileinstellungen ein Passwort setzen.
+3. Am Handy **Dokumente → Lokale Ordner** öffnen und einen schon für dieses
+   Konto ausgewählten Ordner über **PC-Zugriff → Kopplung erlauben** wählen.
+4. Am PC unter **Dokumente → Lokale Ordner → Android-Ordner am PC durchsuchen**
+   die Kopplung starten. Am Handy **PC-Zugriff** erneut öffnen, den gesamten Code
+   mit dem PC vergleichen und den PC bestätigen. Noch sind keine Dateien oder
+   Namen freigegeben.
+5. Am Handy **PC-Zugriff** erneut öffnen und den gewünschten Ordner ausdrücklich
+   freigeben. Am PC mindestens zwei Zeichen eingeben. Es erscheinen nur
+   passende Dateinamen aus diesem einen Ordner und seinen Unterordnern.
+   Die Suche meldet, wenn sie an ihre Grenzen stößt (600 Verzeichniseinträge,
+   12 Ebenen oder 40 angezeigte Treffer).
+
+Die Ansicht **Lokale Ordner** muss am Handy geöffnet bleiben. Nach spätestens
+zehn Minuten endet die Ordnerfreigabe. **Ordnerfreigabe beenden** widerruft die
+Quelle, ohne die Kopplung zu löschen; **Zugriff beenden** trennt auch den PC.
+Beim Verlassen der Handyansicht, Hintergrundwechsel oder Neustart endet der
+Zugriff vollständig. Die PC-Ansicht prüft den Zugriff alle drei Sekunden und
+entfernt Treffer beim nächsten fehlgeschlagenen Prüfschritt; bereits gesehene
+oder manuell notierte Namen lassen sich nicht zurückholen. Es gibt keinen
+Upload, keine Kopie, keinen Namensindex auf dem PC sowie keine Android-URIs,
+Ordnerpfade, Cloud-Zugangsdaten oder weiteren Berechtigungen für den PC.

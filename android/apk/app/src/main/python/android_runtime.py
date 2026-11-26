@@ -202,12 +202,14 @@ def start(
 
     try:
         from app import app
-        from app import android_auth
+        from app import android_auth, android_paired_folder
         # Register native routes on every Android runtime start, even when the
         # system restores NavigationActivity directly. Without a bootstrap token
         # the sensitive endpoints still fail closed in _require_native_request.
         if android_auth.bp.name not in app.blueprints:
             app.register_blueprint(android_auth.bp)
+        if android_paired_folder.bp.name not in app.blueprints:
+            app.register_blueprint(android_paired_folder.bp)
     except Exception as exc:
         raise RuntimeError(f"SimpleOffice4Me import failed: {type(exc).__name__}: {exc}") from exc
 

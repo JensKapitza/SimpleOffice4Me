@@ -540,6 +540,8 @@ class LanProxyHeadersMiddleware:
 
     def __call__(self, environ, start_response):
         self._ensure_started(environ)
+        # WSGI-only marker; forwarded headers are not an authority for local features.
+        environ.pop("simpleoffice.lan_https", None)
         provided = str(environ.get("HTTP_X_SIMPLEOFFICE_LAN_PROXY", ""))
         expected = str(self.flask_app.config.get("LAN_PROXY_TOKEN", ""))
         peer = str(environ.get("REMOTE_ADDR", ""))
@@ -555,6 +557,7 @@ class LanProxyHeadersMiddleware:
             and len(forwarded_host) <= 255
             and not any(character.isspace() or ord(character) < 32 for character in forwarded_host)
         ):
+            environ["simpleoffice.lan_https"] = True
             environ["wsgi.url_scheme"] = "https"
             environ["HTTP_HOST"] = forwarded_host
             environ["REMOTE_ADDR"] = forwarded_for

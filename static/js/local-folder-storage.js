@@ -371,6 +371,12 @@
       });
       actions.append(find);
     }
+    if (native && typeof androidBridge.managePc === "function") {
+      const pc = makeElement("button", "btn btn-sm btn-outline-primary", say("PC-Zugriff", "PC access"));
+      pc.type = "button";
+      pc.addEventListener("click", () => androidBridge.managePc(entry.id));
+      actions.append(pc);
+    }
     actions.append(check, change, edit, remove);
     body.append(actions);
     body.append(makeElement("hr", "my-3"), importControl(entry, native));
