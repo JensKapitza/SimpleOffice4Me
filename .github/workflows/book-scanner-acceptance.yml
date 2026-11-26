@@ -37,8 +37,10 @@ on:
       - 'templates/admin/**'
       - 'static/js/library_book_scanner.js'
       - 'static/js/inventory_intake.js'
+      - 'static/js/i18n.js'
       - 'tests/*book_scan*'
       - 'tests/*inventory_intake*'
+      - 'tests/i18n_literal.test.cjs'
       - 'tests/test_inventory_mixed_intake.py'
       - 'tests/test_inventory_catalog.py'
       - 'tests/test_federation_catalog_http.py'
@@ -94,7 +96,7 @@ jobs:
             tests.test_inventory_mixed_intake tests.test_inventory_catalog tests.test_inventory_intake_matches \
             tests.test_s3_overlay_coverage \
             tests.test_s3_overlay.S3OverlayTests.test_book_scan_leases_stay_local_and_are_not_s3_objects
-          node --test tests/library_book_scanner.test.cjs tests/inventory_intake_js.test.cjs
+          node --test tests/library_book_scanner.test.cjs tests/inventory_intake_js.test.cjs tests/i18n_literal.test.cjs
       - name: Verify chosen and unselected peers through normal HTTPS forms
         shell: bash
         timeout-minutes: 8
