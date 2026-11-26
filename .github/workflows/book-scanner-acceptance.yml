@@ -17,6 +17,7 @@ on:
       - 'app/safe_paths.py'
       - 'app/s3_overlay/**'
       - 'app/library/book_scan*.py'
+      - 'app/library/store.py'
       - 'app/capture_inbox_store.py'
       - 'app/capture_intake_state.py'
       - 'app/inventory*.py'
@@ -90,7 +91,7 @@ jobs:
           set -euo pipefail
           python -m unittest tests.test_library_book_scan tests.test_library_book_scan_shares \
             tests.test_v2_authorization tests.test_federation_catalog_http tests.test_template_accessibility \
-            tests.test_inventory_mixed_intake tests.test_inventory_catalog \
+            tests.test_inventory_mixed_intake tests.test_inventory_catalog tests.test_inventory_intake_matches \
             tests.test_s3_overlay_coverage \
             tests.test_s3_overlay.S3OverlayTests.test_book_scan_leases_stay_local_and_are_not_s3_objects
           node --test tests/library_book_scanner.test.cjs tests/inventory_intake_js.test.cjs
@@ -110,6 +111,26 @@ jobs:
           path: ${{ runner.temp }}/book-scan-scope/
           if-no-files-found: warn
           retention-days: 14
+
+  mobile-intake:
+    name: Authenticated mobile scanner batch in Chromium
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - name: Install project Chromium test extra
+        run: |
+          python -m pip install -e '.[test,web-export]'
+          python -m playwright install --with-deps --no-shell chromium
+      - name: Submit synthetic barcodes through the normal mobile form
+        env:
+          SIMPLEOFFICE_INTAKE_BROWSER_REQUIRED: '1'
+        run: python -m unittest -v tests.test_inventory_intake_browser
 
   deployment:
     name: Two normal Docker peers with scanner and Reader

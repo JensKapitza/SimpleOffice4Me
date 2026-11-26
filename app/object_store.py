@@ -81,6 +81,16 @@ class ObjectStore:
             item["display_id"] = self.format_sequence(item.get("sequence_id", 0), width)
             yield item
 
+    def iter_owned_inventory(self, actor: str, *, object_id: str | None = None):
+        """Read actor-owned records without running legacy sequence migrations."""
+        if not actor or (object_id is not None and not re.fullmatch(r"[0-9a-f-]{36}", object_id)):
+            return
+        paths = (self.directory / f"{object_id}.json",) if object_id is not None else self.directory.glob("*.json")
+        for path in paths:
+            raw = self._read(path)
+            if raw and raw.get("created_by") == actor and (object_id is None or raw["object_id"] == object_id):
+                yield self._normalized_item(raw)
+
     def low_stock(self) -> list[dict[str, Any]]:
         """Bulk items whose quantity fell below their minimum stock."""
         rows = []

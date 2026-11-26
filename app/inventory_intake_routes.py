@@ -20,6 +20,7 @@ from .capture_intake_state import (
 from .file_lock import exclusive_file_lock
 from .inventory import _objects, bp
 from .inventory_capture import store_upload
+from .inventory_intake_matches import match_key, matching_owned_copies
 from .inventory_intake_evidence import local_proposal, local_target, ocr_fields
 from .inventory_library_capture import (
     _capture_context, _capture_receipt_paths, _capture_receipts,
@@ -60,7 +61,8 @@ def _public(entry):
 
 def _result(entry=None, *, error="", code=200):
     if request.accept_mimetypes.best == "application/json":
-        reply = jsonify({"ok": not error, **({"error": error} if error else {"draft": _public(entry)})})
+        reply = jsonify({"ok": not error, **({"error": error} if error else {}),
+                         **({"draft": _public(entry)} if entry is not None else {})})
         reply.headers["Cache-Control"] = "no-store"
         return reply, code
     if error:
@@ -106,6 +108,7 @@ def _verify_intake_storage():
     if request.endpoint in {
         "inventory.capture_intake", "inventory.edit_intake", "inventory.ocr_intake", "inventory.confirm_intake",
         "inventory.catalog_intake", "inventory.choose_intake", "inventory.propose_intake",
+        "inventory.save_and_review_intake_copy",
     } and request.method == "POST" and not intake_storage_supported(current_app.config["DOCUMENT_ROOT"]):
         return _result(error="Private Entwurfsfotos sind mit dieser Speicherart noch nicht verfügbar.", code=409)
     return None
@@ -121,6 +124,11 @@ def mixed_intake():
         drafts = [_public(row) for row in _store().list_intake(_actor())] if supported else []
     except CaptureInboxIndexError:
         abort(503)
+    keys = {draft["id"]: match_key(draft["manual"].get("barcode")) for draft in drafts if not draft["confirmed"]}
+    known = {key for key in keys.values() if key is not None}
+    matches = matching_owned_copies(_objects(), _library_store(), _actor(), known) if known else {}
+    for draft in drafts:
+        draft["existing_copies"] = matches.get(keys.get(draft["id"]), ())
     reply = make_response(render_template(
         "inventory/intake.html", drafts=drafts, locations=capture_locations() if supported else [],
         storage_supported=supported,
@@ -128,6 +136,43 @@ def mixed_intake():
     ))
     reply.headers["Cache-Control"] = "no-store"
     return reply
+
+
+def _exact_copy_for_draft(row, object_id):
+    state = row["intake"]
+    key = match_key(state["manual"].get("barcode"))
+    if state["confirmed"] or key is None:
+        abort(404)
+    matches = matching_owned_copies(_objects(), _library_store(), _actor(), {key}, object_id=object_id)[key]
+    if not matches:
+        abort(404)
+    return key, matches[0]
+
+
+@bp.get("/capture/intake/<entry_id>/existing/<object_id>")
+@login_required
+def intake_existing_copy(entry_id, object_id):
+    _, item = _exact_copy_for_draft(_entry(entry_id), object_id)
+    response = make_response(render_template("inventory/intake_existing_copy.html", item=item, entry_id=entry_id))
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@bp.post("/capture/intake/<entry_id>/existing/<object_id>")
+@login_required
+def save_and_review_intake_copy(entry_id, object_id):
+    """Keep explicit draft edits while opening a read-only lookup."""
+    try:
+        row = _entry(entry_id)
+        key, _ = _exact_copy_for_draft(row, object_id)
+        fields = _manual()
+        updated = _update(entry_id, _revision(), lambda state: edit_draft(state, fields))
+    except (ValueError, OSError, CaptureInboxIndexError) as exc:
+        return _error(exc)
+    if match_key(updated["intake"]["manual"].get("barcode")) != key:
+        return _result(updated, error="Barcode im Entwurf aktualisiert. Bitte das Exemplar zum neuen Code auswählen.",
+                       code=409)
+    return redirect(url_for("inventory.intake_existing_copy", entry_id=entry_id, object_id=object_id), code=303)
 
 
 @bp.post("/capture/intake")
@@ -270,6 +315,14 @@ def confirm_intake(entry_id):
             return _result(row)
         revision = _revision()
         fields = _manual()
+        saved = match_key(row["intake"]["manual"].get("barcode"))
+        submitted = match_key(fields.get("barcode"))
+        if "barcode" in fields and submitted is not None and submitted != saved:
+            # The result list was for the saved code, not this newly entered
+            # identity. Preserve the submitted edits, but create no inventory.
+            updated = _update(entry_id, revision, lambda state: edit_draft(state, fields))
+            return _result(updated, error="Barcode im Entwurf gespeichert. Bestand zu diesem Code prüfen und danach erneut bestätigen.",
+                           code=409)
         row = _update(entry_id, revision, lambda state: _save_confirmed(row, state, fields))
     except (ValueError, OSError, CaptureInboxIndexError) as exc:
         return _error(exc)

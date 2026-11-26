@@ -1,0 +1,15 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container py-4">
+  <h1 class="h2">Vorhandenes eigenes Exemplar</h1>
+  <p class="lead">{{ item.title }}</p>
+  <dl>
+    {% if item.reference %}<dt>Inventarnummer</dt><dd>#{{ item.reference }}</dd>{% endif %}
+    <dt>Exemplar-ID</dt><dd class="text-break">{{ item.copy_id }}</dd>
+    <dt>Lagerort</dt><dd>{{ item.location or 'Kein eigener Lagerort verfügbar' }}</dd>
+  </dl>
+  <p>Diese Ansicht dient zur Zuordnung des richtigen Exemplars. Für einen Umzug Inventarnummer oder Exemplar-ID in der bestehenden Objektpflege verwenden und den Standort dort ausdrücklich ändern. Der Entwurf bleibt unverändert.</p>
+  <p><a href="{{ url_for('inventory.mixed_intake', _anchor='draft-' ~ entry_id) }}">Zurück zum Entwurf</a></p>
+</main>
+{% endblock %}

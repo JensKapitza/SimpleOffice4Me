@@ -27,10 +27,28 @@ keinen externen Internetdienst.
   auswählen, nichts erfinden oder nicht abgeglichene Buchausgaben verbinden.
 
 Nur zwei konkret gegengeprüfte Katalogtreffer derselben Ausgabe können sich feldweise ergänzen. Ältere oder unvollständige Abgleiche müssen dafür erneut geprüft werden. Ein beschrifteter OCR-Widerspruch setzt die Katalogkarte auf Rückfrage, auch wenn der Katalog zuerst geladen wurde. Beide Quellen bleiben sichtbar; unbeschriftete OCR-Zeilen bleiben Hinweise. Bei Bedarf eine Quelle wählen oder
-manuell entscheiden. Erst **Bestätigen und lokal speichern** legt das
+manuell entscheiden. Erst **Als neues Exemplar lokal speichern** legt das
 Inventarobjekt an, ohne es für die Föderation freizugeben. Die Erfassung als
 Inventargegenstand und der gesonderte PDF-Buchscan mit ausdrücklicher
 Empfängerfreigabe sind zwei verschiedene Vorgänge.
+
+## Eigenen Bestand beim Erfassen prüfen
+
+Beim gespeicherten ISBN-, EAN- oder UPC-A-Code stehen passende eigene
+Exemplare direkt auf der Entwurfskarte. Verglichen werden geprüfte Codes,
+nicht ähnliche Titel. Auch ältere Einträge ohne verknüpfte Ausgabe sind
+einzeln mit ihrer Kennung erkennbar. Der Lagerort erscheint nur aus den
+dafür verwendbaren Angaben des eigenen Eintrags; fremde Treffer und deren
+Anzahl werden nicht angezeigt.
+
+**Exemplar ansehen** sichert die Eingaben und die gewählte Box im Entwurf
+und zeigt das ausgewählte Exemplar nur lesend. **Zurück zum Entwurf**
+führt zur selben Karte. Das verschiebt kein Inventarstück. Für eine
+Umlagerung nutzt du die bestehende Objektpflege bewusst separat.
+Wird ein neuer gültiger Code im Bestätigungsschritt eingetragen, speichert
+der erste Klick nur den Entwurf und zeigt den Bestand für den neuen Code.
+Erst der folgende Klick legt eine weitere Kopie an. Der nächste Scan bleibt
+ein eigener Entwurf und übernimmt den Standort des vorigen nicht automatisch.
 
 ## Lokale KI freischalten
 
@@ -64,7 +82,7 @@ verschlüsselten Ablage verbunden sind. PDF-Erstellung bleibt lokal nutzbar.
 
 Mit Python 3.13 und `pip install -e '.[test]'`:
 ```sh
-python -m unittest -q tests.test_inventory_mixed_intake tests.test_inventory_catalog
+python -m unittest -q tests.test_inventory_mixed_intake tests.test_inventory_catalog tests.test_inventory_intake_matches
 node --test tests/inventory_intake_js.test.cjs
 python -m tools.smoke_book_scans --loopback --evidence scanner-acceptance.json
 python -m tools.smoke_scanner_catalog
@@ -76,3 +94,15 @@ führen keine Live-KI aus. Externe API-Zugangsdaten und ein physisches
 Kameragerät sind nicht Teil der Prüfung.
 
 `python -m tools.smoke_scanner_catalog` prüft dieselben Editionen über Anmeldung, echte HTTPS-Verbindung und echte lokale OCR. Provider- und Modellantworten stammen ausschließlich aus Fixtures. Erwartet: ergänzende Quellen nur für die belegte ISBN-Ausgabe, widersprechende OCR unabhängig von der Reihenfolge, kein Inventareintrag vor ausdrücklicher Bestätigung.
+
+Der separate Chromium-Test im Workflow „Book scanner acceptance“ nutzt
+eine lokale Testinstanz, Anmeldung und synthetische Codes im normalen
+Barcode-Feld bei mobiler Bildschirmgröße. Er deckt Auswahl, Rückkehr mit
+erhaltenem Ort, Barcode-Wechsel, absichtliche Bestätigung mit Wiederholung
+und den nächsten Scan ab. Er prüft keine physische Kamera oder Scanner-Hardware.
+In einer dafür eingerichteten Testumgebung:
+```sh
+python -m pip install -e '.[test,web-export]'
+python -m playwright install --with-deps --no-shell chromium
+SIMPLEOFFICE_INTAKE_BROWSER_REQUIRED=1 python -m unittest -v tests.test_inventory_intake_browser
+```
