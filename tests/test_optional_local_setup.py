@@ -101,7 +101,7 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
             self.assertEqual("missing", self.status("speech-default"))
             self.assertEqual("engine-missing", self.status("kids-voice"))
             self.assertEqual("missing", self.status("voice-package"))
-            self.assertIsNone(document(page).select_one('#voice-package button[value="voice-package"]'))
+            self.assertIsNotNone(document(page).select_one('#voice-package button[value="voice-package"]'))
             self.assertEqual("missing", self.status("kids-hand"))
             self.assertIn(b"CC0 1.0", page.data)
             self.assertIn(b"Apache-2.0", page.data)
@@ -110,7 +110,7 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
             self.assertEqual(400, self.action(self.client, "/install", feature="arbitrary-url").status_code)
             self.assertEqual(413, self.client.post(SETUP + "/install", data={"feature": "A" * 1500}).status_code)
             self.assertEqual(415, self.client.post(SETUP + "/install", json={"feature": "kids-hand"}).status_code)
-            self.assertEqual(303, self.action(self.client, "/install", feature="voice-package").status_code)
+            self.assertEqual(403, self.client.post(SETUP + "/install", data={"feature": "voice-package"}).status_code)
             self.assertFalse(optional._job_file(self.root).exists())
 
         member = app.test_client()
@@ -481,7 +481,7 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
             self.assertEqual(bad_default, config.settings()["media"]["piper_model"])
             self.assertEqual("", config.settings()["media"]["piper_reader_choice"])
 
-    def test_explicit_kids_voice_uses_existing_pins_never_configures_reader_or_mail(self):
+    def test_download_without_piper_then_explicit_kids_activation_reuses_verified_files(self):
         manifest = tuple(piper.Asset(name, len(data), sha256(data).hexdigest()) for name, data in VOICE.items())
         calls = []
 
@@ -491,16 +491,38 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
                 return Response(VOICE[request.full_url.rsplit("/", 1)[-1]])
 
         with patch.object(piper, "_ASSETS", manifest), patch.object(piper, "_MODEL_NAME", "fixture.onnx"), patch.object(
-            optional.shutil, "which", return_value="/synthetic/piper",
-        ), patch.object(piper, "build_opener", return_value=Opener()):
-            self.assertEqual("missing", self.status("kids-voice"))
+            optional.shutil, "which", return_value=None,
+        ) as engine, patch.object(piper, "build_opener", return_value=Opener()):
+            self.assertEqual("engine-missing", self.status("kids-voice"))
+            self.assertEqual("missing", self.status("voice-package"))
+            package = document(self.client.get(SETUP)).select_one('#voice-package button[value="voice-package"]')
+            self.assertIsNotNone(package)
+            self.assertEqual(SETUP + "/install", package.find_parent("form")["action"])
             self.assertEqual([], calls)
-            self.assertEqual(303, self.action(self.client, "/install", feature="voice-package").status_code)
+            self.assertEqual(303, self.action(self.client, "/install", feature=package["value"]).status_code)
             self.wait_status("voice-package", "ready")
             self.assertEqual(2, len(calls))
+            self.assertTrue(piper.installed_model(self.root))
+            self.assertEqual("engine-missing", self.status("speech-engine"))
+            self.assertEqual("engine-missing", self.status("kids-voice"))
+            page = document(self.client.get(SETUP))
+            self.assertIsNotNone(page.select_one("#voice-package-next-step"))
+            self.assertIsNone(page.select_one('#voice-package button[value="voice-package"]'))
+            self.assertIsNone(page.select_one(f'form[action="{SETUP}/activate-kids-voice"]'))
+            self.assertIsNone(page.select_one(f'form[action="{SETUP}/reader-voice"]'))
+            self.assertEqual(303, self.action(self.client, "/activate-kids-voice").status_code)
+            self.assertEqual(303, self.action(self.client, "/reader-voice", action="select").status_code)
             self.assertFalse(piper.enabled_model(self.root))
+            self.assertEqual("", SettingsStore(self.root).settings()["media"]["piper_reader_choice"])
+            self.assertEqual(303, self.action(self.client, "/install", feature="voice-package").status_code)
+            self.assertEqual(2, len(calls), "verified files are reused even when the engine is absent")
+
+            engine.return_value = "/synthetic/piper"
             self.assertEqual("installed-disabled", self.status("kids-voice"))
-            self.assertIsNone(document(self.client.get(SETUP)).select_one('#kids-voice button[value="kids-voice"]'))
+            page = document(self.client.get(SETUP))
+            self.assertIsNone(page.select_one("#voice-package-next-step"))
+            self.assertIsNotNone(page.select_one(f'form[action="{SETUP}/activate-kids-voice"]'))
+            self.assertIsNotNone(page.select_one(f'form[action="{SETUP}/reader-voice"]'))
             self.assertEqual(303, self.action(self.client, "/activate-kids-voice").status_code)
             self.assertEqual("ready", self.status("kids-voice"))
             self.assertEqual(2, len(calls), "activating an existing voice must not fetch it again")

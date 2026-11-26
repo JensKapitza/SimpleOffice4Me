@@ -23,7 +23,11 @@ Dateien, angelegte Jobs oder die Anzeige anderer Konten.
 - **Stimmdateien:** Unter **Reader & Mail** kann die Administration das
   deutsche, experimentelle Thorsten-Scratch-Paket (Erwachsenenstimme)
   separat und einmalig laden. Das geht auch, wenn bereits eigene Stimmen
-  eingerichtet sind oder ein früherer Standardpfad nicht mehr erreichbar ist.
+  eingerichtet sind, ein früherer Standardpfad nicht mehr erreichbar ist
+  oder die Piper-Engine auf dem System noch fehlt. „Dateien verifiziert“
+  bedeutet dann nur, dass Modell und JSON bereitstehen. Für Auswahl und
+  Wiedergabe muss Piper separat verfügbar sein; danach ist kein zweiter
+  Download nötig. Der Download installiert weder Piper noch FFmpeg.
   Vor dem Klick sind Anbieter, Größe, Version, Lizenz und SHA-256 für Modell
   und JSON sichtbar. Das Laden ändert keine Modellpfade, Auswahl oder
   Kids-Aktivierung. Siehe [Modell und Aufnahmen (CC0 1.0)](https://huggingface.co/Thorsten-Voice/Piper-Scratch)
@@ -56,9 +60,11 @@ Fingerprint/Status ist nicht gleichbedeutend mit einem Engine-/Gerätetest.
 **English:** Choose **Overview → Local extras**. The same page is linked from
 first-run setup and the affected Kids screens. Only an administrator can
 explicitly queue a listed download; readiness is visible to signed-in accounts
-and skipping it affects only the current dashboard. Reader/Mail retain their separate local configuration; the opt-in for the verified
-German voice is independent of Kids and can be reverted. The pinned files are downloaded once without choosing a voice or enabling Kids, even if a custom default was already configured. Verified files are not
-a playback test.
+and skipping it affects only the current dashboard. Reader/Mail retain their
+separate local configuration; the opt-in for the verified German voice is
+independent of Kids and can be reverted. The pinned files can be downloaded
+without Piper or with custom defaults. This does not install an engine, choose a
+voice or enable Kids. Once Piper is available the verified files can be reused.
 
 ## Offline tests (synthetic input only)
 

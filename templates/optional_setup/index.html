@@ -21,7 +21,7 @@
   <section class="card mb-3" id="reader-speech">
     <div class="card-body">
       <h2 class="h4">{{ '1. Local read-aloud in Reader & Mail' if en else '1. Lokales Vorlesen in Reader & Mail' }}</h2>
-      <p>{{ 'Piper must be installed separately on the server. Choose local ONNX voices with matching JSON in Media settings; these can be independently configured for default and English. This readiness check reads no document or email and does not run the engine.' if en else 'Piper muss separat auf dem Server installiert sein. Wähle in den Medien-Einstellungen lokale ONNX-Stimmen mit passender JSON-Datei für Standard und Englisch. Die Statusprüfung liest weder Dokumente noch E-Mails und startet die Engine nicht.' }}</p>
+      <p>{{ 'Playback requires Piper on the system running SimpleOffice. Voice files can be downloaded beforehand. You can also choose your own local voices for default and English in Media settings. This check does not run Piper or read any documents or email.' if en else 'Zum Vorlesen braucht das System, auf dem SimpleOffice läuft, die Piper-Engine. Die Stimmdateien kannst du vorher laden. In den Medien-Einstellungen kannst du auch eigene lokale Stimmen für Standard und Englisch wählen. Diese Prüfung startet Piper nicht und liest keine Dokumente oder E-Mails.' }}</p>
       <dl>
         <dt>{{ 'Piper engine' if en else 'Piper-Engine' }}</dt>
         <dd id="speech-engine">{% with status=readiness.piper %}{% include 'optional_setup/_status.html' %}{% endwith %}</dd>
@@ -33,6 +33,9 @@
       <section id="voice-package" class="border rounded p-3 my-3" aria-labelledby="voice-package-heading">
         <h3 id="voice-package-heading" class="h5">{{ 'Thorsten Scratch (German, experimental adult voice)' if en else 'Thorsten Scratch (Deutsch, experimentelle Erwachsenenstimme)' }}</h3>
         {% with status=readiness.voice_package %}{% include 'optional_setup/_status.html' %}{% endwith %}
+        {% if readiness.piper == 'engine-missing' and readiness.voice_package == 'ready' %}
+          <p id="voice-package-next-step" class="small mt-2">{{ 'The voice files are ready. Playback and activation still need Piper. Do not download the files again.' if en else 'Die Stimmdateien sind bereit. Zum Aktivieren und Vorlesen fehlt noch die Piper-Engine. Die Dateien musst du nicht erneut laden.' }}</p>
+        {% endif %}
         <p>{{ 'The server can download these two files from Hugging Face once (about 64 MB). The download sends no text or game input and does not select a voice or change Kids activation. Reader, Mail and Kids use the same local files only with their own settings.' if en else 'Der Server kann diese zwei Dateien einmal von Hugging Face laden (rund 64 MB). Dabei werden keine Texte oder Spieleingaben übertragen, keine Stimme ausgewählt und die Kids-Aktivierung bleibt unverändert. Reader, Mail und Kids nutzen dieselben lokalen Dateien nur mit ihren eigenen Einstellungen.' }}</p>
         <details class="mb-2"><summary>{{ 'License, version and checksums' if en else 'Lizenz, Version und Prüfsummen' }}</summary>
           <p><a href="{{ voice_card }}" rel="noreferrer">Thorsten-Voice Piper-Scratch</a>, <a href="https://creativecommons.org/publicdomain/zero/1.0/" rel="noreferrer">CC0 1.0</a> ({{ 'model and recordings' if en else 'Modell und Aufnahmen' }}). <a href="https://github.com/OHF-Voice/piper1-gpl/blob/main/docs/LICENSING.md" rel="noreferrer">GPL-3.0-or-later</a> ({{ 'separate Piper engine' if en else 'separate Piper-Engine' }}). <code class="text-break">{{ voice_release }}</code></p>

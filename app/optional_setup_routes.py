@@ -87,7 +87,7 @@ def install():
     except (OSError, ValueError):
         state = "failed"
     audit("optional_local_install_requested", "optional_setup", feature,
-          outcome="failure" if state in {"failed", "engine-missing"} else "success",
+          outcome="failure" if state == "failed" else "success",
           detail={"state": state})
     messages = {
         "queued": ("Setup queued. Reload to see progress.", "Einrichtung vorgemerkt. Für den Fortschritt neu laden."),
@@ -95,7 +95,6 @@ def install():
         "ready": ("These files are already available.", "Diese Dateien sind bereits verfügbar."),
         "manual": ("The administrator configured an external local folder.", "Es ist ein externer lokaler Ordner konfiguriert."),
         "busy": ("Other installs are active. Try again later.", "Andere Installationen laufen. Versuche es später erneut."),
-        "engine-missing": ("Install the Piper engine first.", "Zuerst die Piper-Engine einrichten."),
         "failed": ("Setup could not be started. You can retry.", "Einrichtung konnte nicht starten. Wiederholen ist möglich."),
     }
     flash(messages[state][0 if g.language == "en" else 1])
