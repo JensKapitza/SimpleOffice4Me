@@ -31,6 +31,8 @@
   let detector = null;
   let lastDetection = 0;
   let cameraGeneration = 0;
+  let photoGeneration = 0;
+  let lookupGeneration = 0;
 
   const setStatus = (message, kind = 'secondary') => {
     if (!status) return;
@@ -59,6 +61,10 @@
     if (stream) {
       stream.getTracks().forEach((track) => track.stop());
       stream = null;
+    }
+    if (video?.srcObject) {
+      video.pause();
+      video.srcObject = null;
     }
     if (cameraBox) cameraBox.hidden = true;
     if (stopButton) stopButton.hidden = true;
@@ -89,6 +95,8 @@
 
   const lookup = async () => {
     const code = String(barcode?.value || '').trim();
+    const generation = ++lookupGeneration;
+    const current = () => generation === lookupGeneration && barcode?.value.trim() === code;
     if (!code) {
       setStatus(tx('Barcode eingeben oder scannen.', 'Enter or scan a barcode.'), 'warning');
       barcode?.focus();
@@ -100,6 +108,7 @@
         cache: 'no-store',
       });
       const payload = await response.json().catch(() => ({}));
+      if (!current()) return false;
       if (!response.ok) {
         setStatus(payload.error || tx('Barcode ist ungültig.', 'Invalid barcode.'), 'warning');
         return false;
@@ -108,25 +117,29 @@
       applyKnown(payload);
       return true;
     } catch (_error) {
+      if (!current()) return false;
       setStatus(navigator.onLine === false ? tx('Offline: Barcode bleibt im Formular und kann manuell verwendet werden.', 'Offline: the barcode remains in the form and can be used manually.') : tx('Barcode-Prüfung fehlgeschlagen.', 'Barcode lookup failed.'), 'warning');
       return false;
     }
   };
 
-  const decodePhotoFile = async (file) => {
+  const decodePhotoFile = async (file, current) => {
     if (!file || !barcode || barcode.value.trim()) return false;
     if (!("BarcodeDetector" in window)) return false;
     let bitmap = null;
     try {
       bitmap = await createImageBitmap(file);
+      if (!current()) return false;
       let formats = ["ean_13", "ean_8", "upc_a", "upc_e"];
       if (typeof window.BarcodeDetector.getSupportedFormats === "function") {
         const supported = await window.BarcodeDetector.getSupportedFormats();
         formats = formats.filter((value) => supported.includes(value));
       }
       if (!formats.length) return false;
+      if (!current()) return false;
       const detector = new window.BarcodeDetector({formats});
       const codes = await detector.detect(bitmap);
+      if (!current() || barcode.value.trim()) return false;
       const found = (codes || []).find((entry) => String(entry.rawValue || "").trim());
       if (!found) return false;
       barcode.value = String(found.rawValue).trim();
@@ -146,6 +159,7 @@
       lastDetection = timestamp;
       try {
         const codes = await detector.detect(video);
+        if (!scanning || generation !== cameraGeneration) return;
         const found = codes.find((entry) => String(entry.rawValue || '').trim());
         if (found) {
           barcode.value = String(found.rawValue).trim();
@@ -154,6 +168,7 @@
           return;
         }
       } catch (_error) {
+        if (!scanning || generation !== cameraGeneration) return;
         setStatus(tx('Kamera konnte den Barcode nicht lesen. Du kannst ihn weiterhin manuell eingeben.', 'The camera could not read the barcode. You can still enter it manually.'), 'warning');
       }
     }
@@ -172,12 +187,15 @@
       return;
     }
     stopCamera();
+    photoGeneration += 1;
+    lookupGeneration += 1;
     const generation = cameraGeneration;
     try {
       const desired = ['ean_13', 'ean_8', 'upc_a', 'upc_e'];
       let formats = desired;
       if (typeof window.BarcodeDetector.getSupportedFormats === 'function') {
         const supported = await window.BarcodeDetector.getSupportedFormats();
+        if (generation !== cameraGeneration) return;
         formats = desired.filter((value) => supported.includes(value));
       }
       if (!formats.length) throw new Error('no-supported-barcode-format');
@@ -359,7 +377,11 @@
 
   photoInput?.addEventListener('change', () => {
     const file = photoInput.files?.[0];
+    const generation = ++photoGeneration;
+    const current = () => generation === photoGeneration;
     if (!file) return;
+    stopCamera();
+    lookupGeneration += 1;
     if (file.size > 8 * 1024 * 1024) {
       photoInput.value = '';
       showPhoto();
@@ -372,17 +394,27 @@
       photoPreview.hidden = true;
     }
     if (photoClear) photoClear.hidden = false;
-    decodePhotoFile(file).then((found) => {
-      if (!found) setStatus(`${tx('Produktfoto ausgewählt:', 'Product photo selected:')} ${file.name}. ${tx('Es wird beim Hinzufügen lokal gespeichert.', 'It will be saved locally when you add the item.')}`, 'info');
+    decodePhotoFile(file, current).then((found) => {
+      if (!found && current()) setStatus(`${tx('Produktfoto ausgewählt:', 'Product photo selected:')} ${file.name}. ${tx('Es wird beim Hinzufügen lokal gespeichert.', 'It will be saved locally when you add the item.')}`, 'info');
     });
   });
   photoClear?.addEventListener('click', () => {
+    photoGeneration += 1;
     if (photoInput) photoInput.value = '';
     showPhoto();
   });
   scanButton?.addEventListener('click', startCamera);
   checkButton?.addEventListener('click', lookup);
   stopButton?.addEventListener('click', stopCamera);
+  barcode?.addEventListener('input', () => {
+    photoGeneration += 1;
+    lookupGeneration += 1;
+    stopCamera();
+  });
   barcode?.addEventListener('change', () => { if (barcode.value.trim()) lookup(); });
   window.addEventListener('pagehide', stopCamera);
+  window.addEventListener('pagehide', () => {
+    photoGeneration += 1;
+    lookupGeneration += 1;
+  });
 })();

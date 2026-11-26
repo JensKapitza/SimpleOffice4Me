@@ -151,19 +151,25 @@
     fileInput.addEventListener('change', async () => {
       const file = fileInput.files?.[0];
       if (!file) return;
+      // Switching to a photo cancels both a pending permission request and
+      // any frame already being decoded. A second photo supersedes the first.
+      stopScanStream();
+      const photoGeneration = scanGeneration;
+      const currentPhoto = () => photoGeneration === scanGeneration && overlay.isConnected;
       showStatus(text('Foto wird lokal ausgewertet …', 'Reading photo locally …'));
       let bitmap = null;
       try {
         bitmap = await createImageBitmap(file);
+        if (!currentPhoto()) return;
         const value = await decodeSource(bitmap);
-        if (generation !== scanGeneration) return;
+        if (!currentPhoto()) return;
         if (value) { applyValue(value); return; }
         showStatus(text('Kein Code erkannt. Bitte ein schärferes Foto wählen oder die Seriennummer manuell eingeben.', 'No code found. Choose a sharper photo or enter the serial number manually.'));
       } catch (_) {
-        if (generation === scanGeneration) showStatus(text('Foto konnte nicht gelesen werden. Seriennummer bitte manuell eingeben.', 'Could not read the photo. Enter the serial number manually.'));
+        if (currentPhoto()) showStatus(text('Foto konnte nicht gelesen werden. Seriennummer bitte manuell eingeben.', 'Could not read the photo. Enter the serial number manually.'));
       } finally {
         bitmap?.close?.();
-        fileInput.value = '';
+        if (currentPhoto()) fileInput.value = '';
       }
     });
     if (!camera) {
