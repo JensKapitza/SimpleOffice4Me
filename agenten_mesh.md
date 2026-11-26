@@ -934,3 +934,12 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | Gemergt: #1307 (Fingerzauber), #1308 (Reaktionsparcours+ESP32), #1309 (Datenlogger-Berichte), #1310 (Runde-5-Doku). #1310-Worklog-Konflikt vereint. |
 | Tests und Soll-Ist-Vergleich | Soll: Welle 6 komplett. Ist: #1307 5/5 Node + 3/3 Python lokal verifiziert; #1308 3/3 Flask + 9/9 Node + Firmware-Compile; #1309 Secrets/Validierung/AuthZ geprüft; je-PR CI 0 fail (nur non-blocking 3.15 teils pendent, Protection gab frei). |
 | Review und Abschluss | Offen: #1303 (nur CodeQL rot, fremd), neu #1311/#1312/#1313/#1315 (nächste Welle). |
+
+## 26. November 2026 · Merge-Runde 7: 6 Merges, 2 Issue-Status, 2 Code-Konflikte (fremd)
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | 9 grüne PRs per 2 Review-Subagenten geprüft (8 MERGE-READY); #1316 (eigene Doku) selbst reviewt; 8 Issues per Subagent gegen Main auf Erfüllung geprüft (keines voll schließbar). |
+| Implementierung | Gemergt: #1311/#1312/#1313/#1315/#1316/#1322. #1317-Worklog-Konflikt vereint/gepusht (CI läuft). #1323 (`app/kids_learning.py`) + #1324 (`templates/documents/dashboard.html`) Code-Konflikte in fremden Branches → gestoppt/gemeldet. Status mit Nachweis kommentiert: #1296 (cf91acb6), #1319 (d0e0f012); Rest je Eigentümer-Gerätetest. |
+| Tests und Soll-Ist-Vergleich | Soll: Welle 7 + 1 Issue. Ist: 8/8 Reviews MERGE-READY ohne Blocker; je-PR CI-Grün + Merge-State verifiziert; Issue-Dateien per `git cat-file` auf Main belegt. #1318 rot (staged-hand-browser, fremd), #1303 weiter CodeQL-rot (fremd). |
+| Review und Abschluss | Offen: #1317 (CI), #1323/#1324 (fremde Code-Konflikte), #1303/#1318 (fremd rot), Rest-Issues brauchen Geräte-Praxistests. |
