@@ -1,0 +1,38 @@
+.reaction-room [hidden] { display: none !important; }
+
+.reaction-room-touch {
+    border-width: .2rem;
+    font-size: clamp(1.5rem, 6vw, 2.75rem);
+    font-weight: 700;
+    inline-size: 100%;
+    margin-block-end: .75rem;
+    min-block-size: 7rem;
+    text-wrap: balance;
+    transition: none;
+}
+
+.reaction-room-touch[data-active="yes"] {
+    background-color: #ffda57;
+    border-color: #1f2d20;
+    color: #172416;
+}
+
+.reaction-room [data-room-keyboard]:focus-visible,
+.reaction-room-touch:focus-visible {
+    outline: .2rem solid var(--bs-emphasis-color);
+    outline-offset: .2rem;
+}
+
+.reaction-room [data-room-invite] {
+    font-family: var(--bs-font-monospace);
+    font-size: clamp(1.15rem, 4vw, 1.9rem);
+    font-weight: 700;
+    overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .reaction-room *, .reaction-room *::before, .reaction-room *::after {
+        animation: none;
+        transition: none;
+    }
+}

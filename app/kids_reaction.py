@@ -4,6 +4,7 @@ from urllib.parse import urlsplit
 from flask import Blueprint, make_response, render_template, request
 
 from .auth import login_required
+from .kids_reaction_room_routes import room_api, room_page
 
 
 bp = Blueprint("kids_reaction", __name__, url_prefix="/kids/reaktionsparcours")
@@ -37,3 +38,7 @@ def index():
         f"camera=(), microphone=(), geolocation=(), display-capture=(), serial={serial}"
     )
     return response
+
+
+bp.add_url_rule("/rooms", endpoint="rooms", view_func=room_page, methods=["GET"])
+bp.add_url_rule("/rooms/api", endpoint="room_api", view_func=room_api, methods=["POST"])

@@ -12,6 +12,14 @@
   const milliseconds = (value) => Number.isInteger(value) && value >= 0 && value <= 0xffffffff;
   const scoreboard = () => ({ hits: 0, errors: 0, misses: 0, total: 0, rows: [] });
 
+  function keyStation(event, focus) {
+    if (event.target !== focus || event.repeat || event.altKey || event.ctrlKey || event.metaKey
+        || event.shiftKey || event.isComposing) return null;
+    return ["1", "2", "3"].includes(event.key) ? Number(event.key) : null;
+  }
+
+  const elapsedMs = (started, now = performance.now()) => Math.max(0, Math.floor(now - started));
+
   class ReactionGame {
     constructor() {
       this.ticket = 0;
@@ -145,7 +153,7 @@
     press(id) {
       const target = this.active;
       if (!target) return;
-      const ms = Math.max(0, Math.floor(this.now() - target.start));
+      const ms = elapsedMs(target.start, this.now());
       if (target.window && ms >= target.window) {
         this.off();
         this.emit({ type: "miss", ticket: target.ticket, id: target.id });
@@ -167,7 +175,7 @@
     }
   }
 
-  const api = { ReactionGame, VirtualStations };
+  const api = { ReactionGame, VirtualStations, keyStation, elapsedMs };
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.KidsReactionGame = api;
 }(globalThis));

@@ -1,0 +1,74 @@
+{% extends "layout.html" %}
+{% block header %}{% include "kids/_header.html" %}{% endblock %}
+{% block title %}{{ 'Reaction rooms' if g.language == 'en' else 'Reaktionsräume' }} · SimpleOffice{% endblock %}
+{% block styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/kids_reaction_rooms.css', v=app_build.version) }}">
+{% endblock %}
+{% block body %}
+{% set en = g.language == 'en' %}
+<main id="main-content" class="container py-3 reaction-room" data-reaction-room
+      data-en="{{ 1 if en else 0 }}" data-csrf="{{ csrf_token() }}"
+      data-api="{{ url_for('kids_reaction.room_api') }}">
+  <h1>{{ 'Reaction rooms' if en else 'Reaktionsräume' }}</h1>
+  <p><a href="{{ url_for('kids_reaction.index') }}">{{ 'Play on this device only' if en else 'Nur auf diesem Gerät spielen' }}</a></p>
+  <p>{{ 'Play together in one room with two or three phones or computers. Stay in a clear space and do not run.' if en else 'Spielt gemeinsam im selben Raum mit zwei bis drei Handys oder PCs. Haltet den Bereich frei und rennt nicht.' }}</p>
+  {% if not rooms_allowed %}
+  <div class="alert alert-info" role="status" aria-live="polite">
+    {{ 'Rooms require a local HTTPS address. Open the local SimpleOffice LAN address on each device and sign in.' if en else 'Räume benötigen eine lokale HTTPS-Adresse. Öffne auf jedem Gerät die lokale LAN-Adresse von SimpleOffice und melde dich an.' }}
+    {% if room_lan_url %}<a href="{{ room_lan_url }}">{{ 'Open the LAN address' if en else 'LAN-Adresse öffnen' }}</a>{% endif %}
+  </div>
+  {% else %}
+  <section class="card card-body mb-3" data-room-entry>
+    <h2 class="h4">{{ 'Open or join a room' if en else 'Raum öffnen oder beitreten' }}</h2>
+    <p>{{ 'Everyone signs in on their own browser and opens this page on the same SimpleOffice server. The host reads out the short code.' if en else 'Alle melden sich im eigenen Browser an und öffnen diese Seite auf demselben SimpleOffice-Server. Der Host liest den kurzen Code vor.' }}</p>
+    {% if room_lan_url %}<p><a href="{{ room_lan_url }}">{{ 'Page for other devices' if en else 'Seite für weitere Geräte' }}</a></p>{% endif %}
+    <button type="button" class="btn btn-primary align-self-start mb-3" data-room-host>{{ 'Host a room' if en else 'Raum öffnen' }}</button>
+    <form method="post" action="{{ url_for('kids_reaction.room_api') }}" data-room-join>
+      <label for="reaction-room-code" class="form-label">{{ 'Room code' if en else 'Raumcode' }}</label>
+      <div class="d-flex flex-wrap gap-2">
+        <input type="text" id="reaction-room-code" class="form-control w-auto" data-room-code required maxlength="8" autocapitalize="characters" autocomplete="off" spellcheck="false">
+        <button type="submit" class="btn btn-outline-primary">{{ 'Join as a station' if en else 'Als Station beitreten' }}</button>
+      </div>
+    </form>
+  </section>
+  <p class="alert alert-info" role="status" aria-live="polite" data-room-notice>
+    {{ 'No room is open on this browser.' if en else 'In diesem Browser ist kein Raum geöffnet.' }}
+  </p>
+  <section class="card card-body mb-3" data-room-play hidden>
+    <h2 class="h4" data-room-target></h2>
+    <div tabindex="0" role="group" aria-label="{{ 'Keyboard station' if en else 'Tastaturstation' }}" data-room-keyboard aria-describedby="reaction-room-hint">
+      <button type="button" class="btn btn-outline-primary reaction-room-touch" data-room-touch disabled></button>
+    </div>
+    <p class="visually-hidden" data-room-prompt role="status" aria-live="polite"></p>
+    <p id="reaction-room-hint" class="small mb-0">{{ 'If this station is active, tap the large button or focus the station and press the number shown.' if en else 'Tippe bei aktiver Station auf die große Taste oder fokussiere den Stationsbereich und drücke die angezeigte Zahl.' }}</p>
+  </section>
+  <section class="card card-body mb-3" data-room-active hidden>
+    <h2 class="h4" data-room-station></h2>
+    <p data-room-roster></p>
+    <p data-room-invite hidden></p>
+    <div data-room-controls hidden>
+      <label class="form-label" for="reaction-room-mode">{{ 'Mode' if en else 'Spielart' }}</label>
+      <select id="reaction-room-mode" class="form-select mb-2 w-auto" data-room-mode>
+        <option value="practice">{{ 'Practice together' if en else 'Gemeinsam üben' }}</option>
+        <option value="duel">{{ 'Two-player duel' if en else 'Duell zu zweit' }}</option>
+      </select>
+      <button type="button" class="btn btn-primary" data-room-start disabled>{{ 'Start round' if en else 'Runde starten' }}</button>
+      <button type="button" class="btn btn-primary" data-room-next hidden>{{ 'Start turn 2' if en else 'Zweiten Durchgang starten' }}</button>
+      <p class="small mt-2">{{ 'The host is station 1. In a duel, the two players take turns pressing the active station, with the same devices and target order. Keep every station uncovered and visible.' if en else 'Der Host ist Station 1. Beim Duell drückt immer nur das Kind, das an der Reihe ist. Beide nutzen dieselben Geräte und dieselbe Zielreihenfolge. Alle Stationen bleiben sichtbar und aktiv.' }}</p>
+    </div>
+    <button type="button" class="btn btn-outline-danger align-self-start" data-room-leave>{{ 'Leave room' if en else 'Raum verlassen' }}</button>
+  </section>
+  <section class="card card-body" data-room-board hidden>
+    <h2 class="h4">{{ 'Shared results' if en else 'Gemeinsames Ergebnis' }}</h2>
+    <p data-room-result></p>
+    <ol data-room-times></ol>
+    <p class="small mb-0">{{ 'Reaction time is estimated locally in each browser. The devices are not time-synchronized. Results are temporary; reloading, switching away or disconnecting can stop the room.' if en else 'Die Reaktionszeit wird im jeweiligen Browser geschätzt. Die Geräte sind nicht zeitsynchronisiert. Ergebnisse sind vorübergehend; Neuladen, Tabwechsel oder eine unterbrochene Verbindung können den Raum beenden.' }}</p>
+  </section>
+  <noscript><p>{{ 'JavaScript is required for this game.' if en else 'Für das Spiel ist JavaScript erforderlich.' }}</p></noscript>
+  {% endif %}
+</main>
+{% if rooms_allowed %}
+<script defer src="{{ url_for('static', filename='js/kids_reaction_game.js', v=app_build.version) }}"></script>
+<script defer src="{{ url_for('static', filename='js/kids_reaction_rooms.js', v=app_build.version) }}"></script>
+{% endif %}
+{% endblock %}
