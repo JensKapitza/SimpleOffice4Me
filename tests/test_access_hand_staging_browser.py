@@ -4,6 +4,7 @@ No images from a real device, model stubbing, asset downloads, or gaze claims.
 """
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import threading
@@ -11,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 try:
-    from playwright.sync_api import expect, sync_playwright
+    from playwright.sync_api import Error as PlaywrightError, expect, sync_playwright
 except ImportError:
     sync_playwright = None
 
@@ -21,6 +22,8 @@ from app import app
 from http_api_fixture import PublicHttpTestCase
 
 PROOF = "/documents/bedienhilfe"
+TRACE = os.getenv("SIMPLEOFFICE_HAND_NAV_PRIVATE_TRACE") == "1"
+TRACE_SCRIPT = Path(__file__).with_name("access_hand_browser_trace.js")
 
 
 class HandStagingBrowserTests(PublicHttpTestCase):
@@ -131,6 +134,26 @@ class HandStagingBrowserTests(PublicHttpTestCase):
         self.assertEqual(snapshot["tracks"], ["video:live"])
         self.assertTrue(page.evaluate("window.handTest.length === 1 && window.handTest[0].audio === false"))
 
+    def _attach_fixture_trace(self, page):
+        if not TRACE:
+            return
+        runtime = page.locator("[data-hand-nav]").get_attribute("data-runtime")
+        self.assertEqual(runtime, "/kids/lernen/handzeichen/assets/vision_bundle.mjs")
+        page.evaluate(TRACE_SCRIPT.read_text(encoding="utf-8"), {
+            "runtime": self.origin + runtime,
+            "logic": self.origin + "/static/js/kids_hand_logic.mjs",
+        })
+
+    def _emit_fixture_trace(self, page, case):
+        if TRACE and page.url == self.origin + PROOF:
+            try:
+                trace = page.evaluate("() => window.handTestTrace?.() ?? null")
+            except PlaywrightError as error:
+                trace = {"unavailable": type(error).__name__}
+            if trace is not None:
+                print("HAND_NAV_SYNTHETIC_TRACE", json.dumps({"case": case, "trace": trace},
+                                                            separators=(",", ":")), flush=True)
+
     @staticmethod
     def _observe_stop_after_start(page):
         page.evaluate("""() => {
@@ -151,6 +174,7 @@ class HandStagingBrowserTests(PublicHttpTestCase):
                         page.locator("[data-hand-nav-destination]").select_option(key)
                         self._start_native_preview(page)
                         self._observe_stop_after_start(page)
+                        self._attach_fixture_trace(page)
                         page.locator("[data-hand-nav-arm]").click()
                         expect(page.locator("[data-hand-nav-status]")).to_have_attribute("data-state", "armed", timeout=9000)
                         page.wait_for_url(self.origin + path, timeout=12000)
@@ -160,7 +184,10 @@ class HandStagingBrowserTests(PublicHttpTestCase):
                         self.assertTrue(any(url.endswith("hand_landmarker.task") for _, url in requests))
                         self.assertTrue(any(url.endswith("vision_wasm_nosimd_internal.wasm") for _, url in requests))
                     finally:
-                        browser.close()
+                        try:
+                            self._emit_fixture_trace(page, "combined-" + key)
+                        finally:
+                            browser.close()
 
     def test_real_blank_and_held_index_cannot_open_anything_then_stop(self):
         with sync_playwright() as playwright:
@@ -169,6 +196,7 @@ class HandStagingBrowserTests(PublicHttpTestCase):
                     browser, page, _, outbound = self._open(playwright, name)
                     try:
                         self._start_native_preview(page)
+                        self._attach_fixture_trace(page)
                         page.locator("[data-hand-nav-arm]").click()
                         # An actual hold window elapses. The page must not leave.
                         page.wait_for_timeout(2200)
@@ -180,4 +208,7 @@ class HandStagingBrowserTests(PublicHttpTestCase):
                         self.assertEqual(page.evaluate("window.handTestTracks.map(t => t.readyState)"), ["ended"])
                         self.assertEqual(outbound, [])
                     finally:
-                        browser.close()
+                        try:
+                            self._emit_fixture_trace(page, name)
+                        finally:
+                            browser.close()

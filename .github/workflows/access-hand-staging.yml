@@ -64,6 +64,8 @@ jobs:
           SIMPLEOFFICE_KIDS_HAND_GAME_ASSET_DIR: ${{ runner.temp }}/hand-nav/assets
           SIMPLEOFFICE_HAND_NAV_FIXTURES: ${{ runner.temp }}/hand-nav
           SIMPLEOFFICE_HAND_NAV_BROWSER_REQUIRED: '1'
+          # Temporary opt-in on the single draft, for the pinned fixture only.
+          SIMPLEOFFICE_HAND_NAV_PRIVATE_TRACE: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 1318 && '1' || '0' }}
           PYTHONPATH: .:tests
         run: |
           node --test tests/access_hand_staging.test.mjs tests/access_navigation_proof.test.mjs
