@@ -18,8 +18,10 @@ English are available. The game never controls equipment or shows real wiring.
   complement of A, or A minus B. Tile shapes, words, and individual result
   markers supplement color.
 - **Sicher bei Strom:** A separate picture-led story with back, next and
-  replay. The original vector illustrations show only safe behavior: keep
-  clear and call a trusted adult, leave a dropped device alone, bring a sibling
+  replay. On the Kids dashboard, the person tile opens the picture story; the
+  book tile is the separate reading course on plugs and cables with questions.
+  The original vector illustrations show only safe behavior: leave the loose
+  plug alone, step back and get a grown-up, leave a dropped device alone, bring a sibling
   along from a safe distance without touching, and ordinary use of a working
   light switch. The page's existing safety lesson link is optional; listening
   or reading is not required to turn the pictures. For grown-ups, see

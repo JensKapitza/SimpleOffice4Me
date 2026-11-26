@@ -52,7 +52,7 @@
 .kids-logic .logic-story button span { font-size: 1.3rem; margin-inline-end: .2rem; }
 .kids-logic .story-wall { fill: #e3f5fb; }
 .kids-logic .story-floor { fill: #c7dce8; }
-.kids-logic .story-person, .kids-logic .story-outlet, .kids-logic .story-dropped,
+.kids-logic .story-person, .kids-logic .story-outlet, .kids-logic .story-dropped, .kids-logic .story-plug,
 .kids-logic .story-switch, .kids-logic .story-lamp { fill: none; stroke: #263142; stroke-linecap: round; stroke-linejoin: round; stroke-width: 3; }
 .kids-logic .story-person .story-head { fill: #dbac84; }
 .kids-logic .story-child .story-body { fill: #ffd56b; }

@@ -173,6 +173,12 @@ class KidsLogicBrowserTests(PublicHttpTestCase):
                 back, next_picture, replay = (story.locator(f"[data-story-{key}]") for key in ("back", "next", "replay"))
                 progress = story.locator("[data-story-progress]")
                 expect(progress).to_have_text("Picture 1 of 4")
+                plug = story.locator('[data-story-scene="outlet"] .story-plug')
+                expect(plug).to_be_visible()
+                expect(plug.locator("path")).to_have_css("stroke", "rgb(38, 49, 66)")
+                expect(story.locator('[data-story-scene="outlet"] figcaption')).to_have_text(
+                    "Leave the plug alone. Step back and get a grown-up."
+                )
                 expect(back).to_be_disabled()
                 target = os.getenv("SIMPLEOFFICE_LOGIC_SCREENSHOTS")
                 for n, key in enumerate(("outlet", "dropped", "siblings", "normal-switch"), start=1):

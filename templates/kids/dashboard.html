@@ -80,14 +80,14 @@
       <small>{{ 'Find shapes that fit AND, OR or NOT' if g.language == 'en' else 'Finde Formen, die zu UND, ODER oder NICHT passen' }}</small>
     </a>
     <a class="kids-symbol-card" href="{{ url_for('kids_learning.logic_workshop', _anchor='sicherheit') }}">
-      <span aria-hidden="true">🖼️</span>
+      <span aria-hidden="true">🧑</span>
       <strong>{{ 'Picture story: stay safe around electricity' if g.language == 'en' else 'Bildergeschichte: Sicher bei Strom' }}</strong>
       <small>{{ 'See safe choices picture by picture' if g.language == 'en' else 'Schau Bild für Bild, was du sicher tun kannst' }}</small>
     </a>
     <a class="kids-symbol-card" href="{{ url_for('electrical_learning.index', audience='kids') }}">
-      <span aria-hidden="true">🔌</span>
-      <strong>{{ 'Electricity safety' if g.language == 'en' else 'Strom sicher erkennen' }}</strong>
-      <small>{{ 'Recognize plugs and cables safely' if g.language == 'en' else 'Stecker und Kabel sicher erkennen' }}</small>
+      <span aria-hidden="true">📖</span>
+      <strong>{{ 'Reading course: plugs and cables' if g.language == 'en' else 'Lesekurs: Stecker und Kabel' }}</strong>
+      <small>{{ 'Read about electrical safety and answer questions' if g.language == 'en' else 'Lies über Stromsicherheit und beantworte Fragen' }}</small>
     </a>
   </nav>
 </main>

@@ -33,12 +33,16 @@
 <section id="sicherheit" class="logic-region logic-story" data-logic-unit="story" aria-labelledby="logic-story-heading">
   <h2 id="logic-story-heading">{{ 'Picture story: safe around electricity' if en else 'Bildergeschichte: Strom sicher begegnen' }}</h2>
   <figure data-story-scene="outlet">
-    <svg viewBox="0 0 340 165" role="img" aria-label="{{ 'A child stays well away from an outlet and calls an adult.' if en else 'Ein Kind bleibt von der Steckdose weg und ruft eine erwachsene Person.' }}">
+    <svg viewBox="0 0 340 165" role="img" aria-label="{{ 'An unplugged plug lies below an outlet. A child stays well away and calls an adult.' if en else 'Ein loser Stecker liegt unter der Steckdose. Ein Kind hält Abstand und ruft einen Erwachsenen.' }}">
       {{ room() }}{{ outlet() }}
+      <g class="story-plug" aria-hidden="true">
+        <path d="M29 131 H40 M29 140 H40 M58 136 H65 Q72 136 72 143 V150"/>
+        <rect class="story-outlet" x="40" y="127" width="18" height="18" rx="3"/>
+      </g>
       <path class="story-arrow" d="M83 122 H143 L133 112 M143 122 L133 132"/>
       {{ child(192,108) }}{{ adult(295,105) }}
     </svg>
-    <figcaption>{{ 'Step back and call a grown-up.' if en else 'Geh zurück und ruf einen Erwachsenen.' }}</figcaption>
+    <figcaption>{{ 'Leave the plug alone. Step back and get a grown-up.' if en else 'Lass den Stecker liegen. Geh zurück und hol einen Erwachsenen.' }}</figcaption>
   </figure>
   <figure data-story-scene="dropped" hidden>
     <svg viewBox="0 0 340 165" role="img" aria-label="{{ 'A dropped device stays by the outlet. The child keeps hands away and calls an adult.' if en else 'Ein heruntergefallenes Gerät bleibt neben der Steckdose liegen. Das Kind hält Abstand und ruft einen Erwachsenen.' }}">
