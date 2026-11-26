@@ -157,7 +157,10 @@ def _piper_kids_audio(text, language, purpose):
             # Retain the old short GET contract for desktop clients, but never
             # write their arbitrary rendered text into a persistent WAV cache.
             with tempfile.TemporaryDirectory(prefix="simpleoffice-kids-speech-") as directory:
-                audio_path = render_tts(text, "kids-de" if language == "de-DE" else "kids-en", directory, model=model)
+                audio_path = render_tts(
+                    text, "kids-de" if language == "de-DE" else "kids-en", directory,
+                    model=model, document_root=root,
+                )
                 with audio_path.open("rb") as output:
                     wav = output.read(MAX_SPEECH_AUDIO_BYTES + 1)
             if len(wav) > MAX_SPEECH_AUDIO_BYTES:

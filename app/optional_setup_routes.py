@@ -32,6 +32,7 @@ def index():
     return render_template(
         "optional_setup/index.html",
         readiness=optional_local_setup.readiness(root, manual_hand_directory=manual),
+        inventory=optional_local_setup.component_inventory(root, manual_hand_directory=manual),
         optional_skipped=setup["optional_skipped"],
         manage=manage,
         android_speech_available=native_speech,
@@ -57,10 +58,22 @@ def progress():
     return jsonify(optional_local_setup.progress_states(current_app.config["DOCUMENT_ROOT"]))
 
 
+@bp.get("/progress/details")
+@login_required
+def progress_details():
+    response = current_app.make_response(jsonify(
+        optional_local_setup.progress_details(current_app.config["DOCUMENT_ROOT"]),
+    ))
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
 def limit_request() -> None:
     """Apply the small mutation-body cap before session CSRF parses a form."""
     if request.endpoint not in {"optional_setup.install", "optional_setup.preference",
                                 "optional_setup.activate_voice", "optional_setup.select_reader_voice",
+                                "optional_setup.install_all",
+                                "optional_setup.cancel_install",
                                 "optional_setup.set_android_speech", "optional_setup.test_android_speech"}:
         return
     if request.mimetype != "application/x-www-form-urlencoded":
@@ -105,9 +118,68 @@ def install():
         "ready": ("These files are already available.", "Diese Dateien sind bereits verfügbar."),
         "manual": ("The administrator configured an external local folder.", "Es ist ein externer lokaler Ordner konfiguriert."),
         "busy": ("Other installs are active. Try again later.", "Andere Installationen laufen. Versuche es später erneut."),
+        "insufficient-space": ("There is not enough free space for this component.", "Für diese Komponente ist nicht genügend freier Speicherplatz vorhanden."),
         "failed": ("Setup could not be started. You can retry.", "Einrichtung konnte nicht starten. Wiederholen ist möglich."),
     }
     flash(messages[state][0 if g.language == "en" else 1])
+    return redirect(url_for("optional_setup.index", _anchor=feature), code=303)
+
+
+@bp.post("/install-all")
+@login_required
+def install_all():
+    """Queue only the currently verified, fixed-source model installers."""
+    if not is_admin(g.user):
+        abort(403)
+    if request.args or set(request.form) != {"_csrf_token"} or len(request.form.getlist("_csrf_token")) != 1:
+        abort(400)
+    root = current_app.config["DOCUMENT_ROOT"]
+    manual = optional_local_setup.hand_override(current_app.config)
+    outcomes = {}
+    for feature in (optional_local_setup.VOICE_PACKAGE, "kids-hand"):
+        try:
+            outcomes[feature] = optional_local_setup.queue(root, feature, manual_hand_directory=manual)
+        except (OSError, ValueError):
+            outcomes[feature] = "failed"
+    audit("optional_local_install_requested", "optional_setup", "supported-models",
+          outcome="failure" if "failed" in outcomes.values() else "success",
+          detail={"features": outcomes})
+    failed = any(state not in {"queued", "downloading", "ready"} for state in outcomes.values())
+    flash(("Supported model setup was queued. Components without verified installers were left unchanged."
+           if g.language == "en" else
+           "Die unterstützten Modell-Downloads wurden vorgemerkt. Komponenten ohne geprüften Installer bleiben unverändert.")
+          if not failed else
+          ("Some model jobs could not start (check free space and existing downloads). Refresh each status."
+           if g.language == "en" else
+           "Einige Modell-Downloads konnten nicht starten (Speicherplatz und laufende Downloads prüfen). Bitte Status aktualisieren."))
+    return redirect(url_for("optional_setup.index", _anchor="component-manager"), code=303)
+
+
+@bp.post("/cancel")
+@login_required
+def cancel_install():
+    if not is_admin(g.user):
+        abort(403)
+    if (request.args or set(request.form) != {"_csrf_token", "feature"}
+            or len(request.form.getlist("feature")) != 1):
+        abort(400)
+    feature = request.form["feature"]
+    if feature not in optional_local_setup.FEATURES:
+        abort(400)
+    try:
+        state = optional_local_setup.cancel(current_app.config["DOCUMENT_ROOT"], feature)
+    except (OSError, ValueError):
+        state = "failed"
+    audit("optional_local_install_cancelled", "optional_setup", feature,
+          outcome="failure" if state in {"failed", "missing"} else "success", detail={"state": state})
+    messages = {
+        "cancelling": ("Cancellation requested.", "Abbruch angefordert."),
+        "cancelled": ("Download cancelled. Incomplete files were discarded.", "Download abgebrochen. Unvollständige Dateien wurden verworfen."),
+        "ready": ("The component is already installed.", "Die Komponente ist bereits installiert."),
+        "failed": ("Cancellation could not be recorded. Refresh the status.", "Abbruch konnte nicht gespeichert werden. Bitte Status aktualisieren."),
+    }
+    message = messages.get(state, ("There is no active download.", "Es läuft kein Download."))
+    flash(message[0 if g.language == "en" else 1])
     return redirect(url_for("optional_setup.index", _anchor=feature), code=303)
 
 

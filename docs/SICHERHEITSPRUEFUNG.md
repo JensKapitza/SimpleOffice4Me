@@ -20,6 +20,17 @@
 
 Statische Prüfung und ausgeführte lokale Tests separat ausweisen. Ausschließlich synthetische Daten und lokale Fixtures verwenden. Befunddetails mit sensiblen Daten gehören in den [vertraulichen Meldeweg](SECURITY.md).
 
+## Optionale Komponenten und Modell-Downloads
+
+- Eine Installationsaktion ist eine privilegierte Serveraktion: Route erfordert Administratorrolle, Anmeldung, CSRF und eine kleine Formulargrenze. Der Client sendet nur einen internen Feature-Namen aus einer Allowlist, keine URL, Version, Befehlszeile oder Dateipfad.
+- Downloadquelle, Versionsbezug, Maximalgröße und SHA-256 kommen aus dem serverseitigen Manifest. Redirects und Proxys sind je nach Komponente begrenzt; nachgeladene Daten werden vor Freigabe geprüft.
+- Downloads bleiben bei nicht genügend freiem Speicher, ungültiger Prüfsumme, zu großer Antwort oder Abbruch unvollständig und werden aus temporären Verzeichnissen entfernt. Fertige Browsermodelle werden in anwendungsverwaltete private Datenbereiche unter `.simpleoffice-meta` gestellt.
+- `app.component_runtime.resolve_command()` akzeptiert nur bekannte Programme, bevorzugt Systeminstallationen und prüft bei verwalteten Programmen reguläre Dateien, Zielverzeichnis, Ausführbarkeit sowie den im privaten Manifest gebundenen Datei-Hash. Diese Prüfung ist keine Signatur und schützt nicht vor einem Angreifer, der bereits denselben lokalen Benutzer kontrolliert.
+- Archive werden nicht anhand clientgesteuerter Pfade entpackt. Jede Extraktion braucht separat geprüfte Mitgliedsnamen, Typen, Größen und Zielpfade. Promotion einer Installation muss den letzten funktionsfähigen Stand bei Fehlern erhalten.
+- APK, Termux, Docker, Linux, Windows und macOS sind getrennte Laufzeitziele. Eine Linux-Datei oder ein Python-Wheel darf nicht als Android-APK-Runtime erscheinen. Eine Plattform erhält den Status „unterstützt“ erst nach festem Artefakt, Lizenzprüfung, Integritätstest und einem echten Smoke-Test der Funktion.
+- Modelle bleiben optional und werden nur nach ausdrücklicher Nutzeraktion geladen. Ein Setup-Status darf lediglich das Vorhandensein oder die Prüfung belegen; Audio, OCR, Kamera, Spracheingaben und Dokumente werden für den Download nicht übertragen.
+- Bei fehlendem Binary müssen alle Verbraucher denselben Resolver benutzen. Eine Anzeige „gefunden“ ist kein Nachweis, dass Codec, Audiogerät, Berechtigung oder Modell tatsächlich funktionieren. Smoke-Tests müssen die erzeugte Ausgabe prüfen.
+
 ## Erster Prüfstand · Dokumenttransfer
 
 Revision `39b4df619b225af2b84a8c690c6f02afdb688088`, 5.333 versionierte Einträge. Review durch Codex. Die zwei Dateien unten wurden vollständig gelesen. Die übrigen 5.331 Einträge sind in diesem Durchgang offen.

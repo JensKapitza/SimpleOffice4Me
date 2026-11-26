@@ -9,6 +9,7 @@ from pathlib import Path
 import tarfile
 from threading import Event
 import time
+from types import SimpleNamespace
 import wave
 from unittest.mock import patch
 
@@ -87,10 +88,10 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
             if observed == state:
                 return
             time.sleep(0.025)
-        self.fail(f"expected {state}, got {observed}")
+        self.fail(f"expected {state}, got {observed}: {optional.progress_details(self.root)}")
 
     def test_fresh_dashboard_tour_permissions_and_skip_are_local_and_nonblocking(self):
-        with patch.object(optional.shutil, "which", return_value=None):
+        with patch.object(optional, "resolve_command", return_value=None):
             self.assertEqual(app.test_client().get(SETUP).status_code, 302)
             dashboard = document(self.client.get(DASHBOARD))
             self.assertTrue(dashboard.select_one(f'#optional-setup-dashboard a[href="{SETUP}"]'))
@@ -111,6 +112,7 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
             self.assertEqual(413, self.client.post(SETUP + "/install", data={"feature": "A" * 1500}).status_code)
             self.assertEqual(415, self.client.post(SETUP + "/install", json={"feature": "kids-hand"}).status_code)
             self.assertEqual(403, self.client.post(SETUP + "/install", data={"feature": "voice-package"}).status_code)
+            self.assertEqual(403, self.client.post(SETUP + "/cancel", data={"feature": "kids-hand"}).status_code)
             self.assertFalse(optional._job_file(self.root).exists())
 
         member = app.test_client()
@@ -130,6 +132,40 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
         self.assertIsNotNone(document(member.get(DASHBOARD)).select_one("#optional-setup-dashboard [data-optional-status]"))
         self.assertTrue(document(member.get(GAME)).select_one(f'a[href="{SETUP}#kids-hand"]'))
         self.assertTrue(document(member.get("/kids/lernen/")).select_one(f'a[href="{SETUP}#kids-voice"]'))
+
+    def test_admin_can_cancel_queued_asset_job_without_starting_its_download(self):
+        with patch.object(optional._WORKERS, "submit") as submit, patch.object(
+            hand, "install_managed", side_effect=AssertionError("cancelled work must not start"),
+        ):
+            self.assertEqual(303, self.action(self.client, "/install", feature="kids-hand").status_code)
+            self.assertEqual("queued", optional.progress_states(self.root)["kids-hand"])
+            self.assertEqual(303, self.action(self.client, "/cancel", feature="kids-hand").status_code)
+            detail = self.client.get(SETUP + "/progress/details")
+            self.assertEqual("private, no-store", detail.headers["Cache-Control"])
+            self.assertEqual("cancelling", detail.json["kids-hand"]["state"])
+            callback, *arguments = submit.call_args.args
+            callback(*arguments)
+        self.assertEqual("cancelled", optional.progress_states(self.root)["kids-hand"])
+
+    def test_download_progress_is_bounded_and_never_exposes_job_or_server_paths(self):
+        feature = "kids-hand"
+        root = self.root.resolve()
+        root.mkdir(parents=True, exist_ok=True)
+        optional._job_file(root).parent.mkdir(parents=True, exist_ok=True)
+        optional._job_file(root).write_text(json.dumps({feature: {
+            "id": "private-job-id", "started": time.time(), "state": "downloading",
+            "progress": {"file": "../../hand_landmarker.task", "received": 4096, "total": 8192,
+                         "path": "/private/server/path"},
+        }}), encoding="utf-8")
+        with patch.object(optional, "hand_override", return_value=""):
+            response = self.client.get(SETUP + "/progress/details")
+        row = response.json[feature]
+        self.assertEqual("downloading", row["state"])
+        self.assertEqual("hand_landmarker.task", row["file"])
+        self.assertEqual(50, row["percent"])
+        self.assertEqual(4096, row["received"])
+        self.assertNotIn("id", row)
+        self.assertNotIn("path", row)
 
     def test_unstarted_job_is_queued_then_expired_without_background_retry(self):
         with patch.object(optional._WORKERS, "submit") as submit:
@@ -168,7 +204,7 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
         voice = self.root.parent / "fixture-reader.onnx"
         voice.write_bytes(b"not an actual model")
         media.save({"media": {**media.settings()["media"], "piper_model": str(voice)}}, "owner")
-        with patch.object(optional.shutil, "which", return_value="/synthetic/piper"):
+        with patch.object(optional, "resolve_command", return_value="/synthetic/piper"):
             self.assertEqual("config-missing", self.status("speech-default"))
             Path(str(voice) + ".json").write_bytes(b"{}")
             page = self.client.get(SETUP)
@@ -201,7 +237,7 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
         eml = store.import_upload(io.BytesIO(message.as_bytes()), "voice-mail.eml", "owner")
         seen = []
 
-        def voice_stub(text, _label, directory, *, model):
+        def voice_stub(text, _label, directory, *, model, document_root=None):
             self.assertEqual(str(voice), model)
             seen.append(text)
             path = Path(directory) / "fixture.wav"
@@ -211,7 +247,7 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
                 generated.writeframes(b"\x00\x00" * 64)
             return path
 
-        with patch.object(optional.shutil, "which", return_value="/synthetic/piper"), patch(
+        with patch.object(optional, "resolve_command", return_value="/synthetic/piper"), patch(
             "app.private_read_aloud.render_tts", side_effect=voice_stub,
         ), patch(
             "app.audio_output_engine.render_tts", side_effect=voice_stub,
@@ -257,7 +293,7 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
                         raise OSError("fixture did not release download")
                 return Response(VOICE[request.full_url.rsplit("/", 1)[-1]])
 
-        def voice_stub(text, _label, directory, *, model):
+        def voice_stub(text, _label, directory, *, model, document_root=None):
             spoken.append((text, model))
             path = Path(directory) / "synthetic.wav"
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -288,7 +324,7 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
             return replies
 
         with patch.object(piper, "_ASSETS", manifest), patch.object(piper, "_MODEL_NAME", "fixture.onnx"), patch.object(
-            optional.shutil, "which", return_value="/synthetic/piper",
+            optional, "resolve_command", return_value="/synthetic/piper",
         ), patch.object(piper, "build_opener", return_value=Opener()), patch(
             "app.private_read_aloud.render_tts", side_effect=voice_stub,
         ), patch("app.audio_output_engine.render_tts", side_effect=voice_stub):
@@ -446,7 +482,7 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
                 return Response(b"bad checksums" if bad_response and name.endswith(".json") else VOICE[name])
 
         with patch.object(piper, "_ASSETS", manifest), patch.object(piper, "_MODEL_NAME", "fixture.onnx"), patch.object(
-            optional.shutil, "which", return_value="/synthetic/piper",
+            optional, "resolve_command", return_value="/synthetic/piper",
         ), patch.object(piper, "build_opener", return_value=Opener()):
             self.assertEqual("invalid", self.status("kids-voice"))
             self.assertEqual("missing", self.status("voice-package"))
@@ -489,8 +525,10 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
                 return Response(VOICE[request.full_url.rsplit("/", 1)[-1]])
 
         with patch.object(piper, "_ASSETS", manifest), patch.object(piper, "_MODEL_NAME", "fixture.onnx"), patch.object(
-            optional.shutil, "which", return_value=None,
-        ) as engine, patch.object(piper, "build_opener", return_value=Opener()):
+            optional, "resolve_command", return_value=None,
+        ) as engine, patch.object(
+            piper, "resolve_command", side_effect=lambda *_args: engine.return_value,
+        ), patch.object(piper, "build_opener", return_value=Opener()):
             self.assertEqual("engine-missing", self.status("kids-voice"))
             self.assertEqual("missing", self.status("voice-package"))
             package = document(self.client.get(SETUP)).select_one('#voice-package button[value="voice-package"]')
@@ -544,3 +582,52 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
             self.assertFalse(piper.enabled_model(self.root))
             self.assertEqual("missing", self.status("speech-default"))
             self.assertEqual("", SettingsStore(self.root).settings()["media"]["piper_model"])
+
+    def test_component_inventory_is_read_only_and_install_all_is_allowlisted(self):
+        with patch.object(optional, "resolve_command", side_effect=lambda name, *_args: {
+            "piper": "/usr/bin/piper", "ffmpeg": "/usr/bin/ffmpeg",
+            "ffprobe": None, "ffplay": "/usr/bin/ffplay",
+        }[name]):
+            inventory = optional.component_inventory(self.root)
+        by_id = {item["id"]: item for item in inventory["components"]}
+        self.assertIn(inventory["runtime"], {"linux", "windows", "macos", "docker", "termux", "android-apk", "unsupported"})
+        self.assertIn(inventory["architecture"], {"x86_64", "arm64", "intel", "apple-silicon", "x86", "unknown"})
+        self.assertEqual("installed", by_id["piper-engine"]["status"])
+        self.assertEqual("partial", by_id["ffmpeg"]["status"])
+        self.assertEqual("separate-workflow", by_id["osm-data"]["status"])
+        self.assertEqual({"voice-package", "kids-hand"}, set(inventory["supported_install_features"]))
+        page = document(self.client.get(SETUP))
+        self.assertIsNotNone(page.select_one("#component-manager"))
+        self.assertIsNotNone(page.select_one('form[action="/setup/optional/install-all"] button[type="submit"]'))
+        self.assertTrue(page.select_one('a[href="/admin/osm-addresses"]'))
+
+        with patch.object(optional, "queue", return_value="queued") as queue:
+            reply = self.action(self.client, "/install-all")
+        self.assertEqual(303, reply.status_code)
+        self.assertEqual(["voice-package", "kids-hand"], [call.args[1] for call in queue.call_args_list])
+
+    def test_non_admin_cannot_queue_install_all(self):
+        member = app.test_client()
+        self._register(self.client, "component-member")
+        self._login(member, "component-member")
+        self.assertEqual(403, member.post(SETUP + "/install-all", data={"_csrf_token": "x"}).status_code)
+
+    def test_install_queue_rejects_insufficient_free_space_before_downloading(self):
+        with patch.object(optional.shutil, "disk_usage", return_value=SimpleNamespace(free=0)), patch.object(
+            piper, "build_opener", side_effect=AssertionError("low disk space must prevent network access"),
+        ):
+            self.assertEqual("insufficient-space", optional.queue(self.root, "voice-package"))
+        self.assertFalse(optional._job_file(self.root).exists())
+
+    def test_cancel_signal_is_visible_to_another_worker_process_view(self):
+        job_id = "other-worker-job"
+        path = optional._job_file(self.root)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"kids-hand": {
+            "id": job_id, "started": time.time(), "state": "downloading",
+            "progress": {"file": "runtime.tgz", "received": 12, "total": 100},
+        }}), encoding="utf-8")
+        self.assertEqual("cancelling", optional.cancel(self.root, "kids-hand"))
+        self.assertEqual("cancelling", optional.progress_states(self.root)["kids-hand"])
+        worker_signal = optional._PersistentCancelEvent(self.root, "kids-hand", job_id, Event())
+        self.assertTrue(worker_signal.is_set())

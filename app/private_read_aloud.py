@@ -240,7 +240,8 @@ def private_audio_response(
                 if not generated_ok or not path.is_file():
                     raise ReadAloudError("android_speech_unavailable", 503)
             else:
-                path = render_tts(text, "private-reader", directory, model=model)
+                path = render_tts(text, "private-reader", directory, model=model,
+                                  document_root=current_app.config["DOCUMENT_ROOT"])
             with path.open("rb") as generated:
                 audio = generated.read(MAX_SPEECH_AUDIO_BYTES + 1)
         if len(audio) > MAX_SPEECH_AUDIO_BYTES:

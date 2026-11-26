@@ -48,10 +48,11 @@ class AnnouncementTests(unittest.TestCase):
         self.store.register_output("local", "speaker", "Quiet", device="default", volume=50)
         job = self.store.queue_sound("gong", ["speaker"])
         files = []
-        def command(path, device):
+        def command(path, device, document_root=None):
             files.append(Path(path))
             self.assertTrue(Path(path).is_file())
             self.assertEqual("default", device)
+            self.assertEqual(self.worker.root, document_root)
             return ["player", str(path)]
         player = Mock(returncode=0)
         def poll():
@@ -116,8 +117,9 @@ class AnnouncementTests(unittest.TestCase):
         self.store.register_output("local", "speaker", "Quiet", volume=40)
         self.store.queue_sound("gong", ["speaker"])
         files = []
-        def command(path, device):
+        def command(path, device, document_root=None):
             files.append(Path(path))
+            self.assertEqual(self.worker.root, document_root)
             return ["player", str(path)]
         player = Mock(returncode=0)
         player.poll.side_effect = [0, OSError("gone")]

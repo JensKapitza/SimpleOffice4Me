@@ -9,6 +9,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .component_runtime import resolve_command
+
 _MAX_DISCOVERED_OUTPUTS = 64
 _DISCOVERY_TIMEOUT_SECONDS = 5
 _ALSA_ROOT = Path("/proc/asound")
@@ -54,7 +56,7 @@ def discover_receiver_outputs() -> list[dict[str, Any]]:
     """Receiver targets only: never register the Windows fallback as a Pulse sink."""
     if platform.system() != "Windows":
         return discover_speaker_outputs()
-    if not shutil.which("ffplay"):
+    if not resolve_command("ffplay"):
         raise RuntimeError("FFplay fehlt; Windows-Wiedergabe ist nicht verfügbar")
     return [{"id": "default", "label": "Windows-Systemstandard (Hardware nicht geprüft)",
              "driver": "FFplay", "default": True, "state": "unknown"}]
@@ -80,7 +82,7 @@ def discover_microphone_inputs(backend: str = "auto") -> list[dict[str, Any]]:
 
 def _dshow_microphones() -> list[dict[str, Any]]:
     """FFmpeg lists DirectShow devices on stderr and normally exits nonzero."""
-    ffmpeg = shutil.which("ffmpeg")
+    ffmpeg = resolve_command("ffmpeg")
     if not ffmpeg:
         raise RuntimeError("FFmpeg fehlt; Mikrofone können nicht gesucht werden")
     try:

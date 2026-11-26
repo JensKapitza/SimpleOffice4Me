@@ -3,7 +3,8 @@
 {% block body %}
 {% set en = g.language == 'en' %}
 <main id="main-content" class="container-xl py-4" data-optional-setup
-      data-progress="{{ url_for('optional_setup.progress') }}">
+      data-progress="{{ url_for('optional_setup.progress') }}"
+      data-progress-details="{{ url_for('optional_setup.progress_details') }}">
   <a href="{{ url_for('documents.dashboard') }}">{{ 'Back to overview' if en else 'Zurück zur Übersicht' }}</a>
   <header class="my-3">
     <h1 class="h2">{{ 'Set up local extras' if en else 'Lokale Extras einrichten' }}</h1>
@@ -18,6 +19,38 @@
     </form>
   </div>
   {% if optional_skipped %}<p class="small" role="status">{{ 'Skipped for this account only. Installed files and other users are not affected.' if en else 'Nur für dieses Konto übersprungen. Installierte Dateien und andere Konten bleiben unverändert.' }}</p>{% endif %}
+  <section class="card mb-3" id="component-manager" aria-labelledby="component-manager-title">
+    <div class="card-body">
+      <h2 class="h4" id="component-manager-title">{{ 'Component manager' if en else 'Komponentenverwaltung' }}</h2>
+      <p>{{ 'Detected environment' if en else 'Erkannte Umgebung' }}: <strong>{{ inventory.runtime|replace('-', ' ')|title }} · {{ inventory.architecture }}</strong>.</p>
+      <p>{{ 'One-click installation is currently available for the verified Thorsten Scratch model and Finger Magic browser assets. Piper, FFmpeg, RapidOCR/ONNX and OSM use separate existing/system workflows; this page will not claim they are installed or run an unverified installer.' if en else 'Die geprüfte Ein-Klick-Installation ist derzeit für das Thorsten-Scratch-Modell und die Browserdateien für Fingerzauber verfügbar. Piper, FFmpeg, RapidOCR/ONNX und OSM nutzen vorhandene System- oder eigene Abläufe. Diese Seite behauptet keine Installation und startet keinen ungeprüften Installer.' }}</p>
+      <div class="row g-2 mb-3" aria-label="{{ 'Component status' if en else 'Komponentenstatus' }}">
+        {% for item in inventory.components %}
+        <div class="col-12 col-md-6 col-xl-4"><div class="h-100 border rounded p-3">
+          {% set labels = {'piper-engine': ('Piper engine' if en else 'Piper-Engine'), 'german-voice': ('German voice model' if en else 'Deutsches Sprachmodell'), 'english-voice': ('English voice model' if en else 'Englisches Sprachmodell'), 'ffmpeg': 'FFmpeg / FFprobe / FFplay', 'thorsten-scratch': 'Thorsten Scratch', 'mediapipe-hand': ('MediaPipe / Finger Magic' if en else 'MediaPipe / Fingerzauber'), 'rapidocr-onnx': 'RapidOCR / ONNX Runtime', 'osm-data': 'OpenStreetMap-Daten'} %}
+          {% set states = {'installed': ('Detected' if en else 'Gefunden'), 'ready': ('Ready' if en else 'Bereit'), 'missing': ('Missing' if en else 'Fehlt'), 'partial': ('Partially available' if en else 'Teilweise vorhanden'), 'failed': ('Installation failed' if en else 'Installation fehlgeschlagen'), 'queued': ('Queued' if en else 'Vorgemerkt'), 'downloading': ('Installing' if en else 'Wird installiert'), 'cancelling': ('Cancelling' if en else 'Abbruch läuft'), 'cancelled': ('Cancelled' if en else 'Abgebrochen'), 'manual': ('Manual setup' if en else 'Manuelle Einrichtung'), 'separate-workflow': ('Separate setup' if en else 'Eigener Ablauf'), 'engine-missing': ('Engine missing' if en else 'Engine fehlt'), 'installed-disabled': ('Installed, disabled' if en else 'Installiert, deaktiviert'), 'configured': ('Configured, not playback-tested' if en else 'Konfiguriert, nicht abgespielt'), 'shared': ('Configured as shared default' if en else 'Als gemeinsame Stimme eingerichtet'), 'fallback': ('Uses German default' if en else 'Nutzt deutsche Standardstimme'), 'shared-fallback': ('Uses shared default' if en else 'Nutzt gemeinsame Standardstimme'), 'invalid': ('Configured path unavailable' if en else 'Eingerichteter Pfad nicht verfügbar'), 'config-missing': ('Model metadata missing' if en else 'Modellmetadaten fehlen'), 'reader-thorsten': ('Thorsten Scratch selected' if en else 'Thorsten Scratch ausgewählt'), 'reader-thorsten-invalid': ('Selected model is no longer verified' if en else 'Ausgewähltes Modell nicht mehr verifiziert')} %}
+          <h3 class="h6 mb-2">{{ labels[item.id] }}</h3>
+          <p class="mb-2"><span class="badge text-bg-{{ 'success' if item.status in ('installed', 'ready', 'configured', 'shared', 'fallback', 'shared-fallback', 'reader-thorsten') else 'info' if item.status in ('queued', 'downloading', 'cancelling') else 'warning' if item.status in ('missing', 'partial', 'failed', 'manual', 'engine-missing', 'installed-disabled', 'invalid', 'config-missing', 'reader-thorsten-invalid') else 'secondary' }}">{{ states.get(item.status, item.status) }}</span></p>
+          {% if item.download_bytes %}<p class="small text-muted">{{ 'Download' if en else 'Download' }} ≈ {{ (item.download_bytes / 1048576)|round(1) }} MiB · {{ 'free space' if en else 'freier Speicher' }} ≥ {{ (item.required_bytes / 1048576)|round(0)|int }} MiB</p>{% endif %}
+          {% if item.install_feature and manage %}<a class="btn btn-sm btn-outline-primary" href="#{{ 'voice-package' if item.install_feature == 'voice-package' else 'kids-hand' }}">{{ 'Install or manage' if en else 'Installieren oder verwalten' }}</a>
+          {% elif item.id == 'osm-data' and manage %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('admin.osm_address_index') }}">{{ 'Open OSM setup' if en else 'OSM-Einrichtung öffnen' }}</a>
+          {% elif item.id == 'osm-data' %}<span class="small text-muted">{{ 'Administrator access required.' if en else 'Nur für Administratoren.' }}</span>
+          {% elif item.id == 'rapidocr-onnx' %}<span class="small text-muted">{{ 'Uses the configured server Python environment.' if en else 'Nutzt die konfigurierte Server-Python-Umgebung.' }}</span>
+          {% elif item.id in ('piper-engine', 'ffmpeg') %}<span class="small text-muted">{{ 'Uses a detected host installation; this release has no verified installer for it.' if en else 'Nutzt eine gefundene Systeminstallation; für diese Komponente gibt es hier noch keinen geprüften Installer.' }}</span>{% endif %}
+        </div></div>
+        {% endfor %}
+      </div>
+      {% if manage %}
+      <form method="post" action="{{ url_for('optional_setup.install_all') }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-primary">{{ 'Install all supported missing models' if en else 'Alle unterstützten fehlenden Modelle installieren' }}</button>
+      </form>
+      {% endif %}
+      <details class="mt-3"><summary>{{ 'Platform and support details' if en else 'Plattform- und Supportdetails' }}</summary>
+        <p class="mt-2 mb-1">{{ 'This detects APK separately from Termux and Docker. No native Android Piper, FFmpeg or OCR runtime is advertised by this server-side manager. Model downloads remain opt-in.' if en else 'APK, Termux und Docker werden getrennt erkannt. Dieser serverseitige Manager weist keine nativen Android-Runtimes für Piper, FFmpeg oder OCR aus. Modelldownloads bleiben freiwillig.' }}</p>
+      </details>
+    </div>
+  </section>
   <section class="card mb-3" id="reader-speech">
     <div class="card-body">
       <h2 class="h4">{{ '1. Local read-aloud in Reader & Mail' if en else '1. Lokales Vorlesen in Reader & Mail' }}</h2>
@@ -38,6 +71,7 @@
       <section id="voice-package" class="border rounded p-3 my-3" aria-labelledby="voice-package-heading">
         <h3 id="voice-package-heading" class="h5">{{ 'Thorsten Scratch (German, experimental adult voice)' if en else 'Thorsten Scratch (Deutsch, experimentelle Erwachsenenstimme)' }}</h3>
         {% with status=readiness.voice_package %}{% include 'optional_setup/_status.html' %}{% endwith %}
+        {% with feature='voice-package' %}{% include 'optional_setup/_job_progress.html' %}{% endwith %}
         {% if readiness.piper == 'engine-missing' and readiness.voice_package == 'ready' %}
           <p id="voice-package-next-step" class="small mt-2">{{ 'The voice files are ready. Playback and activation still need Piper. Do not download the files again.' if en else 'Die Stimmdateien sind bereit. Zum Aktivieren und Vorlesen fehlt noch die Piper-Engine. Die Dateien musst du nicht erneut laden.' }}</p>
         {% endif %}
@@ -87,6 +121,7 @@
     <div class="card-body">
       <h2 class="h4">{{ '3. Finger magic camera game' if en else '3. Kameraspiel Fingerzauber' }}</h2>
       {% with status=readiness.kids_hand %}{% include 'optional_setup/_status.html' %}{% endwith %}
+      {% with feature='kids-hand' %}{% include 'optional_setup/_job_progress.html' %}{% endwith %}
       <p>{{ 'The server can fetch the pinned runtime and model once from npm and Google. During play the files come from SimpleOffice; camera frames and hand points stay in the browser. Playing requires a supported browser on trusted HTTPS or localhost and a deliberately enabled webcam.' if en else 'Der Server kann einmalig die festgelegte Laufzeit und das Modell von npm und Google laden. Im Spiel kommen die Dateien von SimpleOffice; Kamerabilder und Handpunkte bleiben im Browser. Zum Spielen sind ein unterstützter Browser über vertrauenswürdiges HTTPS oder localhost und eine ausdrücklich freigegebene Webcam nötig.' }}</p>
       <p class="small">{{ 'In the Android app, download the model here once per device. The app keeps it in its own storage; do not grant access to all files. To play, allow the camera when asked.' if en else 'In der Android-App das Modell hier einmal pro Gerät laden. Die App nutzt ihren eigenen Speicher; „Zugriff auf alle Dateien“ ist nicht nötig. Zum Spielen die Kamera erlauben, wenn Android danach fragt.' }}</p>
       <details class="mb-2"><summary>{{ 'License, version and checksums' if en else 'Lizenz, Version und Prüfsummen' }}</summary>
