@@ -261,8 +261,9 @@ class CalDavSchedulingTest(unittest.TestCase):
         event = store.add("Planung", "Abstimmung", "20260810T100000Z", "20260810T110000Z", "", "admin")
         benign = self.client.get(f"/documents/calendar/{event['event_id']}/scheduling.ics?method=REQUEST")
         self.assertEqual(200, benign.status_code)
-        self.assertIn("filename=termin.ics", benign.headers["Content-Disposition"])
-        self.assertTrue(benign.headers["Content-Type"].startswith("text/calendar; method=REQUEST;"))
+        self.assertIn('filename="termin.ics"', benign.headers["Content-Disposition"])
+        self.assertEqual("text/calendar; charset=utf-8", benign.headers["Content-Type"])
+        self.assertIn("METHOD:REQUEST", benign.get_data(as_text=True))
 
         from urllib.parse import quote
 
@@ -278,7 +279,7 @@ class CalDavSchedulingTest(unittest.TestCase):
         disposition = hostile.headers["Content-Disposition"]
         self.assertEqual(benign.headers["Content-Disposition"], disposition)
         self.assertNotIn(hostile_id, disposition)
-        self.assertIn("filename=termin.ics", disposition)
+        self.assertIn('filename="termin.ics"', disposition)
 
         invalid_method = self.client.get(f"/documents/calendar/{event['event_id']}/scheduling.ics?method=../evil")
         self.assertEqual(403, invalid_method.status_code)

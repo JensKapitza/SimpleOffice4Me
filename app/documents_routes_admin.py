@@ -156,9 +156,12 @@ def export_itip_message(event_id: str):
         payload = _itip().export(event_id, str(g.user["username"]), method, request.args.get("attendee", ""), request.args.get("partstat", ""), str(g.user["email"] or ""))
     except ValueError:
         return Response("calendar export is not permitted", 403, {"Content-Type": "text/plain; charset=utf-8"})
-    # Keep attacker-controlled route identifiers out of the download path and
-    # Content-Disposition entirely. Browsers disambiguate repeated downloads.
-    return send_file(io.BytesIO(payload.encode()), as_attachment=True, download_name="termin.ics", mimetype=f"text/calendar; method={normalized_method}; charset=utf-8")
+    # This is an in-memory calendar payload, not a filesystem path. Avoid
+    # send_file so user-derived event content never reaches a path sink; keep
+    # the download header constant as well.
+    response = Response(payload, content_type="text/calendar; charset=utf-8")
+    response.headers["Content-Disposition"] = 'attachment; filename="termin.ics"'
+    return response
 
 
 @bp.post("/calendar/scheduling/access")
