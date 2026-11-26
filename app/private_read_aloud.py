@@ -1,4 +1,4 @@
-"""Short, private audio responses using the operator's local Piper setup."""
+"""Short, private audio responses using a configured local speech engine."""
 from __future__ import annotations
 
 import json
@@ -122,14 +122,28 @@ def configured_piper_model(language: str) -> str:
     return str(path.resolve())
 
 
+def android_speech_available() -> bool:
+    return request.remote_addr in {"127.0.0.1", "::1"} and callable(
+        current_app.config.get("ANDROID_PRIVATE_SPEECH"),
+    )
+
+
+def android_speech_enabled() -> bool:
+    if not android_speech_available():
+        return False
+    settings = SettingsStore(current_app.config["DOCUMENT_ROOT"]).settings()
+    return settings["media"].get("android_private_speech") is True
+
+
 def private_audio_response(
-    load_text: Callable[[], str], *, language: str = "", recheck_source: bool = False,
+    load_text: Callable[[], str], *, language: str = "", recheck_source: bool = False, allow_device_voice: bool = False,
 ) -> Response:
-    """Run a server-selected text loader and local Piper without a shared cache."""
+    """Run a server-selected text loader with local audio and no shared cache."""
     if not _slots.acquire(blocking=False):
         return read_aloud_error("read_aloud_busy", 503)
     try:
-        model = configured_piper_model(language)
+        use_device_voice = allow_device_voice and android_speech_enabled()
+        model = None if use_device_voice else configured_piper_model(language)
         text = " ".join(load_text().split())
         if not text:
             raise ReadAloudError("no_text", 422)
@@ -139,8 +153,23 @@ def private_audio_response(
             text.encode("utf-8", errors="strict")
         except UnicodeError as exc:
             raise ReadAloudError("invalid_text", 422) from exc
-        with tempfile.TemporaryDirectory(prefix="simpleoffice-private-speech-") as directory:
-            path = render_tts(text, "private-reader", directory, model=model)
+        if use_device_voice and len(text.encode("utf-16-le")) // 2 > 4000:
+            raise ReadAloudError("too_much_text", 413)
+        temp_root = current_app.config.get("ANDROID_PRIVATE_SPEECH_CACHE") if use_device_voice else None
+        with tempfile.TemporaryDirectory(prefix="simpleoffice-private-speech-", dir=temp_root) as directory:
+            if use_device_voice:
+                path = Path(directory) / "speech.wav"
+                try:
+                    generated_ok = current_app.config["ANDROID_PRIVATE_SPEECH"](text, language or "de", path)
+                except Exception as exc:
+                    # The Java call may raise an Android/Chaquopy exception.
+                    # Do not log the exception message (it may include inputs).
+                    current_app.logger.info("Android speech render failed: %s", type(exc).__name__)
+                    raise ReadAloudError("android_speech_unavailable", 503) from exc
+                if not generated_ok or not path.is_file():
+                    raise ReadAloudError("android_speech_unavailable", 503)
+            else:
+                path = render_tts(text, "private-reader", directory, model=model)
             with path.open("rb") as generated:
                 audio = generated.read(MAX_SPEECH_AUDIO_BYTES + 1)
         if len(audio) > MAX_SPEECH_AUDIO_BYTES:

@@ -145,6 +145,14 @@ def _verify_android_cryptography_extension() -> None:
     print(RUST_SMOKE_MARKER, flush=True)
 
 
+def _render_android_speech(text: str, language: str, output: Path) -> bool:
+    from java import jclass
+
+    return bool(jclass("de.simpleoffice4me.android.AndroidOfflineSpeech").render(
+        text, language.replace("_", "-"), str(output),
+    ))
+
+
 def _serve() -> None:
     assert _SERVER is not None
     _SERVER.serve_forever(poll_interval=0.25)
@@ -213,6 +221,15 @@ def start(
     except Exception as exc:
         raise RuntimeError(f"SimpleOffice4Me import failed: {type(exc).__name__}: {exc}") from exc
 
+    try:
+        from java import jclass
+        app.config["ANDROID_PRIVATE_SPEECH_CACHE"] = str(
+            jclass("de.simpleoffice4me.android.AndroidOfflineSpeech").cacheDirectory(),
+        )
+    except Exception as exc:
+        app.logger.warning("Optional Android device speech unavailable: %s", type(exc).__name__)
+    else:
+        app.config["ANDROID_PRIVATE_SPEECH"] = _render_android_speech
     app.config["TEMPLATES_AUTO_RELOAD"] = False
     app.config["MAX_CONTENT_LENGTH"] = min(int(app.config["MAX_CONTENT_LENGTH"]), 256 * 1024 * 1024)
     # The native bootstrap runs on every cold app start. A long cookie lifetime

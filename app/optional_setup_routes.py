@@ -6,6 +6,7 @@ from . import kids_hand_assets, kids_piper_assets, optional_hand_game_install, o
 from .access_control import audit, is_admin
 from .auth import login_required
 from .media_settings import PIPER_READER_THORSTEN
+from .private_read_aloud import android_speech_available, android_speech_enabled
 from .settings_store import SettingsStore
 from .setup_store import SetupStore
 
@@ -29,6 +30,8 @@ def index():
         readiness=optional_local_setup.readiness(root, manual_hand_directory=manual),
         optional_skipped=setup["optional_skipped"],
         manage=is_admin(g.user),
+        android_speech_available=android_speech_available(),
+        android_speech_enabled=android_speech_enabled(),
         manual_hand=bool(manual),
         voice_release=kids_piper_assets.MODEL_REVISION,
         voice_card=kids_piper_assets.MODEL_CARD,
@@ -51,7 +54,8 @@ def progress():
 def limit_request() -> None:
     """Apply the small mutation-body cap before session CSRF parses a form."""
     if request.endpoint not in {"optional_setup.install", "optional_setup.preference",
-                                "optional_setup.activate_voice", "optional_setup.select_reader_voice"}:
+                                "optional_setup.activate_voice", "optional_setup.select_reader_voice",
+                                "optional_setup.set_android_speech"}:
         return
     if request.mimetype != "application/x-www-form-urlencoded":
         abort(415)
@@ -146,6 +150,28 @@ def select_reader_voice():
     else:
         audit("reader_voice_selection", "optional_setup", "reader-speech", detail={"action": action})
         flash("Reader and Mail selection saved." if g.language == "en" else "Auswahl für Reader und Mail gespeichert.")
+    return redirect(url_for("optional_setup.index", _anchor="reader-speech"), code=303)
+
+
+@bp.post("/android-speech")
+@login_required
+def set_android_speech():
+    if not is_admin(g.user) or not android_speech_available():
+        abort(403)
+    if (request.args or set(request.form) != {"_csrf_token", "action"}
+            or len(request.form.getlist("action")) != 1 or len(request.form.getlist("_csrf_token")) != 1):
+        abort(400)
+    action = request.form["action"]
+    if action not in {"enable", "disable"}:
+        abort(400)
+    try:
+        SettingsStore(current_app.config["DOCUMENT_ROOT"]).save(
+            {"media": {"android_private_speech": action == "enable"}}, str(g.user["username"]),
+        )
+    except (OSError, ValueError):
+        flash("Voice selection could not be saved." if g.language == "en" else "Die Stimmenauswahl konnte nicht gespeichert werden.")
+    else:
+        audit("reader_voice_selection", "optional_setup", "android-speech", detail={"action": action})
     return redirect(url_for("optional_setup.index", _anchor="reader-speech"), code=303)
 
 

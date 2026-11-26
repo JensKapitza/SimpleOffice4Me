@@ -414,7 +414,7 @@ def _read_aloud(document_id: str, *, allow_ocr: bool):
                 raise ReadAloudError("invalid_page", 404)
             return sections[page - 1]
 
-        response = private_audio_response(load_text, language=g.language)
+        response = private_audio_response(load_text, language=g.language, allow_device_voice=True)
         if response.status_code == 200:
             current, _ = _speech_document(document_id)
             if version != reader_version(current):

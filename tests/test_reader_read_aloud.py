@@ -24,6 +24,7 @@ from app.audio_output_engine import render_tts
 from app.document_store import DocumentStore
 from app.reader_speech_text import MAX_READ_ALOUD_PDF_BYTES, MAX_READ_ALOUD_TEXT_SECTION_CHARS
 from app.reading_store import reader_version
+from app.settings_store import SettingsStore
 from app.v2.contracts import ErrorCode, LogicalObjectId, OperationResult, StorageLocation, StoredObject
 from app.v2.cutover import activate_v2, prepare_shadow
 from app.v2.migration import create_migration_backup, transfer_legacy_documents
@@ -117,6 +118,47 @@ class ReaderReadAloudTests(unittest.TestCase):
         self.assertEqual(b"RIFF", response.data[:4])
         self.assertTrue(self.temp_dirs)
         self.assertTrue(all(not path.exists() for path in self.temp_dirs))
+
+    def test_android_device_speech_explicit_opt_in_and_private_response(self):
+        doc = self.document("offline.txt", b"Private local example.")
+        options = "/setup/optional/android-speech"
+        rendered = []
+
+        def device(text, language, path):
+            self.assertEqual("Private local example.", text)
+            self.assertEqual("de", language)
+            rendered.append(path)
+            self.render_wave(text, "android", path.parent, model=None).rename(path)
+            return True
+
+        with patch.dict(app.config, ANDROID_PRIVATE_SPEECH=device), patch(self.speech_patch, side_effect=self.render_wave):
+            self.assert_private_audio(self.post(doc))
+            self.assertEqual([], rendered)
+            self.login("member")
+            self.assertEqual(403, self.client.post(options, data={"_csrf_token": self.csrf, "action": "enable"}).status_code)
+            self.login("admin")
+            self.assertEqual(403, self.client.post(options, data={"_csrf_token": self.csrf, "action": "enable"},
+                                                  environ_overrides={"REMOTE_ADDR": "192.0.2.4"}).status_code)
+            self.assertEqual(303, self.client.post(options, data={"_csrf_token": self.csrf, "action": "enable"}).status_code)
+            self.assertTrue(SettingsStore(self.root).settings()["media"]["android_private_speech"])
+            self.assertEqual([], rendered)
+            self.assert_private_audio(self.post(doc))
+            self.assertEqual(1, len(rendered))
+            self.assertFalse(rendered[0].parent.exists())
+            self.assertEqual(303, self.client.post(options, data={"_csrf_token": self.csrf, "action": "disable"}).status_code)
+            self.assertFalse(SettingsStore(self.root).settings()["media"]["android_private_speech"])
+
+    def test_android_device_speech_failure_never_falls_back_or_leaks_engine_error(self):
+        doc = self.document("offline.txt", b"Private local example.")
+        SettingsStore(self.root).save({"media": {"android_private_speech": True}}, "admin")
+        device = Mock(side_effect=RuntimeError("private engine detail"))
+        with patch.dict(app.config, ANDROID_PRIVATE_SPEECH=device), patch(self.speech_patch) as piper:
+            response = self.post(doc)
+        self.assertEqual(503, response.status_code)
+        self.assertEqual({"error": "android_speech_unavailable"}, response.get_json())
+        self.assertEqual("private, no-store", response.headers["Cache-Control"])
+        device.assert_called_once()
+        piper.assert_not_called()
 
     def test_epub_reads_one_bounded_body_segment_without_scripts_or_front_matter(self):
         from tests.test_document_reader import epub_bytes

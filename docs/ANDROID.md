@@ -53,6 +53,23 @@ lokale OCR-Engine, für PDF-OCR außerdem die benötigten PDF-Werkzeuge und für
 Piper zusätzlich ein lokal konfiguriertes Sprachmodell. Ein separat
 installierter Termux-Server ist ebenfalls eine andere Instanz.
 
+### Gerätevorlesen ohne zusätzliche SimpleOffice-Modelle
+
+In der APK kannst du als Administrator unter **Lokale Extras → Lokales
+Vorlesen in Reader & Mail → Gerätestimme einschalten** die in Android
+eingestellte Sprachausgabe ausdrücklich freigeben. Installiere dort bei
+Bedarf eine Offline-Stimme (Deutsch oder Englisch). SimpleOffice lädt
+keine Stimme oder Engine, benutzt keine als netzwerkpflichtig oder nicht
+installiert gemeldete Stimme und fällt nicht auf einen Onlinedienst zurück.
+Beim Klick auf **Vorlesen** geht der ausgewählte Text an die vom Gerät
+gewählte Sprachausgabe. Verwende daher eine Engine, der du vertraust.
+Die APK setzt die Android-Engine nicht um und verändert keine Server-,
+Desktop- oder Kids-Stimmeneinstellungen. Die Geräteoption gilt nur für
+Reader und Mail im lokalen Android-Backend. Mail, TXT und EPUB brauchen
+für die Textgewinnung keine OCR; PDF-Textextraktion und Scan-OCR bleiben
+von ihren eigenen Werkzeugen abhängig. Dies ist keine Piper- oder
+RapidOCR-Installation für Android.
+
 Wer die OCR- und Audio-Einrichtung seines Servers nutzen will, öffnet dessen
 Adresse am Handy als PWA. Siehe
 [Systemwerkzeuge für Vorschauen und OCR](SYSTEMWERKZEUGE_VORSCHAU.md) und

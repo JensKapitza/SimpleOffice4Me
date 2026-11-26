@@ -113,6 +113,7 @@ DEFAULT_MEDIA_SETTINGS: dict[str, Any] = {
     "piper_model": DEFAULT_PIPER_MODEL,
     "piper_model_en": DEFAULT_PIPER_MODEL_EN,
     "piper_reader_choice": DEFAULT_PIPER_READER_CHOICE,
+    "android_private_speech": False,
 }
 
 
@@ -127,6 +128,7 @@ def normalize_media_settings(media: dict[str, Any]) -> dict[str, Any]:
         normalized["archive_ocr_enabled"] = DEFAULT_ARCHIVE_OCR_ENABLED
     normalized["piper_model"] = normalize_piper_model(normalized.get("piper_model", DEFAULT_PIPER_MODEL))
     normalized["piper_model_en"] = normalize_piper_model(normalized.get("piper_model_en", DEFAULT_PIPER_MODEL_EN))
+    normalized["android_private_speech"] = normalized.get("android_private_speech") is True
     if normalized.get("piper_reader_choice") != PIPER_READER_THORSTEN:
         normalized["piper_reader_choice"] = DEFAULT_PIPER_READER_CHOICE
     (
@@ -258,6 +260,9 @@ def validate_media_settings(media: dict[str, Any]) -> dict[str, Any]:
         or not MIN_PREVIEW_MAX_PIXELS <= preview_max_pixels <= MAX_PREVIEW_MAX_PIXELS
     ):
         raise ValueError("preview pixel limit is outside the allowed range")
+    android_speech = media.get("android_private_speech", False)
+    if type(android_speech) is not bool:
+        raise ValueError("invalid Android device voice setting")
     reader_choice = media.get("piper_reader_choice", DEFAULT_PIPER_READER_CHOICE)
     if reader_choice not in (DEFAULT_PIPER_READER_CHOICE, PIPER_READER_THORSTEN):
         raise ValueError("unsupported Reader voice selection")
@@ -284,4 +289,5 @@ def validate_media_settings(media: dict[str, Any]) -> dict[str, Any]:
         "piper_model": validate_piper_model(media.get("piper_model", DEFAULT_PIPER_MODEL)),
         "piper_model_en": validate_piper_model(media.get("piper_model_en", DEFAULT_PIPER_MODEL_EN)),
         "piper_reader_choice": reader_choice,
+        "android_private_speech": android_speech,
     }

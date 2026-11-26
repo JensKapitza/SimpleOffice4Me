@@ -184,6 +184,8 @@
             ? label('speechBusy', 'Local read-aloud is busy. Wait a moment, then try again.')
             : label('speechTimeout', 'Preparing local audio took too long. Wait a moment, then try again.');
           release('error', guidance, request.continuing && request.page !== request.anchorPage ? request.page : null);
+        } else if (code === 'android_speech_unavailable') {
+          release('unavailable', label('speechAndroidUnavailable', 'Install an offline voice for this language in Android settings.'));
         } else if (code === 'pdf_source_timeout') {
           release('error', label('speechPdfSourceTimeout', 'Preparing the PDF took too long.'));
         } else if (code === 'pdf_stage_unavailable') {

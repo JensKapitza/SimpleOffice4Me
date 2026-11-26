@@ -21,6 +21,19 @@
   <section class="card mb-3" id="reader-speech">
     <div class="card-body">
       <h2 class="h4">{{ '1. Local read-aloud in Reader & Mail' if en else '1. Lokales Vorlesen in Reader & Mail' }}</h2>
+      {% if android_speech_available %}
+      <section class="border rounded p-3 my-3" aria-labelledby="android-speech-heading">
+        <h3 id="android-speech-heading" class="h5">{{ 'Android device voice' if en else 'Android-Gerätestimme' }}</h3>
+        <p>{{ 'Reader and Mail can use the device’s configured Android speech engine. Only installed voices marked for offline use are selected. When you choose Read aloud, the selected text is passed to that engine. Use a speech engine you trust. No voice or package is downloaded by SimpleOffice.' if en else 'Reader und Mail können die in Android eingestellte Sprachausgabe verwenden. Die App wählt nur bereits installierte, als offline gekennzeichnete Stimmen. Beim Vorlesen erhält diese Sprachausgabe den ausgewählten Text. Nutze eine Engine, der du vertraust. SimpleOffice lädt dabei keine Stimme und kein Paket herunter.' }}</p>
+        <p>{{ ('On' if en else 'Aktiv') if android_speech_enabled else ('Off' if en else 'Aus') }}</p>
+        {% if manage %}
+        <form method="post" action="{{ url_for('optional_setup.set_android_speech') }}">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-outline-primary" type="submit" name="action" value="{{ 'disable' if android_speech_enabled else 'enable' }}">{{ ('Turn device voice off' if en else 'Gerätestimme ausschalten') if android_speech_enabled else ('Turn device voice on' if en else 'Gerätestimme einschalten') }}</button>
+        </form>
+        {% endif %}
+      </section>
+      {% endif %}
       <p>{{ 'Playback requires Piper on the system running SimpleOffice. Voice files can be downloaded beforehand. You can also choose your own local voices for default and English in Media settings. This check does not run Piper or read any documents or email.' if en else 'Zum Vorlesen braucht das System, auf dem SimpleOffice läuft, die Piper-Engine. Die Stimmdateien kannst du vorher laden. In den Medien-Einstellungen kannst du auch eigene lokale Stimmen für Standard und Englisch wählen. Diese Prüfung startet Piper nicht und liest keine Dokumente oder E-Mails.' }}</p>
       <dl>
         <dt>{{ 'Piper engine' if en else 'Piper-Engine' }}</dt>
