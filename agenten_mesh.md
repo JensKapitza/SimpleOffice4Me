@@ -953,11 +953,20 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | #1328: GitHub-CI grün, lokal 4 Python-Tests bestanden/1 übersprungen und 1 Node-Test bestanden. #1330: CI grün einschließlich Android-APK, Python und authentifiziertem Chromium-Scannertest; nur experimenteller Python-3.15-Lauf abgebrochen. #1331: 97 lokale Python-Tests bestanden/3 übersprungen und 9 Node-Tests bestanden; CI grün außer abgebrochenem, nicht blockierendem Python-3.15-Lauf. |
 | Review und Abschluss | Keine offenen Code-PRs nach #1331. #1332 ist der verbleibende Dokumentations-PR für diese Runde. Nicht verifiziert: physischer Android-Scan, externer Modell-Download, echte Piper-Wiedergabe und standalone APK-Audio. |
 
-## 26. November 2026 · Issue-Runde 9: #1320 + #1321 geschlossen, #1333-HOLD, #1314-Teilstand
+## 26. November 2026 · Issue-Runde 9: #1320/#1321 abgeschlossen, #1314 bleibt offen
 
 | Phase | Arbeit und Nachweis |
 |---|---|
-| Analyse | 3 Issues per Subagent gegen Main geprüft (#1314/#1320/#1321); #1333 per Review-Subagent geprüft (HOLD: toter Dirty-Guard). |
-| Implementierung | #1320 (Logikwerkstatt, via #1323) + #1321 (Vorlesen/Downloads, via #1324) mit Dateinachweis kommentiert + geschlossen. #1333-Befund als PR-Kommentar gepostet (eigener-Account-PR, kein Request-Changes möglich). #1314-Teilstand kommentiert (Blickpfad/Inferenz/Kamera offen). |
-| Tests und Soll-Ist-Vergleich | Soll: weiteres Issue erledigen. Ist: 2 Issues geschlossen (Evidenz per `git cat-file` auf Main belegt), 1 HOLD begründet, 1 Teilstand dokumentiert. #1331-Draft + #1333-HOLD bleiben offen. |
-| Review und Abschluss | Offen: #1333-Fix (Peer), #1331-Ready, Rest-Issues (#1314 Blickpfad, #1304 Fingeralphabet, #1306 Android/Föderation, #1225 glib, #874 Alerts, Epics). |
+| Analyse | #1320/#1321 gegen Main und ihre Abschlussnachweise geprüft. #1314 bleibt ein Teilstand: Blickpfad, echte Inferenz und physischer Kameratest fehlen. #1333 im Review: der Dirty-Guard wurde im Client nicht gesetzt. |
+| Implementierung | #1320 (Logikwerkstatt, #1323, Merge `3cf4256d`) und #1321 (Vorlesen/Downloads, #1324, Merge `cd46bc19`) mit Dateinachweis kommentiert und geschlossen. #1333-Guard ergänzt und PR mit `9f82e920` gemergt. #1331 aus Draft freigegeben und mit `7ed77c14` gemergt. |
+| Tests und Soll-Ist-Vergleich | #1333: 10 Node-Tests lokal bestanden; alle 41 GitHub-Checks abgeschlossen ohne Fehlschlag, darunter Python-Anwendung, CodeQL und authentifizierter Chromium-Scannerlauf. #1331: 97 lokale Python-Tests bestanden/3 übersprungen, 9 Node-Tests; CI ohne Fehler, der experimentelle 3.15-Lauf nicht blockierend abgebrochen. |
+| Review und Abschluss | #1320/#1321 geschlossen. #1314 bleibt offen, bis Blickpfad, echte Modellinferenz und Gerätetest belegt sind. #1333 ist gemergt; #1334 ist der nachfolgende Protokoll-PR. |
+
+## 26. November 2026 · Issue-Runde 10: #874-Triage (338 Alerts) + Fix-PR #1336
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Subagent-Triage aller 338 Code-Scanning- + 1 Dependabot-Alerts gegen Main: 152 path-injection FP (eigene Sanitizer), 67 stack-trace FP (kuratierte Strings), Rest FP/Prozess/Hygiene. Belegstellen je Cluster geprüft ( containment in `safe_paths`/`webdav_part_2`, allowlists, HMAC-vs-Passwort, vendored libs). |
+| Implementierung | #1335 Quellenvergleich gemergt (`15b62527`). #1336 behebt #384 über eine normale In-Memory-Antwort mit konstantem Downloadnamen (ohne `send_file`) und #1043 durch Sperren von `http://` in `safePreviewUrl`; Merge `fb8f523f`. glib bleibt #1225. |
+| Tests und Soll-Ist-Vergleich | #1335: 35 authentifizierte Flask-Integrationstests lokal bestanden; GitHub Python-3.14-Regression, mobiler Chromium-Scannerlauf, Kontakt-/Erfassungs-Browserlauf, Security, statische Prüfung und Scanner/Reader-Docker-Prüfung bestanden. #1336: 13 CalDAV-Tests, 2 Node-Allowlist-Tests und Ruff lokal bestanden. CodeQL, PR-Regression, Security und statische CI erfolgreich. Beim Merge liefen noch die breite Python-Anwendungssuite, der Scanner-Image-Test und Python 3.15; es gab keine fehlgeschlagenen Checks. |
+| Review und Abschluss | #1335 und #1336 sind gemergt. FP-Dismissals bleiben Eigentümer-Entscheidung. |
