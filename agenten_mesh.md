@@ -944,11 +944,11 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: Welle 7 + 1 Issue. Ist: 8/8 Reviews MERGE-READY ohne Blocker; je-PR CI-Grün + Merge-State verifiziert; Issue-Dateien per `git cat-file` auf Main belegt. #1318 rot (staged-hand-browser, fremd), #1303 weiter CodeQL-rot (fremd). |
 | Review und Abschluss | Offen: #1317 (CI), #1323/#1324 (fremde Code-Konflikte), #1303/#1318 (fremd rot), Rest-Issues brauchen Geräte-Praxistests. |
 
-## 26. November 2026 · Merge-Runde 8: PR-Queue leer gemergt (bis auf Draft)
+## 26. November 2026 · Merge-Runde 8: Code-Queue abgeschlossen
 
 | Phase | Arbeit und Nachweis |
 |---|---|
-| Analyse | Rest-Queue per 3 Review-Subagenten geprüft: #1324 Re-Review (6 Commits), #1327 Security-Fokus, #1328, #1330/#1331. |
-| Implementierung | Peer mergte #1323/#1324/#1325/#1326/#1327/#1328 nach Grün; selbst gemergt #1330 (nur non-blocking 3.15 rot). #1331 als DRAFT korrekt offengelassen (technisch sauber). |
-| Tests und Soll-Ist-Vergleich | Soll: PRs lösen+mergen. Ist: 5/5 Reviews MERGE-READY (1 Draft-HOLD prozessual), je-PR CI verifiziert (nur non-blocking 3.15 rot bei #1330). Offene PRs: nur Draft #1331. |
-| Review und Abschluss | #1331 mergen, sobald Ready (Review liegt vor). |
+| Analyse | Scanner-Bestandsprüfung #1328, Android-Barcodescan #1330 und optionale Reader-/Mail-Stimmdateien #1331 auf Eigentümergrenzen, explizite Speicherung, native Brücke, Engine-Abhängigkeit und Fehlerpfade geprüft. |
+| Implementierung | Gemergt: #1323/#1324/#1325/#1326/#1327/#1328 sowie #1330/#1331. #1330 wurde während der Prüfung parallel gemergt; #1331 danach aus dem Draft freigegeben und gemergt. |
+| Tests und Soll-Ist-Vergleich | #1328: GitHub-CI grün, lokal 4 Python-Tests bestanden/1 übersprungen und 1 Node-Test bestanden. #1330: CI grün einschließlich Android-APK, Python und authentifiziertem Chromium-Scannertest; nur experimenteller Python-3.15-Lauf abgebrochen. #1331: 97 lokale Python-Tests bestanden/3 übersprungen und 9 Node-Tests bestanden; CI grün außer abgebrochenem, nicht blockierendem Python-3.15-Lauf. |
+| Review und Abschluss | Keine offenen Code-PRs nach #1331. #1332 ist der verbleibende Dokumentations-PR für diese Runde. Nicht verifiziert: physischer Android-Scan, externer Modell-Download, echte Piper-Wiedergabe und standalone APK-Audio. |
