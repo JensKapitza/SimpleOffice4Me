@@ -1,5 +1,5 @@
 import {cameraController} from './kids_hand_camera.mjs';
-import {Duel, HoldFilter, POSES, ROUND_MS, readResult} from './kids_hand_logic.mjs';
+import {Duel, HoldFilter, POSES, PracticeSession, ROUND_MS, readResult} from './kids_hand_logic.mjs';
 import {loadHandModel} from './kids_hand_model.mjs';
 
 const SKELETON = [[0,1,2,3,4], [0,5,6,7,8], [5,9,10,11,12], [9,13,14,15,16], [13,17,18,19,20], [17,0]];
@@ -101,7 +101,8 @@ function boot(root) {
   const nextButton = get('next'), feedback = get('feedback');
   const names = Object.keys(POSES);
   const hold = new HoldFilter();
-  let index = 0, duel = null, videoTime = -1, lastInference = -Infinity;
+  const practice = new PracticeSession(names);
+  let duel = null, videoTime = -1, lastInference = -Infinity;
 
   const showFeedback = (message = '', won = false) => {
     if (feedback.textContent !== message) feedback.textContent = message;
@@ -167,7 +168,7 @@ function boot(root) {
       showPose(duel.target);
     } else {
       get('phase').textContent = text.practice;
-      showPose(names[index]);
+      showPose(practice.target);
     }
     showResults();
   }
@@ -193,8 +194,11 @@ function boot(root) {
     const observed = hold.observe(result, now);
     if (!observed || observed === 'released') return;
     if (!duel) {
-      if (observed === names[index]) showFeedback(text.release, true);
-      else showFeedback(text.wrong);
+      const outcome = practice.update(observed);
+      if (outcome === 'correct') {
+        render();
+        showFeedback(text.next, true);
+      } else if (outcome === 'wrong') showFeedback(text.wrong);
       return;
     }
     const current = duel.target;
@@ -255,7 +259,7 @@ function boot(root) {
   });
   off.addEventListener('click', () => { camera.stop(); on.focus(); });
   nextButton.addEventListener('click', () => {
-    index = (index + 1) % names.length;
+    practice.next();
     showFeedback();
     render();
   });

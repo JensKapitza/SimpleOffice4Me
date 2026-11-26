@@ -111,6 +111,7 @@ class KidsHandGameBrowserTests(PublicHttpTestCase):
                 start.click()
                 expect(page.locator("[data-hand-preview]")).to_be_visible(timeout=20000)
                 expect(page.locator("[data-hand-feedback]")).to_contain_text("Great!", timeout=25000)
+                expect(page.locator("[data-hand-title]")).to_have_text("Crystal", timeout=5000)
                 self.assertTrue(page.evaluate("window.handFixtureCalls.every(c => c.audio === false)"))
                 self.assertEqual(page.evaluate("window.handFixtureTracks.map(t => t.kind)"), ["video"])
                 self.assertTrue(page.locator("[data-hand-overlay]").evaluate(

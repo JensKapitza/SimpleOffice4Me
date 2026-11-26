@@ -996,3 +996,13 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | Kein Patch möglich: kein Release mit glib ≥ 0.20 existiert; `[patch]`-Vendoring wegen ABI-Risiko verworfen. Befund mit Entblockungs-Kriterium als Issue-Kommentar dokumentiert. |
 | Tests und Soll-Ist-Vergleich | Soll: Upgrade-Pfad. Ist: zweifach belegter Negativbefund (Subagent + crates.io-API-Dependencies); kein Code geändert, keine Tests nötig; Issue bleibt offen als Watch-Item. |
 | Review und Abschluss | Medium/Crash-only/Linux-only ohne CVE; Neubewertung bei erstem Runtime-wry mit `wry ^0.58`. |
+## 26. November 2026 · Kids-Handzeichen: Übungsablauf nach Erkennung
+
+| Phase | Aufgabe und Ergebnis |
+| --- | --- |
+| Analyse | Auf `/kids/lernen/handzeichen` erkannte die Webcam stabile Gesten. Im Einzel-Üben wurde eine richtige Geste lediglich bestätigt; das Zielzeichen blieb unverändert. Dadurch wirkte das Spiel trotz funktionierender Erkennung festgefahren. Im Duell gibt es bereits eine Fortschrittslogik. |
+| Planung | Auf richtige, stabil erkannte Geste automatisch zum nächsten Übungszeichen wechseln. Falsche Gesten sollen das Ziel nicht verändern. Manuelles Weiterschalten und Duell bleiben erhalten. Teste die echte Kette aus `HoldFilter` und Übungszustand mit Node-Tests. |
+| Implementierung | `PracticeSession` in `static/js/kids_hand_logic.mjs` besitzt Ziel, Trefferprüfung, Weiterschalten und zyklischen Wechsel. `static/js/kids_hand_game.mjs` rendert nach einem stabilen Treffer sofort das nächste Zeichen und zeigt die Bestätigung. Falsche und unbekannte Ergebnisse verändern den Fortschritt nicht. |
+| Tests | `node --test tests/kids_hand_game.test.mjs`: 6/6 bestanden. `PYTHONPATH=tests python -m unittest -q test_kids_hand_game`: 3/3 bestanden. Der echte Chromium/MediaPipe-Test wurde aufgerufen, aber mangels lokal bestätigter Modell-/Videodateien korrekt übersprungen. Er prüft nun zusätzlich, dass nach dem Kamera-Treffer der Titel auf das nächste Zeichen wechselt. `git diff --check` bestanden. |
+| Soll-Ist-Vergleich | Soll: richtige erkannte Handzeichen lassen den Übungsmodus sichtbar weiterlaufen. Ist: Einzel-Üben springt nach einer stabil erkannten richtigen Geste zum nächsten Zeichen; falsche Geste bleibt beim aktuellen Ziel. |
+| Review und Abschluss | Funktionale Regressionstests bestanden. Echter Kameratest mit Geräten steht weiterhin aus; kein Erfolg für diesen Praxistest behauptet. |
