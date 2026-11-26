@@ -18,6 +18,7 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
 from app import app, db as database
+from app import kids_piper_assets, optional_local_setup
 from app.audio_output_engine import render_tts
 from app.document_store import DocumentStore
 from app.private_read_aloud import ReadAloudError
@@ -26,6 +27,7 @@ from app.settings_store import SettingsStore
 
 
 class ReaderRuntimeCheckTests(unittest.TestCase):
+    setup_url = "/setup/optional#reader-speech"
     settings_url = "/admin/settings/documents-media"
     probe_url = settings_url + "/reader-runtime"
     csrf = "local-reader-fixture-token" * 2
@@ -84,9 +86,32 @@ class ReaderRuntimeCheckTests(unittest.TestCase):
         self.assertEqual(str(path), media["piper_model"])
         self.assertEqual(str(english), media["piper_model_en"])
 
+    def assert_direct_voice_setup(self, view):
+        with patch.object(optional_local_setup.shutil, "which", return_value=None), patch.object(
+            kids_piper_assets, "build_opener", side_effect=AssertionError("GET must not open a download"),
+        ), patch("app.reader_runtime_check.check_reader_runtime") as probe:
+            response = self.client.get(view)
+            self.assertEqual(200, response.status_code)
+            body = BeautifulSoup(response.data, "html.parser")
+            player = body.select_one("[data-reader-read-aloud]")
+            links = player.select("a")
+            self.assertEqual([self.setup_url, self.settings_url + "#local-read-aloud"],
+                             [link["href"] for link in links])
+            self.assertIn("Vorlesen einrichten", player["data-speech-unavailable"])
+            target = urlsplit(links[0]["href"])
+            response = self.client.get(target.path)
+            self.assertEqual(200, response.status_code)
+            setup = BeautifulSoup(response.data, "html.parser").find(id=target.fragment)
+            self.assertEqual("engine-missing", setup.select_one("#speech-engine [data-optional-status]")[
+                "data-optional-status"])
+            self.assertIsNotNone(setup.select_one('#voice-package button[value="voice-package"]'))
+            self.assertEqual({}, optional_local_setup._read(self.root))
+            probe.assert_not_called()
+
     def test_reader_admin_link_and_settings_get_trigger_no_probe(self):
         doc = DocumentStore(self.root).import_upload(io.BytesIO(b"Test text"), "local.txt", "admin")
         view = f"/documents/reader/{doc['document_id']}/text"
+        self.assert_direct_voice_setup(view)
         with patch("app.reader_runtime_check.check_reader_runtime") as run:
             admin = BeautifulSoup(self.client.get(view).data, "html.parser")
             link = admin.select_one(f"a[href='{self.settings_url}#local-read-aloud']")
@@ -100,6 +125,7 @@ class ReaderRuntimeCheckTests(unittest.TestCase):
             member = BeautifulSoup(self.client.get(view).data, "html.parser")
             self.assertIsNotNone(member.select_one("[data-reader-read-aloud]"))
             self.assertIsNone(member.select_one(f"a[href='{link['href']}']"))
+            self.assertIsNone(member.select_one(f"a[href='{self.setup_url}']"))
             self.assertIn("wende dich an die Administration", member.get_text())
             run.assert_not_called()
 
@@ -107,12 +133,11 @@ class ReaderRuntimeCheckTests(unittest.TestCase):
         mail = b"Subject: Fixture\r\nFrom: editor@example.invalid\r\n\r\nOnly the sample body\r\n"
         doc = DocumentStore(self.root).import_upload(io.BytesIO(mail), "local.eml", "admin")
         view = f"/documents/{doc['document_id']}/eml-preview"
-        selector = f"[data-reader-read-aloud] a[href='{self.settings_url}#local-read-aloud']"
-        self.assertIsNotNone(BeautifulSoup(self.client.get(view).data, "html.parser").select_one(selector))
+        self.assert_direct_voice_setup(view)
         self.login(self.client, "member")
         body = BeautifulSoup(self.client.get(view).data, "html.parser")
         self.assertIsNotNone(body.select_one("[data-reader-read-aloud]"))
-        self.assertIsNone(body.select_one(selector))
+        self.assertFalse(body.select("[data-reader-read-aloud] a"))
 
     def test_only_admin_with_csrf_and_small_fixed_envelope_can_run_test(self):
         with patch("app.reader_runtime_check.check_reader_runtime") as run:
