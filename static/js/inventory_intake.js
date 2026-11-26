@@ -11,6 +11,9 @@
   const openSaved = pending.querySelector('[data-intake-open-saved]');
   const status = pending.querySelector('[role="status"]');
   const submit = form.querySelector('[type="submit"]');
+  const nativeSaveLimitMs = 8000;
+  const initialSubmitLabel = submit.textContent;
+  let nativeCapture = null;
   let previewVersion = 0;
   let uploading = false;
   let saved = false;
@@ -20,12 +23,38 @@
     code.querySelector('code').textContent = value;
   };
   const lockCapture = (locked) => {
-    input.disabled = submit.disabled = scan.disabled = locked;
-    barcode.readOnly = locked;
+    submit.disabled = locked;
+    input.disabled = scan.disabled = barcode.readOnly = locked || Boolean(nativeCapture);
   };
+  const sendCapture = async (data, bounded) => {
+    const controller = bounded && typeof AbortController === 'function' ? new AbortController() : null;
+    const send = async () => {
+      const response = await window.fetch(form.action, {
+        method: 'POST', credentials: 'same-origin', headers: {Accept: 'application/json'}, body: data,
+        ...(controller ? {signal: controller.signal} : {}),
+      });
+      return {response, parsed: await response.json()};
+    };
+    if (!bounded) return send();
+    let timer;
+    try {
+      return await Promise.race([send(), new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error('Native barcode acknowledgement timed out'));
+          controller?.abort();
+        }, nativeSaveLimitMs);
+      })]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  const retryNote = 'Speicherung nicht bestätigt. Bitte denselben Scan erneut speichern.';
+
   openSaved.addEventListener('click', () => window.location.reload());
   form.addEventListener('intake:native-scan', () => {
-    if (input.files[0] || uploading || saved) return;
+    if (input.files[0] || uploading || saved || nativeCapture) return;
+    // Reuse the original payload, including its capture token, until confirmed.
+    nativeCapture = new FormData(form);
     form.requestSubmit();
   });
   input.addEventListener('change', async () => {
@@ -82,16 +111,13 @@
     if (!window.fetch) return;
     event.preventDefault();
     uploading = true;
-    const data = new FormData(form);
+    const data = nativeCapture || new FormData(form);
     lockCapture(true);
     try {
-      const response = await window.fetch(form.action, {
-        method: 'POST', credentials: 'same-origin', headers: {Accept: 'application/json'}, body: data,
-      });
-      const parsed = await response.json();
+      const {response, parsed} = await sendCapture(data, Boolean(nativeCapture));
       if (!response.ok || !parsed.ok || !/^[0-9a-f]{32}$/.test(parsed.draft?.id)) {
-        status.textContent = typeof parsed.error === 'string'
-          ? parsed.error : 'Speicherung nicht bestätigt. Bitte erneut speichern.';
+        status.textContent = typeof parsed?.error === 'string' ? parsed.error
+          : nativeCapture ? retryNote : 'Speicherung nicht bestätigt. Bitte erneut speichern.';
         return;
       }
       status.textContent = 'Privater Entwurf gespeichert';
@@ -104,10 +130,14 @@
         window.location.reload();
       }
     } catch (_) {
-      status.textContent = 'Speicherung nicht bestätigt. Eingabe bleibt erhalten; bitte erneut speichern.';
+      status.textContent = nativeCapture ? retryNote
+        : 'Speicherung nicht bestätigt. Eingabe bleibt erhalten; bitte erneut speichern.';
     } finally {
       uploading = false;
-      if (!saved) lockCapture(false);
+      if (!saved) {
+        submit.textContent = nativeCapture ? 'Scan erneut speichern' : initialSubmitLabel;
+        lockCapture(false);
+      }
     }
   });
 })();

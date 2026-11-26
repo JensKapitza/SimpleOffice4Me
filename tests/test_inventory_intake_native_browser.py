@@ -77,7 +77,7 @@ class InventoryIntakeNativeBrowserTests(PublicHttpTestCase):
             context.add_cookies([{"name": session.key, "value": session.value, "url": self.origin}])
             page = context.new_page()
             unexpected, mutations, errors = [], [], []
-            lost_ack = []
+            lost_ack, stalled = [], []
             page.on("pageerror", lambda error: errors.append(str(error)))
 
             def route_request(route):
@@ -88,10 +88,14 @@ class InventoryIntakeNativeBrowserTests(PublicHttpTestCase):
                     return
                 if req.method != "GET":
                     mutations.append((req.method, req.url))
-                    if req.url == self.origin + PATH and not lost_ack:
-                        lost_ack.append(route.fetch().status)
-                        route.abort()
-                        return
+                    if req.url == self.origin + PATH:
+                        if len(mutations) == 1:
+                            lost_ack.append(route.fetch().status)
+                            stalled.append(route)  # Do not settle the browser response yet.
+                            return
+                        if len(mutations) == 3:
+                            route.abort()  # The second deliberate scan never reaches Flask.
+                            return
                 route.continue_()
 
             page.route("**/*", route_request)
@@ -156,7 +160,13 @@ class InventoryIntakeNativeBrowserTests(PublicHttpTestCase):
             self._reply(page, next_scan, "ok", UPC)
             pending = page.locator("#intake-pending")
             expect(pending.locator("[data-intake-pending-barcode] code")).to_have_text(UPC)
-            expect(pending.get_by_role("status")).to_contain_text("Speicherung nicht bestätigt")
+            expect(pending.get_by_role("status")).to_contain_text("Speicherung nicht bestätigt", timeout=12000)
+            self.assertEqual(1, len(stalled))
+            retry = form.get_by_role("button", name="Scan erneut speichern")
+            expect(retry).to_be_enabled()
+            expect(button).to_be_disabled()
+            expect(barcode).not_to_be_editable()
+            expect(form.locator("#intake-photo")).to_be_disabled()
             self.assertEqual([201], lost_ack)
             expect(page.locator("article[id^=draft-]")).to_have_count(0)
 
@@ -165,7 +175,7 @@ class InventoryIntakeNativeBrowserTests(PublicHttpTestCase):
             # The hash changes before the full reload. Wait for the new document's
             # deferred scripts before announcing its (document-scoped) port.
             with page.expect_event("domcontentloaded"):
-                form.get_by_role("button", name="Privaten Entwurf anlegen").tap()
+                retry.tap()
             drafts = page.locator("article[id^=draft-]")
             expect(drafts).to_have_count(1)
             first_id = drafts.first.get_attribute("id")
@@ -174,12 +184,17 @@ class InventoryIntakeNativeBrowserTests(PublicHttpTestCase):
             page.evaluate(INSTALL_FIXTURE)
             expect(button).to_be_visible()
             self._reply(page, self._start(page, 1), "ok", UPC)
+            expect(pending.get_by_role("status")).to_contain_text("Speicherung nicht bestätigt")
+            expect(drafts).to_have_count(1)
+            expect(retry).to_be_enabled()
+            with page.expect_event("domcontentloaded"):
+                retry.tap()
             expect(drafts).to_have_count(2)
             self.assertIn(first_id, [card.get_attribute("id") for card in drafts.all()])
             for card in drafts.all():
                 expect(card).to_contain_text("In Prüfung")
                 expect(card.locator("input[name=barcode]")).to_have_value(UPC)
-            self.assertEqual(mutations, [("POST", self.origin + PATH)] * 3)
+            self.assertEqual(mutations, [("POST", self.origin + PATH)] * 4)
             self.assertEqual([], unexpected)
             self.assertEqual([], errors)
             context.close()

@@ -7,12 +7,14 @@ const script = readFileSync('static/js/inventory_intake.js', 'utf8');
 
 function harness() {
   let request;
+  const timers = new Map();
+  let timerId = 0;
   function node(base = {}) {
     const handlers = {};
     return {handlers, addEventListener: (name, callback) => { handlers[name] = callback; }, ...base};
   }
   const status = node();
-  const submit = node();
+  const submit = node({textContent: 'Privaten Entwurf anlegen'});
   const scan = node();
   const barcode = node({value: ''});
   const codeLabel = node();
@@ -38,14 +40,17 @@ function harness() {
       return new Promise(resolve => { request = resolve; });
     },
   });
-  const ctx = {window, FormData: class {constructor(actual) { assert.equal(actual, form); }},
+  const ctx = {window, AbortController,
+    setTimeout(callback, delay) { const id = ++timerId; timers.set(id, {callback, delay}); return id; },
+    clearTimeout(id) { timers.delete(id); },
+    FormData: class {constructor(actual) { assert.equal(actual, form); }},
     document: {querySelector: key => key.includes('data-so-dirty') ? dirty : map[key], querySelectorAll: () => [], createElement: tag => {
       const context = {draws: [], drawImage(...args) { this.draws.push(args); }};
       return node({tag, context, attributes: {}, setAttribute(key, value) { this.attributes[key] = value; },
         getContext: () => context});
     }}};
   runInNewContext(script, ctx);
-  return {input, form, pending, picture, status, calls, location, barcode, code, codeLabel, openSaved,
+  return {input, form, pending, picture, status, calls, location, barcode, code, codeLabel, openSaved, scan, submit, timers,
     setDirty() { dirty = true; }, ack: data => request(data),
     setBitmapSize(width, height) { decodedWidth = width; decodedHeight = height; },
     setDecode(callback) { decode = callback; }};
@@ -149,4 +154,37 @@ test('clearing a selected photo removes the previous canvas', async () => {
   await ui.input.handlers.change();
   assert.equal(ui.pending.hidden, true);
   assert.equal(ui.picture.children.length, 0);
+});
+
+test('a stalled native save stops waiting and can only retry the original payload', async () => {
+  const ui = harness();
+  ui.input.files = [];
+  ui.barcode.value = '036000291452';
+  let attempt;
+  ui.form.requestSubmit = () => { attempt = ui.form.handlers.submit({preventDefault() {}}); };
+  ui.form.handlers['intake:native-scan']();
+  const sent = ui.calls[0][1];
+  ui.ack({ok: true, json: () => new Promise(() => {})}); // Headers arrived, body did not.
+  await Promise.resolve();
+  const [{callback, delay}] = ui.timers.values();
+  assert.equal(delay, 8000);
+  assert.equal(ui.submit.disabled, true);
+  callback();
+  await attempt;
+  assert.equal(sent.signal.aborted, true);
+  assert.equal(ui.timers.size, 0);
+  assert.match(ui.status.textContent, /denselben Scan/);
+  assert.equal(ui.scan.disabled, true);
+  assert.equal(ui.input.disabled, true);
+  assert.equal(ui.barcode.readOnly, true);
+  assert.equal(ui.submit.disabled, false);
+  assert.equal(ui.submit.textContent, 'Scan erneut speichern');
+  ui.form.handlers['intake:native-scan']();
+  assert.equal(ui.calls.length, 1);
+  const retry = ui.form.handlers.submit({preventDefault() {}});
+  assert.equal(ui.calls[1][1].body, sent.body);
+  ui.ack({ok: true, json: async () => ({ok: true, draft: {id: 'd'.repeat(32)}})});
+  await retry;
+  assert.equal(ui.location.hash, 'draft-' + 'd'.repeat(32));
+  assert.equal(ui.timers.size, 0);
 });
