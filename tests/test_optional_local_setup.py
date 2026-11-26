@@ -607,7 +607,34 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
         with patch.object(optional, "queue", return_value="queued") as queue:
             reply = self.action(self.client, "/install-all")
         self.assertEqual(303, reply.status_code)
-        self.assertEqual(["voice-package", "kids-hand", "english-voice"], [call.args[1] for call in queue.call_args_list])
+        self.assertEqual(["kids-hand"], [call.args[1] for call in queue.call_args_list])
+
+    def test_basics_does_not_download_voices_and_explicit_staging_preserves_custom_voice(self):
+        self.root.mkdir(parents=True, exist_ok=True)
+        model = self.root / "custom.onnx"
+        model.write_bytes(b"synthetic custom voice fixture, not executable")
+        model.with_suffix(".onnx.json").write_text("{}", encoding="utf-8")
+        settings = SettingsStore(self.root)
+        settings.save({"media": {"piper_model_en": str(model)}}, "admin")
+
+        def submit(form):
+            payload = {field["name"]: field["value"] for field in form.select("input[name][value]")}
+            trigger = form.select_one('button[type="submit"][name]')
+            if trigger is not None:
+                payload[trigger["name"]] = trigger["value"]
+            return self.client.post(form["action"], data=payload)
+
+        for piper_path in (None, "/usr/bin/piper"):
+            with self.subTest(piper=piper_path), patch.object(optional, "resolve_command", return_value=piper_path), \
+                    patch.object(optional, "queue", return_value="queued") as queue:
+                page = document(self.client.get(SETUP))
+                self.assertEqual("configured", optional.readiness(self.root)["reader_english"])
+                self.assertEqual(303, submit(page.select_one('form[action$="/install-all"]')).status_code)
+                self.assertEqual(["kids-hand"], [call.args[1] for call in queue.call_args_list])
+                if piper_path:
+                    self.assertEqual(303, submit(page.select_one('#english-voice form[action$="/install"]')).status_code)
+                    self.assertEqual(["kids-hand", "english-voice"], [call.args[1] for call in queue.call_args_list])
+                self.assertEqual(str(model), settings.settings()["media"]["piper_model_en"])
 
     def test_non_admin_cannot_queue_install_all(self):
         member = app.test_client()

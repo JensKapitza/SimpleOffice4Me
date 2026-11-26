@@ -133,30 +133,27 @@ def install():
 @bp.post("/install-all")
 @login_required
 def install_all():
-    """Queue only the currently verified, fixed-source model installers."""
+    """Queue verified basics; voice models require their own named action."""
     if not is_admin(g.user):
         abort(403)
     if request.args or set(request.form) != {"_csrf_token"} or len(request.form.getlist("_csrf_token")) != 1:
         abort(400)
     root = current_app.config["DOCUMENT_ROOT"]
     manual = optional_local_setup.hand_override(current_app.config)
-    outcomes = {}
-    for feature in (optional_local_setup.VOICE_PACKAGE, "kids-hand", optional_local_setup.ENGLISH_VOICE_PACKAGE):
-        try:
-            outcomes[feature] = optional_local_setup.queue(root, feature, manual_hand_directory=manual)
-        except (OSError, ValueError):
-            outcomes[feature] = "failed"
-    audit("optional_local_install_requested", "optional_setup", "supported-models",
-          outcome="failure" if "failed" in outcomes.values() else "success",
-          detail={"features": outcomes})
-    failed = any(state not in {"queued", "downloading", "ready"} for state in outcomes.values())
-    flash(("Supported model setup was queued. Components without verified installers were left unchanged."
+    try:
+        state = optional_local_setup.queue(root, "kids-hand", manual_hand_directory=manual)
+    except (OSError, ValueError):
+        state = "failed"
+    audit("optional_local_install_requested", "optional_setup", "recommended-basics",
+          outcome="failure" if state == "failed" else "success", detail={"features": {"kids-hand": state}})
+    failed = state not in {"queued", "downloading", "ready", "manual"}
+    flash(("Finger Magic was requested if needed. Voice downloads are separate."
            if g.language == "en" else
-           "Die unterstützten Modell-Downloads wurden vorgemerkt. Komponenten ohne geprüften Installer bleiben unverändert.")
+           "Fingerzauber wurde bei Bedarf vorgemerkt. Sprachmodelle werden separat ausgewählt.")
           if not failed else
-          ("Some model jobs could not start (check free space and existing downloads). Refresh each status."
+          ("Finger Magic setup could not start. Check free space and current downloads."
            if g.language == "en" else
-           "Einige Modell-Downloads konnten nicht starten (Speicherplatz und laufende Downloads prüfen). Bitte Status aktualisieren."))
+           "Fingerzauber konnte nicht eingerichtet werden. Prüfe den freien Speicher und laufende Downloads."))
     return redirect(url_for("optional_setup.index", _anchor="component-manager"), code=303)
 
 
