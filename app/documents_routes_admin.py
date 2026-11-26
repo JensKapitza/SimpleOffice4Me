@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from .documents_core import *  # noqa: F401,F403
 from .chat_store import ChatStore
-from .safe_paths import safe_filename
 from .translations import translate
 
 @bp.post("/calendar/<event_id>/invite-email")
@@ -157,11 +156,9 @@ def export_itip_message(event_id: str):
         payload = _itip().export(event_id, str(g.user["username"]), method, request.args.get("attendee", ""), request.args.get("partstat", ""), str(g.user["email"] or ""))
     except ValueError:
         return Response("calendar export is not permitted", 403, {"Content-Type": "text/plain; charset=utf-8"})
-    # export() proved normalized_method is a known iTIP method; the download
-    # name still goes through safe_filename so stored event ids can never
-    # inject path separators or header characters (#874, code-scanning #384).
-    safe_event = safe_filename(event_id, fallback="termin", max_length=80)
-    return send_file(io.BytesIO(payload.encode()), as_attachment=True, download_name=f"termin-{normalized_method.casefold()}-{safe_event}.ics", mimetype=f"text/calendar; method={normalized_method}; charset=utf-8")
+    # Keep attacker-controlled route identifiers out of the download path and
+    # Content-Disposition entirely. Browsers disambiguate repeated downloads.
+    return send_file(io.BytesIO(payload.encode()), as_attachment=True, download_name="termin.ics", mimetype=f"text/calendar; method={normalized_method}; charset=utf-8")
 
 
 @bp.post("/calendar/scheduling/access")

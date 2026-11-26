@@ -261,15 +261,10 @@ class CalDavSchedulingTest(unittest.TestCase):
         event = store.add("Planung", "Abstimmung", "20260810T100000Z", "20260810T110000Z", "", "admin")
         benign = self.client.get(f"/documents/calendar/{event['event_id']}/scheduling.ics?method=REQUEST")
         self.assertEqual(200, benign.status_code)
-        self.assertIn(f"termin-request-{event['event_id']}.ics", benign.headers["Content-Disposition"])
+        self.assertIn("filename=termin.ics", benign.headers["Content-Disposition"])
         self.assertTrue(benign.headers["Content-Type"].startswith("text/calendar; method=REQUEST;"))
 
         from urllib.parse import quote
-        from app.safe_paths import safe_filename
-        # Control characters never reach the route (Werkzeug rejects them), so
-        # the CRLF case is asserted directly on the sanitizer used by it.
-        self.assertNotIn("\r", safe_filename('x"\r\nX-Injected: 1', fallback="termin", max_length=80))
-        self.assertNotIn("\n", safe_filename('x"\r\nX-Injected: 1', fallback="termin", max_length=80))
 
         hostile_id = 'evil"..ics'
         control = Path(app.config["DOCUMENT_ROOT"]) / ".simpleoffice-meta" / "calendar.json"
@@ -281,10 +276,13 @@ class CalDavSchedulingTest(unittest.TestCase):
         hostile = self.client.get(f"/documents/calendar/{quote(hostile_id, safe='')}/scheduling.ics?method=REQUEST")
         self.assertEqual(200, hostile.status_code)
         disposition = hostile.headers["Content-Disposition"]
+        self.assertEqual(benign.headers["Content-Disposition"], disposition)
         self.assertNotIn(hostile_id, disposition)
-        self.assertNotIn('"evil', disposition)
-        self.assertIn("termin-request-", disposition)
-        self.assertIn(".ics", disposition)
+        self.assertIn("filename=termin.ics", disposition)
+
+        invalid_method = self.client.get(f"/documents/calendar/{event['event_id']}/scheduling.ics?method=../evil")
+        self.assertEqual(403, invalid_method.status_code)
+        self.assertNotIn("Content-Disposition", invalid_method.headers)
 
     def test_web_settings_are_explicit_and_audited(self):
         self.client.post("/auth/login", data={"username": "admin", "password": "unused"})
