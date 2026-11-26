@@ -60,7 +60,7 @@ class HandStagingBrowserTests(PublicHttpTestCase):
         self.thread.join(timeout=5)
         self.server.server_close()
 
-    def _open(self, playwright, name):
+    def _open(self, playwright, name, *, supported=True):
         # Select full Chromium in new headless mode. The separate headless
         # shell inherits a media delegate that can reject capture before it
         # returns a track, even after a permission grant.
@@ -73,6 +73,11 @@ class HandStagingBrowserTests(PublicHttpTestCase):
         context = browser.new_context(service_workers="block")
         context.add_cookies([{**self.cookies, "url": self.origin}])
         context.grant_permissions(["camera"], origin=self.origin)
+        if not supported:
+            # Inject an unsupported browser failure before any inference/assets.
+            context.add_init_script("""WebAssembly.instantiate = async () => {
+                throw new WebAssembly.CompileError('SIMD unavailable in this negative fixture');
+            };""")
         # Only instrumentation: no replacement of the actual native stream or frames.
         context.add_init_script("""(() => {
             if (!navigator.mediaDevices) return;
@@ -105,7 +110,12 @@ class HandStagingBrowserTests(PublicHttpTestCase):
         self.assertFalse(any("/handzeichen/assets/" in url for _, url in requests))
         if EXPECT_SIMD:
             expect(page.locator("[data-hand-nav]")).to_have_attribute("data-simd", "yes")
-        expect(page.locator("[data-hand-nav-start]")).to_be_enabled()
+        start = page.locator("[data-hand-nav-start]")
+        if supported:
+            expect(start).to_be_enabled()
+        else:
+            expect(page.locator("[data-hand-nav-status]")).to_have_attribute("data-state", "unsupported")
+            expect(start).to_be_disabled()
         expect(page.locator("[data-hand-nav-arm]")).to_be_disabled()
         page.evaluate("""() => {
           const status = document.querySelector('[data-hand-nav-status]');
@@ -195,3 +205,20 @@ class HandStagingBrowserTests(PublicHttpTestCase):
                         self.assertEqual(outbound, [])
                     finally:
                         browser.close()
+
+    def test_unsupported_browser_cannot_start_or_arm_and_can_use_keyboard_link(self):
+        with sync_playwright() as playwright:
+            browser, page, requests, outbound = self._open(playwright, "blank.y4m", supported=False)
+            try:
+                expect(page.locator("[data-hand-nav-status]")).to_contain_text("Use the links below.")
+                expect(page.locator("[data-hand-nav-arm]")).to_be_disabled()
+                self.assertEqual(0, page.evaluate("window.handTest.length"))
+                self.assertEqual({}, self.asset_replies)
+                self.assertFalse(any(HAND_ASSETS in url for _, url in requests))
+                menu_link = page.locator('[data-access-proof] a[data-access-target="documents"]')
+                menu_link.focus()
+                page.keyboard.press("Enter")
+                page.wait_for_url(self.origin + "/documents/")
+                self.assertEqual([], outbound)
+            finally:
+                browser.close()

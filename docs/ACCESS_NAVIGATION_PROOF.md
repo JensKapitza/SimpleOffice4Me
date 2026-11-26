@@ -97,15 +97,22 @@ It is **off by default**, including on the Dashboard. It can be staged on a
 trusted private deployment via `SIMPLEOFFICE_HAND_NAV_STAGING=1` with the same
 verified local Hand Landmarker files already used by Fingerzauber (#1307). The
 ordinary authenticated **Dashboard → Navigation assistance (test)** link is
-visible only when the flag is on and the pinned assets verify. Scoped camera
-permission and the live controls require the same checks. No second device, camera on the Dashboard, persistent
+visible only when the staging flag is on, including when the keyboard
+fallback is needed. The staged page grants camera/WASM permissions and
+loads its controls only after the four base files and both SIMD files
+verify. The browser must also pass the small local SIMD check before
+the Start button is available. Unsupported browsers can open the same
+destinations using the ordinary links without loading the model. No second device, camera on the Dashboard, persistent
 preference, external browser fetch for inference, recording, microphone or
 generic mouse click. On current Chromium, the experimental shortcut can use
-the optional SIMD build from the **same** pinned MediaPipe archive. Add
+the required SIMD build from the **same** pinned MediaPipe archive. Add
 `--with-simd` to the ordinary provisioning command below; a browser must
-also pass [MediaPipe's local SIMD capability check](https://github.com/google-ai-edge/mediapipe/blob/v0.10.21/mediapipe/tasks/web/core/fileset_resolver.ts.template). Existing four-asset
-setups and unsupported browsers keep the slower portable path. Fingerzauber
-continues to use the original portable runtime. Setting the flag does **not** enable gaze, the
+also pass [MediaPipe's local SIMD capability check](https://github.com/google-ai-edge/mediapipe/blob/v0.10.21/mediapipe/tasks/web/core/fileset_resolver.ts.template). The portable four-file set is enough for Fingerzauber, not for staged hand
+navigation. Both pages use the same local asset directory as the signed-in
+asset route. An explicitly configured asset directory always takes
+precedence. In deployments with the local-extras installer, its managed
+directory is used only when there is no explicit override; the four-file
+Fingerzauber install alone does not enable staged hand navigation. Setting the flag does **not** enable gaze, the
 Fokus-Siegel, the Blickcursor or the gaze-related Klick-Siegel/banner.
 
 On the staged page, choose **Overview / Übersicht** (the default) or
@@ -224,8 +231,8 @@ measurements are browser timings, not physical sensor latency.
 
 The same archive supplies both independently pinned SIMD assets. The
 existing signed-in resource route verifies their size and SHA-256. A
-missing, changed or partially installed pair leaves the portable runtime
-in use. The browser does not download or enable any new external service.
+missing, changed or partially installed pair leaves the portable Kids game
+usable while the hand navigation shortcut stays off. The browser does not download or enable any new external service.
 The normal model, camera, control timing and CSP are unchanged. Test
 acceptance cannot establish gesture accuracy across physical cameras or
 general gaze readiness; the feature remains opt-in staging only.

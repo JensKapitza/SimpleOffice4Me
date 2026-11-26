@@ -1,23 +1,20 @@
-// Only staged Navigation Assistance opts in when both extra local assets
-// passed server-side integrity checks; the Kids runtime selection stays fixed.
-export async function handWasmStem(preferSimd, filesetResolver) {
-  if (preferSimd && typeof filesetResolver?.isSimdSupported === 'function') {
-    try {
-      if (await filesetResolver.isSimdSupported()) return 'vision_wasm_internal';
-    } catch { /* compiler unavailable under this browser or CSP */ }
-  }
-  return 'vision_wasm_nosimd_internal';
+// The staged shortcut refuses a slower fallback; Fingerzauber still
+// always selects the portable runtime without a browser capability probe.
+export async function handWasmStem(requireSimd, filesetResolver) {
+  if (!requireSimd) return 'vision_wasm_nosimd_internal';
+  if (await filesetResolver?.isSimdSupported?.() === true) return 'vision_wasm_internal';
+  throw new Error('Hand navigation requires WebAssembly SIMD');
 }
 
 // No CDN or model downloader. All paths derive from the authenticated asset
 // route delivered by the same-origin Kids page and are rechecked here.
-export async function loadHandModel(runtimeHref, {preferSimd = false} = {}) {
+export async function loadHandModel(runtimeHref, {requireSimd = false} = {}) {
   const runtime = new URL(runtimeHref, window.location.href);
   if (runtime.origin !== window.location.origin || !runtime.pathname.endsWith('/vision_bundle.mjs') ||
       runtime.search || runtime.hash || runtime.username || runtime.password) throw new Error('invalid local hand runtime');
   const asset = (name) => new URL(name, runtime).href;
   const {HandLandmarker, FilesetResolver} = await import(runtime.href);
-  const stem = await handWasmStem(preferSimd, FilesetResolver);
+  const stem = await handWasmStem(requireSimd, FilesetResolver);
   return HandLandmarker.createFromOptions({
     wasmLoaderPath: asset(stem + '.js'),
     wasmBinaryPath: asset(stem + '.wasm'),

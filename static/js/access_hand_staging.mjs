@@ -1,11 +1,11 @@
 import {cameraController} from './kids_hand_camera.mjs';
 import {readResult} from './kids_hand_logic.mjs';
 import {loadHandModel} from './kids_hand_model.mjs';
-import {FRAME_DELAY, HAND_DESTINATIONS, HandShortcut, playHandPreview} from './access_hand_staging_logic.mjs';
+import {FRAME_DELAY, HAND_DESTINATIONS, HandShortcut, handBrowserSupported, playHandPreview} from './access_hand_staging_logic.mjs';
 
 const root = document.querySelector('[data-hand-nav][data-ready="yes"]');
-if (root) setup(root);
-function setup(panel) {
+if (root) void setup(root);
+async function setup(panel) {
   const parent = panel.closest('[data-access-proof]');
   if (!parent) return;
   const get = (name) => panel.querySelector(`[data-hand-nav-${name}]`);
@@ -16,8 +16,8 @@ function setup(panel) {
   if (!window.isSecureContext || window.top !== window || !navigator.mediaDevices?.getUserMedia ||
       typeof video?.requestVideoFrameCallback !== 'function' ||
       typeof video.cancelVideoFrameCallback !== 'function') {
-    status.textContent = en ? 'A current HTTPS or localhost browser with a webcam is required.' :
-      'Dafür brauchst du einen aktuellen Browser auf HTTPS oder localhost und eine Webcam.';
+    status.textContent = en ? 'Use the links below. Hand navigation needs a current HTTPS or localhost browser with a webcam.' :
+      'Nutze die Links unten. Die Handsteuerung braucht einen aktuellen Browser auf HTTPS oder localhost und eine Webcam.';
     return;
   }
   const destinations = new Map();
@@ -27,6 +27,12 @@ function setup(panel) {
     const url = new URL(anchor.href);
     if (url.origin !== window.location.origin || url.username || url.password || url.hash || url.search) return;
     destinations.set(id, {url: url.href, anchor});
+  }
+  if (!await handBrowserSupported()) {
+    status.textContent = en ? 'This browser does not support the acceleration needed for hand navigation. Use the links below.' :
+      'Dieser Browser unterstützt die nötige Beschleunigung nicht. Nutze die Links unten.';
+    status.dataset.state = 'unsupported';
+    return;
   }
   const text = en ? {
     loading:'Loading the local hand model…', permission:'Allow only the camera.',
@@ -79,7 +85,7 @@ function setup(panel) {
       tracks.forEach((track) => track.stop());
       throw new Error('Expected one video track');
     },
-    openModel: () => loadHandModel(panel.dataset.runtime, {preferSimd: panel.dataset.simd === 'yes'}),
+    openModel: () => loadHandModel(panel.dataset.runtime, {requireSimd: true}),
     active: present,
     attach: (stream) => {
       sequence = -1;

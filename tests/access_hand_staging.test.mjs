@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {handWasmStem} from '../static/js/kids_hand_model.mjs';
-import {ARM_DURATION, HandShortcut, playHandPreview} from '../static/js/access_hand_staging_logic.mjs';
+import {ARM_DURATION, HandShortcut, handBrowserSupported, playHandPreview} from '../static/js/access_hand_staging_logic.mjs';
 
 const absent = {signal:'none'};
 const spark = {signal:'recognized', gesture:'spark'};
@@ -129,15 +129,18 @@ test('presentation and execution stall still disarm, and a result older than 190
   assert.deepEqual(f.group(spark),[]);
 });
 
-test('SIMD needs both staged opt-in and a successful browser capability probe', async () => {
+test('staged hand navigation requires browser SIMD; Fingerzauber remains portable', async () => {
   const portable = 'vision_wasm_nosimd_internal';
   let calls = 0;
   const supported = {async isSimdSupported() { calls++; return true; }};
+  const disabled = {async isSimdSupported() { return false; }};
   assert.equal(await handWasmStem(false, supported),portable);
   assert.equal(calls,0, 'default Kids runtime does not probe or switch');
-  assert.equal(await handWasmStem(true, undefined),portable);
-  assert.equal(await handWasmStem(true, {async isSimdSupported() { return false; }}),portable);
-  assert.equal(await handWasmStem(true, {async isSimdSupported() { throw new Error('unavailable'); }}),portable);
+  await assert.rejects(handWasmStem(true, undefined), /requires WebAssembly SIMD/);
+  await assert.rejects(handWasmStem(true, disabled), /requires WebAssembly SIMD/);
   assert.equal(await handWasmStem(true, supported),'vision_wasm_internal');
   assert.equal(calls,1);
+  assert.equal(await handBrowserSupported(),true, 'real tiny WebAssembly probe on this test runtime');
+  assert.equal(await handBrowserSupported(null),false);
+  assert.equal(await handBrowserSupported({async instantiate() { throw new WebAssembly.CompileError(); }}),false);
 });

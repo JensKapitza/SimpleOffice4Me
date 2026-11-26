@@ -284,7 +284,7 @@ def dashboard():
     inbox = store.inbox_page(page=1, page_size=8)
     return render_template(
         "documents/dashboard.html",
-        hand_nav_enabled=access_hand_staging.ready(),
+        hand_nav_enabled=access_hand_staging.enabled(),
         system=_system_overview(),
         inbox=inbox["documents"],
         inbox_total=inbox["total"],

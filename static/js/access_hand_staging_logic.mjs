@@ -2,6 +2,21 @@
 export const HAND_DESTINATIONS = Object.freeze(['dashboard', 'documents']);
 export const FRAME_DELAY = 190;
 export const ARM_DURATION = 12000;
+// MediaPipe 0.10.21's feature probe. Small and local, before downloading
+// the model, acquiring camera permission, or enabling the Start control.
+const SIMD_CHECK = new Uint8Array([
+  0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3,
+  2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11,
+]);
+export async function handBrowserSupported(wasm = globalThis.WebAssembly) {
+  try {
+    await wasm.instantiate(SIMD_CHECK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const MAX_GAP = 260;
 const RELEASE_MS = 330;
 const HOLD_MS = 380;

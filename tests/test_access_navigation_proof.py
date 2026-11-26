@@ -78,14 +78,16 @@ class HandShortcutStagingTests(PublicHttpTestCase):
     def test_opt_in_asset_verification_and_proof_only_permission(self):
         with patch.dict(app.config, {"HAND_NAV_STAGING": True, "KIDS_HAND_GAME_ASSET_DIR": "/nonexistent"}):
             dashboard = self.client.get("/documents/dashboard")
-            self.assertNotIn(f'href="{PROOF}"', dashboard.get_data(as_text=True))
+            self.assertIn(f'href="{PROOF}"', dashboard.get_data(as_text=True))
             self.assertIn("camera=()", dashboard.headers["Permissions-Policy"])
             page = self.client.get(PROOF)
             self.assertIn('data-ready="no"', page.get_data(as_text=True))
             self.assertNotIn("access_hand_staging.mjs", page.get_data(as_text=True))
             self.assertIn("camera=()", page.headers["Permissions-Policy"])
 
-        with patch.dict(app.config, {"HAND_NAV_STAGING": True}), patch("app.kids_hand_assets.ready", return_value=True):
+        with patch.dict(app.config, {"HAND_NAV_STAGING": True}), patch("app.kids_hand_assets.ready", return_value=True), patch(
+            "app.kids_hand_assets.simd_ready", return_value=True,
+        ):
             dashboard = self.client.get("/documents/dashboard")
             self.assertIn(f'href="{PROOF}"', dashboard.get_data(as_text=True))
             self.assertIn("camera=()", dashboard.headers["Permissions-Policy"])
@@ -122,9 +124,17 @@ class HandShortcutStagingTests(PublicHttpTestCase):
                 region = BeautifulSoup(self.client.get(PROOF).text, "html.parser").select_one("[data-hand-nav]")
                 return region["data-ready"], region["data-simd"]
 
-            self.assertEqual(("yes", "no"), page_flags())
-            for name, (_, data) in files.items():
+            self.assertEqual(("no", "no"), page_flags())
+            not_ready = self.client.get(PROOF)
+            self.assertIn("camera=()", not_ready.headers["Permissions-Policy"])
+            self.assertNotIn("access_hand_staging.mjs", not_ready.text)
+            fallback = BeautifulSoup(not_ready.text, "html.parser")
+            self.assertIsNotNone(fallback.select_one('a[href="/documents/"]'))
+            self.assertIn("Finger", fallback.select_one("[data-hand-nav-status]").get_text())
+            for count, (name, (_, data)) in enumerate(files.items(), 1):
                 (Path(folder) / name).write_bytes(data)
+                if count == 1:
+                    self.assertEqual(("no", "no"), page_flags())
             self.assertEqual(("yes", "yes"), page_flags())
             for name, (mime, data) in files.items():
                 self.assertEqual(302, app.test_client().get(assets + name).status_code)
@@ -133,7 +143,8 @@ class HandShortcutStagingTests(PublicHttpTestCase):
                 self.assertIn("camera=()", response.headers["Permissions-Policy"])
             binary = "vision_wasm_internal.wasm"
             (Path(folder) / binary).write_bytes(b"fixture XXXX")  # exact same size; changed digest
-            self.assertEqual(("yes", "no"), page_flags())
+            self.assertEqual(("no", "no"), page_flags())
             self.assertEqual(404, self.client.get(assets + binary).status_code)
             with patch.dict(app.config, {"HAND_NAV_STAGING": False}):
                 self.assertNotIn("data-hand-nav", self.client.get(PROOF).text)
+                self.assertNotIn(f'href="{PROOF}"', self.client.get("/documents/dashboard").text)
