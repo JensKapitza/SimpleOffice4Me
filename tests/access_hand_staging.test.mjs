@@ -81,3 +81,49 @@ test('preview sets actual muted playback before attaching stream and preserves r
   await assert.rejects(playHandPreview(video, stream), {name:'NotAllowedError'});
   assert.deepEqual(order, [['mute',true], ['inline',true], ['stream',stream], ['play']]);
 });
+
+test('hosted presentation/inference timings preserve confirmation without summing independent gaps', () => {
+  // Published fixture timing, in milliseconds: capture cadence remains under
+  // 260 and native recognition under 190. The old RAF queue added up to 14 ms
+  // to the four pictured observations, rejecting one of these fresh frames.
+  for (const [destination, captures] of [
+    ['dashboard', [[2887,185], [3070,178], [3236,178], [3420,179]]],
+    ['documents', [[2886,184], [3070,178], [3236,177], [3420,178]]],
+  ]) {
+    const logic = new HandShortcut();
+    assert.equal(logic.arm(destination,2300),true);
+    for (const time of [2387,2487,2587,2687,2787]) {
+      assert.equal(logic.observe(absent,time,time+86),null);
+    }
+    assert.equal(logic.state,'armed');
+    const result = captures.map(([time, processing]) => {
+      assert.equal(logic.expire(time+2,time),false);
+      return logic.observe(spark,time,time+processing+2);
+    });
+    assert.deepEqual(result,[null,null,null,destination]);
+    assert.equal(logic.state,'inactive');
+  }
+});
+
+test('presentation and execution stall still disarm, and a result older than 190 never confirms', () => {
+  const f = fixture();
+  f.arm('documents');
+  f.group(absent);
+  assert.equal(f.logic.state,'armed');
+  f.one(absent,100,85);
+  f.one(spark,100,190);
+  assert.equal(f.logic.state,'armed');
+  f.one(spark,190,191);
+  assert.equal(f.logic.state,'release');
+  assert.deepEqual(f.group(spark),[]);
+  f.group(absent);
+  assert.equal(f.logic.state,'armed');
+  f.logic.expire(f.now()+261);
+  assert.equal(f.logic.state,'release', 'no presentation still expires in real wall time');
+  assert.deepEqual(f.group(spark),[]);
+  f.group(absent);
+  assert.equal(f.logic.state,'armed');
+  f.one(spark,261);
+  assert.equal(f.logic.state,'release', 'capture gap cannot be masked by a currently fresh result');
+  assert.deepEqual(f.group(spark),[]);
+});

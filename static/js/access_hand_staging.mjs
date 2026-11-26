@@ -50,17 +50,21 @@ function setup(panel) {
     expired:'Zeit abgelaufen. Kamera aus.',
   };
   const logic = new HandShortcut();
-  let epoch = 0, frameHandle, frame, sequence, timer;
+  let sequence, timer, watchdog;
   const present = () => !document.hidden && document.hasFocus();
-  function watch(generation) {
-    frameHandle = video.requestVideoFrameCallback((at, info) => {
-      if (generation !== epoch) return;
-      if (Number.isSafeInteger(info.presentedFrames) && info.presentedFrames > sequence) {
-        sequence = info.presentedFrames;
-        frame = at;
-      }
-      watch(generation);
+  function onPresentedFrame(next) {
+    return video.requestVideoFrameCallback((at, info) => {
+      const isNew = Number.isSafeInteger(info.presentedFrames) && info.presentedFrames > sequence;
+      if (isNew) sequence = info.presentedFrames;
+      // The result must still meet FRAME_DELAY after inference. Remove the
+      // separate paint-frame queue rather than widening that safety budget.
+      next(isNew ? at : NaN);
     });
+  }
+  function checkSession(now, presented = null) {
+    if (!present()) { controller.stop(); return false; }
+    if (logic.expire(now, presented)) { controller.stop('expired'); return false; }
+    return true;
   }
   function repaint(state) {
     const message = text[state];
@@ -77,21 +81,16 @@ function setup(panel) {
     },
     openModel: () => loadHandModel(panel.dataset.runtime),
     active: present,
-    attach: async (stream) => {
-      const generation = ++epoch;
+    attach: (stream) => {
       sequence = -1;
-      await playHandPreview(video, stream);
-      if (generation === epoch) watch(generation);
+      return playHandPreview(video, stream);
     },
     detach: () => {
-      epoch += 1;
-      if (frameHandle !== undefined) video.cancelVideoFrameCallback(frameHandle);
-      frameHandle = frame = undefined;
       video.pause();
       video.srcObject = null;
     },
-    schedule: (fn) => window.requestAnimationFrame(fn),
-    cancel: (id) => window.cancelAnimationFrame(id),
+    schedule: onPresentedFrame,
+    cancel: (id) => video.cancelVideoFrameCallback(id),
     onState: (state) => {
       const live = state === 'live';
       const active = live || ['loading', 'permission'].includes(state);
@@ -102,17 +101,20 @@ function setup(panel) {
       preview.hidden = !live;
       if (!live) logic.stop();
       clearTimeout(timer);
-      // Camera can never be left running awaiting attention forever.
-      if (live) timer = setTimeout(() => controller.stop('expired'), 30000);
+      clearInterval(watchdog);
+      // The heartbeat still disarms/expires when a live stream stops
+      // presenting frames; it never performs inference or navigation.
+      if (live) {
+        timer = setTimeout(() => controller.stop('expired'), 30000);
+        watchdog = setInterval(() => {
+          if (checkSession(performance.now()) && logic.state !== 'inactive') repaint(logic.state);
+        }, 50);
+      }
       repaint(text[state] ? state : 'ended');
     },
-    update: (model) => {
-      if (!present()) { controller.stop(); return; }
-      if (logic.state === 'inactive') return;
+    update: (model, at) => {
       const now = performance.now();
-      if (logic.expire(now)) { controller.stop('expired'); return; }
-      const at = frame;
-      frame = undefined;
+      if (!checkSession(now, at) || logic.state === 'inactive') return;
       if (Number.isFinite(at) && at <= now && now - at <= FRAME_DELAY && video.readyState >= 2) {
         const result = readResult(model.detectForVideo(video, at));
         if (!present()) { controller.stop(); return; }
@@ -133,7 +135,6 @@ function setup(panel) {
   arm.addEventListener('click', (event) => {
     if (!event.isTrusted || !controller.live() || !present() || !logic.arm(select.value, performance.now())) return;
     arm.disabled = select.disabled = true;
-    frame = undefined;
     repaint('release');
   });
   stopButton.addEventListener('click', () => controller.stop());

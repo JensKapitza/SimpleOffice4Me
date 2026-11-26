@@ -16,6 +16,7 @@ export class HandShortcut {
     this.destination = null;
     this.group = null;
     this.last = null;
+    this.lastCompleted = null;
   }
 
   arm(destination, time) {
@@ -26,13 +27,18 @@ export class HandShortcut {
     return true;
   }
 
-  expire(now) {
+  expire(now, presented = null) {
     if (this.state === 'inactive') return false;
     if (!Number.isFinite(now) || now - this.armedTime >= ARM_DURATION) {
       this.stop();
       return true;
     }
-    if (this.last !== null && now - this.last > MAX_GAP) {
+    // Preserve the wall-time stall check when no current presentation
+    // exists. A valid in-flight frame is separate from the prior frame gap.
+    const latest = this.last === null ? null : Math.max(this.last,
+      Number.isFinite(presented) && presented <= now ? presented : this.last);
+    if ((latest !== null && now - latest > MAX_GAP) ||
+        (this.lastCompleted !== null && now - this.lastCompleted > MAX_GAP)) {
       this.state = 'release';
       this.group = null;
     }
@@ -40,14 +46,20 @@ export class HandShortcut {
   }
 
   observe(observation, time, now) {
-    if (this.expire(now) || this.state === 'inactive') return null;
-    if (!Number.isFinite(time) || time <= this.armedTime || time > now ||
-        now - time > FRAME_DELAY || (this.last !== null && time <= this.last)) {
+    const fresh = Number.isFinite(time) && time > this.armedTime && time <= now &&
+      now - time <= FRAME_DELAY && (this.last === null || time > this.last);
+    if (this.expire(now, fresh ? time : null) || this.state === 'inactive') return null;
+    if (!fresh) {
       this.state = 'release';
       this.group = null;
       return null;
     }
+    if (this.last !== null && time - this.last > MAX_GAP) {
+      this.state = 'release';
+      this.group = null;
+    }
     this.last = time;
+    this.lastCompleted = now;
     const noHand = observation?.signal === 'none';
     const sign = observation?.signal === 'recognized' && observation.gesture === 'spark';
     if (!(noHand || sign)) {
