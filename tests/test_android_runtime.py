@@ -112,6 +112,46 @@ class AndroidRuntimeTests(unittest.TestCase):
 
         import_module.assert_called_once_with("cryptography.hazmat.bindings._rust")
 
+    def test_chaquopy_offline_speech_forwards_only_the_native_contract(self):
+        spec = importlib.util.spec_from_file_location("android_runtime_speech_contract_test", RUNTIME)
+        runtime = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(runtime)
+        native = mock.Mock()
+        java = mock.Mock()
+        java.jclass.return_value = native
+        native.render.return_value = True
+        native.status.return_value = "ready"
+        native.refresh.return_value = True
+        native.voicesJson.return_value = '[{"id":"de-installed","language":"de-DE","label":"Deutsch"}, {"id":23}]'
+        output = Path("/synthetic/private/speech.wav")
+        with mock.patch.dict(sys.modules, java=java):
+            self.assertTrue(runtime._render_android_speech("Synthetisch", "de_DE", output, "de-installed", 1.2, .8))
+            native.render.assert_called_once_with("Synthetisch", "de-DE", str(output), "de-installed", 1.2, .8)
+            self.assertEqual([{"id": "de-installed", "language": "de-DE", "label": "Deutsch"}],
+                             runtime._android_speech_voices())
+            self.assertEqual("ready", runtime._android_speech_status())
+            native.refresh.assert_not_called()
+            self.assertTrue(runtime._refresh_android_speech())
+            native.refresh.assert_called_once_with()
+            java.jclass.assert_called_with("de.simpleoffice4me.android.AndroidOfflineSpeech")
+
+    def test_chaquopy_unavailable_speech_inventory_fails_closed(self):
+        spec = importlib.util.spec_from_file_location("android_runtime_speech_unavailable_test", RUNTIME)
+        runtime = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(runtime)
+        native = mock.Mock()
+        native.voicesJson.return_value = '{"incorrect":"shape"}'
+        native.status.return_value = "unknown"
+        with mock.patch.object(runtime, "_android_speech_class", return_value=native):
+            self.assertEqual([], runtime._android_speech_voices())
+            self.assertEqual("unavailable", runtime._android_speech_status())
+            native.voicesJson.side_effect = RuntimeError("opaque Android error")
+            native.status.side_effect = RuntimeError("opaque Android error")
+            self.assertEqual([], runtime._android_speech_voices())
+            self.assertEqual("unavailable", runtime._android_speech_status())
+            native.render.assert_not_called()
+            native.refresh.assert_not_called()
+
     def test_warm_runtime_refreshes_native_token_without_navigation_clearing_it(self):
         spec = importlib.util.spec_from_file_location("android_runtime_warm_start_test", RUNTIME)
         self.assertIsNotNone(spec)
