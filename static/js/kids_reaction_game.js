@@ -11,6 +11,8 @@
   const station = (value) => Number.isInteger(value) && value >= 1 && value <= 3;
   const milliseconds = (value) => Number.isInteger(value) && value >= 0 && value <= 0xffffffff;
   const scoreboard = () => ({ hits: 0, errors: 0, misses: 0, total: 0, rows: [] });
+  // Keystrokes per minute over counted target time (#1305 typing training).
+  const keystrokesPerMinute = (score) => (score.total > 0 ? Math.round((score.hits * 60000) / score.total) : 0);
 
   function keyStation(event, focus) {
     if (event.target !== focus || event.repeat || event.altKey || event.ctrlKey || event.metaKey
@@ -175,7 +177,7 @@
     }
   }
 
-  const api = { ReactionGame, VirtualStations, keyStation, elapsedMs };
+  const api = { ReactionGame, VirtualStations, keyStation, elapsedMs, keystrokesPerMinute };
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.KidsReactionGame = api;
 }(globalThis));

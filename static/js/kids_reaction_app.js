@@ -8,7 +8,7 @@
   }
 
   function boot(page) {
-    const { ReactionGame, VirtualStations, keyStation } = root.KidsReactionGame;
+    const { ReactionGame, VirtualStations, keyStation, keystrokesPerMinute } = root.KidsReactionGame;
     const { UsbStations, PORT_FILTERS } = root.KidsReactionUsb;
     const en = page.dataset.en === "1";
     const t = (german, english) => en ? english : german;
@@ -57,9 +57,10 @@
     }
 
     function scoreLine(score) {
+      const rate = keystrokesPerMinute(score);
       return t(
-        `Treffer: ${score.hits} · Falsche Drücke: ${score.errors} · Verpasst: ${score.misses} · Gesamt-Zielzeit: ${score.total} ms`,
-        `Hits: ${score.hits} · Wrong presses: ${score.errors} · Missed: ${score.misses} · Total target time: ${score.total} ms`
+        `Treffer: ${score.hits} · Falsche Drücke: ${score.errors} · Verpasst: ${score.misses} · Gesamt-Zielzeit: ${score.total} ms · Tempo: ${rate}/Min`,
+        `Hits: ${score.hits} · Wrong presses: ${score.errors} · Missed: ${score.misses} · Total target time: ${score.total} ms · Pace: ${rate}/min`
       );
     }
 

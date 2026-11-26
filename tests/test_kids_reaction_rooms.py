@@ -80,6 +80,7 @@ class ReactionRoomTests(PublicHttpTestCase):
                 self.assertEqual(lineup, state["sequence"])
         self.assertEqual("complete", state["phase"])
         self.assertEqual([1140, 2280], [s["total"] for s in state["scores"]])
+        self.assertEqual([316, 158], [s["rate"] for s in state["scores"]])
         self.assertEqual(1, state["winner"])
         phone_scores = self.send(self.phone, "state", token=b["token"])["scores"]
         self.assertEqual(state["scores"], phone_scores)

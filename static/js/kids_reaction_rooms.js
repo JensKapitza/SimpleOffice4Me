@@ -106,7 +106,8 @@
     times.replaceChildren(...items);
     const labels = room.scores.map((score, index) => {
       const turn = room.mode === "duel" ? `${text("Turn", "Durchgang")} ${index + 1}: ` : "";
-      return `${turn}${score.hits} ${text("hits", "Treffer")}, ${score.misses} ${text("missed", "verpasst")}, ${score.total} ms`;
+      const rate = typeof score.rate === "number" ? `, ${score.rate}${text("/min", "/Min")}` : "";
+      return `${turn}${score.hits} ${text("hits", "Treffer")}, ${score.misses} ${text("missed", "verpasst")}, ${score.total} ms${rate}`;
     });
     if (room.winner !== null) labels.push(room.winner === 0 ? text("Tie", "Gleichstand") :
       `${text("Winner: player", "Gewonnen: Spieler") } ${room.winner}`);
