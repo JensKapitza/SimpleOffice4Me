@@ -99,7 +99,8 @@ jobs:
             tests.test_inventory_intake_native_contract tests.test_s3_overlay_coverage \
             tests.test_s3_overlay.S3OverlayTests.test_book_scan_leases_stay_local_and_are_not_s3_objects
           node --test tests/library_book_scanner.test.cjs tests/inventory_intake_js.test.cjs \
-            tests/inventory_intake_native_scan.test.cjs tests/i18n_literal.test.cjs
+            tests/inventory_intake_native_scan.test.cjs tests/i18n_literal.test.cjs \
+            tests/capture_inbox_preview_url.test.cjs
       - name: Verify chosen and unselected peers through normal HTTPS forms
         shell: bash
         timeout-minutes: 8
