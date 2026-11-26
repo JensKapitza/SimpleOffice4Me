@@ -18,7 +18,7 @@
         <input id="intake-barcode" name="barcode" class="form-control" maxlength="120" autocomplete="off">
         <button type="button" data-intake-native-scan hidden class="btn btn-sm btn-outline-secondary mt-2"
                 aria-describedby="intake-native-scan-help intake-native-scan-status">{{ 'Scan barcode' if g.language == 'en' else 'Barcode scannen' }}</button>
-        <p id="intake-native-scan-help" data-intake-native-scan-help hidden class="form-text mb-0">{{ 'Scanning fills this field only. You can also enter a barcode or choose a photo.' if g.language == 'en' else 'Scannen füllt nur dieses Feld. Du kannst den Barcode auch eingeben oder ein Foto wählen.' }}</p>
+        <p id="intake-native-scan-help" data-intake-native-scan-help hidden class="form-text mb-0">{{ 'A scan saves a private draft, not an inventory item. You can also enter a barcode or choose a photo.' if g.language == 'en' else 'Ein Scan speichert einen privaten Entwurf, keinen Inventareintrag. Du kannst den Barcode auch eingeben oder ein Foto wählen.' }}</p>
         <p id="intake-native-scan-status" data-intake-native-scan-status role="status" class="form-text mb-0"></p>
       </div>
       <div class="col-sm">
@@ -31,7 +31,11 @@
   </form>
   <div id="intake-pending" hidden class="card card-body mb-3">
     <div data-intake-pending-photo class="ratio ratio-1x1 w-25" hidden></div>
+    <div data-intake-pending-barcode class="mb-2">
+      <span class="fa-solid fa-barcode me-2" aria-hidden="true"></span><code translate="no"></code>
+    </div>
     <p class="mb-0 mt-2" role="status" aria-live="polite"></p>
+    <button type="button" data-intake-open-saved hidden class="btn btn-outline-primary align-self-start mt-2">Gespeicherten Entwurf öffnen</button>
   </div>
   <h2 class="h4">Erfasste Entwürfe</h2>
   {% if not drafts %}<p>Noch keine Entwürfe erfasst.</p>{% endif %}

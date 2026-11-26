@@ -3,20 +3,31 @@ const {readFileSync} = require('node:fs');
 const test = require('node:test');
 const {runInNewContext} = require('node:vm');
 
-const code = readFileSync('static/js/inventory_intake.js', 'utf8');
+const script = readFileSync('static/js/inventory_intake.js', 'utf8');
 
 function harness() {
   let request;
+  const timers = new Map();
+  let timerId = 0;
   function node(base = {}) {
     const handlers = {};
     return {handlers, addEventListener: (name, callback) => { handlers[name] = callback; }, ...base};
   }
   const status = node();
-  const submit = node();
+  const submit = node({textContent: 'Privaten Entwurf anlegen'});
+  const scan = node();
+  const barcode = node({value: ''});
+  const codeLabel = node();
+  const code = node({hidden: true, querySelector: () => codeLabel});
+  const openSaved = node({hidden: true});
+  let dirty = false;
   const picture = node({hidden: true, children: [], replaceChildren(...children) { this.children = children; }});
-  const form = node({action: '/inventory/capture/intake', querySelector: () => submit, requestSubmit() {}});
+  const form = node({action: '/inventory/capture/intake',
+    querySelector: key => key === '#intake-barcode' ? barcode : key.includes('native-scan') ? scan : submit,
+    requestSubmit() {}});
   const input = node({files: [{size: 12, type: 'image/png'}]});
-  const pending = node({hidden: true, querySelector: key => key.includes('pending-photo') ? picture : status});
+  const pending = node({hidden: true, querySelector: key => key.includes('pending-photo') ? picture
+    : key.includes('pending-barcode') ? code : key.includes('open-saved') ? openSaved : status});
   const map = {'#intake-capture': form, '#intake-photo': input, '#intake-pending': pending};
   const location = {reloads: 0, reload() { this.reloads++; }};
   const calls = [];
@@ -29,14 +40,18 @@ function harness() {
       return new Promise(resolve => { request = resolve; });
     },
   });
-  const ctx = {window, FormData: class {constructor(actual) { assert.equal(actual, form); }},
-    document: {querySelector: key => map[key], querySelectorAll: () => [], createElement: tag => {
+  const ctx = {window, AbortController,
+    setTimeout(callback, delay) { const id = ++timerId; timers.set(id, {callback, delay}); return id; },
+    clearTimeout(id) { timers.delete(id); },
+    FormData: class {constructor(actual) { assert.equal(actual, form); }},
+    document: {querySelector: key => key.includes('data-so-dirty') ? dirty : map[key], querySelectorAll: () => [], createElement: tag => {
       const context = {draws: [], drawImage(...args) { this.draws.push(args); }};
       return node({tag, context, attributes: {}, setAttribute(key, value) { this.attributes[key] = value; },
         getContext: () => context});
     }}};
-  runInNewContext(code, ctx);
-  return {input, form, pending, picture, status, calls, location, ack: data => request(data),
+  runInNewContext(script, ctx);
+  return {input, form, pending, picture, status, calls, location, barcode, code, codeLabel, openSaved, scan, submit, timers,
+    setDirty() { dirty = true; }, ack: data => request(data),
     setBitmapSize(width, height) { decodedWidth = width; decodedHeight = height; },
     setDecode(callback) { decode = callback; }};
 }
@@ -98,14 +113,37 @@ test('unconfirmed upload leaves photo selected and can be retried', async () => 
 test('barcode-only capture waits with text, never fabricates image', async () => {
   const ui = harness();
   ui.input.files = [];
+  ui.barcode.value = '9780140328721';
   const saving = ui.form.handlers.submit({preventDefault() {}});
   assert.equal(ui.pending.hidden, false);
   assert.equal(ui.picture.hidden, true);
   assert.equal(ui.picture.children.length, 0);
+  assert.equal(ui.code.hidden, false);
+  assert.equal(ui.codeLabel.textContent, '9780140328721');
   assert.equal(ui.calls.length, 1);
   ui.ack({ok: true, json: async () => ({ok: true, draft: {id: 'b'.repeat(32)}})});
   await saving;
   assert.equal(ui.location.hash, 'draft-' + 'b'.repeat(32));
+});
+
+test('native capture submits once and does not reload away another draft edit', async () => {
+  const ui = harness();
+  ui.input.files = [];
+  ui.barcode.value = '9780140328721';
+  ui.setDirty();
+  let attempt;
+  ui.form.requestSubmit = () => { attempt = ui.form.handlers.submit({preventDefault() {}}); };
+  ui.form.handlers['intake:native-scan']();
+  assert.equal(ui.calls.length, 1);
+  assert.equal(ui.barcode.readOnly, true);
+  ui.form.handlers['intake:native-scan']();
+  assert.equal(ui.calls.length, 1);
+  ui.ack({ok: true, json: async () => ({ok: true, draft: {id: 'c'.repeat(32)}})});
+  await attempt;
+  assert.equal(ui.location.reloads, 0);
+  assert.equal(ui.openSaved.hidden, false);
+  ui.openSaved.handlers.click();
+  assert.equal(ui.location.reloads, 1);
 });
 
 test('clearing a selected photo removes the previous canvas', async () => {
@@ -116,4 +154,37 @@ test('clearing a selected photo removes the previous canvas', async () => {
   await ui.input.handlers.change();
   assert.equal(ui.pending.hidden, true);
   assert.equal(ui.picture.children.length, 0);
+});
+
+test('a stalled native save stops waiting and can only retry the original payload', async () => {
+  const ui = harness();
+  ui.input.files = [];
+  ui.barcode.value = '036000291452';
+  let attempt;
+  ui.form.requestSubmit = () => { attempt = ui.form.handlers.submit({preventDefault() {}}); };
+  ui.form.handlers['intake:native-scan']();
+  const sent = ui.calls[0][1];
+  ui.ack({ok: true, json: () => new Promise(() => {})}); // Headers arrived, body did not.
+  await Promise.resolve();
+  const [{callback, delay}] = ui.timers.values();
+  assert.equal(delay, 8000);
+  assert.equal(ui.submit.disabled, true);
+  callback();
+  await attempt;
+  assert.equal(sent.signal.aborted, true);
+  assert.equal(ui.timers.size, 0);
+  assert.match(ui.status.textContent, /denselben Scan/);
+  assert.equal(ui.scan.disabled, true);
+  assert.equal(ui.input.disabled, true);
+  assert.equal(ui.barcode.readOnly, true);
+  assert.equal(ui.submit.disabled, false);
+  assert.equal(ui.submit.textContent, 'Scan erneut speichern');
+  ui.form.handlers['intake:native-scan']();
+  assert.equal(ui.calls.length, 1);
+  const retry = ui.form.handlers.submit({preventDefault() {}});
+  assert.equal(ui.calls[1][1].body, sent.body);
+  ui.ack({ok: true, json: async () => ({ok: true, draft: {id: 'd'.repeat(32)}})});
+  await retry;
+  assert.equal(ui.location.hash, 'draft-' + 'd'.repeat(32));
+  assert.equal(ui.timers.size, 0);
 });

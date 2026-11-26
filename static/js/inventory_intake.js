@@ -1,18 +1,68 @@
-/* Preview the selected photo before the server acknowledgement; no analysis. */
+/* Preview the capture before the server acknowledgement; no analysis. */
 (() => {
   const form = document.querySelector('#intake-capture');
   const input = document.querySelector('#intake-photo');
   const pending = document.querySelector('#intake-pending');
   if (!form || !input || !pending) return;
   const picture = pending.querySelector('[data-intake-pending-photo]');
+  const barcode = form.querySelector('#intake-barcode');
+  const scan = form.querySelector('[data-intake-native-scan]');
+  const code = pending.querySelector('[data-intake-pending-barcode]');
+  const openSaved = pending.querySelector('[data-intake-open-saved]');
   const status = pending.querySelector('[role="status"]');
+  const submit = form.querySelector('[type="submit"]');
+  const nativeSaveLimitMs = 8000;
+  const initialSubmitLabel = submit.textContent;
+  let nativeCapture = null;
   let previewVersion = 0;
   let uploading = false;
+  let saved = false;
+  const showBarcode = () => {
+    const value = !input.files[0] ? barcode.value.trim() : '';
+    code.hidden = !value;
+    code.querySelector('code').textContent = value;
+  };
+  const lockCapture = (locked) => {
+    submit.disabled = locked;
+    input.disabled = scan.disabled = barcode.readOnly = locked || Boolean(nativeCapture);
+  };
+  const sendCapture = async (data, bounded) => {
+    const controller = bounded && typeof AbortController === 'function' ? new AbortController() : null;
+    const send = async () => {
+      const response = await window.fetch(form.action, {
+        method: 'POST', credentials: 'same-origin', headers: {Accept: 'application/json'}, body: data,
+        ...(controller ? {signal: controller.signal} : {}),
+      });
+      return {response, parsed: await response.json()};
+    };
+    if (!bounded) return send();
+    let timer;
+    try {
+      return await Promise.race([send(), new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error('Native barcode acknowledgement timed out'));
+          controller?.abort();
+        }, nativeSaveLimitMs);
+      })]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  const retryNote = 'Speicherung nicht bestätigt. Bitte denselben Scan erneut speichern.';
+
+  openSaved.addEventListener('click', () => window.location.reload());
+  form.addEventListener('intake:native-scan', () => {
+    if (input.files[0] || uploading || saved || nativeCapture) return;
+    // Reuse the original payload, including its capture token, until confirmed.
+    nativeCapture = new FormData(form);
+    form.requestSubmit();
+  });
   input.addEventListener('change', async () => {
     const version = ++previewVersion;
     const photo = input.files[0];
     pending.hidden = !photo;
     picture.hidden = !photo;
+    code.hidden = true;
     if (!photo) {
       picture.replaceChildren();
       return;
@@ -50,34 +100,44 @@
     if (photo.size <= 12 * 1024 * 1024 && form.requestSubmit) form.requestSubmit();
   });
   form.addEventListener('submit', async event => {
+    if (uploading || saved) {
+      event.preventDefault();
+      return;
+    }
     pending.hidden = false;
     picture.hidden = !input.files[0];
+    showBarcode();
     status.textContent = 'Privater Entwurf wird gespeichert …';
     if (!window.fetch) return;
     event.preventDefault();
-    if (uploading) return;
     uploading = true;
-    const data = new FormData(form);
-    const submit = form.querySelector('[type="submit"]');
-    input.disabled = submit.disabled = true;
+    const data = nativeCapture || new FormData(form);
+    lockCapture(true);
     try {
-      const response = await window.fetch(form.action, {
-        method: 'POST', credentials: 'same-origin', headers: {Accept: 'application/json'}, body: data,
-      });
-      const parsed = await response.json();
+      const {response, parsed} = await sendCapture(data, Boolean(nativeCapture));
       if (!response.ok || !parsed.ok || !/^[0-9a-f]{32}$/.test(parsed.draft?.id)) {
-        status.textContent = typeof parsed.error === 'string'
-          ? parsed.error : 'Speicherung nicht bestätigt. Bitte erneut speichern.';
+        status.textContent = typeof parsed?.error === 'string' ? parsed.error
+          : nativeCapture ? retryNote : 'Speicherung nicht bestätigt. Bitte erneut speichern.';
         return;
       }
       status.textContent = 'Privater Entwurf gespeichert';
+      saved = true;
       window.location.hash = 'draft-' + parsed.draft.id;
-      window.location.reload();
+      if (document.querySelector('[data-intake-editor][data-so-dirty="1"]')) {
+        status.textContent += ' · Andere Entwürfe enthalten noch ungespeicherte Änderungen.';
+        openSaved.hidden = false;
+      } else {
+        window.location.reload();
+      }
     } catch (_) {
-      status.textContent = 'Speicherung nicht bestätigt. Foto bleibt ausgewählt; bitte erneut speichern.';
+      status.textContent = nativeCapture ? retryNote
+        : 'Speicherung nicht bestätigt. Eingabe bleibt erhalten; bitte erneut speichern.';
     } finally {
-      input.disabled = submit.disabled = false;
       uploading = false;
+      if (!saved) {
+        submit.textContent = nativeCapture ? 'Scan erneut speichern' : initialSubmitLabel;
+        lockCapture(false);
+      }
     }
   });
 })();
@@ -91,6 +151,7 @@ document.querySelectorAll('[data-intake-editor]').forEach(editor => {
   const initial = new URLSearchParams(new FormData(editor)).toString();
   const update = () => {
     const dirty = initial !== new URLSearchParams(new FormData(editor)).toString();
+    editor.dataset.soDirty = dirty ? '1' : '0';
     actions.forEach(button => { button.disabled = dirty; });
     note.hidden = !dirty;
   };

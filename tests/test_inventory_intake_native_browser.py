@@ -66,7 +66,7 @@ class InventoryIntakeNativeBrowserTests(PublicHttpTestCase):
     def _reply(page, scan_id, state, code=""):
         page.evaluate("msg => window.nativeTestPort.postMessage(msg)", f"{scan_id}:{state}:{code}")
 
-    def test_native_scan_stages_one_current_code_and_never_submits(self):
+    def test_native_scan_persists_private_cards_and_retries_without_duplicates(self):
         with sync_playwright() as playwright:
             configured = os.getenv("SIMPLEOFFICE_INTAKE_CHROMIUM")
             options = {"executable_path": configured} if configured else {"channel": "chromium"}
@@ -77,6 +77,7 @@ class InventoryIntakeNativeBrowserTests(PublicHttpTestCase):
             context.add_cookies([{"name": session.key, "value": session.value, "url": self.origin}])
             page = context.new_page()
             unexpected, mutations, errors = [], [], []
+            lost_ack, stalled = [], []
             page.on("pageerror", lambda error: errors.append(str(error)))
 
             def route_request(route):
@@ -87,6 +88,14 @@ class InventoryIntakeNativeBrowserTests(PublicHttpTestCase):
                     return
                 if req.method != "GET":
                     mutations.append((req.method, req.url))
+                    if req.url == self.origin + PATH:
+                        if len(mutations) == 1:
+                            lost_ack.append(route.fetch().status)
+                            stalled.append(route)  # Do not settle the browser response yet.
+                            return
+                        if len(mutations) == 3:
+                            route.abort()  # The second deliberate scan never reaches Flask.
+                            return
                 route.continue_()
 
             page.route("**/*", route_request)
@@ -149,15 +158,50 @@ class InventoryIntakeNativeBrowserTests(PublicHttpTestCase):
             self._reply(page, scan_id, "ok", BOOK)
             expect(button).to_be_disabled()
             self._reply(page, next_scan, "ok", UPC)
-            expect(barcode).to_have_value(UPC)
-            expect(status).to_contain_text("Zum Speichern")
-            self.assertEqual([], mutations)
+            pending = page.locator("#intake-pending")
+            expect(pending.locator("[data-intake-pending-barcode] code")).to_have_text(UPC)
+            expect(pending.get_by_role("status")).to_contain_text("Speicherung nicht bestätigt", timeout=12000)
+            self.assertEqual(1, len(stalled))
+            retry = form.get_by_role("button", name="Scan erneut speichern")
+            expect(retry).to_be_enabled()
+            expect(button).to_be_disabled()
+            expect(barcode).not_to_be_editable()
+            expect(form.locator("#intake-photo")).to_be_disabled()
+            self.assertEqual([201], lost_ack)
             expect(page.locator("article[id^=draft-]")).to_have_count(0)
 
-            form.get_by_role("button", name="Privaten Entwurf anlegen").tap()
-            expect(page.locator("article[id^=draft-]")).to_have_count(1)
-            expect(page.locator("article[id^=draft-] input[name=barcode]")).to_have_value(UPC)
-            self.assertEqual(mutations, [("POST", self.origin + PATH)])
+            # The first POST reached the store. This sends the same capture token,
+            # loading the existing draft instead of creating a copy.
+            # The hash changes before the full reload. Wait for the new document's
+            # deferred scripts before announcing its (document-scoped) port.
+            with page.expect_event("domcontentloaded"):
+                retry.tap()
+            drafts = page.locator("article[id^=draft-]")
+            expect(drafts).to_have_count(1)
+            first_id = drafts.first.get_attribute("id")
+            expect(drafts.first.locator("input[name=barcode]")).to_have_value(UPC)
+            expect(page.locator("[data-intake-native-scan]")).to_be_hidden()
+            unsaved_title = drafts.first.locator("input[name=title]")
+            unsaved_title.fill("Noch nicht gespeicherter Titel")
+            page.evaluate(INSTALL_FIXTURE)
+            expect(button).to_be_visible()
+            self._reply(page, self._start(page, 1), "ok", UPC)
+            expect(pending.get_by_role("status")).to_contain_text("Speicherung nicht bestätigt")
+            expect(drafts).to_have_count(1)
+            expect(retry).to_be_enabled()
+            retry.tap()
+            expect(pending.get_by_role("status")).to_contain_text("Andere Entwürfe enthalten noch ungespeicherte Änderungen.")
+            expect(pending.get_by_role("button", name="Gespeicherten Entwurf öffnen")).to_be_visible()
+            expect(drafts).to_have_count(1)
+            expect(unsaved_title).to_have_value("Noch nicht gespeicherter Titel")
+            with page.expect_event("domcontentloaded"):
+                pending.get_by_role("button", name="Gespeicherten Entwurf öffnen").tap()
+            expect(drafts).to_have_count(2)
+            self.assertIn(first_id, [card.get_attribute("id") for card in drafts.all()])
+            for card in drafts.all():
+                expect(card).to_contain_text("In Prüfung")
+                expect(card.locator("input[name=barcode]")).to_have_value(UPC)
+            self.assertEqual(mutations, [("POST", self.origin + PATH)] * 4)
             self.assertEqual([], unexpected)
             self.assertEqual([], errors)
             context.close()
