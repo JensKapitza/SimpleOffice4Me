@@ -3,7 +3,9 @@
 
   const root = document.querySelector("[data-book-scanner]");
   if (!root) return;
-  const form = root.querySelector("form");
+  const form = root.querySelector("[data-scan-export]");
+  const share = typeof FormDataEvent === "function" ? root.querySelector("[data-scan-share]") : null;
+  const shareControls = share?.querySelector("[data-scan-share-controls]");
   const controls = form.querySelector("[data-scan-controls]");
   const submit = form.querySelector("[data-scan-download]");
   const list = form.querySelector("[data-scan-pages]");
@@ -12,9 +14,28 @@
   const en = root.dataset.lang === "en";
   const pages = [];
   let busy = false;
+  let reviewedPdf = null;
 
   const t = (de, translation) => en ? translation : de;
   const say = (text) => { message.textContent = text; };
+
+  function clearReview() {
+    if (!share) return;
+    reviewedPdf = null;
+    share.reset();
+    shareControls.disabled = true;
+    share.hidden = true;
+  }
+
+  if (share) {
+    share.addEventListener("submit", (event) => {
+      if (!reviewedPdf || busy) event.preventDefault();
+    });
+    share.addEventListener("formdata", ({formData}) => {
+      if (reviewedPdf && !busy) formData.set("pdf", reviewedPdf, "Book-scan.pdf");
+    });
+    window.addEventListener("pagehide", clearReview);
+  }
 
   function button(label, action, disabled = false) {
     const control = document.createElement("button");
@@ -43,6 +64,7 @@
   }
 
   function render(index = null) {
+    clearReview();
     list.replaceChildren();
     for (const [position, page] of pages.entries()) {
       const row = document.createElement("li");
@@ -60,6 +82,7 @@
       const edit = document.createElement("div");
       edit.className = "d-flex flex-wrap gap-2";
       const rotate = button(t("90° drehen", "Rotate 90°"), () => {
+        clearReview();
         page.turns = (page.turns + 1) % 4;
         preview.style.transform = `rotate(${page.turns * 90}deg)`;
         say(t(`Seite ${position + 1}: ${page.turns * 90}°.`, `Page ${position + 1}: ${page.turns * 90}°.`));
@@ -101,6 +124,7 @@
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!pages.length || busy) return;
+    clearReview();
     const body = new FormData(form);
     const order = [];
     pages.forEach((page, index) => { body.append("pages", page.file); order.push([index, page.turns]); });
@@ -118,7 +142,8 @@
         say(typeof detail.error === "string" ? detail.error : failure);
         return;
       }
-      const href = URL.createObjectURL(await response.blob());
+      const pdf = await response.blob();
+      const href = URL.createObjectURL(pdf);
       const download = document.createElement("a");
       download.href = href;
       download.download = t("Buchscan.pdf", "Book-scan.pdf");
@@ -126,6 +151,11 @@
       download.click();
       download.remove();
       window.setTimeout(() => URL.revokeObjectURL(href), 1500);
+      if (share) {
+        reviewedPdf = pdf;
+        shareControls.disabled = false;
+        share.hidden = false;
+      }
       say(t("PDF erstellt. Nichts wurde importiert oder geteilt.",
         "PDF created. Nothing was imported or shared."));
     } catch (_error) {
