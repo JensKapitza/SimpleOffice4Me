@@ -141,6 +141,57 @@ class MixedIntakeTests(unittest.TestCase):
             proposal_from_ids(state, {"publisher": "fabricated"})
         self.assertEqual(ObjectStore(self.documents).objects(), [])
 
+    def test_catalog_consent_discloses_configured_recipients_before_lookup(self):
+        from tests.test_inventory_catalog import ISBN, ISBN10, EAN, open_record, google_volume
+
+        inventory_catalog._cache.clear()
+        self.addCleanup(inventory_catalog._cache.clear)
+        code = "SIMPLEOFFICE_GOOGLE_BOOKS_API_KEY"
+        key = "synthetic-not-in-rendered-page"
+        book = self.photo(barcode=ISBN10, title="A Book: Ä Edition", kind="book")
+        product = self.photo(barcode=EAN, kind="object")
+        bob = self.post(who=self.bob, barcode=ISBN10, capture_token=uuid.uuid4().hex).json["draft"]
+
+        def fetch(host, path, *, headers=None):
+            self.assertIn(ISBN, path)
+            self.assertNotIn(ISBN10, path)
+            self.assertNotIn("Edition", path)
+            self.assertNotIn(key, path)
+            if host == "openlibrary.org":
+                return open_record()
+            self.assertEqual(host, "www.googleapis.com")
+            self.assertEqual({"X-Goog-Api-Key": key}, headers)
+            return {"totalItems": 1, "items": [google_volume()]}
+
+        def form(draft, who=None):
+            return self.get_page(who).select_one(f'#draft-{draft["id"]} [data-intake-catalog-form]')
+
+        route = f'/{book["id"]}/catalog'
+        with mock.patch("app.inventory_catalog_http.get_json", side_effect=fetch) as external:
+            with mock.patch.dict(os.environ, {code: " "}):
+                consent = form(book)
+                self.assertIn("Nur die gespeicherte ISBN an Open Library senden", consent.get_text(" ", strip=True))
+                self.assertIn("braucht zwei bestätigende Kataloge", consent.get_text(" ", strip=True))
+                self.assertIsNotNone(consent.select_one('a[href*="SCANNER_CATALOG.md"]'))
+                self.assertIsNone(form(bob, self.bob).select_one('a[href*="SCANNER_CATALOG.md"]'))
+                self.assertIsNone(form(product).select_one('[name="catalog_consent"]'))
+                external.assert_not_called()
+                self.assertEqual(400, self.post(route, revision="1").status_code)
+                external.assert_not_called()
+                result = self.post(route, revision="1", catalog_consent="1").json["draft"]
+                self.assertEqual("single_source", result["catalog"]["reason"])
+                self.assertEqual([], result["book_suggestions"])
+            self.assertEqual(["openlibrary.org"], [call.args[0] for call in external.call_args_list])
+            with mock.patch.dict(os.environ, {code: key}):
+                consent = form(book)
+                self.assertIn("an Open Library und Google Books senden", consent.get_text(" ", strip=True))
+                self.assertNotIn(key, str(self.get_page()))
+                self.assertEqual(1, external.call_count)
+                result = self.post(route, revision=str(result["revision"]), catalog_consent="1").json["draft"]
+                self.assertTrue(result["book_suggestions"])
+            self.assertEqual(["openlibrary.org", "www.googleapis.com"],
+                             [call.args[0] for call in external.call_args_list])
+
     def test_catalog_cache_follows_google_credential_rotation_for_same_barcode(self):
         code = "9780140328721"
         key_a, key_b = "synthetic-google-alpha", "synthetic-google-beta"

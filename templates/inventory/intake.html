@@ -178,15 +178,27 @@
             <button type="submit" class="btn btn-outline-secondary">Text lokal erkennen</button>
           </form>
           {% endif %}
-          <form method="post" action="{{ url_for('inventory.catalog_intake', entry_id=uid) }}" class="mt-3">
+          {% set available = draft.catalog_availability %}
+          <form method="post" action="{{ url_for('inventory.catalog_intake', entry_id=uid) }}" class="mt-3" data-intake-catalog-form>
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="revision" value="{{ draft.revision }}">
-            <label class="form-check-label d-block small mb-2">
-              <input class="form-check-input me-1" type="checkbox" name="catalog_consent" value="1" required>
-              Gespeicherten ISBN/EAN-Code an konfigurierte öffentliche Kataloge senden (kein Foto und kein privater Text).
-            </label>
-            <button type="submit" class="btn btn-outline-secondary" {% if not draft.manual.get('barcode') %}disabled{% endif %}>Katalog abgleichen</button>
-            {% if not draft.manual.get('barcode') %}<div class="form-text">Zuerst den Barcode im Entwurf speichern.</div>{% endif %}
+            {% if available.providers %}
+              {% if available.providers|length == 1 %}
+              <p class="small mb-1">Google Books ist nicht eingerichtet. Open Library kann einzelne Treffer zur Prüfung liefern. Ein Vorschlag für die Ausgabe braucht zwei bestätigende Kataloge.</p>
+                {% if g.user.is_admin %}
+                <p class="small mb-2"><a href="https://github.com/JensKapitza/SimpleOffice4Me/blob/main/docs/SCANNER_CATALOG.md">Google Books auf dem Server einrichten</a></p>
+                {% endif %}
+              {% endif %}
+              <label class="form-check-label d-block small mb-2">
+                <input class="form-check-input me-1" type="checkbox" name="catalog_consent" value="1" required>
+                Nur die gespeicherte ISBN an {{ available.providers|join(' und ') }} senden. Foto und private Angaben bleiben lokal.
+              </label>
+              <button type="submit" class="btn btn-outline-secondary">Katalog abgleichen</button>
+            {% elif available.kind == 'product' %}
+              <p class="form-text mb-0">Für Produktcodes ist kein externer Katalog eingerichtet. Du kannst das Foto lokal auslesen oder die Angaben von Hand ergänzen.</p>
+            {% else %}
+              <p class="form-text mb-0">Für den Katalogabgleich zuerst eine gültige ISBN im Entwurf speichern.</p>
+            {% endif %}
           </form>
           {% if draft.selected %}
           <form method="post" action="{{ url_for('inventory.choose_intake', entry_id=uid) }}" class="mt-3">

@@ -14,7 +14,11 @@ Katalogfelder behalten ihre Quellenkennungen auch bei identischem Text.
   [Google Books API](https://developers.google.com/books/docs/v1/using)
   beschränkten Anwendungsschlüssel als `SIMPLEOFFICE_GOOGLE_BOOKS_API_KEY` setzen.
   Keine OAuth-Anmeldung, keine Kalenderdaten. Ohne diesen Schlüssel wird Google
-  nicht aufgerufen. Nur ausdrücklich angegebene passende ISBNs zählen.
+  nicht aufgerufen. Hinterlege den Schlüssel in der Serverumgebung (bei
+  Docker/Compose als Umgebungsvariable des SimpleOffice-Containers) und starte
+  die Anwendung mit der aktualisierten Umgebung neu. In der Stapelerfassung
+  stehen dann Open Library und Google Books vor der Zustimmung. Die App zeigt
+  den Schlüssel nicht an. Nur ausdrücklich angegebene passende ISBNs zählen.
 - **Buchtitel und Ausgabe:** Eine Empfehlung braucht zwei unabhängige Quellen
   mit derselben ISBN und demselben normalisierten Titel sowie übereinstimmenden
   Ausgabenmerkmalen (Verlag und Jahr; abweichende vorhandene Angaben führen zur
