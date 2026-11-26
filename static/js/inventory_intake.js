@@ -151,6 +151,7 @@ document.querySelectorAll('[data-intake-editor]').forEach(editor => {
   const initial = new URLSearchParams(new FormData(editor)).toString();
   const update = () => {
     const dirty = initial !== new URLSearchParams(new FormData(editor)).toString();
+    editor.dataset.soDirty = dirty ? '1' : '0';
     actions.forEach(button => { button.disabled = dirty; });
     note.hidden = !dirty;
   };
