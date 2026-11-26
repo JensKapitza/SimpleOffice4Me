@@ -47,7 +47,7 @@
     <h2 class="h4" data-room-station></h2>
     <p data-room-roster></p>
     <p data-room-invite hidden></p>
-    <p hidden data-room-qr-wrap><img data-room-qr width="180" height="180" alt="{{ 'Room code QR for other devices' if en else 'Raumcode-QR für weitere Geräte' }}"></p>
+    <p hidden data-room-qr-wrap><img data-room-qr width="180" height="180" loading="lazy" decoding="async" alt="{{ 'Room code QR for other devices' if en else 'Raumcode-QR für weitere Geräte' }}"></p>
     <div data-room-controls hidden>
       <label class="form-label" for="reaction-room-mode">{{ 'Mode' if en else 'Spielart' }}</label>
       <select id="reaction-room-mode" class="form-select mb-2 w-auto" data-room-mode>
