@@ -961,3 +961,12 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | #1320 (Logikwerkstatt, via #1323) + #1321 (Vorlesen/Downloads, via #1324) mit Dateinachweis kommentiert + geschlossen. #1333-Befund als PR-Kommentar gepostet (eigener-Account-PR, kein Request-Changes möglich). #1314-Teilstand kommentiert (Blickpfad/Inferenz/Kamera offen). |
 | Tests und Soll-Ist-Vergleich | Soll: weiteres Issue erledigen. Ist: 2 Issues geschlossen (Evidenz per `git cat-file` auf Main belegt), 1 HOLD begründet, 1 Teilstand dokumentiert. #1331-Draft + #1333-HOLD bleiben offen. |
 | Review und Abschluss | Offen: #1333-Fix (Peer), #1331-Ready, Rest-Issues (#1314 Blickpfad, #1304 Fingeralphabet, #1306 Android/Föderation, #1225 glib, #874 Alerts, Epics). |
+
+## 26. November 2026 · Issue-Runde 10: #874-Triage (338 Alerts) + Fix-PR #1336
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Subagent-Triage aller 338 Code-Scanning- + 1 Dependabot-Alerts gegen Main: 152 path-injection FP (eigene Sanitizer), 67 stack-trace FP (kuratierte Strings), Rest FP/Prozess/Hygiene. Belegstellen je Cluster geprüft ( containment in `safe_paths`/`webdav_part_2`, allowlists, HMAC-vs-Passwort, vendored libs). |
+| Implementierung | 2 echte Befunde selbst gefixt (PR #1336): #384 iCal-Download-Name via `safe_filename` + normalisierte Methode; #1043 `safePreviewUrl` ohne `http://` (Server liefert nur relative URLs). glib bleibt #1225. |
+| Tests und Soll-Ist-Vergleich | Soll: weiteres Issue + PRs. Ist: #1335-Review MERGE-READY (CI läuft); #1336 mit Route-/Sanitizer-Test + Node-Allowlist-Test; lokal 13/13 Python (eigenes 3.12-uv-Venv, Repo-.venv defekt), 2/2 Node, ruff/compile/node-check grün; #874 mit Triage kommentiert. |
+| Review und Abschluss | Offen: #1335/#1336-CI → mergen bei Grün; FP-Dismissals = Eigentümer-Entscheidung; #1331/#1333/#1334 vom Peer gemergt. |
