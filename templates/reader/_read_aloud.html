@@ -1,3 +1,4 @@
+{% set speech_admin = g.user and g.user.is_admin %}
 <div class="border rounded p-2 my-2" data-reader-read-aloud
      data-speech-url="{{ speech_url }}"
      {% if speech_kind == 'epub' %}
@@ -15,7 +16,7 @@
      data-speech-loading="{{ 'Preparing local audio…' if g.language == 'en' else 'Lokale Sprachausgabe wird vorbereitet …' }}"
      data-speech-playing="{{ 'Reading aloud.' if g.language == 'en' else 'Wird vorgelesen.' }}"
      data-speech-paused="{{ 'Paused.' if g.language == 'en' else 'Pausiert.' }}"
-     data-speech-unavailable="{{ 'Local read-aloud is unavailable. Check the Piper voice in Media settings.' if g.language == 'en' else 'Lokales Vorlesen ist nicht verfügbar. Prüfe die Piper-Stimme in den Medien-Einstellungen.' }}{% if speech_kind == 'pdf' %} {{ 'PDF also needs the local pdftotext tool.' if g.language == 'en' else 'Für PDF ist zusätzlich das lokale Werkzeug pdftotext nötig.' }}{% endif %}"
+     data-speech-unavailable="{{ 'Local read-aloud is unavailable.' if g.language == 'en' else 'Lokales Vorlesen ist nicht verfügbar.' }} {% if speech_admin %}{{ 'Check the voice and Piper status under Set up read-aloud.' if g.language == 'en' else 'Unter „Vorlesen einrichten“ siehst du den Status von Stimme und Piper.' }}{% if speech_kind == 'pdf' %} {{ 'PDF also needs the local pdftotext tool.' if g.language == 'en' else 'Für PDF ist zusätzlich das lokale Werkzeug pdftotext nötig.' }}{% endif %}{% else %}{{ 'Contact your administrator.' if g.language == 'en' else 'Wende dich an die Administration.' }}{% endif %}"
      data-speech-error="{{ 'Read-aloud could not play this section.' if g.language == 'en' else 'Dieser Abschnitt konnte nicht vorgelesen werden.' }}"
      data-speech-no-text="{{ ('This page has no readable text layer. Select ‘OCR and read aloud’ to recognize it.' if g.language == 'en' else 'Diese Seite hat keine lesbare Textebene. Wähle „OCR und vorlesen“, um den Text zu erkennen.') if speech_kind == 'pdf' else ('There is no readable text in this section.' if g.language == 'en' else 'Dieser Abschnitt enthält keinen lesbaren Text.') }}"
      data-speech-stale="{{ 'This document changed. Reload the page to read the current version.' if g.language == 'en' else 'Das Dokument hat sich geändert. Lade die Seite neu, um die aktuelle Version vorzulesen.' }}"
@@ -64,9 +65,10 @@
   </div>
   {% endif %}
   {% if speech_kind == 'pdf' %}<div class="form-text">{{ 'Continuous reading starts at the selected page and stops at a page without a text layer. It never starts OCR or moves the view automatically. OCR recognizes a selected scan without changing the PDF.' if g.language == 'en' else 'Mehrere Seiten werden ab der ausgewählten Seite vorgelesen. Bei einer Seite ohne Textebene stoppt das Vorlesen, ohne OCR zu starten oder die Ansicht zu verschieben. OCR erkennt den Text einer ausgewählten Scan-Seite, ohne das PDF zu ändern.' }}</div>{% endif %}
-  <div class="form-text">
-    {% if g.user and g.user.is_admin %}
-    <a href="{{ url_for('admin.documents_media_settings', _anchor='local-read-aloud') }}">{{ 'Set up or test local read-aloud' if g.language == 'en' else 'Lokales Vorlesen einrichten oder prüfen' }}</a>
+  <div class="form-text d-flex flex-wrap gap-2">
+    {% if speech_admin %}
+    <a href="{{ url_for('optional_setup.index', _anchor='reader-speech') }}">{{ 'Set up read-aloud' if g.language == 'en' else 'Vorlesen einrichten' }}</a>
+    <a href="{{ url_for('admin.documents_media_settings', _anchor='local-read-aloud') }}">{{ 'Technical diagnostics' if g.language == 'en' else 'Technische Diagnose' }}</a>
     {% else %}
     {{ 'If read-aloud is unavailable, contact your administrator.' if g.language == 'en' else 'Wenn Vorlesen nicht verfügbar ist, wende dich an die Administration.' }}
     {% endif %}

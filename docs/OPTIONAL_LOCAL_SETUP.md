@@ -8,7 +8,9 @@ nur die Details auf der eigenen Übersicht aus. Sie ändert weder Rechte noch
 Dateien, angelegte Jobs oder die Anzeige anderer Konten.
 
 - **Reader & Mail:** Die separate Piper-Engine und die Standard-/Englischstimme
-  werden unabhängig angezeigt. „Konfiguriert“ prüft nur Pfad und begleitende
+  werden unabhängig angezeigt. **Vorlesen einrichten** in Reader und
+  Mail-Vorschau führt direkt hierher. **Technische Diagnose** führt separat
+  zum Werkzeuge-Test in den Medien-Einstellungen. „Konfiguriert“ prüft nur Pfad und begleitende
   JSON-Datei, nicht die Wiedergabe. Die Administration kann vorhandene lokale
   Stimmen direkt in den Medien-Einstellungen wählen. Ohne EN-Einstellung
   verwendet die App wie bisher die konfigurierte Standardstimme. Der
