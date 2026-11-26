@@ -162,12 +162,17 @@ class InventoryIntakeNativeBrowserTests(PublicHttpTestCase):
 
             # The first POST reached the store. This sends the same capture token,
             # loading the existing draft instead of creating a copy.
-            form.get_by_role("button", name="Privaten Entwurf anlegen").tap()
+            # The hash changes before the full reload. Wait for the new document's
+            # deferred scripts before announcing its (document-scoped) port.
+            with page.expect_event("domcontentloaded"):
+                form.get_by_role("button", name="Privaten Entwurf anlegen").tap()
             drafts = page.locator("article[id^=draft-]")
             expect(drafts).to_have_count(1)
             first_id = drafts.first.get_attribute("id")
             expect(drafts.first.locator("input[name=barcode]")).to_have_value(UPC)
+            expect(page.locator("[data-intake-native-scan]")).to_be_hidden()
             page.evaluate(INSTALL_FIXTURE)
+            expect(button).to_be_visible()
             self._reply(page, self._start(page, 1), "ok", UPC)
             expect(drafts).to_have_count(2)
             self.assertIn(first_id, [card.get_attribute("id") for card in drafts.all()])
