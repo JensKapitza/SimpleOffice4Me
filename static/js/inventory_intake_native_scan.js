@@ -68,8 +68,8 @@
       if (!current) return;
       if (result === "ok" && allowedValue(value)) {
         field.value = value;
-        status.textContent = text("Barcode erkannt. Zum Speichern den privaten Entwurf anlegen.",
-          "Barcode added. Choose Create private draft to save it.");
+        status.textContent = text("Barcode erkannt.", "Barcode scanned.");
+        form.dispatchEvent(new Event("intake:native-scan"));
       } else if (result === "cancelled") {
         status.textContent = text("Scan abgebrochen. Du kannst den Barcode eingeben oder ein Foto wählen.",
           "Scan cancelled. You can enter the barcode or choose a photo.");

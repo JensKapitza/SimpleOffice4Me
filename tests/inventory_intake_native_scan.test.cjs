@@ -8,8 +8,10 @@ const SOURCE = readFileSync("static/js/inventory_intake_native_scan.js", "utf8")
 const GOOD = "9780140328721";
 const UPC = "036000291452";
 
-test("an explicit click stages exactly one validated value without starting a request", async (t) => {
+test("an explicit click notifies the capture form once with the validated result", async (t) => {
   const f = fixture(t, SOURCE);
+  let captures = 0;
+  f.form.addEventListener("intake:native-scan", () => { captures++; });
   assert.equal(f.button.hidden, true);
   f.transfer("http://example.invalid", {});
   assert.equal(f.button.hidden, true);
@@ -28,7 +30,8 @@ test("an explicit click stages exactly one validated value without starting a re
   bridge.reply(id, UPC);
   await delay(25);
   assert.equal(f.field.value, GOOD);
-  assert.match(f.status.textContent, /Zum Speichern/);
+  assert.match(f.status.textContent, /Barcode erkannt/);
+  assert.equal(captures, 1);
   assert.equal(f.effects(), 0);
 });
 

@@ -66,7 +66,7 @@ class InventoryIntakeNativeBrowserTests(PublicHttpTestCase):
     def _reply(page, scan_id, state, code=""):
         page.evaluate("msg => window.nativeTestPort.postMessage(msg)", f"{scan_id}:{state}:{code}")
 
-    def test_native_scan_stages_one_current_code_and_never_submits(self):
+    def test_native_scan_persists_private_cards_and_retries_without_duplicates(self):
         with sync_playwright() as playwright:
             configured = os.getenv("SIMPLEOFFICE_INTAKE_CHROMIUM")
             options = {"executable_path": configured} if configured else {"channel": "chromium"}
@@ -77,6 +77,7 @@ class InventoryIntakeNativeBrowserTests(PublicHttpTestCase):
             context.add_cookies([{"name": session.key, "value": session.value, "url": self.origin}])
             page = context.new_page()
             unexpected, mutations, errors = [], [], []
+            lost_ack = []
             page.on("pageerror", lambda error: errors.append(str(error)))
 
             def route_request(route):
@@ -87,6 +88,10 @@ class InventoryIntakeNativeBrowserTests(PublicHttpTestCase):
                     return
                 if req.method != "GET":
                     mutations.append((req.method, req.url))
+                    if req.url == self.origin + PATH and not lost_ack:
+                        lost_ack.append(route.fetch().status)
+                        route.abort()
+                        return
                 route.continue_()
 
             page.route("**/*", route_request)
@@ -149,15 +154,27 @@ class InventoryIntakeNativeBrowserTests(PublicHttpTestCase):
             self._reply(page, scan_id, "ok", BOOK)
             expect(button).to_be_disabled()
             self._reply(page, next_scan, "ok", UPC)
-            expect(barcode).to_have_value(UPC)
-            expect(status).to_contain_text("Zum Speichern")
-            self.assertEqual([], mutations)
+            pending = page.locator("#intake-pending")
+            expect(pending.locator("[data-intake-pending-barcode] code")).to_have_text(UPC)
+            expect(pending.get_by_role("status")).to_contain_text("Speicherung nicht bestätigt")
+            self.assertEqual([201], lost_ack)
             expect(page.locator("article[id^=draft-]")).to_have_count(0)
 
+            # The first POST reached the store. This sends the same capture token,
+            # loading the existing draft instead of creating a copy.
             form.get_by_role("button", name="Privaten Entwurf anlegen").tap()
-            expect(page.locator("article[id^=draft-]")).to_have_count(1)
-            expect(page.locator("article[id^=draft-] input[name=barcode]")).to_have_value(UPC)
-            self.assertEqual(mutations, [("POST", self.origin + PATH)])
+            drafts = page.locator("article[id^=draft-]")
+            expect(drafts).to_have_count(1)
+            first_id = drafts.first.get_attribute("id")
+            expect(drafts.first.locator("input[name=barcode]")).to_have_value(UPC)
+            page.evaluate(INSTALL_FIXTURE)
+            self._reply(page, self._start(page, 1), "ok", UPC)
+            expect(drafts).to_have_count(2)
+            self.assertIn(first_id, [card.get_attribute("id") for card in drafts.all()])
+            for card in drafts.all():
+                expect(card).to_contain_text("In Prüfung")
+                expect(card.locator("input[name=barcode]")).to_have_value(UPC)
+            self.assertEqual(mutations, [("POST", self.origin + PATH)] * 3)
             self.assertEqual([], unexpected)
             self.assertEqual([], errors)
             context.close()
