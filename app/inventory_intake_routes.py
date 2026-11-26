@@ -48,13 +48,16 @@ def _public(entry):
     state = entry["intake"]
     entry_id = entry["entry_id"]
     has_photo = bool(entry.get("original"))
+    evidence = selectable_fields(state)
+    conflicts = sorted({row["field"] for row in evidence if row["conflict"]})
     return {
-        "id": entry_id, "created_at": entry["created_at"], "state": status(state),
+        "id": entry_id, "created_at": entry["created_at"],
+        "state": status(state, has_conflict=bool(conflicts)), "conflict_fields": conflicts,
         "revision": state["revision"], "sequence": state["sequence"],
         "manual": state["manual"], "ocr": state["ocr"], "catalog": catalog_view(state),
         "compatible_selection": compatible_selection(state),
         "proposal": current_proposal(state), "confirmed": state["confirmed"],
-        "selected": state["selected"], "evidence": selectable_fields(state),
+        "selected": state["selected"], "evidence": evidence,
         "preview_url": url_for("inventory.capture_preview", entry_id=entry_id) if has_photo else None,
     }
 
