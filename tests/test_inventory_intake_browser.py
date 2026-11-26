@@ -62,12 +62,18 @@ class InventoryIntakeBrowserTests(PublicHttpTestCase):
 
     def _sign_in(self, page):
         page.goto(self.origin + "/auth/login")
+        german = page.locator('form button[name="language"][value="de"]')
+        if german.is_enabled():
+            with page.expect_navigation(wait_until="domcontentloaded"):
+                german.click()
+        expect(page.locator("html")).to_have_attribute("lang", "de")
         username = page.locator('input[name="username"]')
         username.fill("owner")
         page.locator('input[name="password"]').fill("test-only-api-password")
         with page.expect_navigation(wait_until="domcontentloaded"):
             page.locator("form").filter(has=username).locator('button[type="submit"]').click()
         page.goto(self.origin + INTAKE, wait_until="domcontentloaded")
+        expect(page.locator("html")).to_have_attribute("lang", "de")
         expect(page.locator("#intake-capture")).to_be_visible()
 
     @staticmethod
