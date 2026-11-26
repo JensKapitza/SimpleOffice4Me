@@ -1,0 +1,73 @@
+name: Navigation assistance hand model (staging)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/access-hand-staging.yml'
+      - 'app/__init__.py'
+      - 'app/access_hand_staging.py'
+      - 'app/documents_routes_content.py'
+      - 'app/kids_hand_assets.py'
+      - 'static/js/access_hand_staging*.mjs'
+      - 'static/js/kids_hand_*.mjs'
+      - 'templates/documents/access_navigation_proof.html'
+      - 'templates/documents/dashboard.html'
+      - 'tests/*access_hand_staging*'
+      - 'tests/test_access_navigation_proof.py'
+      - 'tools/*hand*test_video.py'
+      - 'tools/provision_kids_hand_game.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+concurrency:
+  group: access-hand-staging-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  staged-hand-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Install application and Chromium test tooling
+        run: |
+          python -m pip install --editable '.[web-export,test]'
+          python -m playwright install --with-deps --no-shell chromium
+      - name: Stage existing pinned runtime and public hand test frame (CI only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/hand-nav"
+          mkdir -p "$dir"
+          args=(--proto '=https' --tlsv1.2 --fail --silent --show-error --max-time 75 --retry 2)
+          curl "${args[@]}" 'https://registry.npmjs.org/@mediapipe/tasks-vision/-/tasks-vision-0.10.21.tgz' -o "$dir/package.tgz"
+          curl "${args[@]}" 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task' -o "$dir/model.task"
+          curl "${args[@]}" 'https://storage.googleapis.com/mediapipe-assets/pointing_up.jpg' -o "$dir/pointing.jpg"
+          python tools/provision_kids_hand_game.py --package "$dir/package.tgz" --model "$dir/model.task" --destination "$dir/assets" --with-simd
+          python -m tools.make_kids_hand_test_video "$dir/pointing.jpg" "$dir"
+          python -m tools.make_hand_nav_test_video "$dir"
+      - name: Verify native fallback and real hand-only explicit navigation
+        env:
+          SIMPLEOFFICE_KIDS_HAND_GAME_ASSET_DIR: ${{ runner.temp }}/hand-nav/assets
+          SIMPLEOFFICE_HAND_NAV_FIXTURES: ${{ runner.temp }}/hand-nav
+          SIMPLEOFFICE_HAND_NAV_BROWSER_REQUIRED: '1'
+          SIMPLEOFFICE_HAND_NAV_EXPECT_SIMD: '1'
+          PYTHONPATH: .:tests
+        run: |
+          node --test tests/access_hand_staging.test.mjs tests/access_navigation_proof.test.mjs
+          python -m unittest -v test_access_navigation_proof test_access_hand_staging_browser
+          python -m unittest -v test_access_hand_staging_browser

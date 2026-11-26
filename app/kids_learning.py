@@ -160,10 +160,11 @@ def hand_game():
 @bp.get("/handzeichen/assets/<name>")
 @login_required
 def hand_game_asset(name):
-    data = kids_hand_assets.asset(_hand_game_asset_directory(), name)
+    spec = kids_hand_assets.asset_spec(name)
+    data = kids_hand_assets.asset(_hand_game_asset_directory(), name) if spec else None
     if data is None:
         abort(404)
-    return send_file(io.BytesIO(data), mimetype=kids_hand_assets.ASSETS[name][0])
+    return send_file(io.BytesIO(data), mimetype=spec[0])
 
 
 @bp.get("/silben")

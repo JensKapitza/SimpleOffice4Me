@@ -4,6 +4,7 @@ from __future__ import annotations
 import tempfile
 from flask import current_app
 
+from . import access_hand_staging
 from .documents_core import *  # noqa: F401,F403
 from .preview_service import AUDIO_SUFFIXES, IMAGE_SUFFIXES, VIDEO_SUFFIXES, media_mimetype
 from .v2.contracts import LogicalObjectId
@@ -264,6 +265,12 @@ def refresh_document_search():
     return redirect(url_for("documents.document_search", q=request.form.get("q", "").strip()))
 
 
+@bp.get("/bedienhilfe")
+@login_required
+def access_navigation_proof():
+    return access_hand_staging.response()
+
+
 @bp.get("/dashboard")
 @login_required
 def dashboard():
@@ -277,6 +284,7 @@ def dashboard():
     inbox = store.inbox_page(page=1, page_size=8)
     return render_template(
         "documents/dashboard.html",
+        hand_nav_enabled=access_hand_staging.enabled(),
         system=_system_overview(),
         inbox=inbox["documents"],
         inbox_total=inbox["total"],
