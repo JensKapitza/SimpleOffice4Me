@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 from bs4 import BeautifulSoup
 
-from app import app, kids_hand_assets, kids_piper_assets as piper, optional_local_setup as optional
+from app import app, english_voice_assets as english, kids_hand_assets, kids_piper_assets as piper, optional_local_setup as optional
 from app import optional_hand_game_install as hand
 from app.document_store import DocumentStore
 from app.settings_store import SettingsStore
@@ -65,6 +65,7 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
         for guarded in (
             patch.object(hand, "build_opener", side_effect=AssertionError("unexpected real hand transport")),
             patch.object(piper, "build_opener", side_effect=AssertionError("unexpected real voice transport")),
+            patch.object(english, "build_opener", side_effect=AssertionError("unexpected real English voice transport")),
             patch("app.audio_output_engine.render_tts", side_effect=AssertionError("no audio engine in tests")),
             patch("app.private_read_aloud.private_audio_response", side_effect=AssertionError("no Reader runtime in setup")),
             patch.object(optional, "hand_override", return_value=""),
@@ -595,16 +596,18 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
         self.assertEqual("installed", by_id["piper-engine"]["status"])
         self.assertEqual("partial", by_id["ffmpeg"]["status"])
         self.assertEqual("separate-workflow", by_id["osm-data"]["status"])
-        self.assertEqual({"voice-package", "kids-hand"}, set(inventory["supported_install_features"]))
+        self.assertEqual({"voice-package", "kids-hand", "english-voice"}, set(inventory["supported_install_features"]))
         page = document(self.client.get(SETUP))
         self.assertIsNotNone(page.select_one("#component-manager"))
+        self.assertIsNotNone(page.select_one("#english-voice #english-voice-heading"))
+        self.assertIn("CC BY 4.0", page.select_one("#english-voice").get_text(" "))
         self.assertIsNotNone(page.select_one('form[action="/setup/optional/install-all"] button[type="submit"]'))
         self.assertTrue(page.select_one('a[href="/admin/osm-addresses"]'))
 
         with patch.object(optional, "queue", return_value="queued") as queue:
             reply = self.action(self.client, "/install-all")
         self.assertEqual(303, reply.status_code)
-        self.assertEqual(["voice-package", "kids-hand"], [call.args[1] for call in queue.call_args_list])
+        self.assertEqual(["voice-package", "kids-hand", "english-voice"], [call.args[1] for call in queue.call_args_list])
 
     def test_non_admin_cannot_queue_install_all(self):
         member = app.test_client()
@@ -612,11 +615,37 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
         self._login(member, "component-member")
         self.assertEqual(403, member.post(SETUP + "/install-all", data={"_csrf_token": "x"}).status_code)
 
+    def test_managed_english_voice_selection_preserves_existing_manual_settings(self):
+        model = str(self.root / ".simpleoffice-meta" / "voices" / "fixture.onnx")
+        with patch.object(english, "installed_model", return_value=model), patch.object(
+            optional, "resolve_command", return_value="/usr/bin/piper",
+        ):
+            selected = self.action(self.client, "/english-voice", action="select")
+            self.assertEqual(303, selected.status_code)
+            self.assertEqual(model, SettingsStore(self.root).settings()["media"]["piper_model_en"])
+            restored = self.action(self.client, "/english-voice", action="restore")
+            self.assertEqual(303, restored.status_code)
+            self.assertEqual("", SettingsStore(self.root).settings()["media"]["piper_model_en"])
+
+            SettingsStore(self.root).save({"media": {"piper_model_en": "/admin/custom.onnx"}}, "admin")
+            self.action(self.client, "/english-voice", action="select")
+            self.assertEqual("/admin/custom.onnx", SettingsStore(self.root).settings()["media"]["piper_model_en"])
+
+        with patch.object(english, "installed_model", return_value=model), patch.object(
+            optional, "resolve_command", return_value=None,
+        ):
+            SettingsStore(self.root).save({"media": {"piper_model_en": ""}}, "admin")
+            self.action(self.client, "/english-voice", action="select")
+            self.assertEqual("", SettingsStore(self.root).settings()["media"]["piper_model_en"])
+
     def test_install_queue_rejects_insufficient_free_space_before_downloading(self):
         with patch.object(optional.shutil, "disk_usage", return_value=SimpleNamespace(free=0)), patch.object(
             piper, "build_opener", side_effect=AssertionError("low disk space must prevent network access"),
+        ), patch.object(
+            english, "build_opener", side_effect=AssertionError("low disk space must prevent network access"),
         ):
             self.assertEqual("insufficient-space", optional.queue(self.root, "voice-package"))
+            self.assertEqual("insufficient-space", optional.queue(self.root, "english-voice"))
         self.assertFalse(optional._job_file(self.root).exists())
 
     def test_cancel_signal_is_visible_to_another_worker_process_view(self):

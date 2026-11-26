@@ -2,7 +2,7 @@
 from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
 from werkzeug.wsgi import LimitedStream
 
-from . import android_speech_settings, kids_hand_assets, kids_piper_assets, optional_hand_game_install, optional_local_setup
+from . import android_speech_settings, english_voice_assets, kids_hand_assets, kids_piper_assets, optional_hand_game_install, optional_local_setup
 from .access_control import audit, is_admin
 from .auth import login_required
 from .media_settings import PIPER_READER_THORSTEN
@@ -49,6 +49,10 @@ def index():
         hand_package_hash=kids_hand_assets.PACKAGE_SHA256,
         hand_manifest=kids_hand_assets.ASSETS,
         hand_archive_limit=optional_hand_game_install.RUNTIME_MAX_BYTES,
+        english_voice_release=english_voice_assets.REVISION,
+        english_voice_card=english_voice_assets.MODEL_CARD,
+        english_voice_license=english_voice_assets.LICENSE_URL,
+        english_voice_manifest=english_voice_assets.asset_manifest(),
     )
 
 
@@ -74,7 +78,8 @@ def limit_request() -> None:
                                 "optional_setup.activate_voice", "optional_setup.select_reader_voice",
                                 "optional_setup.install_all",
                                 "optional_setup.cancel_install",
-                                "optional_setup.set_android_speech", "optional_setup.test_android_speech"}:
+                                "optional_setup.set_android_speech", "optional_setup.test_android_speech",
+                                "optional_setup.english_voice"}:
         return
     if request.mimetype != "application/x-www-form-urlencoded":
         abort(415)
@@ -136,7 +141,7 @@ def install_all():
     root = current_app.config["DOCUMENT_ROOT"]
     manual = optional_local_setup.hand_override(current_app.config)
     outcomes = {}
-    for feature in (optional_local_setup.VOICE_PACKAGE, "kids-hand"):
+    for feature in (optional_local_setup.VOICE_PACKAGE, "kids-hand", optional_local_setup.ENGLISH_VOICE_PACKAGE):
         try:
             outcomes[feature] = optional_local_setup.queue(root, feature, manual_hand_directory=manual)
         except (OSError, ValueError):
@@ -331,6 +336,47 @@ def test_android_speech():
         from .kids_learning import _selected_kids_piper as model
 
     return private_audio_response(lambda: sample, language=locale, device_scope=scope, piper_model=model)
+
+
+@bp.post("/english-voice")
+@login_required
+def english_voice():
+    if not is_admin(g.user):
+        abort(403)
+    if (request.args or set(request.form) != {"_csrf_token", "action"}
+            or len(request.form.getlist("action")) != 1 or len(request.form.getlist("_csrf_token")) != 1):
+        abort(400)
+    action = request.form["action"]
+    if action not in {"select", "restore"}:
+        abort(400)
+    root = current_app.config["DOCUMENT_ROOT"]
+    model = english_voice_assets.installed_model(root)
+    current = str(SettingsStore(root).settings()["media"].get("piper_model_en") or "").strip()
+    if action == "select":
+        if not model or current or not optional_local_setup.resolve_command("piper", root):
+            flash(("The verified model or Piper engine is missing, or an English voice is already configured; settings were not changed."
+                   if g.language == "en" else
+                   "Das geprüfte Modell oder die Piper-Engine fehlt, oder es ist bereits eine englische Stimme eingerichtet. Die Einstellung blieb unverändert."))
+            return redirect(url_for("optional_setup.index", _anchor="english-voice"), code=303)
+        value = model
+    else:
+        if not model or current != model:
+            flash(("The managed English model is not selected; settings were not changed."
+                   if g.language == "en" else
+                   "Das verwaltete englische Modell ist nicht ausgewählt. Die Einstellung blieb unverändert."))
+            return redirect(url_for("optional_setup.index", _anchor="english-voice"), code=303)
+        value = ""
+    try:
+        SettingsStore(root).save({"media": {"piper_model_en": value}}, str(g.user["username"]))
+    except (OSError, ValueError):
+        flash("English voice selection could not be saved." if g.language == "en" else
+              "Auswahl der englischen Stimme konnte nicht gespeichert werden.")
+    else:
+        audit("english_voice_selection", "optional_setup", "english-voice", detail={"action": action})
+        flash(("English voice selection saved." if g.language == "en" else "Englische Stimme ausgewählt.")
+              if action == "select" else
+              ("English default restored." if g.language == "en" else "Englische Standardstimme zurückgesetzt."))
+    return redirect(url_for("optional_setup.index", _anchor="english-voice"), code=303)
 
 
 @bp.post("/preference")

@@ -34,6 +34,15 @@ Dateien, angelegte Jobs oder die Anzeige anderer Konten.
   und JSON sichtbar. Das Laden ändert keine Modellpfade, Auswahl oder
   Kids-Aktivierung. Siehe [Modell und Aufnahmen (CC0 1.0)](https://huggingface.co/Thorsten-Voice/Piper-Scratch)
   und getrennt [Piper-Engine und Lizenz](https://github.com/OHF-Voice/piper1-gpl/blob/main/docs/LICENSING.md).
+- **Englische Piper-Stimme:** Das optionale LibriTTS-High-Modell (US English,
+  rund 130 MiB) kann unabhängig von der Engine geladen werden. Beide Dateien
+  haben feste Version und SHA-256. Der Download liest keine Nutztexte und
+  installiert oder startet Piper nicht. Nur wenn Piper vorhanden ist, kann die
+  Administration das verwaltete Modell ausdrücklich als englische Stimme
+  auswählen. Eine bereits eingetragene eigene EN-Stimme wird nie überschrieben;
+  die verwaltete Auswahl lässt sich wieder auf den bisherigen EN-Fallback
+  zurücksetzen. Attribution: LibriTTS by He et al.,
+  [OpenSLR 60](https://www.openslr.org/60/), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 - **Kids-Labyrinth:** Dieselben geprüften Dateien können als separater Schritt
   ohne erneuten Download aktiviert werden. Der Modellsatz bleibt dort auf
   deutsche Labyrinth-Ansagen beschränkt, wenn keine Standardstimme
@@ -67,6 +76,9 @@ separate local configuration; the opt-in for the verified German voice is
 independent of Kids and can be reverted. The pinned files can be downloaded
 without Piper or with custom defaults. This does not install an engine, choose a
 voice or enable Kids. Once Piper is available the verified files can be reused.
+An optional US English LibriTTS high model is also available as a separately
+verified 130 MiB download. It is selected only by an administrator, only when
+Piper is present, and never replaces an already configured English voice.
 
 ## Offline tests (synthetic input only)
 

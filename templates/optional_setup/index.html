@@ -23,7 +23,7 @@
     <div class="card-body">
       <h2 class="h4" id="component-manager-title">{{ 'Component manager' if en else 'Komponentenverwaltung' }}</h2>
       <p>{{ 'Detected environment' if en else 'Erkannte Umgebung' }}: <strong>{{ inventory.runtime|replace('-', ' ')|title }} · {{ inventory.architecture }}</strong>.</p>
-      <p>{{ 'One-click installation is currently available for the verified Thorsten Scratch model and Finger Magic browser assets. Piper, FFmpeg, RapidOCR/ONNX and OSM use separate existing/system workflows; this page will not claim they are installed or run an unverified installer.' if en else 'Die geprüfte Ein-Klick-Installation ist derzeit für das Thorsten-Scratch-Modell und die Browserdateien für Fingerzauber verfügbar. Piper, FFmpeg, RapidOCR/ONNX und OSM nutzen vorhandene System- oder eigene Abläufe. Diese Seite behauptet keine Installation und startet keinen ungeprüften Installer.' }}</p>
+      <p>{{ 'One-click installation is currently available for the verified Thorsten Scratch and English LibriTTS voices plus Finger Magic browser assets. Piper, FFmpeg, RapidOCR/ONNX and OSM use separate existing/system workflows; this page will not claim they are installed or run an unverified installer.' if en else 'Die geprüfte Ein-Klick-Installation ist derzeit für die Sprachmodelle Thorsten Scratch und Englisch LibriTTS sowie die Browserdateien für Fingerzauber verfügbar. Piper, FFmpeg, RapidOCR/ONNX und OSM nutzen vorhandene System- oder eigene Abläufe. Diese Seite behauptet keine Installation und startet keinen ungeprüften Installer.' }}</p>
       <div class="row g-2 mb-3" aria-label="{{ 'Component status' if en else 'Komponentenstatus' }}">
         {% for item in inventory.components %}
         <div class="col-12 col-md-6 col-xl-4"><div class="h-100 border rounded p-3">
@@ -32,7 +32,7 @@
           <h3 class="h6 mb-2">{{ labels[item.id] }}</h3>
           <p class="mb-2"><span class="badge text-bg-{{ 'success' if item.status in ('installed', 'ready', 'configured', 'shared', 'fallback', 'shared-fallback', 'reader-thorsten') else 'info' if item.status in ('queued', 'downloading', 'cancelling') else 'warning' if item.status in ('missing', 'partial', 'failed', 'manual', 'engine-missing', 'installed-disabled', 'invalid', 'config-missing', 'reader-thorsten-invalid') else 'secondary' }}">{{ states.get(item.status, item.status) }}</span></p>
           {% if item.download_bytes %}<p class="small text-muted">{{ 'Download' if en else 'Download' }} ≈ {{ (item.download_bytes / 1048576)|round(1) }} MiB · {{ 'free space' if en else 'freier Speicher' }} ≥ {{ (item.required_bytes / 1048576)|round(0)|int }} MiB</p>{% endif %}
-          {% if item.install_feature and manage %}<a class="btn btn-sm btn-outline-primary" href="#{{ 'voice-package' if item.install_feature == 'voice-package' else 'kids-hand' }}">{{ 'Install or manage' if en else 'Installieren oder verwalten' }}</a>
+          {% if item.install_feature and manage %}<a class="btn btn-sm btn-outline-primary" href="#{{ 'voice-package' if item.install_feature == 'voice-package' else 'english-voice' if item.install_feature == 'english-voice' else 'kids-hand' }}">{{ 'Install or manage' if en else 'Installieren oder verwalten' }}</a>
           {% elif item.id == 'osm-data' and manage %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('admin.osm_address_index') }}">{{ 'Open OSM setup' if en else 'OSM-Einrichtung öffnen' }}</a>
           {% elif item.id == 'osm-data' %}<span class="small text-muted">{{ 'Administrator access required.' if en else 'Nur für Administratoren.' }}</span>
           {% elif item.id == 'rapidocr-onnx' %}<span class="small text-muted">{{ 'Uses the configured server Python environment.' if en else 'Nutzt die konfigurierte Server-Python-Umgebung.' }}</span>
@@ -82,6 +82,26 @@
         </details>
         {% if manage and readiness.voice_package in ('missing', 'failed') %}
           {% with feature='voice-package', retry=readiness.voice_package == 'failed' %}{% include 'optional_setup/_install_form.html' %}{% endwith %}
+        {% endif %}
+      </section>
+      <section id="english-voice" class="border rounded p-3 my-3" aria-labelledby="english-voice-heading">
+        <h3 id="english-voice-heading" class="h5">{{ 'English voice: LibriTTS high' if en else 'Englische Stimme: LibriTTS High' }}</h3>
+        {% with status=readiness.english_voice_package %}{% include 'optional_setup/_status.html' %}{% endwith %}
+        {% with feature='english-voice' %}{% include 'optional_setup/_job_progress.html' %}{% endwith %}
+        <p>{{ 'Optional high-quality US English voice model. Download is about 130 MiB. Files are SHA-256 verified and remain local. It is separate from Piper, does not run automatically, and is selected only after an explicit action.' if en else 'Optionales hochwertiges US-englisches Sprachmodell. Der Download umfasst rund 130 MiB. Die Dateien werden mit SHA-256 geprüft und bleiben lokal. Es ist getrennt von Piper, startet nicht automatisch und wird erst nach ausdrücklicher Auswahl verwendet.' }}</p>
+        <details class="mb-2"><summary>{{ 'License, version and checksums' if en else 'Lizenz, Version und Prüfsummen' }}</summary>
+          <p><a href="{{ english_voice_card }}" rel="noreferrer">LibriTTS high model card</a> · <a href="{{ english_voice_license }}" rel="noreferrer">CC BY 4.0</a> · {{ english_voice_release }}</p>
+          <ul>{% for item in english_voice_manifest %}<li>{{ item.name }} · {{ item.size }} Bytes · SHA-256 <code class="text-break">{{ item.digest }}</code></li>{% endfor %}</ul>
+        </details>
+        {% if manage and readiness.english_voice_package in ('missing', 'failed') %}
+          {% with feature='english-voice', retry=readiness.english_voice_package == 'failed' %}{% include 'optional_setup/_install_form.html' %}{% endwith %}
+        {% endif %}
+        {% if manage and readiness.english_voice_package == 'ready' %}
+          {% if readiness.piper == 'engine-missing' %}<p class="small" role="status">{{ 'Piper is not installed, so this model cannot be used yet.' if en else 'Piper fehlt noch; das Modell kann deshalb noch nicht verwendet werden.' }}</p>{% endif %}
+          {% if readiness.managed_english_selected %}
+            <form class="d-inline-block" method="post" action="{{ url_for('optional_setup.english_voice') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" name="action" value="restore" class="btn btn-outline-secondary">{{ 'Restore the previous default' if en else 'Vorherigen Standard wiederherstellen' }}</button></form>
+          {% elif readiness.reader_english == 'configured' %}<p class="small">{{ 'An English model is already configured. Existing settings are preserved.' if en else 'Eine englische Stimme ist bereits eingerichtet. Bestehende Einstellungen bleiben erhalten.' }}</p>
+          {% else %}<form class="d-inline-block me-2" method="post" action="{{ url_for('optional_setup.english_voice') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" name="action" value="select" class="btn btn-primary" {% if readiness.piper == 'engine-missing' %}disabled{% endif %}>{{ 'Use this English voice' if en else 'Diese englische Stimme verwenden' }}</button></form>{% endif %}
         {% endif %}
       </section>
       <p class="small">{{ 'An administrator can separately select the already installed and verified Thorsten Scratch adult voice for Reader and Mail when the interface language is German. The text language is not detected automatically. An existing English voice or its previous shared fallback, the manual settings, Kids and other audio are unchanged. This is a configuration choice, not playback or a download.' if en else 'Die Administration kann die bereits installierte und verifizierte Erwachsenenstimme Thorsten Scratch separat für Reader und Mail mit deutscher Oberflächensprache auswählen. Die Textsprache wird nicht automatisch erkannt. Englische Stimme oder bisheriger gemeinsamer Fallback, manuelle Einstellungen, Kids und andere Audiofunktionen bleiben unverändert. Die Auswahl startet weder Wiedergabe noch Download.' }}</p>

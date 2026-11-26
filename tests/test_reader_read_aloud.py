@@ -73,7 +73,7 @@ class ReaderReadAloudTests(unittest.TestCase):
             session["_csrf_token"] = self.csrf
             session["simpleoffice_language"] = "de"
 
-    def render_wave(self, text, voice, directory, *, model):
+    def render_wave(self, text, voice, directory, *, model, document_root=None):
         self.spoken.append(text)
         directory = Path(directory)
         self.temp_dirs.append(directory)
@@ -531,7 +531,7 @@ class ReaderReadAloudTests(unittest.TestCase):
         piper_model = os.environ.get("SIMPLEOFFICE_TEST_PIPER_MODEL")
         real_piper = piper_model and shutil.which("piper") and Path(piper_model).is_file()
 
-        def after_stage(text, voice, directory, *, model):
+        def after_stage(text, voice, directory, *, model, document_root=None):
             self.assertEqual(1, len(set(stage_paths)))
             self.assertFalse(stage_paths[0].parent.exists())
             if real_piper:
@@ -748,15 +748,15 @@ class ReaderReadAloudTests(unittest.TestCase):
         revoked = self.document("revoked.txt", b"Currently readable")
         self.login("member")
 
-        def render_then_change(text, voice, directory, *, model):
-            generated = self.render_wave(text, voice, directory, model=model)
+        def render_then_change(text, voice, directory, *, model, document_root=None):
+            generated = self.render_wave(text, voice, directory, model=model, document_root=document_root)
             record = self.store.get_document(changed["document_id"])
             record["version_number"] += 1
             self.store._save_document(record)
             return generated
 
-        def render_then_revoke(text, voice, directory, *, model):
-            generated = self.render_wave(text, voice, directory, model=model)
+        def render_then_revoke(text, voice, directory, *, model, document_root=None):
+            generated = self.render_wave(text, voice, directory, model=model, document_root=document_root)
             record = self.store.get_document(revoked["document_id"])
             record["attributes"]["chat_attachment"] = {"visibility": "chat", "allowed_local_users": ["elsewhere"]}
             self.store._save_document(record)

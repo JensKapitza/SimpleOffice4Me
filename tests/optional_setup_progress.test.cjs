@@ -78,3 +78,13 @@ test("terminal state reloads and refreshes the independent voice package card", 
   await fixture.delays.shift()();
   assert.equal(fixture.reloaded(), 1);
 });
+
+test("English voice installation has independent progress and terminal refresh", async () => {
+  const fixture = setup("downloading", {
+    state:"downloading", file:"en_US-libritts-high.onnx", received:1048576, total:136693974, percent:0,
+  }, "english-voice");
+  await fixture.delays.shift()();
+  assert.equal(fixture.reloaded(), 0);
+  assert.equal(fixture.container.hidden, false);
+  assert.match(fixture.message.textContent, /en_US-libritts-high\.onnx · 0%/);
+});

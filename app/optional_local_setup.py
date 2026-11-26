@@ -14,7 +14,7 @@ import threading
 import time
 from uuid import uuid4
 
-from . import kids_hand_assets, kids_piper_assets, optional_hand_game_install
+from . import english_voice_assets, kids_hand_assets, kids_piper_assets, optional_hand_game_install
 from .document_store_core import CONTROL_DIR, atomic_json_write
 from .component_runtime import resolve_command
 from .file_lock import exclusive_file_lock
@@ -22,13 +22,14 @@ from .media_settings import PIPER_READER_THORSTEN
 from .settings_store import SettingsStore
 
 VOICE_PACKAGE = "voice-package"
-FEATURES = frozenset((VOICE_PACKAGE, "kids-hand"))
+ENGLISH_VOICE_PACKAGE = "english-voice"
+FEATURES = frozenset((VOICE_PACKAGE, "kids-hand", ENGLISH_VOICE_PACKAGE))
 _ACTIVE = frozenset(("queued", "downloading"))
 _IN_PROGRESS = _ACTIVE | {"cancelling"}
 _JOB_LIFETIME = 300
 _LOG = logging.getLogger(__name__)
 _WORKERS = ThreadPoolExecutor(max_workers=1, thread_name_prefix="optional-model-setup")
-_ADMISSION = threading.BoundedSemaphore(2)
+_ADMISSION = threading.BoundedSemaphore(3)
 _JOB_STATES = _ACTIVE | {"cancelling", "cancelled", "ready", "failed"}
 _CANCEL_EVENTS: dict[str, threading.Event] = {}
 _CANCEL_GUARD = threading.Lock()
@@ -36,6 +37,7 @@ _PROGRESS_WRITES: dict[str, float] = {}
 _PROGRESS_GUARD = threading.Lock()
 _PROGRESS_INTERVAL = 0.5
 _VOICE_INSTALL_SPACE = 128 * 1024 * 1024
+_ENGLISH_VOICE_INSTALL_SPACE = 160 * 1024 * 1024
 _HAND_INSTALL_SPACE = 64 * 1024 * 1024
 
 
@@ -209,6 +211,8 @@ def _execute(root: Path, feature: str, job_id: str) -> None:
             result = optional_hand_game_install.install_managed(
                 root, progress=progress, cancel_event=cancel_event,
             )
+        elif feature == ENGLISH_VOICE_PACKAGE:
+            result = english_voice_assets.install(root, progress=progress, cancel_event=cancel_event)
         else:
             result = "failed"
         state = "cancelled" if result == "cancelled" or cancel_event.is_set() else (
@@ -246,9 +250,14 @@ def queue(root: str | Path, feature: str, *, manual_hand_directory: str = "") ->
             return state
         if ((feature == VOICE_PACKAGE and kids_piper_assets.installed_model(root))
                 or (feature == "kids-hand" and kids_hand_assets.ready(
-                    optional_hand_game_install.asset_directory(root, "")))):
+                    optional_hand_game_install.asset_directory(root, "")))
+                or (feature == ENGLISH_VOICE_PACKAGE and english_voice_assets.installed_model(root))):
             return "ready"
-        required = _VOICE_INSTALL_SPACE if feature == VOICE_PACKAGE else _HAND_INSTALL_SPACE
+        required = {
+            VOICE_PACKAGE: _VOICE_INSTALL_SPACE,
+            "kids-hand": _HAND_INSTALL_SPACE,
+            ENGLISH_VOICE_PACKAGE: _ENGLISH_VOICE_INSTALL_SPACE,
+        }[feature]
         try:
             if shutil.disk_usage(root).free < required:
                 return "insufficient-space"
@@ -309,6 +318,9 @@ def readiness(root: str | Path, *, manual_hand_directory: str = "") -> dict[str,
     if english == "missing" and voice == "configured":
         english = "shared-fallback" if reader_selected else "fallback"
     installed = bool(kids_piper_assets.installed_model(root))
+    managed_english_path = english_voice_assets.installed_model(root)
+    managed_english = bool(managed_english_path)
+    managed_english_selected = bool(managed_english_path and media.get("piper_model_en") == managed_english_path)
     jobs = _read(root)
     voice_job = _job_state(jobs.get(VOICE_PACKAGE))
     if voice_job in _ACTIVE:
@@ -319,6 +331,15 @@ def readiness(root: str | Path, *, manual_hand_directory: str = "") -> dict[str,
         voice_package = "failed"
     else:
         voice_package = "missing"
+    english_job = _job_state(jobs.get(ENGLISH_VOICE_PACKAGE))
+    if english_job in _ACTIVE:
+        english_package = english_job
+    elif managed_english:
+        english_package = "ready"
+    elif english_job in {"failed", "ready"}:
+        english_package = "failed"
+    else:
+        english_package = "missing"
 
     def status(key: str, installed: bool, missing: str) -> str:
         job_status = _job_state(jobs.get(key))
@@ -349,6 +370,8 @@ def readiness(root: str | Path, *, manual_hand_directory: str = "") -> dict[str,
         "reader_thorsten_selected": reader_selected,
         "reader_thorsten_available": installed and available,
         "reader_english": english,
+        "managed_english_selected": managed_english_selected,
+        "english_voice_package": english_package,
         "voice_package": voice_package,
         "kids_voice": kids_voice,
         "kids_hand": ("ready" if hand else "manual") if hand_manual else status("kids-hand", hand, "missing"),
@@ -393,7 +416,11 @@ def component_inventory(root: str | Path, *, manual_hand_directory: str = "") ->
         {"id": "piper-engine", "status": "installed" if piper else "missing", "managed": False,
          "detail": "host" if piper and shutil.which("piper") else "app" if piper else "not-installable-here"},
         {"id": "german-voice", "status": str(readiness_state["reader_default"]), "managed": False},
-        {"id": "english-voice", "status": str(readiness_state["reader_english"]), "managed": False},
+        {"id": "english-voice", "status": str(readiness_state["english_voice_package"]), "managed": True,
+         "install_feature": ENGLISH_VOICE_PACKAGE,
+         "download_bytes": sum(item.size for item in english_voice_assets.asset_manifest()),
+         "required_bytes": _ENGLISH_VOICE_INSTALL_SPACE,
+         "detail": str(readiness_state["reader_english"])},
         {"id": "ffmpeg", "status": "installed" if ffmpeg and ffprobe else
          "partial" if ffmpeg or ffprobe else "missing", "managed": False,
          "detail": "ffplay-available" if ffplay else "ffplay-missing"},
@@ -412,4 +439,4 @@ def component_inventory(root: str | Path, *, manual_hand_directory: str = "") ->
         {"id": "osm-data", "status": "separate-workflow", "managed": False},
     ]
     return {"runtime": runtime, "architecture": architecture, "components": components,
-            "supported_install_features": [VOICE_PACKAGE, "kids-hand"]}
+            "supported_install_features": [VOICE_PACKAGE, "kids-hand", ENGLISH_VOICE_PACKAGE]}

@@ -71,7 +71,7 @@ class MailReadAloudTests(unittest.TestCase):
         }).status_code)
         return client
 
-    def _render(self, text, name, directory, *, model):
+    def _render(self, text, name, directory, *, model, document_root=None):
         self.spoken.append(text)
         path = Path(directory) / f"{name}.wav"
         with wave.open(str(path), "wb") as output:
