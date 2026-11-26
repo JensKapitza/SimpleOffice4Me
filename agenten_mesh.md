@@ -970,3 +970,12 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | #1335 Quellenvergleich gemergt (`15b62527`). #1336 behebt #384 über eine normale In-Memory-Antwort mit konstantem Downloadnamen (ohne `send_file`) und #1043 durch Sperren von `http://` in `safePreviewUrl`; Merge `fb8f523f`. glib bleibt #1225. |
 | Tests und Soll-Ist-Vergleich | #1335: 35 authentifizierte Flask-Integrationstests lokal bestanden; GitHub Python-3.14-Regression, mobiler Chromium-Scannerlauf, Kontakt-/Erfassungs-Browserlauf, Security, statische Prüfung und Scanner/Reader-Docker-Prüfung bestanden. #1336: 13 CalDAV-Tests, 2 Node-Allowlist-Tests und Ruff lokal bestanden. CodeQL, PR-Regression, Security und statische CI erfolgreich. Beim Merge liefen noch die breite Python-Anwendungssuite, der Scanner-Image-Test und Python 3.15; es gab keine fehlgeschlagenen Checks. |
 | Review und Abschluss | #1335 und #1336 sind gemergt. FP-Dismissals bleiben Eigentümer-Entscheidung. |
+
+## 26. November 2026 · Issue-Runde 11: #1305-Lücken (WPM + Cue) als PR #1341
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Subagent-Gap-Analyse #1305 gegen Main: 8 Kriterien erfüllt, 5 Lücken (WPM, QR, Ordered-in-Rooms, Cue-Motion, Hardware-Nachweis). #1339 retrospektiv MERGE-READY (Peer mergte). |
+| Implementierung | PR #1341: `keystrokesPerMinute` (Spiel-Logik + Export), Tempo in lokaler Wertung, Server-`rate` in Raum-Scores + Anzeige, CSS-Cue-Puls mit Reduced-Motion-Neutralisierung. #1305 mit Lückenstand kommentiert. |
+| Tests und Soll-Ist-Vergleich | Soll: weiteres Issue + PRs. Ist: WPM-Fälle + Harness-Fix (Test 8 brach durch neuen Export, Harness ergänzt), `rate`-Assertions im Raum-Duell; lokal 10/10 + 3/3 Node, 9/9 + 1/1 Python, ruff/node-check grün. |
+| Review und Abschluss | Offen: #1341-CI → mergen; #1305-Rest (QR, Ordered-Rooms, Hardware-Praxistest). |
