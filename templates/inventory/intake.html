@@ -47,7 +47,8 @@
           {% endif %}
         </div>
         <div class="card-body">
-          <h3 class="h5" id="title-{{ uid }}">{{ draft.confirmed.fields.get('title') if draft.confirmed else (draft.manual.get('title') or 'Ohne Titel') }}</h3>
+          {% set shown_title = draft.confirmed.fields.get('title') if draft.confirmed else draft.manual.get('title') %}
+          <h3 class="h5" id="title-{{ uid }}">{% if shown_title %}<span translate="no">{{ shown_title }}</span>{% else %}Ohne Titel{% endif %}</h3>
           <p class="small"><strong>{{ {'confirmed':'Bestätigt', 'question':'Rückfrage', 'in_review':'In Prüfung'}[draft.state] }}</strong>
             · <time datetime="{{ draft.created_at }}">{{ draft.created_at|replace('T', ' ')|truncate(16, true, '') }} UTC</time></p>
           {% if draft.confirmed %}
@@ -81,13 +82,31 @@
             <select id="location-{{ uid }}" name="location_id" class="form-select">
               <option value="">Später zuordnen</option>
               {% for location in locations %}
-                <option value="{{ location.location_id }}" {% if draft.manual.location_id == location.location_id %}selected{% endif %}>{{ location.name }}</option>
+                <option translate="no" value="{{ location.location_id }}" {% if draft.manual.location_id == location.location_id %}selected{% endif %}>{{ location.name }}</option>
               {% endfor %}
             </select>
+            {% if draft.existing_copies %}
+            <section class="border rounded p-2" aria-labelledby="matches-{{ uid }}" data-intake-existing>
+              <h4 id="matches-{{ uid }}" class="h6">Eigene Exemplare zum gespeicherten Barcode</h4>
+              <p class="small">Für einen Umzug ein vorhandenes Exemplar öffnen. Dabei werden nur deine Entwurfsänderungen gesichert, kein Lagerort im Inventar geändert. Nur ein wirklich weiteres Exemplar als neues speichern.</p>
+              <ul class="list-unstyled mb-0">
+                {% for copy in draft.existing_copies %}
+                <li class="mb-2">
+                  <button type="submit" class="btn btn-link p-0 text-start"
+                          formaction="{{ url_for('inventory.save_and_review_intake_copy', entry_id=uid, object_id=copy.object_id) }}">
+                    {% if copy.reference %}#{{ copy.reference }} · {% endif %}<span translate="no">{{ copy.title }}</span> ansehen
+                  </button>
+                  <div class="small">Exemplar-ID: <span class="text-break">{{ copy.copy_id }}</span></div>
+                  <div class="small">{% if copy.location %}<span translate="no">{{ copy.location }}</span>{% else %}Kein eigener Lagerort verfügbar{% endif %}</div>
+                </li>
+                {% endfor %}
+              </ul>
+            </section>
+            {% endif %}
             <p data-intake-dirty hidden class="form-text" role="status">Bitte Änderungen erst im Entwurf speichern, bevor weitere Quellen geprüft werden.</p>
             <div class="d-flex gap-2 flex-wrap">
               <button type="submit" class="btn btn-outline-secondary">Entwurf aktualisieren</button>
-              <button type="submit" formaction="{{ url_for('inventory.confirm_intake', entry_id=uid) }}" class="btn btn-success">Bestätigen und lokal speichern</button>
+              <button type="submit" formaction="{{ url_for('inventory.confirm_intake', entry_id=uid) }}" class="btn btn-success">Als neues Exemplar lokal speichern</button>
             </div>
           </form>
           {% if draft.preview_url %}

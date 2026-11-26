@@ -253,6 +253,32 @@ class LibraryStore:
                                        "code": str(locations.get(location, {}).get("code", ""))}
         return result
 
+    def owned_assignment_paths(self, actor: str, object_ids: set[str]) -> dict[str, str]:
+        """Only full paths through the actor's own canonical placement ancestors.
+
+        A blank entry indicates an existing assignment whose path is not safe
+        to project. Callers must not then fall back to the same denormalized path.
+        """
+        state = self._read()
+        locations = {str(row.get("location_id", "")): row for row in state["locations"] if isinstance(row, dict)}
+        paths = {}
+        for object_id in object_ids.intersection(state["assignments"]):
+            paths[object_id] = ""
+            placement = state["assignments"][object_id]
+            if not isinstance(placement, dict) or placement.get("assigned_by") != actor:
+                continue
+            start = current = str(placement.get("location_id", ""))
+            ancestors: set[str] = set()
+            while current and current not in ancestors and len(ancestors) < 12:
+                location = locations.get(current)
+                if not location or location.get("created_by") != actor:
+                    break
+                ancestors.add(current)
+                current = str(location.get("parent_id", ""))
+            if ancestors and not current:
+                paths[object_id] = self.location_path(start, locations=locations)
+        return paths
+
     def assignment(self, object_id: str) -> dict[str, Any] | None:
         value = self._read()["assignments"].get(str(object_id or ""))
         return dict(value) if isinstance(value, dict) else None
