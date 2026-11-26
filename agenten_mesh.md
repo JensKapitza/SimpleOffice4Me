@@ -979,3 +979,11 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | PR #1341: `keystrokesPerMinute` (Spiel-Logik + Export), Tempo in lokaler Wertung, Server-`rate` in Raum-Scores + Anzeige, CSS-Cue-Puls mit Reduced-Motion-Neutralisierung. #1305 mit Lückenstand kommentiert. |
 | Tests und Soll-Ist-Vergleich | Soll: weiteres Issue + PRs. Ist: WPM-Fälle + Harness-Fix (Test 8 brach durch neuen Export, Harness ergänzt), `rate`-Assertions im Raum-Duell; lokal 10/10 + 3/3 Node, 9/9 + 1/1 Python, ruff/node-check grün. |
 | Review und Abschluss | Offen: #1341-CI → mergen; #1305-Rest (QR, Ordered-Rooms, Hardware-Praxistest). |
+## 26. November 2026 · PR-Merge-Kampagne der Assistenz-Session (42 eigene Merges, 23.–26.11.)
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Neun Merge-Runden über 42 PRs (#1175–#1333): je PR Diff-Review (Aufrufpfade, Kompatibilität, Vertrauensgrenzen), Frische- und CI-Prüfung vor jedem Merge; Freigabe pro Paket beim Eigentümer eingeholt. |
+| Implementierung | Eigene Fixes auf fremden Branches: `SUDO_START_FORCE`-Vorrang als Root (#1181), i18n-Fixture/Template-Assertions (#1180), Browser-/Ruff-Hash-Locks per Doku-Verfahren (#1177), P2P-Smoke + Discovery-Tests (#1185), Smoke-Text (#1268), Template-`default`-Guard (#1273), semantischer Read-Aloud-Merge (#1264), #1303-CodeQL-Analyse (SARIF-belegt, eigener Umbau nach Testbruch revertiert). |
+| Tests und Soll-Ist-Vergleich | Soll: jeder Merge erst nach grüner Suite. Ist gemessen: alle Merges mit 0 Fehlern außer zwei dokumentierten, freigegebenen Ausnahmen (externes Tauri-`cargo audit` bei #1177; CodeQL-False-Positive bei #1303). Lokale Gates (Policy/Größen/Compile) vor jedem Push grün; Fake-Root-Simulation und Lock-Download-Checks als unabhängige Nachweise. |
+| Review und Abschluss | Alle Merge-SHAs im Worklog belegt. Offene Fremd-PR-Reste (#1272 redundant, #1314/#1305-Rest) und FP-Dismissals bleiben Eigentümer-/Autor-Entscheidung. |
