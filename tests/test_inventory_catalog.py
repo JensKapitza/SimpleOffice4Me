@@ -216,7 +216,7 @@ class CatalogEvidenceTests(unittest.TestCase):
         self.assertEqual(len(catalog._cache), 1)
         self.assertEqual(next(iter(catalog._cache))[1], OTHER_ISBN)
 
-    def test_google_cache_key_is_ephemeral_and_never_retains_credentials(self):
+    def test_google_cache_namespace_is_ephemeral_and_never_retains_credentials(self):
         first = "synthetic-provider-alpha"
         second = "synthetic-provider-beta"
         google_result = {"items": [google_volume()], "totalItems": 1}
@@ -229,7 +229,6 @@ class CatalogEvidenceTests(unittest.TestCase):
             self.assertNotEqual(saved[0][2], saved[1][2])
             self.assertNotIn(first, repr(catalog._cache))
             self.assertNotIn(second, repr(catalog._cache))
-            # Simulate an independently initialized runtime with a fresh key.
             catalog._cache.clear()
             with patch.object(catalog, "_CACHE_NAMESPACE_KEY", b"synthetic fresh namespace key"):
                 catalog._cached_book("google_books", ISBN, first)

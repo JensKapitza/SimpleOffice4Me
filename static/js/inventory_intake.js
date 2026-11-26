@@ -3,31 +3,50 @@
   const form = document.querySelector('#intake-capture');
   const input = document.querySelector('#intake-photo');
   const pending = document.querySelector('#intake-pending');
-  if (!form || !input || !pending || !window.URL?.createObjectURL) return;
+  if (!form || !input || !pending) return;
   const picture = pending.querySelector('[data-intake-pending-photo]');
   const status = pending.querySelector('[role="status"]');
-  let preview = '';
+  let previewVersion = 0;
   let uploading = false;
-  input.addEventListener('change', () => {
-    if (preview) URL.revokeObjectURL(preview);
+  input.addEventListener('change', async () => {
+    const version = ++previewVersion;
     const photo = input.files[0];
     pending.hidden = !photo;
     picture.hidden = !photo;
     if (!photo) {
       picture.replaceChildren();
-      preview = '';
       return;
     }
-    preview = URL.createObjectURL(photo);
-    const image = document.createElement('img');
-    image.src = preview;
-    image.alt = 'Vorschau des neuen Fotos';
-    image.className = 'object-fit-cover rounded';
-    image.loading = 'eager';
-    image.decoding = 'async';
-    image.fetchPriority = 'high';
-    picture.replaceChildren(image);
-    status.textContent = 'Neues Foto · Noch nicht gespeichert';
+    picture.replaceChildren();
+    status.textContent = 'Lokale Foto-Vorschau wird erstellt …';
+    try {
+      // Decode to pixels and paint a canvas. Never interpret the selected file
+      // as markup or assign its bytes to a navigable DOM URL.
+      if (typeof window.createImageBitmap !== 'function') throw new Error('Preview decoder unavailable');
+      const bitmap = await window.createImageBitmap(photo);
+      try {
+        if (version !== previewVersion) return;
+        const scale = Math.min(1, 1200 / Math.max(bitmap.width, bitmap.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+        canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+        canvas.className = 'object-fit-cover rounded';
+        canvas.setAttribute('role', 'img');
+        canvas.setAttribute('aria-label', 'Vorschau des neuen Fotos');
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('Canvas preview unavailable');
+        context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        picture.replaceChildren(canvas);
+        status.textContent = 'Neues Foto · Noch nicht gespeichert';
+      } finally {
+        bitmap.close?.();
+      }
+    } catch (_) {
+      if (version === previewVersion) {
+        picture.replaceChildren();
+        status.textContent = 'Foto-Vorschau nicht verfügbar · Das Foto kann trotzdem gespeichert werden';
+      }
+    }
     if (photo.size <= 12 * 1024 * 1024 && form.requestSubmit) form.requestSubmit();
   });
   form.addEventListener('submit', async event => {
@@ -60,9 +79,6 @@
       input.disabled = submit.disabled = false;
       uploading = false;
     }
-  });
-  window.addEventListener('pagehide', () => {
-    if (preview) URL.revokeObjectURL(preview);
   });
 })();
 
