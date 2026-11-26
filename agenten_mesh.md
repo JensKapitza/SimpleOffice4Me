@@ -952,3 +952,12 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | Gemergt: #1323/#1324/#1325/#1326/#1327/#1328 sowie #1330/#1331. #1330 wurde während der Prüfung parallel gemergt; #1331 danach aus dem Draft freigegeben und gemergt. |
 | Tests und Soll-Ist-Vergleich | #1328: GitHub-CI grün, lokal 4 Python-Tests bestanden/1 übersprungen und 1 Node-Test bestanden. #1330: CI grün einschließlich Android-APK, Python und authentifiziertem Chromium-Scannertest; nur experimenteller Python-3.15-Lauf abgebrochen. #1331: 97 lokale Python-Tests bestanden/3 übersprungen und 9 Node-Tests bestanden; CI grün außer abgebrochenem, nicht blockierendem Python-3.15-Lauf. |
 | Review und Abschluss | Keine offenen Code-PRs nach #1331. #1332 ist der verbleibende Dokumentations-PR für diese Runde. Nicht verifiziert: physischer Android-Scan, externer Modell-Download, echte Piper-Wiedergabe und standalone APK-Audio. |
+
+## 26. November 2026 · Issue-Runde 9: #1320 + #1321 geschlossen, #1333-HOLD, #1314-Teilstand
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | 3 Issues per Subagent gegen Main geprüft (#1314/#1320/#1321); #1333 per Review-Subagent geprüft (HOLD: toter Dirty-Guard). |
+| Implementierung | #1320 (Logikwerkstatt, via #1323) + #1321 (Vorlesen/Downloads, via #1324) mit Dateinachweis kommentiert + geschlossen. #1333-Befund als PR-Kommentar gepostet (eigener-Account-PR, kein Request-Changes möglich). #1314-Teilstand kommentiert (Blickpfad/Inferenz/Kamera offen). |
+| Tests und Soll-Ist-Vergleich | Soll: weiteres Issue erledigen. Ist: 2 Issues geschlossen (Evidenz per `git cat-file` auf Main belegt), 1 HOLD begründet, 1 Teilstand dokumentiert. #1331-Draft + #1333-HOLD bleiben offen. |
+| Review und Abschluss | Offen: #1333-Fix (Peer), #1331-Ready, Rest-Issues (#1314 Blickpfad, #1304 Fingeralphabet, #1306 Android/Föderation, #1225 glib, #874 Alerts, Epics). |
