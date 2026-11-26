@@ -77,13 +77,15 @@
   };
   const cleanText = (value) => String(value || '').trim();
   // Allowlist for server-provided preview URLs: relative paths plus
-  // http(s)/blob/data-image only. Anything else (javascript:, data
-  // HTML, protocol-relative) fails closed to an empty image source.
+  // https/blob/data-image only. Anything else (http:, javascript:,
+  // data HTML, protocol-relative) fails closed to an empty image
+  // source. The server only emits relative preview URLs (url_for),
+  // so plain http has no legitimate use here (#874, #1043).
   const safePreviewUrl = (value) => {
     const url = String(value || '').trim();
     if (url.startsWith('/') && !url.startsWith('//')) return url;
     const lower = url.toLowerCase();
-    if (lower.startsWith('http://') || lower.startsWith('https://')) return url;
+    if (lower.startsWith('https://')) return url;
     if (lower.startsWith('blob:')) return url;
     if (lower.startsWith('data:image/')) return url;
     return '';

@@ -249,6 +249,42 @@ class CalDavSchedulingTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "too many"):
             parse_freebusy_request(freebusy(tuple(f"user{i}@example.test" for i in range(51))))
 
+    def login_admin(self):
+        self.client.post("/auth/login", data={"username": "admin", "password": "unused"})
+        with self.client.session_transaction() as session:
+            with app.app_context():
+                session["user_id"] = database.get_db().execute("SELECT id FROM user WHERE username = 'admin'").fetchone()["id"]
+
+    def test_ical_export_sanitizes_download_name(self):
+        self.login_admin()
+        store = CalendarStore(Path(app.config["DOCUMENT_ROOT"]))
+        event = store.add("Planung", "Abstimmung", "20260810T100000Z", "20260810T110000Z", "", "admin")
+        benign = self.client.get(f"/documents/calendar/{event['event_id']}/scheduling.ics?method=REQUEST")
+        self.assertEqual(200, benign.status_code)
+        self.assertIn('filename="termin.ics"', benign.headers["Content-Disposition"])
+        self.assertEqual("text/calendar; charset=utf-8", benign.headers["Content-Type"])
+        self.assertIn("METHOD:REQUEST", benign.get_data(as_text=True))
+
+        from urllib.parse import quote
+
+        hostile_id = 'evil"..ics'
+        control = Path(app.config["DOCUMENT_ROOT"]) / ".simpleoffice-meta" / "calendar.json"
+        data = json.loads(control.read_text())
+        for item in data["events"]:
+            if item["event_id"] == event["event_id"]:
+                item["event_id"] = hostile_id
+        control.write_text(json.dumps(data))
+        hostile = self.client.get(f"/documents/calendar/{quote(hostile_id, safe='')}/scheduling.ics?method=REQUEST")
+        self.assertEqual(200, hostile.status_code)
+        disposition = hostile.headers["Content-Disposition"]
+        self.assertEqual(benign.headers["Content-Disposition"], disposition)
+        self.assertNotIn(hostile_id, disposition)
+        self.assertIn('filename="termin.ics"', disposition)
+
+        invalid_method = self.client.get(f"/documents/calendar/{event['event_id']}/scheduling.ics?method=../evil")
+        self.assertEqual(403, invalid_method.status_code)
+        self.assertNotIn("Content-Disposition", invalid_method.headers)
+
     def test_web_settings_are_explicit_and_audited(self):
         self.client.post("/auth/login", data={"username": "admin", "password": "unused"})
         # The database password is deliberately not a valid Werkzeug hash, so
