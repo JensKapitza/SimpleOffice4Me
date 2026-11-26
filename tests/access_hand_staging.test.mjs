@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {handWasmStem} from '../static/js/kids_hand_model.mjs';
 import {ARM_DURATION, HandShortcut, playHandPreview} from '../static/js/access_hand_staging_logic.mjs';
 
 const absent = {signal:'none'};
@@ -126,4 +127,17 @@ test('presentation and execution stall still disarm, and a result older than 190
   f.one(spark,261);
   assert.equal(f.logic.state,'release', 'capture gap cannot be masked by a currently fresh result');
   assert.deepEqual(f.group(spark),[]);
+});
+
+test('SIMD needs both staged opt-in and a successful browser capability probe', async () => {
+  const portable = 'vision_wasm_nosimd_internal';
+  let calls = 0;
+  const supported = {async isSimdSupported() { calls++; return true; }};
+  assert.equal(await handWasmStem(false, supported),portable);
+  assert.equal(calls,0, 'default Kids runtime does not probe or switch');
+  assert.equal(await handWasmStem(true, undefined),portable);
+  assert.equal(await handWasmStem(true, {async isSimdSupported() { return false; }}),portable);
+  assert.equal(await handWasmStem(true, {async isSimdSupported() { throw new Error('unavailable'); }}),portable);
+  assert.equal(await handWasmStem(true, supported),'vision_wasm_internal');
+  assert.equal(calls,1);
 });

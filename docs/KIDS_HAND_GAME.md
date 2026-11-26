@@ -40,7 +40,10 @@ Server nach einer Änderung der Startumgebung neu starten. Das Einrichtungsprogr
 prüft das Paket und alle vier übernommenen Dateien, installiert keine
 Software und lädt nichts herunter. Unvollständige oder veränderte Dateien
 lassen das Kameraspiel sichtbar deaktiviert; die anderen Spiele bleiben
-unverändert. Keine ungetestete Aussage über Electron, Android, iOS oder
+unverändert. Die separate [Bedienhilfe im Testmodus](ACCESS_NAVIGATION_PROOF.md)
+kann zusätzlich `--with-simd` nutzen; nur dann werden die zwei optionalen
+Dateien aus demselben geprüften Paket entpackt. An der Laufzeit des Spiels
+ändert das nichts. Keine ungetestete Aussage über Electron, Android, iOS oder
 physische Kameras.
 
 **English:** A current desktop browser at HTTPS or localhost is needed. Fetch

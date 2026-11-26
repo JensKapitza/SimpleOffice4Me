@@ -1,7 +1,12 @@
 """Normal HTTP login and fallback only; no production test adapter can arm this page."""
+from hashlib import sha256
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
+
 from bs4 import BeautifulSoup
 
-from app import app
+from app import app, kids_hand_assets
 from http_api_fixture import PublicHttpTestCase
 
 PROOF = "/documents/bedienhilfe"
@@ -71,8 +76,6 @@ class AccessNavigationProofTests(PublicHttpTestCase):
 
 class HandShortcutStagingTests(PublicHttpTestCase):
     def test_opt_in_asset_verification_and_proof_only_permission(self):
-        from unittest.mock import patch
-
         with patch.dict(app.config, {"HAND_NAV_STAGING": True, "KIDS_HAND_GAME_ASSET_DIR": "/nonexistent"}):
             dashboard = self.client.get("/documents/dashboard")
             self.assertNotIn(f'href="{PROOF}"', dashboard.get_data(as_text=True))
@@ -104,3 +107,33 @@ class HandShortcutStagingTests(PublicHttpTestCase):
                 ["dashboard", "documents"],
             )
             self.assertIn("camera=()", app.test_client().get(PROOF).headers["Permissions-Policy"])
+
+    def test_staged_simd_requires_both_verified_files_without_changing_base_readiness(self):
+        files = {
+            "vision_wasm_internal.js": ("application/javascript", b"fixture loader"),
+            "vision_wasm_internal.wasm": ("application/wasm", b"fixture WASM"),
+        }
+        pins = {name: (mime, len(data), sha256(data).hexdigest()) for name, (mime, data) in files.items()}
+        assets = "/kids/lernen/handzeichen/assets/"
+        with TemporaryDirectory() as folder, patch.dict(app.config, {
+            "HAND_NAV_STAGING": True, "KIDS_HAND_GAME_ASSET_DIR": folder,
+        }), patch.object(kids_hand_assets, "ready", return_value=True), patch.object(kids_hand_assets, "SIMD_ASSETS", pins):
+            def page_flags():
+                region = BeautifulSoup(self.client.get(PROOF).text, "html.parser").select_one("[data-hand-nav]")
+                return region["data-ready"], region["data-simd"]
+
+            self.assertEqual(("yes", "no"), page_flags())
+            for name, (_, data) in files.items():
+                (Path(folder) / name).write_bytes(data)
+            self.assertEqual(("yes", "yes"), page_flags())
+            for name, (mime, data) in files.items():
+                self.assertEqual(302, app.test_client().get(assets + name).status_code)
+                response = self.client.get(assets + name)
+                self.assertEqual((200, mime, data), (response.status_code, response.mimetype, response.data))
+                self.assertIn("camera=()", response.headers["Permissions-Policy"])
+            binary = "vision_wasm_internal.wasm"
+            (Path(folder) / binary).write_bytes(b"fixture XXXX")  # exact same size; changed digest
+            self.assertEqual(("yes", "no"), page_flags())
+            self.assertEqual(404, self.client.get(assets + binary).status_code)
+            with patch.dict(app.config, {"HAND_NAV_STAGING": False}):
+                self.assertNotIn("data-hand-nav", self.client.get(PROOF).text)

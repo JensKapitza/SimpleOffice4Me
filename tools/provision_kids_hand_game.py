@@ -14,8 +14,9 @@ REPO = Path(__file__).resolve().parents[1]
 # Load only the ordinary-library manifest, without importing the Flask app.
 manifest = runpy.run_path(str(REPO / "app" / "kids_hand_assets.py"))
 ASSETS = manifest["ASSETS"]
+SIMD_ASSETS = manifest["SIMD_ASSETS"]
 TARBALL_MAX_BYTES = 20 * 1024 * 1024
-NOTICE = """SimpleOffice4Me optional Kids Webcam Finger Game
+NOTICE = """SimpleOffice4Me optional Kids Webcam Finger Game and staged hand navigation
 MediaPipe Tasks Vision 0.10.21 — Copyright The MediaPipe Authors.
 Official Hand Landmarker full FP16 bundle, version /1/ — MediaPipe Authors.
 Both are provided under Apache License, Version 2.0; see LICENSE.txt.
@@ -26,7 +27,7 @@ Model paper: Zhang et al., MediaPipe Hands, arXiv:2006.10214.
 """
 
 
-def load_assets(package: Path, model: Path) -> dict[str, bytes]:
+def load_assets(package: Path, model: Path, *, with_simd: bool = False) -> dict[str, bytes]:
     if package.stat().st_size > TARBALL_MAX_BYTES:
         raise ValueError("Runtime-Paket ist zu groß")
     with package.open("rb") as reader:
@@ -35,7 +36,8 @@ def load_assets(package: Path, model: Path) -> dict[str, bytes]:
         reader.seek(0)
         with tarfile.open(fileobj=reader, mode="r:gz") as archive:
             data = {}
-            for name, (_, length, _) in ASSETS.items():
+            members = {**ASSETS, **SIMD_ASSETS} if with_simd else ASSETS
+            for name, (_, length, _) in members.items():
                 if name == "hand_landmarker.task":
                     with model.open("rb") as source:
                         data[name] = source.read(length + 1)
@@ -73,9 +75,10 @@ def main() -> None:
     parser.add_argument("--package", type=Path, required=True)
     parser.add_argument("--model", type=Path, required=True)
     parser.add_argument("--destination", type=Path, required=True)
+    parser.add_argument("--with-simd", action="store_true", help="Install verified optional hand navigation SIMD files")
     args = parser.parse_args()
     try:
-        install(args.destination, load_assets(args.package, args.model))
+        install(args.destination, load_assets(args.package, args.model, with_simd=args.with_simd))
     except (OSError, ValueError, KeyError, tarfile.TarError) as exc:
         parser.exit(1, f"Lokales Handspiel nicht eingerichtet: {exc}\n")
     print("Handspiel vorbereitet. SIMPLEOFFICE_KIDS_HAND_GAME_ASSET_DIR vor dem Start auf den Zielordner setzen.")

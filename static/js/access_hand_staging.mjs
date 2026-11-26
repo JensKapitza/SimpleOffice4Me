@@ -79,7 +79,7 @@ function setup(panel) {
       tracks.forEach((track) => track.stop());
       throw new Error('Expected one video track');
     },
-    openModel: () => loadHandModel(panel.dataset.runtime),
+    openModel: () => loadHandModel(panel.dataset.runtime, {preferSimd: panel.dataset.simd === 'yes'}),
     active: present,
     attach: (stream) => {
       sequence = -1;

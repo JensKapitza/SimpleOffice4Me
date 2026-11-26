@@ -4,11 +4,8 @@ No images from a real device, model stubbing, asset downloads, or gaze claims.
 """
 from __future__ import annotations
 
-import hashlib
-import json
 import os
 from pathlib import Path
-import tarfile
 import threading
 import unittest
 from unittest.mock import patch
@@ -21,40 +18,11 @@ except ImportError:
 from werkzeug.serving import make_server
 
 from app import app
-from app import kids_hand_assets
-from tools.provision_kids_hand_game import TARBALL_MAX_BYTES
 from http_api_fixture import PublicHttpTestCase
 
 PROOF = "/documents/bedienhilfe"
-SIMD_FIXTURE = os.getenv("SIMPLEOFFICE_HAND_SIMD_FIXTURE", "")
-SIMD_SCRIPT = Path(__file__).with_name("access_hand_simd_fixture.js")
 HAND_ASSETS = "/kids/lernen/handzeichen/assets/"
-
-
-def _verified_simd_test_assets(package, target):
-    names = {"vision_wasm_internal.js": "application/javascript", "vision_wasm_internal.wasm": "application/wasm"}
-    with package.open("rb") as source:
-        if os.fstat(source.fileno()).st_size > TARBALL_MAX_BYTES or (
-            hashlib.file_digest(source, "sha256").hexdigest() != kids_hand_assets.PACKAGE_SHA256
-        ):
-            raise ValueError("SIMD test input must be the exact official pinned package")
-        source.seek(0)
-        with tarfile.open(fileobj=source, mode="r:gz") as archive:
-            extra = {}
-            for name, mime in names.items():
-                entry = archive.getmember("package/wasm/" + name)
-                if not entry.isfile() or not 0 < entry.size < 16 * 1024**2:
-                    raise ValueError(f"Invalid pinned SIMD test member: {name}")
-                with archive.extractfile(entry) as stream:
-                    data = stream.read(entry.size + 1)
-                if len(data) != entry.size:
-                    raise ValueError(f"Truncated pinned SIMD test member: {name}")
-                output = target / name
-                if output.is_symlink():
-                    raise ValueError("Fixture directory contains a symlink")
-                output.write_bytes(data)
-                extra[name] = (mime, len(data), hashlib.sha256(data).hexdigest())
-    return extra
+EXPECT_SIMD = os.getenv("SIMPLEOFFICE_HAND_NAV_EXPECT_SIMD") == "1"
 
 
 class HandStagingBrowserTests(PublicHttpTestCase):
@@ -70,18 +38,9 @@ class HandStagingBrowserTests(PublicHttpTestCase):
             if os.getenv("SIMPLEOFFICE_HAND_NAV_BROWSER_REQUIRED") == "1":
                 raise RuntimeError(message)
             raise unittest.SkipTest(message)
-        cls.simd_assets = {}
-        if SIMD_FIXTURE not in ("", "baseline", "simd"):
-            raise ValueError("Unknown hand SIMD test mode")
-        if SIMD_FIXTURE == "simd":
-            cls.simd_assets = _verified_simd_test_assets(cls.fixture_dir / "package.tgz", cls.assets)
-            print("HAND_SIMD_ASSET_HASHES", json.dumps(cls.simd_assets), flush=True)
 
     def setUp(self):
         super().setUp()
-        manifest = patch.dict(kids_hand_assets.ASSETS, self.simd_assets)
-        manifest.start()
-        self.addCleanup(manifest.stop)
         settings = patch.dict(app.config, {"HAND_NAV_STAGING": True, "KIDS_HAND_GAME_ASSET_DIR": str(self.assets)})
         settings.start()
         self.addCleanup(settings.stop)
@@ -137,13 +96,15 @@ class HandStagingBrowserTests(PublicHttpTestCase):
         page.route("**/*", lambda route: route.continue_() if route.request.url.startswith(self.origin + "/")
                    else (outbound.append(route.request.url), route.abort()))
         page.on("request", lambda req: requests.append((req.method, req.url)))
-        self.model_responses = {}
-        page.on("response", lambda reply: self.model_responses.update({reply.url: reply.status})
+        self.asset_replies = {}
+        page.on("response", lambda reply: self.asset_replies.update({reply.url: reply.status})
                 if reply.url.startswith(self.origin + HAND_ASSETS) else None)
         page.goto(self.origin + "/", wait_until="domcontentloaded")
         page.locator(f'main a[href="{PROOF}"]').click()
         self.assertEqual(page.evaluate("window.handTest.length"), 0)
         self.assertFalse(any("/handzeichen/assets/" in url for _, url in requests))
+        if EXPECT_SIMD:
+            expect(page.locator("[data-hand-nav]")).to_have_attribute("data-simd", "yes")
         expect(page.locator("[data-hand-nav-start]")).to_be_enabled()
         expect(page.locator("[data-hand-nav-arm]")).to_be_disabled()
         page.evaluate("""() => {
@@ -155,12 +116,6 @@ class HandStagingBrowserTests(PublicHttpTestCase):
         return browser, page, requests, outbound
 
     def _start_native_preview(self, page):
-        if SIMD_FIXTURE:
-            page.evaluate(SIMD_SCRIPT.read_text(encoding="utf-8"), {
-                "runtime": self.origin + HAND_ASSETS + "vision_bundle.mjs",
-                "logic": self.origin + "/static/js/kids_hand_logic.mjs",
-                "variant": SIMD_FIXTURE,
-            })
         page.locator("[data-hand-nav-start]").click()
         # A failed start is a hard failure with stages, not a long wait for a
         # hidden element that loses the browser's exact startup evidence.
@@ -182,29 +137,12 @@ class HandStagingBrowserTests(PublicHttpTestCase):
         expect(page.locator("[data-hand-nav-video]")).to_be_visible()
         self.assertEqual(snapshot["tracks"], ["video:live"])
         self.assertTrue(page.evaluate("window.handTest.length === 1 && window.handTest[0].audio === false"))
-        if SIMD_FIXTURE:
-            self.assertEqual([640, 480], page.evaluate("window.handSimdFixtureTrace().dimensions"))
-            stem = "vision_wasm_internal" if SIMD_FIXTURE == "simd" else "vision_wasm_nosimd_internal"
+        if EXPECT_SIMD:
+            self.assertEqual([640, 480], page.locator("[data-hand-nav-video]").evaluate("v => [v.videoWidth, v.videoHeight]"))
             self.assertEqual({
-                self.origin + HAND_ASSETS + filename: 200 for filename in
-                ("vision_bundle.mjs", "hand_landmarker.task", stem + ".js", stem + ".wasm")
-            }, self.model_responses)
-
-    def _fixture_result(self, page, case, *, navigated=False):
-        if not SIMD_FIXTURE:
-            return
-        if navigated:
-            summary = page.evaluate("JSON.parse(sessionStorage.getItem('hand-simd-test-only'))")
-        elif page.url == self.origin + PROOF:
-            summary = page.evaluate("window.handSimdFixtureTrace?.() ?? null")
-        else:
-            summary = None
-        print("HAND_SIMD_FIXTURE_TRACE", json.dumps({"case": case, "trace": summary}, separators=(",", ":")),
-              flush=True)
-        if navigated:
-            self.assertEqual(1, summary["starts"])
-            self.assertTrue(summary["seen"])
-
+                self.origin + HAND_ASSETS + name: 200 for name in
+                ("vision_bundle.mjs", "hand_landmarker.task", "vision_wasm_internal.js", "vision_wasm_internal.wasm")
+            }, self.asset_replies)
 
     @staticmethod
     def _observe_stop_after_start(page):
@@ -212,8 +150,6 @@ class HandStagingBrowserTests(PublicHttpTestCase):
           const [track] = window.handTestTracks;
           const nativeStop = track.stop.bind(track);
           track.stop = () => {
-            const trace = window.handSimdFixtureTrace?.();
-            if (trace) sessionStorage.setItem('hand-simd-test-only', JSON.stringify(trace));
             nativeStop();
             sessionStorage.setItem('hand-nav-fixture-only-stop', track.readyState);
           };
@@ -235,15 +171,10 @@ class HandStagingBrowserTests(PublicHttpTestCase):
                         self.assertEqual(outbound, [])
                         self.assertTrue(all(method == "GET" for method, _ in requests))
                         self.assertTrue(any(url.endswith("hand_landmarker.task") for _, url in requests))
-                        wasm = "vision_wasm_internal.wasm" if SIMD_FIXTURE == "simd" else "vision_wasm_nosimd_internal.wasm"
+                        wasm = "vision_wasm_internal.wasm" if EXPECT_SIMD else "vision_wasm_nosimd_internal.wasm"
                         self.assertTrue(any(url.endswith(wasm) for _, url in requests))
-                        self._fixture_result(page, key, navigated=True)
                     finally:
-                        try:
-                            if page.url == self.origin + PROOF:
-                                self._fixture_result(page, key)
-                        finally:
-                            browser.close()
+                        browser.close()
 
     def test_real_blank_and_held_index_cannot_open_anything_then_stop(self):
         with sync_playwright() as playwright:
@@ -263,7 +194,4 @@ class HandStagingBrowserTests(PublicHttpTestCase):
                         self.assertEqual(page.evaluate("window.handTestTracks.map(t => t.readyState)"), ["ended"])
                         self.assertEqual(outbound, [])
                     finally:
-                        try:
-                            self._fixture_result(page, name)
-                        finally:
-                            browser.close()
+                        browser.close()

@@ -100,7 +100,12 @@ ordinary authenticated **Dashboard → Navigation assistance (test)** link is
 visible only when the flag is on and the pinned assets verify. Scoped camera
 permission and the live controls require the same checks. No second device, camera on the Dashboard, persistent
 preference, external browser fetch for inference, recording, microphone or
-generic mouse click. Setting the flag does **not** enable gaze, the
+generic mouse click. On current Chromium, the experimental shortcut can use
+the optional SIMD build from the **same** pinned MediaPipe archive. Add
+`--with-simd` to the ordinary provisioning command below; a browser must
+also pass [MediaPipe's local SIMD capability check](https://github.com/google-ai-edge/mediapipe/blob/v0.10.21/mediapipe/tasks/web/core/fileset_resolver.ts.template). Existing four-asset
+setups and unsupported browsers keep the slower portable path. Fingerzauber
+continues to use the original portable runtime. Setting the flag does **not** enable gaze, the
 Fokus-Siegel, the Blickcursor or the gaze-related Klick-Siegel/banner.
 
 On the staged page, choose **Overview / Übersicht** (the default) or
@@ -125,13 +130,13 @@ an application download. Then:
 python -m pip install -e '.[test,web-export]'
 python -m playwright install --with-deps --no-shell chromium
 python tools/provision_kids_hand_game.py --package "$fixture/package.tgz" \
-  --model "$fixture/model.task" --destination "$fixture/assets"
+  --model "$fixture/model.task" --destination "$fixture/assets" --with-simd
 python -m tools.make_kids_hand_test_video "$fixture/pointing.jpg" "$fixture"
 python -m tools.make_hand_nav_test_video "$fixture"
 node --test tests/access_hand_staging.test.mjs tests/access_navigation_proof.test.mjs
 SIMPLEOFFICE_HAND_NAV_FIXTURES="$fixture" \
 SIMPLEOFFICE_KIDS_HAND_GAME_ASSET_DIR="$fixture/assets" \
-SIMPLEOFFICE_HAND_NAV_BROWSER_REQUIRED=1 PYTHONPATH=.:tests \
+SIMPLEOFFICE_HAND_NAV_BROWSER_REQUIRED=1 SIMPLEOFFICE_HAND_NAV_EXPECT_SIMD=1 PYTHONPATH=.:tests \
   python -m unittest -v test_access_navigation_proof test_access_hand_staging_browser
 ```
 
@@ -204,3 +209,23 @@ exceeded 190 ms. Do not interpret the small experiment as a guarantee for
 a real webcam or change production video dimensions on that basis. The
 temporary experiment is removed; the normal gate and freshness limits
 are unchanged.
+
+### SIMD timing comparison (simulated camera, genuine model)
+
+The [paired Chromium measurement](https://github.com/JensKapitza/SimpleOffice4Me/actions/runs/45778736963/job/139768705929)
+kept the exact model, CPU delegate, two-hand detection, 640-by-480 camera
+source, and gesture guards. The two repeated portable cases opened 1 of 4
+selected destinations. The two SIMD cases opened 4 of 4, on the first
+sequence present in the fixture. The maximum age of the 20 selected
+pointing samples was 77 ms at the unchanged callback-age gate, and
+70.8 ms from the browser's reported presentation time. Blank-only and
+already-held pointing samples never navigated in either mode. These
+measurements are browser timings, not physical sensor latency.
+
+The same archive supplies both independently pinned SIMD assets. The
+existing signed-in resource route verifies their size and SHA-256. A
+missing, changed or partially installed pair leaves the portable runtime
+in use. The browser does not download or enable any new external service.
+The normal model, camera, control timing and CSP are unchanged. Test
+acceptance cannot establish gesture accuracy across physical cameras or
+general gaze readiness; the feature remains opt-in staging only.
