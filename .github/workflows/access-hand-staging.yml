@@ -47,7 +47,6 @@ jobs:
           python -m pip install --editable '.[web-export,test]'
           python -m playwright install --with-deps --no-shell chromium
       - name: Stage existing pinned runtime and public hand test frame (CI only)
-        id: pinned-fixture
         shell: bash
         run: |
           set -euo pipefail
@@ -69,26 +68,3 @@ jobs:
         run: |
           node --test tests/access_hand_staging.test.mjs tests/access_navigation_proof.test.mjs
           python -m unittest -v test_access_navigation_proof test_access_hand_staging_browser
-
-      # Temporary comparison for draft #1318 only. Keep the clean default
-      # gate above unchanged; this cannot turn a failed default gate green.
-      - name: Compare pinned fixture frame-processing budgets (draft only)
-        if: ${{ !cancelled() && steps.pinned-fixture.outcome == 'success' && github.event_name == 'pull_request' && github.event.pull_request.number == 1318 }}
-        env:
-          SIMPLEOFFICE_KIDS_HAND_GAME_ASSET_DIR: ${{ runner.temp }}/hand-nav/assets
-          SIMPLEOFFICE_HAND_NAV_FIXTURES: ${{ runner.temp }}/hand-nav
-          SIMPLEOFFICE_HAND_NAV_BROWSER_REQUIRED: '1'
-          SIMPLEOFFICE_HAND_NAV_PRIVATE_TRACE: '1'
-          PYTHONPATH: .:tests
-        run: |
-          failed=0
-          for scale in 0 1 1 0; do
-            echo "Fixture half resolution: $scale"
-            if SIMPLEOFFICE_HAND_NAV_PRIVATE_AB_SCALE="$scale" python -m unittest -v test_access_hand_staging_browser; then
-              echo "Fixture test passed: $scale"
-            else
-              failed=1
-              echo "Fixture test failed: $scale"
-            fi
-          done
-          exit "$failed"

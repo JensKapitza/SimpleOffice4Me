@@ -187,3 +187,20 @@ passed both targets with one video-only track stopped before navigation,
 plus the already-held and blank negative cases. This remains staged hand-only
 operation with a pinned public test picture, not physical webcam or gaze
 acceptance. Temporary synthetic test diagnostics are not part of the gate.
+
+The [uninstrumented control](https://github.com/JensKapitza/SimpleOffice4Me/actions/runs/45763265872)
+subsequently timed out on the Dashboard confirmation, so the staged mode
+is not considered reliable. In the
+[paired real-model fixture experiment](https://github.com/JensKapitza/SimpleOffice4Me/actions/runs/45765245521/job/139724486500),
+the default gate passed, but the instrumented 640-by-480 repeat opened just
+one of four intended destinations. In both Dashboard repeats, the third
+pointing result was late (191 or 194 ms) and correctly required release
+again. The same real camera frames scaled to 320 by 240 in the test opened
+all four selected destinations; the blank and held-pose negatives passed at
+both sizes. The smaller input still did not show a timing reserve: those
+positive navigations each took about ten seconds after the model load
+request, and multiple timed samples from the held-pose control still
+exceeded 190 ms. Do not interpret the small experiment as a guarantee for
+a real webcam or change production video dimensions on that basis. The
+temporary experiment is removed; the normal gate and freshness limits
+are unchanged.
