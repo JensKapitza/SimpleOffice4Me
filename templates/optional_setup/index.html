@@ -38,7 +38,7 @@
           <p><a href="{{ voice_card }}" rel="noreferrer">Thorsten-Voice Piper-Scratch</a>, <a href="https://creativecommons.org/publicdomain/zero/1.0/" rel="noreferrer">CC0 1.0</a> ({{ 'model and recordings' if en else 'Modell und Aufnahmen' }}). <a href="https://github.com/OHF-Voice/piper1-gpl/blob/main/docs/LICENSING.md" rel="noreferrer">GPL-3.0-or-later</a> ({{ 'separate Piper engine' if en else 'separate Piper-Engine' }}). <code class="text-break">{{ voice_release }}</code></p>
           <ul>{% for item in voice_manifest %}<li>{{ item.name }} · {{ item.size }} Bytes · SHA-256 <code class="text-break">{{ item.digest }}</code></li>{% endfor %}</ul>
         </details>
-        {% if manage and readiness.piper == 'engine-found' and readiness.voice_package in ('missing', 'failed') %}
+        {% if manage and readiness.voice_package in ('missing', 'failed') %}
           {% with feature='voice-package', retry=readiness.voice_package == 'failed' %}{% include 'optional_setup/_install_form.html' %}{% endwith %}
         {% endif %}
       </section>
