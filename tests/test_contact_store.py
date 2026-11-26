@@ -9,6 +9,17 @@ from app.contact_store import ContactStore
 
 
 class ContactStoreTest(unittest.TestCase):
+    def test_deleted_contact_can_be_restored(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = ContactStore(temp)
+            contact = store.upsert({"display_name": "Archiv", "phone": "123"}, "admin")
+            store.delete(contact["contact_id"], "admin")
+            deleted = store.deleted_contacts("admin")
+            self.assertEqual("123", deleted[0]["contact"]["fields"]["phone"])
+            restored = store.restore_deleted(deleted[0]["archive_id"], "admin")
+            self.assertEqual(contact["contact_id"], restored["contact_id"])
+            self.assertEqual([], store.deleted_contacts("admin"))
+
     def test_legacy_contact_without_owner_is_not_visible_to_every_user(self):
         with tempfile.TemporaryDirectory() as temp:
             store = ContactStore(Path(temp))

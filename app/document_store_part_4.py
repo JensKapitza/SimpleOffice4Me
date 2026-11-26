@@ -531,10 +531,18 @@ class _DocumentStorePart4:
 
     def scan(self, progress: Callable[[ScanReport], None] | None = None, file_progress: Callable[[Path], None] | None = None, verify_hashes: bool = False, post_file: Callable[[Path], None] | None = None) -> ScanReport:
         self.initialize()
-        files = new_files = updated_files = duplicates = symlinks = skipped_boundaries = errors = 0
-        pending = [self.root]; visited_directories: set[tuple[int, int]] = set()
+        files = new_files = updated_files = duplicates = symlinks = skipped_boundaries = errors = unchanged_files = 0
+        checkpoint = self._read_json(self.scan_checkpoint_path, {})
+        resumed = (checkpoint.get("version") == 1 and checkpoint.get("root") == str(self.root)
+                   and checkpoint.get("verify_hashes") is bool(verify_hashes)
+                   and isinstance(checkpoint.get("pending_directories"), list))
+        pending = self._restore_scan_directories(checkpoint.get("pending_directories", [])) if resumed else [self.root]
+        if not pending:
+            pending, resumed = [self.root], False
+        visited_directories: set[tuple[int, int]] = set()
         while pending:
             current_path = pending.pop()
+            self._write_scan_checkpoint([*pending, current_path], verify_hashes)
             try:
                 current_stat = current_path.stat(); key = (current_stat.st_dev, current_stat.st_ino)
                 if key in visited_directories:
@@ -553,7 +561,7 @@ class _DocumentStorePart4:
                             if file_progress: file_progress(target)
                             created, updated, duplicate = self._scan_file(target, force_hash=verify_hashes)
                             if post_file: post_file(target)
-                            files += 1; new_files += int(created); updated_files += int(updated); duplicates += int(duplicate)
+                            files += 1; new_files += int(created); updated_files += int(updated); unchanged_files += int(not created and not updated); duplicates += int(duplicate)
                         continue
                     entry_stat = path.stat(follow_symlinks=False)
                     if path.is_dir():
@@ -564,17 +572,44 @@ class _DocumentStorePart4:
                     if file_progress: file_progress(path)
                     created, updated, duplicate = self._scan_file(path, force_hash=verify_hashes)
                     if post_file: post_file(path)
-                    files += 1; new_files += int(created); updated_files += int(updated); duplicates += int(duplicate)
+                    files += 1; new_files += int(created); updated_files += int(updated); unchanged_files += int(not created and not updated); duplicates += int(duplicate)
                 except (OSError, ValueError) as exc:
                     errors += 1; self._event("scan_error", {"path": self.relative(path), "error": str(exc)})
-                if progress: progress(ScanReport(files, new_files, updated_files, duplicates, symlinks, skipped_boundaries, errors))
+                if progress: progress(ScanReport(files, new_files, updated_files, duplicates, symlinks, skipped_boundaries, errors, unchanged_files, resumed))
+            self._write_scan_checkpoint(pending, verify_hashes)
         with self._db() as db:
             missing = [self.root / row[0] for row in db.execute("SELECT relative_path FROM scan_file").fetchall() if not (self.root / row[0]).exists()]
         if missing:
             removed = self.scan_changed_paths(missing); errors += removed.errors
-        report = ScanReport(files, new_files, updated_files, duplicates, symlinks, skipped_boundaries, errors)
+        self.scan_checkpoint_path.unlink(missing_ok=True)
+        report = ScanReport(files, new_files, updated_files, duplicates, symlinks, skipped_boundaries, errors, unchanged_files, resumed)
         if progress: progress(report)
         return report
+
+    def _restore_scan_directories(self, values: list[Any]) -> list[Path]:
+        paths = []
+        for value in values:
+            if not isinstance(value, str):
+                continue
+            path = (self.root / value).resolve()
+            try:
+                path.relative_to(self.root)
+            except ValueError:
+                continue
+            if path.is_dir() and path not in paths:
+                paths.append(path)
+        return paths
+
+    def _write_scan_checkpoint(self, pending: list[Path], verify_hashes: bool) -> None:
+        relative = []
+        for path in pending:
+            try:
+                value = str(path.resolve().relative_to(self.root)) or "."
+            except ValueError:
+                continue
+            if value not in relative:
+                relative.append(value)
+        atomic_json_write(self.scan_checkpoint_path, {"version": 1, "root": str(self.root), "verify_hashes": bool(verify_hashes), "pending_directories": relative, "updated_at": utc_now()})
 
     def scan_status(self) -> dict[str, Any]:
         self.initialize(); return self._read_json(self.scan_status_path, {"state": "idle", "updated_at": None})
