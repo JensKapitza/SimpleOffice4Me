@@ -173,6 +173,33 @@ def selectable_fields(state: dict) -> list[dict]:
     ]
 
 
+def verified_book_suggestions(state: dict, evidence: list[dict]) -> list[dict]:
+    """Fill only empty fields from one independently verified edition."""
+    if state["confirmed"] or state["manual"].get("kind") == "object" or any(row["conflict"] for row in evidence):
+        return []
+    proven = proven_edition_ids(catalog_view(state))
+    result = {}
+    for row in evidence:
+        field = row["field"]
+        if (field in _EDITION_OBSERVATIONS and row["kind"] == "external_catalog"
+                and row.get("candidate_id") in proven and row["selectable"]
+                and not state["manual"].get(field) and field not in state["selected"]):
+            # Leave the actual provider and source ID on each field, even when only
+            # one provider supplied that field for the corroborated edition.
+            result.setdefault(field, row)
+    return list(result.values())
+
+
+def choose_verified_book_suggestions(state: dict) -> None:
+    rows = verified_book_suggestions(state, selectable_fields(state))
+    if not rows:
+        raise ValueError("Kein passender Buchvorschlag für die leeren Felder.")
+    values = manual_fields({row["field"]: row["value"] for row in rows})
+    for row in rows:
+        state["selected"][row["field"]] = {**row, "value": values[row["field"]]}
+    state["revision"] += 1
+
+
 def select_evidence(state: dict, source_id: str) -> None:
     row = next((row for row in selectable_fields(state)
                 if row["source_id"] == source_id and row["selectable"]), None)

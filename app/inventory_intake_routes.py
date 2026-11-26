@@ -15,7 +15,7 @@ from .auth import login_required
 from .capture_inbox_store import CaptureInboxConflict, CaptureInboxIndexError, CaptureInboxStore
 from .capture_intake_state import (
     FIELD_LIMITS, IntakeRevisionConflict, catalog_view, compatible_selection, current_proposal, edit_draft, intake_storage_supported,
-    manual_fields, selectable_fields, select_evidence, status,
+    choose_verified_book_suggestions, manual_fields, selectable_fields, select_evidence, status, verified_book_suggestions,
 )
 from .file_lock import exclusive_file_lock
 from .inventory import _objects, bp
@@ -58,6 +58,7 @@ def _public(entry):
         "compatible_selection": compatible_selection(state),
         "proposal": current_proposal(state), "confirmed": state["confirmed"],
         "selected": state["selected"], "evidence": evidence,
+        "book_suggestions": verified_book_suggestions(state, evidence),
         "preview_url": url_for("inventory.capture_preview", entry_id=entry_id) if has_photo else None,
     }
 
@@ -367,6 +368,8 @@ def catalog_intake(entry_id):
 @login_required
 def choose_intake(entry_id):
     try:
+        if request.form.get("use_book_suggestions") == "1":
+            return _result(_update(entry_id, _revision(), choose_verified_book_suggestions))
         clear = request.form.get("clear_field", "")
         if clear:
             def remove(state):

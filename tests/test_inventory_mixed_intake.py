@@ -387,6 +387,52 @@ class MixedIntakeTests(unittest.TestCase):
         self.assertEqual("1988-11-01", saved.json["draft"]["confirmed"]["fields"]["published_date"])
         self.assertEqual(1, len(ObjectStore(self.documents).objects()))
 
+    def test_verified_book_suggestion_previews_only_empty_fields_and_never_confirms(self):
+        from tests.test_inventory_catalog import ISBN
+
+        draft = self.photo(barcode=ISBN, title="A Book: Ä Edition", kind="book")
+        reviewed = self.review_sources(draft).json["draft"]
+        path = f'/{reviewed["id"]}'
+        sources = {row["field"]: row for row in reviewed["book_suggestions"]}
+        self.assertNotIn("title", sources)
+        self.assertIn("edition", sources)
+        self.assertEqual({}, reviewed["selected"])
+        card = self.get_page().select_one(f'#draft-{reviewed["id"]}')
+        panel = card.select_one("[data-intake-book-suggestion]")
+        self.assertIn("First printing", panel.get_text(" ", strip=True))
+        self.assertIn("Open Library", panel.get_text(" ", strip=True))
+        self.assertEqual(409, self.post(path + "/choose", revision=str(draft["revision"]),
+                                        use_book_suggestions="1").status_code)
+        applied = self.post(path + "/choose", revision=str(reviewed["revision"]), use_book_suggestions="1")
+        self.assertEqual(200, applied.status_code, applied.data)
+        current = applied.json["draft"]
+        self.assertEqual({k: v["source_id"] for k, v in sources.items()},
+                         {k: v["source_id"] for k, v in current["selected"].items()})
+        self.assertEqual("A Book: Ä Edition", current["manual"]["title"])
+        self.assertEqual([], current["book_suggestions"])
+        self.assertEqual([], ObjectStore(self.documents).objects())
+        saved = self.post(path + "/confirm", revision=str(current["revision"]))
+        self.assertEqual(200, saved.status_code, saved.data)
+        self.assertEqual("First printing", saved.json["draft"]["confirmed"]["fields"]["edition"])
+
+    def test_verified_book_suggestion_stays_hidden_on_edition_or_local_disagreement(self):
+        from tests.test_inventory_catalog import ISBN
+
+        for different_sources in (False, True):
+            with self.subTest(different_sources=different_sources):
+                draft = self.photo(barcode=ISBN, title="A Book: Ä Edition", kind="book")
+                reviewed = self.review_sources(draft, different=different_sources).json["draft"]
+                if not different_sources:
+                    self.assertTrue(reviewed["book_suggestions"])
+                    reviewed = self.observe_label(reviewed, "Verlag: Other Imprint")
+                self.assertEqual([], reviewed["book_suggestions"])
+                card = self.get_page().select_one(f'#draft-{reviewed["id"]}')
+                self.assertIsNone(card.select_one("[data-intake-book-suggestion]"))
+                path = f'/{reviewed["id"]}/choose'
+                self.assertEqual(400, self.post(path, revision=str(reviewed["revision"]),
+                                                use_book_suggestions="1").status_code)
+        self.assertEqual([], ObjectStore(self.documents).objects())
+
     def test_card_and_source_comparison_distinguish_title_conflicts_from_hints(self):
         for text, conflict in (("Other cover line", False),
                                ("Titel: A BOOK: A\u0308 EDITION", False),
