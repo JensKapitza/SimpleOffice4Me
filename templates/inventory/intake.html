@@ -118,6 +118,22 @@
               <button type="submit" formaction="{{ url_for('inventory.confirm_intake', entry_id=uid) }}" class="btn btn-success">Als neues Exemplar lokal speichern</button>
             </div>
           </form>
+          {% if draft.book_suggestions %}
+          <section class="mt-3 border border-primary rounded p-2" aria-labelledby="verified-edition-{{ uid }}" data-intake-book-suggestion>
+            <h4 id="verified-edition-{{ uid }}" class="h6">Vorschlag für diese Buchausgabe</h4>
+            <p class="small">Zwei Kataloge stimmen bei der Ausgabe überein. Prüfe die Werte am Buch. Nur leere Felder werden ergänzt.</p>
+            <ul class="small">
+              {% for row in draft.book_suggestions %}
+              <li><strong>{{ field_names[row.field] }}:</strong> <span translate="no">{{ row.value }}</span> · {{ row.label }}</li>
+              {% endfor %}
+            </ul>
+            <form method="post" action="{{ url_for('inventory.choose_intake', entry_id=uid) }}">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="revision" value="{{ draft.revision }}">
+              <button type="submit" name="use_book_suggestions" value="1" class="btn btn-sm btn-outline-primary">Vorschlag in Entwurf übernehmen</button>
+            </form>
+          </section>
+          {% endif %}
           {% if draft.evidence %}
           {% set source_borders = {'manual':'border-secondary','external_catalog':'border-primary','ocr':'border-info','local_ai':'border-success'} %}
           {% set has_conflict = draft.conflict_fields %}
