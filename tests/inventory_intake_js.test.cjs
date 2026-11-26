@@ -20,27 +20,38 @@ function harness() {
   const map = {'#intake-capture': form, '#intake-photo': input, '#intake-pending': pending};
   const location = {reloads: 0, reload() { this.reloads++; }};
   const calls = [];
-  const url = {createObjectURL: () => 'blob:synthetic-photo', revokeObjectURL() {}};
+  let decodedWidth = 640;
+  let decodedHeight = 480;
+  let decode = async () => ({width: decodedWidth, height: decodedHeight, close() {}});
   const window = node({
-    URL: url, location, fetch: (path, options) => {
+    location, createImageBitmap: photo => decode(photo), fetch: (path, options) => {
       calls.push([path, options]);
       return new Promise(resolve => { request = resolve; });
     },
   });
-  const ctx = {window, URL: url, FormData: class {constructor(actual) { assert.equal(actual, form); }},
-    document: {querySelector: key => map[key], querySelectorAll: () => [], createElement: tag => node({tag})}};
+  const ctx = {window, FormData: class {constructor(actual) { assert.equal(actual, form); }},
+    document: {querySelector: key => map[key], querySelectorAll: () => [], createElement: tag => {
+      const context = {draws: [], drawImage(...args) { this.draws.push(args); }};
+      return node({tag, context, attributes: {}, setAttribute(key, value) { this.attributes[key] = value; },
+        getContext: () => context});
+    }}};
   runInNewContext(code, ctx);
-  return {input, form, pending, picture, status, calls, location, ack: data => request(data)};
+  return {input, form, pending, picture, status, calls, location, ack: data => request(data),
+    setBitmapSize(width, height) { decodedWidth = width; decodedHeight = height; },
+    setDecode(callback) { decode = callback; }};
 }
 
-test('immediate local square preview; stored state only after server acknowledgment', async () => {
+test('local raster canvas preview is bounded; stored state only after server acknowledgment', async () => {
   const ui = harness();
-  ui.input.handlers.change();
+  ui.setBitmapSize(4000, 2000);
+  await ui.input.handlers.change();
   assert.equal(ui.pending.hidden, false);
   assert.equal(ui.picture.children.length, 1);
-  assert.equal(ui.picture.children[0].tag, 'img');
-  assert.equal(ui.picture.children[0].src, 'blob:synthetic-photo');
-  assert.equal(ui.picture.children[0].alt, 'Vorschau des neuen Fotos');
+  assert.equal(ui.picture.children[0].tag, 'canvas');
+  assert.equal(ui.picture.children[0].attributes['aria-label'], 'Vorschau des neuen Fotos');
+  assert.equal(ui.picture.children[0].width, 1200);
+  assert.equal(ui.picture.children[0].height, 600);
+  assert.equal(ui.picture.children[0].context.draws.length, 1);
   assert.match(ui.status.textContent, /Noch nicht gespeichert/);
   assert.equal(ui.calls.length, 0);
   const saving = ui.form.handlers.submit({preventDefault() {}});
@@ -55,9 +66,26 @@ test('immediate local square preview; stored state only after server acknowledgm
   assert.equal(ui.location.reloads, 1);
 });
 
+test('late decode from a previous selection cannot replace the latest preview', async () => {
+  const ui = harness();
+  let finishFirst;
+  ui.setDecode(photo => photo.id === 'first'
+    ? new Promise(resolve => { finishFirst = resolve; })
+    : Promise.resolve({width: 320, height: 240, close() {}}));
+  ui.input.files = [{id: 'first', size: 20 * 1024 * 1024, type: 'image/png'}];
+  const first = ui.input.handlers.change();
+  ui.input.files = [{id: 'second', size: 20 * 1024 * 1024, type: 'image/png'}];
+  await ui.input.handlers.change();
+  finishFirst({width: 900, height: 900, close() {}});
+  await first;
+  assert.equal(ui.picture.children.length, 1);
+  assert.equal(ui.picture.children[0].width, 320);
+  assert.equal(ui.picture.children[0].height, 240);
+});
+
 test('unconfirmed upload leaves photo selected and can be retried', async () => {
   const ui = harness();
-  ui.input.handlers.change();
+  await ui.input.handlers.change();
   const attempt = ui.form.handlers.submit({preventDefault() {}});
   ui.ack({ok: false, json: async () => ({ok: false})});
   await attempt;
@@ -80,12 +108,12 @@ test('barcode-only capture waits with text, never fabricates image', async () =>
   assert.equal(ui.location.hash, 'draft-' + 'b'.repeat(32));
 });
 
-test('clearing a selected photo removes the image instead of leaving it without src', () => {
+test('clearing a selected photo removes the previous canvas', async () => {
   const ui = harness();
-  ui.input.handlers.change();
+  await ui.input.handlers.change();
   assert.equal(ui.picture.children.length, 1);
   ui.input.files = [];
-  ui.input.handlers.change();
+  await ui.input.handlers.change();
   assert.equal(ui.pending.hidden, true);
   assert.equal(ui.picture.children.length, 0);
 });

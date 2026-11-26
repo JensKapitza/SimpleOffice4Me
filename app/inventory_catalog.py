@@ -30,7 +30,7 @@ MAX_RESULTS = 5
 CACHE_TTL_SECONDS = 600
 CACHE_LIMIT = 128
 _cache_lock = Lock()
-# Local cache entries need no shared identity across application starts.
+# Keep API-key cache partitions ephemeral and process-local. This key is never persisted.
 _CACHE_NAMESPACE_KEY = secrets.token_bytes(32)
 _cache: OrderedDict[tuple[str, str, str], tuple[float, list[dict[str, Any]]]] = OrderedDict()
 Fetch = Callable[[str, str], dict[str, Any] | None]
@@ -233,6 +233,9 @@ def _request_book(provider: str, code: str, api_key: str) -> dict | None:
 def _cached_book(provider: str, code: str, api_key: str) -> list[dict] | None:
     if provider == "google_books" and not api_key:
         return None
+    # HMAC is only a short-lived, process-local cache namespace; it isn't used
+    # for password verification or persisted credential protection.
+    # codeql[py/weak-sensitive-data-hashing]
     key_marker = (
         hmac.digest(_CACHE_NAMESPACE_KEY, api_key.encode("utf-8"), "sha256").hex()
         if provider == "google_books" else ""
