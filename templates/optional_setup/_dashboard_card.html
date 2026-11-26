@@ -8,6 +8,7 @@
       {% else %}
       <ul class="d-flex gap-2 flex-wrap list-unstyled small mb-0">
         <li>Reader &amp; Mail {% with status=optional_setup.piper %}{% include 'optional_setup/_status.html' %}{% endwith %} {% with status=optional_setup.reader_default %}{% include 'optional_setup/_status.html' %}{% endwith %}</li>
+        <li>{{ 'Thorsten voice files' if g.language == 'en' else 'Thorsten-Stimmdateien' }} {% with status=optional_setup.voice_package %}{% include 'optional_setup/_status.html' %}{% endwith %}</li>
         <li>{{ 'Kids maze voice (experimental)' if g.language == 'en' else 'Kids-Labyrinthstimme (experimentell)' }} {% with status=optional_setup.kids_voice %}{% include 'optional_setup/_status.html' %}{% endwith %}</li>
         <li>Fingerzauber {% with status=optional_setup.kids_hand %}{% include 'optional_setup/_status.html' %}{% endwith %}</li>
       </ul>

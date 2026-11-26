@@ -20,13 +20,20 @@ Dateien, angelegte Jobs oder die Anzeige anderer Konten.
   Die Auswahl lässt sich zurücknehmen. Werden Modell oder JSON verändert,
   bleibt die Auswahl sichtbar, liefert aber kein Audio. Diese Aktion startet
   keinen Download, keine Synthese und keinen Zusatzprozess.
-- **Kids-Labyrinth:** Thorsten Scratch ist eine erwachsene experimentelle
-  deutsche Stimme. Der vorhandene #1220-Modellsatz bleibt auf den deutschen
-  Labyrinth-Fallback beschränkt. Sein Download schaltet weder Reader/Mail noch
-  Ausspracheübungen frei; dafür gibt es die getrennte Reader-/Mail-Auswahl. Lizenz, Version und SHA-256 für Gewicht und JSON
-  stehen neben der Schaltfläche. Deaktivierte, aber vollständig geprüfte Dateien
-  lassen sich separat lokal wieder aktivieren, ohne sie erneut zu laden. Siehe [Modell und Aufnahmen (CC0 1.0)](https://huggingface.co/Thorsten-Voice/Piper-Scratch)
+- **Stimmdateien:** Unter **Reader & Mail** kann die Administration das
+  deutsche, experimentelle Thorsten-Scratch-Paket (Erwachsenenstimme)
+  separat und einmalig laden. Das geht auch, wenn bereits eigene Stimmen
+  eingerichtet sind oder ein früherer Standardpfad nicht mehr erreichbar ist.
+  Vor dem Klick sind Anbieter, Größe, Version, Lizenz und SHA-256 für Modell
+  und JSON sichtbar. Das Laden ändert keine Modellpfade, Auswahl oder
+  Kids-Aktivierung. Siehe [Modell und Aufnahmen (CC0 1.0)](https://huggingface.co/Thorsten-Voice/Piper-Scratch)
   und getrennt [Piper-Engine und Lizenz](https://github.com/OHF-Voice/piper1-gpl/blob/main/docs/LICENSING.md).
+- **Kids-Labyrinth:** Dieselben geprüften Dateien können als separater Schritt
+  ohne erneuten Download aktiviert werden. Der Modellsatz bleibt dort auf
+  deutsche Labyrinth-Ansagen beschränkt, wenn keine Standardstimme
+  eingerichtet ist. Ausspracheübungen, Reader und Mail werden durch den
+  Kids-Schalter nicht umgestellt. Hinweise zum gemeinsamen Paket stehen im
+  Abschnitt **Reader & Mail**.
 - **Fingerzauber:** Ein administrativer Klick lädt das bereits unterstützte,
   fest versionierte MediaPipe-Paket und das Handmodell serverseitig von den
   festgelegten Anbietern. Keine beliebigen URLs, keine Bilder oder Kameradaten
@@ -50,7 +57,7 @@ Fingerprint/Status ist nicht gleichbedeutend mit einem Engine-/Gerätetest.
 first-run setup and the affected Kids screens. Only an administrator can
 explicitly queue a listed download; readiness is visible to signed-in accounts
 and skipping it affects only the current dashboard. Reader/Mail retain their separate local configuration; the opt-in for the verified
-German voice is independent of Kids and can be reverted. Verified files are not
+German voice is independent of Kids and can be reverted. The pinned files are downloaded once without choosing a voice or enabling Kids, even if a custom default was already configured. Verified files are not
 a playback test.
 
 ## Offline tests (synthetic input only)

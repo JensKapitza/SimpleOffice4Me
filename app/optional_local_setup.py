@@ -17,7 +17,8 @@ from .file_lock import exclusive_file_lock
 from .media_settings import PIPER_READER_THORSTEN
 from .settings_store import SettingsStore
 
-FEATURES = frozenset(("kids-voice", "kids-hand"))
+VOICE_PACKAGE = "voice-package"
+FEATURES = frozenset((VOICE_PACKAGE, "kids-hand"))
 _ACTIVE = frozenset(("queued", "downloading"))
 _JOB_LIFETIME = 300
 _LOG = logging.getLogger(__name__)
@@ -82,9 +83,8 @@ def _execute(root: Path, feature: str, job_id: str) -> None:
     try:
         if not _transition(root, feature, job_id, "downloading"):
             return
-        if feature == "kids-voice":
-            result = kids_piper_assets.set_enabled(root, True)
-            ready = result == "enabled" and bool(kids_piper_assets.enabled_model(root))
+        if feature == VOICE_PACKAGE:
+            ready = kids_piper_assets.install_package(root) == "ready"
         elif feature == "kids-hand":
             result = optional_hand_game_install.install_managed(root)
             ready = result == "ready" and kids_hand_assets.ready(optional_hand_game_install.asset_directory(root, ""))
@@ -105,19 +105,19 @@ def queue(root: str | Path, feature: str, *, manual_hand_directory: str = "") ->
     if feature not in FEATURES:
         raise ValueError("unknown optional capability")
     root = Path(root).resolve()
-    if feature == "kids-voice" and not shutil.which("piper"):
+    if feature == VOICE_PACKAGE and not shutil.which("piper"):
         return "engine-missing"
     if feature == "kids-hand" and (manual_hand_directory or not optional_hand_game_install.install_supported()):
         return "manual"
-    if ((feature == "kids-voice" and kids_piper_assets.enabled_model(root))
-            or (feature == "kids-hand" and kids_hand_assets.ready(
-                optional_hand_game_install.asset_directory(root, "")))):
-        return "ready"
     with exclusive_file_lock(_job_lock(root)):
         data = _read(root)
         state = _job_state(data.get(feature))
         if state in _ACTIVE:
             return state
+        if ((feature == VOICE_PACKAGE and kids_piper_assets.installed_model(root))
+                or (feature == "kids-hand" and kids_hand_assets.ready(
+                    optional_hand_game_install.asset_directory(root, "")))):
+            return "ready"
         if not _ADMISSION.acquire(blocking=False):
             return "busy"
         job_id = uuid4().hex
@@ -166,8 +166,17 @@ def readiness(root: str | Path, *, manual_hand_directory: str = "") -> dict[str,
     reader_selected = media.get("piper_reader_choice") == PIPER_READER_THORSTEN
     if english == "missing" and voice == "configured":
         english = "shared-fallback" if reader_selected else "fallback"
-    installed = bool(kids_piper_assets.installed_model(root)) if available or reader_selected else False
+    installed = bool(kids_piper_assets.installed_model(root))
     jobs = _read(root)
+    voice_job = _job_state(jobs.get(VOICE_PACKAGE))
+    if voice_job in _ACTIVE:
+        voice_package = voice_job
+    elif installed:
+        voice_package = "ready"
+    elif voice_job in {"failed", "ready"} or kids_piper_assets.package_files_present(root):
+        voice_package = "failed"
+    else:
+        voice_package = "missing"
 
     def status(key: str, installed: bool, missing: str) -> str:
         job_status = _job_state(jobs.get(key))
@@ -188,9 +197,7 @@ def readiness(root: str | Path, *, manual_hand_directory: str = "") -> dict[str,
     elif str(media.get("piper_model") or "").strip():
         kids_voice = "invalid"
     else:
-        kids_voice = status("kids-voice", kids_fallback, "missing")
-        if kids_voice in {"missing", "failed"} and installed:
-            kids_voice = "installed-disabled"
+        kids_voice = "ready" if kids_fallback else "installed-disabled" if installed else "missing"
     reader_default = voice
     if reader_selected:
         reader_default = "reader-thorsten" if installed else "reader-thorsten-invalid"
@@ -200,6 +207,7 @@ def readiness(root: str | Path, *, manual_hand_directory: str = "") -> dict[str,
         "reader_thorsten_selected": reader_selected,
         "reader_thorsten_available": installed and available,
         "reader_english": english,
+        "voice_package": voice_package,
         "kids_voice": kids_voice,
         "kids_hand": ("ready" if hand else "manual") if hand_manual else status("kids-hand", hand, "missing"),
     }

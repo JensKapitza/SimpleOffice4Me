@@ -100,6 +100,8 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
             self.assertEqual("engine-missing", self.status("speech-engine"))
             self.assertEqual("missing", self.status("speech-default"))
             self.assertEqual("engine-missing", self.status("kids-voice"))
+            self.assertEqual("missing", self.status("voice-package"))
+            self.assertIsNone(document(page).select_one('#voice-package button[value="voice-package"]'))
             self.assertEqual("missing", self.status("kids-hand"))
             self.assertIn(b"CC0 1.0", page.data)
             self.assertIn(b"Apache-2.0", page.data)
@@ -108,7 +110,7 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
             self.assertEqual(400, self.action(self.client, "/install", feature="arbitrary-url").status_code)
             self.assertEqual(413, self.client.post(SETUP + "/install", data={"feature": "A" * 1500}).status_code)
             self.assertEqual(415, self.client.post(SETUP + "/install", json={"feature": "kids-hand"}).status_code)
-            self.assertEqual(303, self.action(self.client, "/install", feature="kids-voice").status_code)
+            self.assertEqual(303, self.action(self.client, "/install", feature="voice-package").status_code)
             self.assertFalse(optional._job_file(self.root).exists())
 
         member = app.test_client()
@@ -117,6 +119,8 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
         page = document(member.get(SETUP))
         self.assertIsNone(page.select_one(f'form[action="{SETUP}/install"]'))
         self.assertEqual(403, self.action(member, "/install", feature="kids-hand").status_code)
+        self.assertEqual(403, self.action(member, "/install", feature="voice-package").status_code)
+        self.assertEqual(403, self.action(member, "/activate-kids-voice").status_code)
         self.assertEqual(303, self.action(member, "/preference", action="skip").status_code)
         member_card = document(member.get(DASHBOARD)).select_one("#optional-setup-dashboard")
         owner_card = document(self.client.get(DASHBOARD)).select_one("#optional-setup-dashboard")
@@ -238,11 +242,17 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
             path.write_bytes(b"fixture model metadata")
             Path(str(path) + ".json").write_bytes(b"{}")
         manifest = tuple(piper.Asset(name, len(data), sha256(data).hexdigest()) for name, data in VOICE.items())
+        config.save({"media": {"piper_model": str(de), "piper_model_en": str(en)}}, "owner")
         fetched, spoken = [], []
+        entered, finish = Event(), Event()
 
         class Opener:
             def open(self, request, *, timeout):
                 fetched.append(request.full_url)
+                if len(fetched) == 1:
+                    entered.set()
+                    if not finish.wait(10):
+                        raise OSError("fixture did not release download")
                 return Response(VOICE[request.full_url.rsplit("/", 1)[-1]])
 
         def voice_stub(text, _label, directory, *, model):
@@ -288,12 +298,36 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
             self.assertEqual("", config.settings()["media"]["piper_reader_choice"])
             self.assertEqual([], fetched)
 
-            self.assertEqual(303, self.action(self.client, "/install", feature="kids-voice").status_code)
-            self.wait_status("kids-voice", "ready")
+            page = document(self.client.get(DASHBOARD))
+            self.assertTrue(page.select_one(f'#optional-setup-dashboard a[href="{SETUP}"]'))
+            self.assertEqual("shared", self.status("kids-voice"))
+            self.assertEqual("missing", self.status("voice-package"))
+            package_form = document(self.client.get(SETUP)).select_one('#voice-package button[value="voice-package"]')
+            self.assertIsNotNone(package_form)
+            self.assertEqual(SETUP + "/install", package_form.find_parent("form")["action"])
+            response = self.action(self.client, "/install", feature=package_form["value"])
+            self.assertEqual(303, response.status_code)
+            self.assertTrue(response.headers["Location"].endswith("#voice-package"))
+            try:
+                self.assertTrue(entered.wait(4))
+                self.assertEqual("shared", self.status("kids-voice"))
+                self.assertEqual("downloading", self.status("voice-package"))
+                self.assertEqual("downloading", self.client.get(SETUP + "/progress").json["voice-package"])
+                job = optional._read(self.root)["voice-package"]["id"]
+                self.assertEqual(303, self.action(self.client, "/install", feature="voice-package").status_code)
+                self.assertEqual(job, optional._read(self.root)["voice-package"]["id"])
+            finally:
+                finish.set()
+                self.wait_status("voice-package", "ready")
+            self.assertEqual(303, self.action(self.client, "/install", feature="voice-package").status_code)
+            self.assertEqual(job, optional._read(self.root)["voice-package"]["id"])
             self.assertEqual(2, len(fetched))
             installed = piper.installed_model(self.root)
             self.assertTrue(installed)
-            config.save({"media": {"piper_model": str(de), "piper_model_en": str(en)}}, "owner")
+            self.assertFalse((Path(installed).parent / "enabled").exists())
+            self.assertEqual("shared", self.status("kids-voice"))
+            self.assertEqual(str(de), config.settings()["media"]["piper_model"])
+            self.assertEqual(str(en), config.settings()["media"]["piper_model_en"])
             self.assertEqual(303, self.action(self.client, "/preference", action="skip").status_code)
             self.assertEqual("configured", self.status("speech-default"))
             self.assertEqual("", config.settings()["media"]["piper_reader_choice"])
@@ -309,8 +343,8 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
             spoken.clear()
 
             # Only the explicit Reader command selects the verified pair, even
-            # if the independent Kids fallback is disabled.
-            self.assertEqual("disabled", piper.set_enabled(self.root, False))
+            # if the independent Kids fallback has never been enabled.
+            self.assertFalse(piper.enabled_model(self.root))
             self.assertEqual(303, self.action(self.client, chooser, action="select").status_code)
             self.assertEqual("reader-thorsten", self.status("speech-default"))
             self.assertEqual([200, 200], [reply.status_code for reply in read_all("de")])
@@ -397,6 +431,54 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
             self.assertEqual(303, self.action(self.client, "/install", feature="kids-hand").status_code)
             self.assertEqual(4, len(calls))
 
+    def test_invalid_default_still_offers_package_and_retry_without_kids_opt_in(self):
+        config = SettingsStore(self.root)
+        bad_default = str(self.root.parent / "removed-german.onnx")
+        config.save({"media": {"piper_model": bad_default}}, "owner")
+        manifest = tuple(piper.Asset(name, len(data), sha256(data).hexdigest()) for name, data in VOICE.items())
+        calls = []
+        bad_response = True
+
+        class Opener:
+            def open(self, request, *, timeout):
+                name = request.full_url.rsplit("/", 1)[-1]
+                calls.append(name)
+                return Response(b"bad checksums" if bad_response and name.endswith(".json") else VOICE[name])
+
+        with patch.object(piper, "_ASSETS", manifest), patch.object(piper, "_MODEL_NAME", "fixture.onnx"), patch.object(
+            optional.shutil, "which", return_value="/synthetic/piper",
+        ), patch.object(piper, "build_opener", return_value=Opener()):
+            self.assertEqual("invalid", self.status("kids-voice"))
+            self.assertEqual("missing", self.status("voice-package"))
+            self.assertIsNotNone(document(self.client.get(SETUP)).select_one('#voice-package button[value="voice-package"]'))
+            with patch.object(optional._WORKERS, "submit") as worker:
+                self.assertEqual(303, self.action(self.client, "/install", feature="voice-package").status_code)
+                try:
+                    self.assertEqual("queued", self.status("voice-package"))
+                    self.assertEqual("queued", self.client.get(SETUP + "/progress").json["voice-package"])
+                    self.assertEqual("invalid", self.status("kids-voice"))
+                    self.assertEqual([], calls)
+                    self.assertEqual(303, self.action(self.client, "/install", feature="voice-package").status_code)
+                    self.assertEqual(1, worker.call_count)
+                finally:
+                    func, *args = worker.call_args.args
+                    func(*args)
+            self.assertEqual("failed", self.status("voice-package"))
+            self.assertEqual("invalid", self.status("kids-voice"))
+            self.assertEqual("", piper.installed_model(self.root))
+            self.assertEqual(list(VOICE), calls)
+            self.assertIsNotNone(document(self.client.get(SETUP)).select_one('#voice-package button[value="voice-package"]'))
+            self.assertEqual(303, self.action(self.client, "/reader-voice", action="select").status_code)
+            self.assertEqual(list(VOICE), calls)
+            bad_response = False
+            self.assertEqual(303, self.action(self.client, "/install", feature="voice-package").status_code)
+            self.wait_status("voice-package", "ready")
+            self.assertEqual(list(VOICE) * 2, calls)
+            self.assertEqual("invalid", self.status("kids-voice"))
+            self.assertFalse(piper.enabled_model(self.root))
+            self.assertEqual(bad_default, config.settings()["media"]["piper_model"])
+            self.assertEqual("", config.settings()["media"]["piper_reader_choice"])
+
     def test_explicit_kids_voice_uses_existing_pins_never_configures_reader_or_mail(self):
         manifest = tuple(piper.Asset(name, len(data), sha256(data).hexdigest()) for name, data in VOICE.items())
         calls = []
@@ -411,20 +493,32 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
         ), patch.object(piper, "build_opener", return_value=Opener()):
             self.assertEqual("missing", self.status("kids-voice"))
             self.assertEqual([], calls)
-            self.assertEqual(303, self.action(self.client, "/install", feature="kids-voice").status_code)
-            self.wait_status("kids-voice", "ready")
+            self.assertEqual(303, self.action(self.client, "/install", feature="voice-package").status_code)
+            self.wait_status("voice-package", "ready")
             self.assertEqual(2, len(calls))
-            self.assertEqual("disabled", piper.set_enabled(self.root, False))
+            self.assertFalse(piper.enabled_model(self.root))
             self.assertEqual("installed-disabled", self.status("kids-voice"))
             self.assertIsNone(document(self.client.get(SETUP)).select_one('#kids-voice button[value="kids-voice"]'))
             self.assertEqual(303, self.action(self.client, "/activate-kids-voice").status_code)
             self.assertEqual("ready", self.status("kids-voice"))
             self.assertEqual(2, len(calls), "activating an existing voice must not fetch it again")
-            self.assertEqual("disabled", piper.set_enabled(self.root, False))
             path = Path(piper.installed_model(self.root))
+            marker = path.parent / "enabled"
+            original_marker = marker.stat()
             path.write_bytes(b"corrupted after the local offer")
+            self.assertEqual("failed", self.status("voice-package"))
+            self.assertFalse(piper.enabled_model(self.root))
+            self.assertEqual(303, self.action(self.client, "/install", feature="voice-package").status_code)
+            self.wait_status("voice-package", "ready")
+            self.assertEqual(4, len(calls))
+            self.assertEqual((original_marker.st_ino, original_marker.st_mtime_ns),
+                             (marker.stat().st_ino, marker.stat().st_mtime_ns))
+            self.assertEqual(str(path), piper.enabled_model(self.root))
+            self.assertEqual("disabled", piper.set_enabled(self.root, False))
+            path.write_bytes(b"corrupted after the local offer")
+            self.assertEqual("failed", self.status("voice-package"))
             self.assertEqual(303, self.action(self.client, "/activate-kids-voice").status_code)
-            self.assertEqual(2, len(calls), "explicit reactivation without consent may not redownload")
+            self.assertEqual(4, len(calls), "explicit reactivation without consent may not redownload")
             self.assertFalse(piper.enabled_model(self.root))
             self.assertEqual("missing", self.status("speech-default"))
             self.assertEqual("", SettingsStore(self.root).settings()["media"]["piper_model"])

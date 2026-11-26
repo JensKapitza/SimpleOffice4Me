@@ -1,4 +1,4 @@
-"""Explicitly enabled, pinned Piper assets for German Kids instructions only."""
+"""Shared pinned German Piper files with independent Kids opt-in."""
 
 from __future__ import annotations
 
@@ -106,6 +106,22 @@ def installed_model(document_root: str | Path) -> str:
         return ""
 
 
+def package_files_present(document_root: str | Path) -> bool:
+    directory = _voice_dir(document_root)
+    try:
+        if directory.resolve() != directory:
+            return False
+        for asset in _ASSETS:
+            try:
+                (directory / asset.name).lstat()
+            except FileNotFoundError:
+                continue
+            return True
+        return False
+    except (OSError, RuntimeError):
+        return False
+
+
 def enabled_model(document_root: str | Path) -> str:
     marker = _voice_dir(document_root) / "enabled"
     try:
@@ -168,9 +184,28 @@ def _download(asset: Asset, target: Path, deadline: float) -> None:
     target.chmod(0o600)
 
 
+def _download_pair(directory: Path) -> None:
+    with tempfile.TemporaryDirectory(prefix="piper-download-", dir=directory) as staging:
+        stage = Path(staging)
+        deadline = time.monotonic() + _DOWNLOAD_TIMEOUT
+        for asset in _ASSETS:
+            _download(asset, stage / asset.name, deadline)
+        for asset in _ASSETS:
+            os.replace(stage / asset.name, directory / asset.name)
+
+
+def install_package(document_root: str | Path) -> str:
+    """Install only the pinned pair; leave every use/activation setting untouched."""
+    return _update_package(document_root, enable_kids=None, allow_download=True)
+
+
 def set_enabled(document_root: str | Path, enable: bool, *, allow_download: bool = True) -> str:
-    """Only admins call this; activating existing files may disallow downloads."""
-    if enable and not shutil.which("piper"):
+    """Explicit Kids control; legacy callers may combine it with installation."""
+    return _update_package(document_root, enable_kids=enable, allow_download=allow_download)
+
+
+def _update_package(document_root: str | Path, *, enable_kids: bool | None, allow_download: bool) -> str:
+    if enable_kids is not False and not shutil.which("piper"):
         return "unavailable"
     directory = _voice_dir(document_root)
     try:
@@ -181,26 +216,25 @@ def set_enabled(document_root: str | Path, enable: bool, *, allow_download: bool
             if not acquired:
                 return "busy"
             marker = directory / "enabled"
-            if not enable:
+            if enable_kids is False:
                 marker.unlink(missing_ok=True)
                 return "disabled"
             _remove_staging(directory, "piper-download-*")
             if not _verified(directory):
-                marker.unlink(missing_ok=True)
+                if enable_kids:
+                    marker.unlink(missing_ok=True)
                 if not allow_download:
                     return "failed"
-                with tempfile.TemporaryDirectory(prefix="piper-download-", dir=directory) as staging:
-                    stage = Path(staging)
-                    deadline = time.monotonic() + _DOWNLOAD_TIMEOUT
-                    for asset in _ASSETS:
-                        _download(asset, stage / asset.name, deadline)
-                    for asset in _ASSETS:
-                        os.replace(stage / asset.name, directory / asset.name)
+                _download_pair(directory)
+                if not _verified(directory):
+                    return "failed"
+            if enable_kids is None:
+                return "ready"
             if marker.is_symlink():
                 marker.unlink()
             marker.touch(mode=0o600)
             return "enabled"
     except (HTTPException, OSError, RuntimeError, ValueError) as exc:
         # Never log URLs: redirected CDN links contain query authentication.
-        _LOG.warning("Kids Piper voice setup failed: %s", type(exc).__name__)
+        _LOG.warning("Pinned Piper files setup failed: %s", type(exc).__name__)
         return "failed"

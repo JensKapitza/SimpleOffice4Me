@@ -30,6 +30,18 @@
         <dt>{{ 'English voice' if en else 'Englische Stimme' }}</dt>
         <dd id="speech-english">{% with status=readiness.reader_english %}{% include 'optional_setup/_status.html' %}{% endwith %}</dd>
       </dl>
+      <section id="voice-package" class="border rounded p-3 my-3" aria-labelledby="voice-package-heading">
+        <h3 id="voice-package-heading" class="h5">{{ 'Thorsten Scratch (German, experimental adult voice)' if en else 'Thorsten Scratch (Deutsch, experimentelle Erwachsenenstimme)' }}</h3>
+        {% with status=readiness.voice_package %}{% include 'optional_setup/_status.html' %}{% endwith %}
+        <p>{{ 'The server can download these two files from Hugging Face once (about 64 MB). The download sends no text or game input and does not select a voice or change Kids activation. Reader, Mail and Kids use the same local files only with their own settings.' if en else 'Der Server kann diese zwei Dateien einmal von Hugging Face laden (rund 64 MB). Dabei werden keine Texte oder Spieleingaben übertragen, keine Stimme ausgewählt und die Kids-Aktivierung bleibt unverändert. Reader, Mail und Kids nutzen dieselben lokalen Dateien nur mit ihren eigenen Einstellungen.' }}</p>
+        <details class="mb-2"><summary>{{ 'License, version and checksums' if en else 'Lizenz, Version und Prüfsummen' }}</summary>
+          <p><a href="{{ voice_card }}" rel="noreferrer">Thorsten-Voice Piper-Scratch</a>, <a href="https://creativecommons.org/publicdomain/zero/1.0/" rel="noreferrer">CC0 1.0</a> ({{ 'model and recordings' if en else 'Modell und Aufnahmen' }}). <a href="https://github.com/OHF-Voice/piper1-gpl/blob/main/docs/LICENSING.md" rel="noreferrer">GPL-3.0-or-later</a> ({{ 'separate Piper engine' if en else 'separate Piper-Engine' }}). <code class="text-break">{{ voice_release }}</code></p>
+          <ul>{% for item in voice_manifest %}<li>{{ item.name }} · {{ item.size }} Bytes · SHA-256 <code class="text-break">{{ item.digest }}</code></li>{% endfor %}</ul>
+        </details>
+        {% if manage and readiness.piper == 'engine-found' and readiness.voice_package in ('missing', 'failed') %}
+          {% with feature='voice-package', retry=readiness.voice_package == 'failed' %}{% include 'optional_setup/_install_form.html' %}{% endwith %}
+        {% endif %}
+      </section>
       <p class="small">{{ 'An administrator can separately select the already installed and verified Thorsten Scratch adult voice for Reader and Mail when the interface language is German. The text language is not detected automatically. An existing English voice or its previous shared fallback, the manual settings, Kids and other audio are unchanged. This is a configuration choice, not playback or a download.' if en else 'Die Administration kann die bereits installierte und verifizierte Erwachsenenstimme Thorsten Scratch separat für Reader und Mail mit deutscher Oberflächensprache auswählen. Die Textsprache wird nicht automatisch erkannt. Englische Stimme oder bisheriger gemeinsamer Fallback, manuelle Einstellungen, Kids und andere Audiofunktionen bleiben unverändert. Die Auswahl startet weder Wiedergabe noch Download.' }}</p>
       {% if manage %}
         {% if readiness.reader_thorsten_selected or readiness.reader_thorsten_available %}
@@ -49,16 +61,12 @@
   <section class="card mb-3" id="kids-voice">
     <div class="card-body">
       <h2 class="h4">{{ '2. German Kids maze instructions' if en else '2. Deutsche Kids-Labyrinth-Ansagen' }}</h2>
-      <p class="mb-1 fw-semibold">{{ 'Thorsten Scratch (German, experimental adult voice)' if en else 'Thorsten Scratch (Deutsch, experimentelle Erwachsenenstimme)' }}</p>
       {% with status=readiness.kids_voice %}{% include 'optional_setup/_status.html' %}{% endwith %}
-      <p>{{ 'Thorsten-Voice Piper-Scratch is experimental. It is used only for German maze instructions if no default voice is configured. The download is from Hugging Face. The Kids game inputs are not part of this download.' if en else 'Thorsten-Voice Piper-Scratch ist experimentell und wird nur für deutsche Labyrinth-Ansagen genutzt, falls keine Standardstimme eingerichtet ist. Die Dateien kommen von Hugging Face. Spieleingaben sind nicht Teil des Downloads.' }}</p>
-      <details class="mb-2"><summary>{{ 'License, version and checksums' if en else 'Lizenz, Version und Prüfsummen' }}</summary>
-        <p><a href="{{ voice_card }}" rel="noreferrer">Thorsten-Voice Piper-Scratch</a>, <a href="https://creativecommons.org/publicdomain/zero/1.0/" rel="noreferrer">CC0 1.0</a> ({{ 'model and recordings' if en else 'Modell und Aufnahmen' }}). <a href="https://github.com/OHF-Voice/piper1-gpl/blob/main/docs/LICENSING.md" rel="noreferrer">GPL-3.0-or-later</a> ({{ 'separate Piper engine' if en else 'separate Piper-Engine' }}). <code class="text-break">{{ voice_release }}</code></p>
-        <ul>{% for item in voice_manifest %}<li>{{ item.name }} · {{ item.size }} Bytes · SHA-256 <code class="text-break">{{ item.digest }}</code></li>{% endfor %}</ul>
-      </details>
-      {% if manage and readiness.kids_voice in ('missing', 'failed') %}
-        {% with feature='kids-voice', retry=readiness.kids_voice == 'failed' %}{% include 'optional_setup/_install_form.html' %}{% endwith %}
-      {% elif manage and readiness.kids_voice == 'installed-disabled' %}
+      <p>{{ 'The optional Thorsten Scratch voice works here only for German maze instructions when no default voice is configured. It does not change the Reader or Mail voice.' if en else 'Die optionale Stimme Thorsten Scratch spricht hier nur deutsche Labyrinth-Ansagen, wenn keine Standardstimme eingerichtet ist. Sie ändert die Stimme in Reader oder Mail nicht.' }}</p>
+      {% if manage %}
+      <a class="btn btn-outline-secondary" href="#voice-package">{{ 'Check shared voice files' if en else 'Gemeinsame Stimmdateien prüfen' }}</a>
+      {% endif %}
+      {% if manage and readiness.kids_voice == 'installed-disabled' %}
         <form class="d-inline-block me-2" method="post" action="{{ url_for('optional_setup.activate_voice') }}">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-primary">{{ 'Enable existing local voice' if en else 'Vorhandene lokale Stimme aktivieren' }}</button>

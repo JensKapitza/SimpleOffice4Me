@@ -4,7 +4,7 @@
   if (!page) return;
   const active = new Set(["queued", "downloading"]);
   const snapshot = {};
-  for (const name of ["kids-voice", "kids-hand"]) {
+  for (const name of ["voice-package", "kids-hand"]) {
     const badge = document.getElementById(name)?.querySelector("[data-optional-status]");
     if (badge && active.has(badge.dataset.optionalStatus)) snapshot[name] = badge.dataset.optionalStatus;
   }

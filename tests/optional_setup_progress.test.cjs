@@ -4,14 +4,14 @@ const fs = require("node:fs");
 const vm = require("node:vm");
 const code = fs.readFileSync("static/js/optional-setup-progress.js", "utf8");
 
-function setup(initial, returned) {
+function setup(initial, returned, feature = "kids-hand") {
   const events = new Map(), delays = [], fetched = [];
   let reloaded = 0;
   const document = {
     hidden:false,
     querySelector: () => ({dataset:{progress:"/setup/optional/progress"}}),
-    getElementById: (name) => name === "kids-hand" ? {
-      querySelector: () => ({dataset:{optionalStatus:initial}}),
+    getElementById: (name) => name === feature || name === "kids-voice" ? {
+      querySelector: () => ({dataset:{optionalStatus:name === "kids-voice" ? "shared" : initial}}),
     } : null,
   };
   const window = {
@@ -21,7 +21,7 @@ function setup(initial, returned) {
   };
   vm.runInNewContext(code, {window, document, AbortSignal, fetch: async (path, options) => {
     fetched.push([path, options]);
-    return {ok:true, json:async () => ({"kids-hand":returned})};
+    return {ok:true, json:async () => ({[feature]:returned})};
   }});
   return {document, events, delays, fetched, reloaded:() => reloaded};
 }
@@ -51,4 +51,11 @@ test("hidden tab makes no requests and page leave stops an outstanding refresh",
   assert.equal(fixture.fetched.length, 0);
   assert.equal(fixture.delays.length, 0);
   assert.equal(fixture.reloaded(), 0);
+});
+
+test("voice file progress refreshes independently of the shared Kids voice badge", async () => {
+  const fixture = setup("downloading", "ready", "voice-package");
+  assert.equal(fixture.delays.length, 1);
+  await fixture.delays.shift()();
+  assert.equal(fixture.reloaded(), 1);
 });
