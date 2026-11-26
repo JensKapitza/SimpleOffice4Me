@@ -12,9 +12,15 @@
 }
 
 .reaction-room-touch[data-active="yes"] {
+    animation: room-cue-pulse 1.2s ease-in-out infinite;
     background-color: #ffda57;
     border-color: #1f2d20;
     color: #172416;
+}
+
+@keyframes room-cue-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.03); }
 }
 
 .reaction-room [data-room-keyboard]:focus-visible,

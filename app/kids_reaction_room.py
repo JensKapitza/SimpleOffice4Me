@@ -68,10 +68,13 @@ class Room:
     def advance(self, now: float) -> None:
         if self.index == len(self.sequence):
             self.target = None
+            hits = sum(row["hit"] for row in self.rows)
+            total = sum(row["ms"] for row in self.rows)
             self.scores.append({
-                "hits": sum(row["hit"] for row in self.rows),
+                "hits": hits,
                 "misses": sum(not row["hit"] for row in self.rows),
-                "total": sum(row["ms"] for row in self.rows),
+                "total": total,
+                "rate": round(hits * 60000 / total) if total else 0,
                 "rows": self.rows,
             })
             self.phase = "change" if self.mode == "duel" and self.turn == 0 else "complete"

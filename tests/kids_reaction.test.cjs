@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { ReactionGame, VirtualStations, keyStation } = require("../static/js/kids_reaction_game.js");
+const { ReactionGame, VirtualStations, keyStation, keystrokesPerMinute } = require("../static/js/kids_reaction_game.js");
 const { UsbStations, parsed, Lines } = require("../static/js/kids_reaction_usb.js");
 const { serialEligible } = require("../static/js/kids_reaction_app.js");
 
@@ -211,7 +211,7 @@ test("shipped page app uses only the focused keyboard area and renders an explic
   doc.querySelector = () => page;
   doc.createElement = element;
   const environment = { document: doc, performance: { now: () => now }, setTimeout, clearTimeout,
-    addEventListener: () => {}, KidsReactionGame: { ReactionGame, VirtualStations, keyStation }, KidsReactionUsb: { UsbStations } };
+    addEventListener: () => {}, KidsReactionGame: { ReactionGame, VirtualStations, keyStation, keystrokesPerMinute }, KidsReactionUsb: { UsbStations } };
   // Inject the clock into the same class that the actual browser boot receives.
   environment.KidsReactionGame.VirtualStations = class extends VirtualStations {
     constructor(emit) { super(emit, () => now); }
@@ -252,4 +252,11 @@ test("serial requires the actual browser to be top-level secure loopback even wh
   page.dataset.usb = "1";
   view.top = {};
   assert.equal(serialEligible(view, page), false);
+});
+
+test("keystroke rate counts hits per minute over target time", () => {
+  assert.equal(keystrokesPerMinute({ hits: 3, total: 100520 }), 2);
+  assert.equal(keystrokesPerMinute({ hits: 6, total: 1140 }), 316);
+  assert.equal(keystrokesPerMinute({ hits: 0, total: 5000 }), 0);
+  assert.equal(keystrokesPerMinute({ hits: 0, total: 0 }), 0);
 });
