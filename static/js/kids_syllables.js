@@ -157,7 +157,7 @@
   const audioBase = root.dataset.audioBase || '';
   const audioVersion = root.dataset.audioVersion || '';
   const clipLang = english ? 'en' : 'de';
-  const speechStatus = null;
+  const speechStatus = root.querySelector('[data-speech-status]');
   let currentClips = [];
   let speechRun = 0;
   function playNow(parts) {
@@ -187,6 +187,7 @@
   let mistakes = 0;
   let taps = 0;
   let cancelExample = null;
+  const exampleOwner = {};
   const microphone = window.KidsSyllableMic?.mount(root.querySelector('[data-syll-mic]'), {
     text,
     beforeStart: () => { stopExample(); stopQuestionAudio(); },
@@ -264,6 +265,9 @@
     microphone?.pauseForAudio();
     stopExample();
     stopQuestionAudio();
+    if (typeof window.CustomEvent === 'function') {
+      window.dispatchEvent(new window.CustomEvent('simpleoffice:speech-start', {detail: {owner: exampleOwner}}));
+    }
     let timer;
     let player;
     let removePlayerListeners;
@@ -323,7 +327,10 @@
       `Höre gut zu: ${slowWord(question)}. Tippe für jede Silbe einmal auf die Hände!`,
       `Listen carefully: ${slowWord(question)}. Tap the hands once for every syllable!`
     );
-    prompt.textContent = `👏 ${question.word}`;
+    prompt.textContent = text(
+      `👏 ${question.word}: Tippe einmal pro Silbe auf die Hände.`,
+      `👏 ${question.word}: Tap the hands once per syllable.`
+    );
     prompt.setAttribute('aria-label', spoken);
     stage.setAttribute('aria-label', spoken);
     const dots = document.createElement('div');
@@ -407,7 +414,10 @@
       `${slowWord(question)}. Wie viele Silben hörst du?`,
       `${slowWord(question)}. How many syllables can you hear?`
     );
-    prompt.textContent = `🔢 ${question.word}`;
+    prompt.textContent = text(
+      `🔢 Wie viele Silben hat „${question.word}“?`,
+      `🔢 How many syllables are in “${question.word}”?`
+    );
     prompt.setAttribute('aria-label', spoken);
     stage.setAttribute('aria-label', spoken);
     stage.append(makePicture(question.emoji, question.word));
@@ -435,7 +445,7 @@
       `Was reimt sich auf ${question.target.word}?`,
       `What rhymes with ${question.target.word}?`
     );
-    prompt.textContent = `🎵 ${question.target.word} → ?`;
+    prompt.textContent = `🎵 ${spoken}`;
     prompt.setAttribute('aria-label', spoken);
     stage.setAttribute('aria-label', spoken);
     stage.append(makePicture(question.target.emoji, question.target.word));
@@ -542,6 +552,13 @@
     if (currentClips.length) playNow(currentClips);
   });
   next.addEventListener('click', nextQuestion);
+  root.querySelector('[data-kids-stop-audio]')?.addEventListener('click', stopExample);
+  document.addEventListener?.('visibilitychange', () => { if (document.hidden) stopExample(); });
+  window.addEventListener?.('pagehide', stopExample);
+  window.addEventListener?.('simpleoffice:speech-stop', stopExample);
+  window.addEventListener?.('simpleoffice:speech-start', event => {
+    if (event.detail?.owner && event.detail.owner !== exampleOwner) stopExample();
+  });
   root.querySelector('[data-syll-back]').addEventListener('click', showPicker);
   root.querySelector('[data-result-back]')?.addEventListener('click', showPicker);
   root.querySelector('[data-play-again]').addEventListener('click', () => begin(level));

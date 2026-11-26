@@ -21,7 +21,12 @@
   <section class="card mb-3" id="reader-speech">
     <div class="card-body">
       <h2 class="h4">{{ '1. Local read-aloud in Reader & Mail' if en else '1. Lokales Vorlesen in Reader & Mail' }}</h2>
+      {% if android_speech_available %}
+      {% include 'optional_setup/_android_speech.html' %}
+      <p>{{ 'If you use Piper, its engine and the selected voice files must be installed on the system running SimpleOffice. In Media settings you can select separate local default and English voices. The status check itself starts no playback and reads no documents or email.' if en else 'Wenn du Piper nutzt, müssen die Engine und die ausgewählten Stimmdateien auf dem System installiert sein, auf dem SimpleOffice läuft. In den Medien-Einstellungen kannst du getrennte lokale Stimmen für Standard und Englisch wählen. Die Statusprüfung startet keine Wiedergabe und liest keine Dokumente oder E-Mails.' }}</p>
+      {% else %}
       <p>{{ 'Playback requires Piper on the system running SimpleOffice. Voice files can be downloaded beforehand. You can also choose your own local voices for default and English in Media settings. This check does not run Piper or read any documents or email.' if en else 'Zum Vorlesen braucht das System, auf dem SimpleOffice läuft, die Piper-Engine. Die Stimmdateien kannst du vorher laden. In den Medien-Einstellungen kannst du auch eigene lokale Stimmen für Standard und Englisch wählen. Diese Prüfung startet Piper nicht und liest keine Dokumente oder E-Mails.' }}</p>
+      {% endif %}
       <dl>
         <dt>{{ 'Piper engine' if en else 'Piper-Engine' }}</dt>
         <dd id="speech-engine">{% with status=readiness.piper %}{% include 'optional_setup/_status.html' %}{% endwith %}</dd>
@@ -97,4 +102,7 @@
   </section>
 </main>
 <script src="{{ url_for('static', filename='js/optional-setup-progress.js') }}" defer></script>
+{% if android_speech_available and manage %}
+<script src="{{ url_for('static', filename='js/android-speech-setup.js') }}" defer></script>
+{% endif %}
 {% endblock %}

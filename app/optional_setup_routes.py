@@ -2,10 +2,13 @@
 from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
 from werkzeug.wsgi import LimitedStream
 
-from . import kids_hand_assets, kids_piper_assets, optional_hand_game_install, optional_local_setup
+from . import android_speech_settings, kids_hand_assets, kids_piper_assets, optional_hand_game_install, optional_local_setup
 from .access_control import audit, is_admin
 from .auth import login_required
 from .media_settings import PIPER_READER_THORSTEN
+from .private_read_aloud import (
+    android_speech_available, device_preferences, device_voices, private_audio_response,
+)
 from .settings_store import SettingsStore
 from .setup_store import SetupStore
 
@@ -24,11 +27,17 @@ def index():
     root = current_app.config["DOCUMENT_ROOT"]
     manual = optional_local_setup.hand_override(current_app.config)
     setup = SetupStore(root).status(str(g.user["username"]))
+    native_speech = android_speech_available()
+    manage = is_admin(g.user)
     return render_template(
         "optional_setup/index.html",
         readiness=optional_local_setup.readiness(root, manual_hand_directory=manual),
         optional_skipped=setup["optional_skipped"],
-        manage=is_admin(g.user),
+        manage=manage,
+        android_speech_available=native_speech,
+        android_speech=device_preferences() if native_speech else None,
+        android_voices=device_voices() if native_speech and manage else (),
+        android_speech_status=_device_speech_status() if native_speech else "unavailable",
         manual_hand=bool(manual),
         voice_release=kids_piper_assets.MODEL_REVISION,
         voice_card=kids_piper_assets.MODEL_CARD,
@@ -51,7 +60,8 @@ def progress():
 def limit_request() -> None:
     """Apply the small mutation-body cap before session CSRF parses a form."""
     if request.endpoint not in {"optional_setup.install", "optional_setup.preference",
-                                "optional_setup.activate_voice", "optional_setup.select_reader_voice"}:
+                                "optional_setup.activate_voice", "optional_setup.select_reader_voice",
+                                "optional_setup.set_android_speech", "optional_setup.test_android_speech"}:
         return
     if request.mimetype != "application/x-www-form-urlencoded":
         abort(415)
@@ -147,6 +157,108 @@ def select_reader_voice():
         audit("reader_voice_selection", "optional_setup", "reader-speech", detail={"action": action})
         flash("Reader and Mail selection saved." if g.language == "en" else "Auswahl für Reader und Mail gespeichert.")
     return redirect(url_for("optional_setup.index", _anchor="reader-speech"), code=303)
+
+
+def _device_speech_status():
+    checker = current_app.config.get("ANDROID_PRIVATE_SPEECH_STATUS")
+    if callable(checker):
+        try:
+            status = checker()
+            if status in ("loading", "ready", "unavailable"):
+                return status
+        except Exception as exc:
+            current_app.logger.info("Android voice status unavailable (%s)", type(exc).__name__)
+    return "unavailable"
+
+
+def _require_device_speech_admin():
+    if not is_admin(g.user) or not android_speech_available():
+        abort(403)
+    if request.args or any(len(request.form.getlist(key)) != 1 for key in request.form):
+        abort(400)
+
+
+def _device_speech_form():
+    fields = {"_csrf_token", "action", "reader", "kids", "voice_de", "voice_en", "rate", "pitch"}
+    checkboxes = {"reader_fallback", "kids_fallback"}
+    if not fields <= set(request.form) <= fields | checkboxes:
+        raise ValueError("invalid speech settings fields")
+    result = {key: request.form[key] for key in ("reader", "kids", "voice_de", "voice_en")}
+    for key in checkboxes:
+        value = request.form.get(key)
+        if value is not None and value != "1":
+            raise ValueError("invalid fallback choice")
+        result[key] = value == "1"
+    for key in ("rate", "pitch"):
+        result[key] = float(request.form[key])
+    saved = device_preferences()
+    voices = {(row["language"], row["id"]) for row in device_voices()}
+    for language in android_speech_settings.LANGUAGES:
+        key = "voice_" + language
+        if result[key] and result[key] != saved[key] and (language, result[key]) not in voices:
+            raise ValueError("voice not installed for this language")
+    return android_speech_settings.validate(result)
+
+
+@bp.post("/android-speech")
+@login_required
+def set_android_speech():
+    _require_device_speech_admin()
+    action = request.form.get("action")
+    if action == "refresh" and set(request.form) == {"_csrf_token", "action"}:
+        refresh = current_app.config.get("ANDROID_PRIVATE_SPEECH_REFRESH")
+        queued = False
+        if callable(refresh):
+            try:
+                queued = bool(refresh())
+            except Exception as exc:
+                current_app.logger.info("Android voice refresh unavailable (%s)", type(exc).__name__)
+        if queued:
+            flash("Checking installed voices. Refresh the status in a moment." if g.language == "en"
+                  else "Installierte Stimmen werden geprüft. Lade den Status gleich neu.")
+        else:
+            flash("Voice check unavailable. Return to the app and try again." if g.language == "en"
+                  else "Stimmenprüfung nicht verfügbar. Kehre zur App zurück und versuche es erneut.")
+        return redirect(url_for("optional_setup.index", _anchor="reader-speech"), code=303)
+    try:
+        if action == "save":
+            settings = _device_speech_form()
+            updates = {"android_speech": settings}
+        elif action in {"enable", "disable"} and set(request.form) == {"_csrf_token", "action"}:
+            # Preserve submissions from the earlier setup page without touching Kids.
+            settings = device_preferences()
+            settings["reader"] = "android" if action == "enable" else "automatic"
+            settings["reader_fallback"] = False
+            updates = {"android_private_speech": action == "enable", "android_speech": settings}
+        else:
+            abort(400)
+        SettingsStore(current_app.config["DOCUMENT_ROOT"]).save({"media": updates}, str(g.user["username"]))
+    except ValueError:
+        abort(400)
+    except OSError:
+        flash("Voice selection could not be saved." if g.language == "en" else "Die Stimmenauswahl konnte nicht gespeichert werden.")
+    else:
+        audit("reader_voice_selection", "optional_setup", "android-speech", detail={"action": action})
+        flash("Speech settings saved." if g.language == "en" else "Sprachausgabe gespeichert.")
+    return redirect(url_for("optional_setup.index", _anchor="reader-speech"), code=303)
+
+
+@bp.post("/android-speech/test")
+@login_required
+def test_android_speech():
+    _require_device_speech_admin()
+    if set(request.form) != {"_csrf_token", "scope", "language"}:
+        abort(400)
+    scope, language = request.form["scope"], request.form["language"]
+    if scope not in android_speech_settings.SCOPES or language not in android_speech_settings.LANGUAGES:
+        abort(400)
+    sample = "Dies ist die lokale Sprachausgabe von SimpleOffice." if language == "de" else "This is SimpleOffice local speech."
+    locale = "de-DE" if language == "de" else "en-US"
+    model = None
+    if scope == "kids":
+        from .kids_learning import _selected_kids_piper as model
+
+    return private_audio_response(lambda: sample, language=locale, device_scope=scope, piper_model=model)
 
 
 @bp.post("/preference")

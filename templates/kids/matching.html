@@ -14,7 +14,7 @@
       <p class="text-secondary mb-0">{{ 'Listen, look and tap the matching picture. No reading needed.' if g.language == 'en' else 'Hören, schauen und das passende Bild antippen. Ganz ohne Lesen.' }}</p>
     </div>
   </header>
-  <p class="small text-warning-emphasis mb-2" data-speech-status role="status" aria-live="polite"></p>
+  {% include "kids/_speech_status.html" %}
 
   <section class="kids-matching-setup" data-setup aria-labelledby="kids-matching-setup-title">
     <h2 class="h4" id="kids-matching-setup-title">{{ 'What do you want to match?' if g.language == 'en' else 'Was möchtest du zuordnen?' }}</h2>
