@@ -8,7 +8,8 @@
 {% set en = g.language == 'en' %}
 <main id="main-content" class="container py-3 reaction-room" data-reaction-room
       data-en="{{ 1 if en else 0 }}" data-csrf="{{ csrf_token() }}"
-      data-api="{{ url_for('kids_reaction.room_api') }}">
+      data-api="{{ url_for('kids_reaction.room_api') }}"
+      data-qr="{{ url_for('kids_reaction.room_qr') }}">
   <h1>{{ 'Reaction rooms' if en else 'Reaktionsräume' }}</h1>
   <p><a href="{{ url_for('kids_reaction.index') }}">{{ 'Play on this device only' if en else 'Nur auf diesem Gerät spielen' }}</a></p>
   <p>{{ 'Play together in one room with two or three phones or computers. Stay in a clear space and do not run.' if en else 'Spielt gemeinsam im selben Raum mit zwei bis drei Handys oder PCs. Haltet den Bereich frei und rennt nicht.' }}</p>
@@ -46,6 +47,7 @@
     <h2 class="h4" data-room-station></h2>
     <p data-room-roster></p>
     <p data-room-invite hidden></p>
+    <p hidden data-room-qr-wrap><img data-room-qr width="180" height="180" alt="{{ 'Room code QR for other devices' if en else 'Raumcode-QR für weitere Geräte' }}"></p>
     <div data-room-controls hidden>
       <label class="form-label" for="reaction-room-mode">{{ 'Mode' if en else 'Spielart' }}</label>
       <select id="reaction-room-mode" class="form-select mb-2 w-auto" data-room-mode>
