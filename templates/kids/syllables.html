@@ -35,6 +35,7 @@
       <p class="kids-syll-prompt" data-syll-prompt aria-live="polite"></p>
       <div class="kids-syll-stage" data-syll-stage role="group"></div>
       <p class="kids-syll-feedback" data-syll-feedback role="status" aria-live="polite"></p>
+      {% include "kids/_syllable_mic.html" %}
       <div class="d-flex flex-wrap gap-2 mt-3">
         <button class="btn btn-success btn-lg" type="button" data-syll-next hidden>{{ 'Next' if g.language == 'en' else 'Weiter' }} ➡️</button>
         <button class="btn btn-outline-secondary btn-lg" type="button" data-syll-back>{{ ('Restart clapping' if g.language == 'en' else 'Klatschrunde neu starten') if preschool else ('Choose another level' if g.language == 'en' else 'Andere Stufe wählen') }}</button>
@@ -62,5 +63,7 @@
 </main>
 <script src="{{ url_for('static', filename='js/kids_piper_voice.js', v=app_build.version) }}" defer></script>
 <script src="{{ url_for('static', filename='js/kids_shared.js', v=app_build.version) }}" defer></script>
+<script src="{{ url_for('static', filename='js/kids_syllable_signal.js', v=app_build.version) }}" defer></script>
+<script src="{{ url_for('static', filename='js/kids_syllable_mic.js', v=app_build.version) }}" defer></script>
 <script src="{{ url_for('static', filename='js/kids_syllables.js', v=app_build.version) }}" defer></script>
 {% endblock %}

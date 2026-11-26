@@ -161,6 +161,7 @@
   let currentClips = [];
   let speechRun = 0;
   function playNow(parts) {
+    microphone?.pauseForAudio();
     const run = ++speechRun;
     const guarded = parts.map(({key, fallback}) => ({key, fallback: () => run === speechRun ? fallback : null}));
     return playClips(audioBase, audioVersion, clipLang, guarded, speechLang, speechStatus);
@@ -186,6 +187,10 @@
   let mistakes = 0;
   let taps = 0;
   let cancelExample = null;
+  const microphone = window.KidsSyllableMic?.mount(root.querySelector('[data-syll-mic]'), {
+    text,
+    beforeStart: () => { stopExample(); stopQuestionAudio(); },
+  });
 
   function focusElement(element) {
     if (element && typeof element.focus === 'function') element.focus();
@@ -219,6 +224,7 @@
   }
 
   function showQuestion() {
+    microphone?.setTask(null);
     stopExample();
     const question = questions[questionIndex];
     mistakes = 0;
@@ -255,6 +261,7 @@
   }
 
   function playExample(parts, paintBeat) {
+    microphone?.pauseForAudio();
     stopExample();
     stopQuestionAudio();
     let timer;
@@ -341,25 +348,32 @@
     clap.className = 'kids-syll-clap';
     clap.textContent = '👏';
     clap.setAttribute('aria-label', text(`Klatschen, ${question.parts.length} Silben`, `Clap, ${question.parts.length} syllables`));
+    const activeTask = () => !clap.disabled && !play.hidden && stage.contains(clap);
+    function completeClap() {
+      if (!activeTask()) return;
+      microphone?.setTask(null);
+      stopExample();
+      taps = question.parts.length;
+      paintDots();
+      score += 1;
+      clap.disabled = true;
+      feedback.textContent = text(`Richtig! ${question.word} hat ${question.parts.length} ${question.parts.length === 1 ? 'Silbe' : 'Silben'}!`, `Right! ${question.word} has ${question.parts.length} ${question.parts.length === 1 ? 'syllable' : 'syllables'}!`);
+      playNow([
+        {key: CLIPS.praiseRight, fallback: text('Richtig!', 'Right!')},
+        {key: `w_${slugify(question.word)}`, fallback: question.word},
+        {key: `has_${question.parts.length}`, fallback: ''},
+      ]);
+      next.hidden = false;
+      focusElement(next);
+    }
     clap.addEventListener('click', () => {
-      if (clap.disabled || play.hidden || !stage.contains(clap)) return;
+      if (!activeTask()) return;
+      microphone?.pause();
       stopExample();
       taps += 1;
+      if (taps >= question.parts.length) { completeClap(); return; }
       paintDots();
-      if (taps >= question.parts.length) {
-        score += 1;
-        clap.disabled = true;
-        feedback.textContent = text(`Richtig! ${question.word} hat ${question.parts.length} ${question.parts.length === 1 ? 'Silbe' : 'Silben'}!`, `Right! ${question.word} has ${question.parts.length} ${question.parts.length === 1 ? 'syllable' : 'syllables'}!`);
-        playNow([
-          {key: CLIPS.praiseRight, fallback: text('Richtig!', 'Right!')},
-          {key: `w_${slugify(question.word)}`, fallback: question.word},
-          {key: `has_${question.parts.length}`, fallback: ''},
-        ]);
-        next.hidden = false;
-        focusElement(next);
-        return;
-      }
-      feedback.textContent = text(`Gut! Noch ${question.parts.length - taps} ${question.parts.length - taps === 1 ? 'mal klatschen' : 'mal klatschen'}!`, `Good! Clap ${question.parts.length - taps} more ${question.parts.length - taps === 1 ? 'time' : 'times'}!`);
+      feedback.textContent = text(`Gut! Noch ${question.parts.length - taps} mal klatschen!`, `Good! Clap ${question.parts.length - taps} more ${question.parts.length - taps === 1 ? 'time' : 'times'}!`);
       playNow([
         partClips(question.parts[taps - 1]),
         {key: `clap_more_${question.parts.length - taps}`, fallback: feedback.textContent},
@@ -380,6 +394,7 @@
     });
 
     stage.append(makePicture(question.emoji, question.word), dots, clap, example);
+    microphone?.setTask({target: question.parts.length, valid: activeTask, complete: completeClap});
     say([
       {key: CLIPS.listenWell, fallback: text('Höre gut zu:', 'Listen carefully:')},
       ...question.parts.map(partClips),
@@ -492,6 +507,7 @@
   }
 
   function finish() {
+    microphone?.setTask(null);
     play.hidden = true;
     picker.hidden = true;
     result.hidden = false;
@@ -511,6 +527,7 @@
   }
 
   function showPicker() {
+    microphone?.setTask(null);
     stopExample();
     stopQuestionAudio();
     result.hidden = true;

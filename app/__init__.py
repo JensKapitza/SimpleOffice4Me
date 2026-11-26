@@ -806,7 +806,10 @@ def add_header(response):
         response.headers["Referrer-Policy"] = "no-referrer"
     camera_policy = "camera=(self)" if request.endpoint in CAMERA_SCANNER_ENDPOINTS else "camera=()"
     display_policy = "display-capture=(self)" if request.blueprint == "screen" else "display-capture=()"
-    microphone_policy = "microphone=(self)" if request.endpoint in {"quick_share.index", "quick_share.create", "documents.transfer"} else "microphone=()"
+    syllable_mic = request.endpoint == "kids_learning.syllables" and response.status_code == 200
+    microphone_policy = "microphone=(self)" if syllable_mic or request.endpoint in {
+        "quick_share.index", "quick_share.create", "documents.transfer",
+    } else "microphone=()"
     response.headers.setdefault("Permissions-Policy", f"{camera_policy}, {microphone_policy}, geolocation=(), {display_policy}")
     response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
     response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")

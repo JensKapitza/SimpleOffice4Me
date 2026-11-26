@@ -1,0 +1,26 @@
+{% set en = g.language == 'en' %}
+<details class="kids-syll-mic border rounded-3 p-3 mt-3" data-syll-mic hidden>
+  <summary class="fw-semibold">🎙️ {{ 'Try the microphone (optional)' if en else 'Mikrofon ausprobieren (freiwillig)' }}</summary>
+  <div class="mt-2">
+    <p class="small mb-2">{{ 'Sound stays in this browser. Nothing is recorded, uploaded or played back. The hands button always works without using the microphone.' if en else 'Der Ton bleibt in diesem Browser. Nichts wird aufgenommen, hochgeladen oder wiedergegeben. Auf die Hände kannst du immer ohne Mikrofon tippen.' }}</p>
+    <div class="d-flex flex-wrap gap-2 mb-2">
+      <button type="button" class="btn btn-outline-primary btn-lg" data-syll-mic-mode="clap" aria-pressed="false">👏 {{ 'Use mic for claps' if en else 'Mit Mikrofon klatschen' }}</button>
+      <button type="button" class="btn btn-outline-primary btn-lg" data-syll-mic-mode="voice" aria-pressed="false">💬 {{ 'Speak with pauses' if en else 'Mit Pausen sprechen' }}</button>
+      <button type="button" class="btn btn-outline-danger btn-lg" data-syll-mic-pause hidden>■ {{ 'Microphone off' if en else 'Mikrofon aus' }}</button>
+    </div>
+    <p class="small mb-2">{{ 'Say “ba … na … na” with short, quiet gaps. The game only counts voiced blocks, not words or who was speaking. A steady sound may be mistaken for a voice.' if en else 'Sag zum Beispiel „Ba … na … ne“ mit kurzen stillen Pausen. Das Spiel zählt nur stimmhafte Abschnitte, keine Wörter und keine Personen. Ein gleichmäßiger Ton kann wie Stimme wirken.' }}</p>
+    <p class="mb-2" role="status" aria-live="polite" data-syll-mic-status></p>
+    <div data-syll-mic-review hidden>
+      <p class="mb-2">
+        {{ 'Count' if en else 'Gezählt' }}: <output class="fw-bold" aria-live="polite" data-syll-mic-count>0</output>
+        <span aria-hidden="true"> / </span><span class="visually-hidden"> · </span>
+        {{ 'Goal' if en else 'Ziel' }}: <span class="fw-bold" data-syll-mic-target></span>
+      </p>
+      <div class="d-flex flex-wrap gap-2">
+        <button type="button" class="btn btn-outline-secondary btn-lg" data-syll-mic-subtract aria-label="{{ 'Subtract one' if en else 'Eins abziehen' }}">−</button>
+        <button type="button" class="btn btn-outline-secondary btn-lg" data-syll-mic-add aria-label="{{ 'Add one' if en else 'Eins dazuzählen' }}">+</button>
+        <button type="button" class="btn btn-success btn-lg" data-syll-mic-use>✓ {{ 'Check count' if en else 'Zahl prüfen' }}</button>
+      </div>
+    </div>
+  </div>
+</details>
