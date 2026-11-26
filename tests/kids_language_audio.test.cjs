@@ -1,183 +1,162 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const vm = require('node:vm');
-const path = require('node:path');
+const {load, soundFixture, tick, origin, wav} = require('./kids_audio_fixture.cjs');
 
-const source = fs.readFileSync(path.join(__dirname, '../static/js/kids_language_audio.js'), 'utf8');
-const piperSource = fs.readFileSync(path.join(__dirname, '../static/js/kids_piper_voice.js'), 'utf8');
-
-function fixture() {
-  const events = [];
-  const players = [];
-  const piperSpoken = [];
-  class FakeAudio {
-    constructor(url) {
-      this.url = url; this.listeners = {}; players.push(this);
-      events.push(`create:${url}`);
-    }
-    addEventListener(type, fn) { (this.listeners[type] = this.listeners[type] || []).push(fn); }
-    play() { events.push(`play:${this.url}`); return Promise.resolve(); }
-    pause() {
-      events.push(`pause:${this.url}`);
-      (this.listeners.pause || []).forEach(fn => fn());
-    }
-    end() { events.push(`end:${this.url}`); (this.listeners.ended || []).forEach(fn => fn()); }
-    fail() { events.push(`error:${this.url}`); (this.listeners.error || []).forEach(fn => fn()); }
-  }
-  // Server Piper voice stub: records prompts instead of browser speech.
-  const KidsPiperVoice = {
-    stop() { events.push('piper-stop'); },
-    speak(text, language) {
-      piperSpoken.push([String(text), language]);
-      events.push(`piper:${text}`);
-      return Promise.resolve(true);
-    },
-  };
-  const window = {Audio: FakeAudio, KidsPiperVoice};
-  vm.runInNewContext(source, {window, Audio: FakeAudio});
-  const audio = window.KidsLanguageAudio({
-    text: (de) => de, speechStatus: {textContent: ''},
-  });
-  return {audio, events, players, piperSpoken};
+function fixture(options) {
+  const f = soundFixture(options);
+  const status = {textContent: ''};
+  load(f.context, 'kids_language_audio.js');
+  return {...f, status, audio: f.window.KidsLanguageAudio({speechStatus: status})};
 }
-
-const tick = () => new Promise(resolve => setImmediate(resolve));
-
-test('solution plays its clips in order, exactly once', async () => {
-  const f = fixture();
-  const done = f.audio.playSolution({pronunciationAudioUrl: 'a.mp3', solutionAudioUrl: 'b.mp3', speak: 'A', a: 'B'});
-  await tick();
-  assert.deepEqual(f.events, ['piper-stop', 'piper-stop', 'create:a.mp3', 'play:a.mp3']);
-  f.players[0].end();
-  await tick(); await tick();
-  assert.ok(f.events.includes('play:b.mp3'));
-  assert.equal(f.events.filter(e => e.startsWith('play:')).length, 2);
-  f.players[1].end();
-  assert.equal(await done, true);
+const clip = (id, other = null) => ({
+  pronunciationAudioUrl: '/' + id + '.mp3', solutionAudioUrl: '/' + (other || id) + '.mp3', speak: id, a: other || id,
 });
 
-test('a second solution abandons the first chain (no overlap)', async () => {
+test('solution plays its distinct clips in order; duplicate URLs play once', async () => {
   const f = fixture();
-  const first = f.audio.playSolution({pronunciationAudioUrl: 'a.mp3', solutionAudioUrl: 'b.mp3', speak: 'A', a: 'B'});
+  const done = f.audio.playSolution(clip('a', 'b'));
+  assert.equal(f.players[0].url, '/a.mp3');
+  f.players[0].end();
   await tick();
-  const second = f.audio.playSolution({pronunciationAudioUrl: 'c.mp3', solutionAudioUrl: 'd.mp3', speak: 'C', a: 'D'});
-  await tick(); await tick();
-  f.players[0].end(); // stale 'ended' from the abandoned chain
-  await tick(); await tick();
-  assert.ok(!f.events.includes('play:b.mp3'), `abandoned chain continued: ${f.events}`);
-  assert.ok(f.events.includes('play:c.mp3'));
-  assert.equal(await first, false);
+  assert.equal(f.players[1].url, '/b.mp3');
   f.players[1].end();
-  await tick(); await tick();
-  assert.ok(f.events.includes('play:d.mp3'));
+  assert.equal(await done, true);
+  const again = f.audio.playSolution(clip('a'));
   f.players[2].end();
-  assert.equal(await second, true);
+  assert.equal(await again, true);
+  assert.equal(f.players.length, 3);
 });
 
-test('solution interrupts a running question without overlap', async () => {
+test('solution interrupts and settles a question immediately, with no stale pronunciation', async () => {
   const f = fixture();
-  f.audio.readQuestion({questionAudioUrl: 'q.mp3', pronunciationAudioUrl: 'w.mp3', speak: 'W'}, 'prompt');
-  await tick();
-  const done = f.audio.playSolution({pronunciationAudioUrl: 's.mp3', solutionAudioUrl: 's.mp3', speak: 'S', a: 'S'});
-  await tick(); await tick();
-  f.players[0].end(); // stale question clip
-  await tick(); await tick();
-  assert.ok(!f.events.includes('play:w.mp3'), `question chain continued: ${f.events}`);
-  assert.ok(f.events.includes('play:s.mp3'));
-  assert.equal(f.events.filter(e => e === 'play:s.mp3').length, 1);
-  f.players[1].end();
-  assert.equal(await done, true);
-});
-
-test('clip error falls back to piper speech exactly once', async () => {
-  const f = fixture();
-  const done = f.audio.playSolution({pronunciationAudioUrl: 'x.mp3', solutionAudioUrl: 'x.mp3', speak: 'Wort', a: 'Wort'});
-  await tick();
-  f.players[0].fail();
-  await tick(); await tick(); await tick();
-  assert.deepEqual(f.piperSpoken, [['Wort', 'en-US']]);
-  assert.equal(await done, true);
-});
-
-test('identical solution urls play only once', async () => {
-  const f = fixture();
-  const done = f.audio.playSolution({pronunciationAudioUrl: 'same.mp3', solutionAudioUrl: 'same.mp3', speak: 'W', a: 'W'});
-  await tick();
+  const pending = f.audio.readQuestion({questionAudioUrl:'/q.mp3', pronunciationAudioUrl:'/old.mp3', speak:'old'}, 'Prompt');
+  const solution = f.audio.playSolution(clip('answer'));
+  assert.equal(await pending, false);
   f.players[0].end();
-  assert.equal(await done, true);
+  assert.deepEqual(f.players.map(audio => audio.url), ['/q.mp3', '/answer.mp3']);
+  f.players[1].end();
+  assert.equal(await solution, true);
+});
+
+test('only the explicit maze path sets purpose; both use CSRF POST and transient blobs', async () => {
+  const f = fixture({autoEnd:true});
+  assert.equal(await f.audio.speak('Gehe nach links.', 'de-DE', 'instructions'), true);
+  assert.equal(await f.audio.playSolution({solutionWord: 'Apfel', speechLang: 'de-DE'}), true);
+  assert.deepEqual(f.requests.map(x => x.payload), [
+    {text:'Gehe nach links.', lang:'de-DE', purpose:'instructions'}, {text:'Apfel', lang:'de-DE', purpose:''},
+  ]);
+  for (const {url, options} of f.requests) {
+    assert.equal(url, origin + '/kids/lernen/sprache');
+    assert.equal(options.method, 'POST');
+    assert.equal(options.headers['X-CSRF-Token'], 'fixture-csrf');
+    assert.equal(options.credentials, 'same-origin');
+    assert.equal(options.redirect, 'error');
+  }
+  assert.deepEqual(f.revoked, ['blob:fixture-1', 'blob:fixture-2']);
+});
+
+test('stale failed fetch cannot play or clear warnings after repeat; hide and pagehide settle', async () => {
+  const returns = [];
+  const f = fixture({transport: (_url, _options) => new Promise(resolve => returns.push(resolve))});
+  const listen = () => f.audio.speak('Gehe nach links.', 'de-DE', 'instructions');
+  const missing = listen();
+  returns[0]({ok:false});
+  assert.equal(await missing, false);
+  assert.match(f.status.textContent, /Lies die Aufgabe/);
+  const older = listen(), latest = listen();
+  assert.equal(await older, false);
+  assert.equal(f.requests[1].options.signal.aborted, true);
+  returns[1](wav());
+  returns[2](wav());
+  await tick();
+  assert.equal(f.players.length, 1);
+  assert.match(f.status.textContent, /Vorlesen/);
+  f.players[0].emit('playing');
+  assert.equal(f.status.textContent, '');
+  f.document.hidden = true;
+  f.hidden.visibilitychange();
+  assert.equal(await latest, false);
+  assert.deepEqual(f.revoked, ['blob:fixture-1']);
+  assert.equal(await listen(), false, 'hidden document cannot start a download');
+  f.document.hidden = false;
+  const leaving = listen();
+  f.pageEvents.pagehide();
+  assert.equal(await leaving, false);
+  returns[3](wav());
+  await tick();
   assert.equal(f.players.length, 1);
 });
 
-test('spoken question without clip uses piper directly', async () => {
+test('missing full recording falls back to the complete language-tagged prompt before pronunciation', async () => {
   const f = fixture();
-  const done = await f.audio.speak('Gehe nach oben.', 'de-DE');
-  assert.equal(done, true);
-  assert.deepEqual(f.piperSpoken, [['Gehe nach oben.', 'de-DE']]);
-});
-
-test('only the explicit maze instruction path marks the real local Piper URL', async () => {
-  const urls = [];
-  class FakeAudio {
-    constructor(url) { urls.push(new URL(url, 'http://localhost')); }
-    addEventListener(type, callback) { if (type === 'ended') this.finish = callback; }
-    play() { this.finish(); return Promise.resolve(); }
-  }
-  const window = {Audio: FakeAudio};
-  const context = {window, Audio: FakeAudio, URLSearchParams, document: {querySelector: () => null}};
-  vm.runInNewContext(piperSource, context);
-  vm.runInNewContext(source, context);
-  const audio = window.KidsLanguageAudio({text: de => de, speechStatus: null});
-  assert.equal(await audio.speak('Gehe nach links.', 'de-DE', 'instructions'), true);
-  assert.equal(await audio.playSolution({solutionWord: 'Apfel', speechLang: 'de-DE'}), true);
-  assert.equal(urls[0].origin, 'http://localhost');
-  assert.equal(urls[0].pathname, '/kids/lernen/sprache');
-  assert.equal(urls[0].searchParams.get('purpose'), 'instructions');
-  assert.equal(urls[0].searchParams.get('text'), 'Gehe nach links.');
-  assert.equal(urls[1].searchParams.get('purpose'), null);
-  assert.equal(urls[1].searchParams.get('text'), 'Apfel');
-});
-
-test('only a playing current maze instruction clears a previous read-aloud warning', async () => {
-  const status = {textContent: ''};
-  const players = [];
-  class FakeAudio extends EventTarget {
-    constructor(url) { super(); this.url = url; players.push(this); }
-    play() { return Promise.resolve(); }
-    pause() { this.dispatchEvent(new Event('pause')); }
-  }
-  const window = {Audio: FakeAudio};
-  const context = {window, Audio: FakeAudio, URLSearchParams, document: {querySelector: () => null}};
-  vm.runInNewContext(piperSource, context);
-  vm.runInNewContext(source, context);
-  const audio = window.KidsLanguageAudio({text: de => de, speechStatus: status});
-  const listen = () => audio.speak('Gehe nach links.', 'de-DE', 'instructions');
-  const media = (index, event) => players[index].dispatchEvent(new Event(event));
-
-  const first = listen();
+  const done = f.audio.readQuestion({questionAudioUrl:'/prompt.mp3', pronunciationAudioUrl:'/word.mp3', speak:'apple'},
+    [{text:'Höre das Wort',language:'de-DE'}, {text:'apple',language:'en-US'}, {text:'und finde das Bild',language:'de-DE'}]);
+  f.players[0].fail();
+  for (let i = 1; i <= 3; ++i) { await tick(); f.players[i].end(); }
   await tick();
-  media(0, 'error');
+  assert.deepEqual(f.requests.map(r => [r.payload.text,r.payload.lang]), [
+    ['Höre das Wort','de-DE'], ['apple','en-US'], ['und finde das Bild','de-DE'],
+  ]);
+  assert.equal(f.players[4].url, '/word.mp3');
+  f.players[4].end();
+  assert.equal(await done, true);
+});
+
+test('explicit stop and competing page speech cancel the real queue without late playback', async () => {
+  let stopClick;
+  const f = fixture({document:{
+    querySelector: selector => selector.includes('csrf-token') ? {content:'fixture'} : null,
+    querySelectorAll: () => [{addEventListener: (_type, listener) => { stopClick = listener; }}],
+  }});
+  const first = f.audio.speak('Erste Frage', 'de-DE');
+  await tick();
+  stopClick();
   assert.equal(await first, false);
-  const warning = status.textContent;
-  assert.match(warning, /Vorlesen gerade nicht möglich/);
+  assert.ok(f.events.includes('pause:blob:fixture-1'));
+  const latest = f.audio.speak('Zweite Frage', 'de-DE');
+  await tick();
+  f.window.dispatchEvent(new f.window.CustomEvent('simpleoffice:speech-start', {detail:{owner:{}}}));
+  assert.equal(await latest, false);
+  f.players[0].fail();
+  assert.equal(f.status.textContent, '');
+  assert.deepEqual(f.revoked, ['blob:fixture-1','blob:fixture-2']);
+});
 
-  void listen();
+test('Mixed entry renders a whole question and preserves repeat when vocabulary and sound are unavailable', async () => {
+  const nodes = new Map();
+  const node = () => ({
+    hidden:false, textContent:'', children:[], dataset:{}, focus(){}, addEventListener(){},
+    append(child){ this.children.push(child); }, replaceChildren(){ this.children=[]; },
+    setAttribute(){}, removeAttribute(){},
+  });
+  const root = {
+    dataset:{language:'de'}, querySelector(name){ if (!nodes.has(name)) nodes.set(name,node()); return nodes.get(name); },
+    querySelectorAll(){ return []; }, addEventListener(){},
+  };
+  const f = soundFixture({
+    document:{
+      querySelector: selector => selector.includes('csrf-token') ? {content:'fixture'} : root,
+      getElementById: () => null, createElement: node,
+    },
+    transport: async () => ({ok:false}),
+  });
+  f.context.URLSearchParams = URLSearchParams;
+  f.window.location = new URL(origin + '/kids/lernen/?game=quiz&subject=mixed');
+  load(f.context, 'kids_language_audio.js');
+  load(f.context, 'kids_learning_content.js');
+  load(f.context, 'kids_learning.js');
   await tick();
-  assert.equal(status.textContent, warning, 'requesting a retry does not mean playback succeeded');
-  const latest = listen();
+  assert.equal(nodes.get('[data-setup-notice]').hidden, true);
+  assert.equal(nodes.get('[data-game]').hidden, false);
+  const visible = nodes.get('[data-question]').textContent;
+  assert.match(visible, /\?/);
+  assert.ok(nodes.get('[data-choices]').children.length >= 2);
+  assert.ok(visible.includes(f.requests[0].payload.text), 'the visible task includes the entire spoken question');
+  assert.match(nodes.get('[data-speech-status]').textContent, /Lies die Aufgabe/);
+  const repeat = nodes.get('[data-speak]');
+  assert.equal(repeat.hidden, false);
+  repeat.onclick();
   await tick();
-  media(1, 'playing');
-  assert.equal(status.textContent, warning, 'a superseded player cannot clear a current warning');
-  media(2, 'playing');
-  assert.equal(status.textContent, '');
-  media(1, 'error');
-  assert.equal(status.textContent, '', 'a late error from a superseded player cannot resurrect the warning');
-  media(2, 'ended');
-  assert.equal(await latest, true);
-
-  const failsAgain = listen();
-  await tick();
-  media(3, 'error');
-  assert.equal(await failsAgain, false);
-  assert.equal(status.textContent, warning);
+  assert.equal(f.requests[1].payload.text, f.requests[0].payload.text);
+  assert.equal(nodes.get('[data-question]').textContent, visible);
 });

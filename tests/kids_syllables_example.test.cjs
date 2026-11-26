@@ -78,10 +78,20 @@ function page({withAudio = true, language = 'de', realPlayer = false} = {}) {
   const math = Object.create(Math);
   math.random = () => .95;
   const context = {
-    window, Math: math, Date: {now: () => clock},
-    document: {querySelector: () => root, createElement: () => new Element()},
+    window, Math: math, Date: {now: () => clock}, URL,
+    document: {querySelector: selector => selector.includes('csrf-token') ? {content:'fixture'} : root,
+      createElement: () => new Element()},
   };
-  if (realPlayer) vm.runInNewContext(shared, context);
+  if (realPlayer) {
+    window.AbortController = AbortController;
+    window.location = new URL('https://simpleoffice.invalid/kids/lernen/silben');
+    window.fetch = async (_url, options) => {
+      fallbacks.push(JSON.parse(options.body).text);
+      return {ok: false};
+    };
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../static/js/kids_piper_voice.js'), 'utf8'), context);
+    vm.runInNewContext(shared, context);
+  }
   vm.runInNewContext(source, context);
   const words = window.KidsSyllables.WORDS[language];
   const selected = language === 'de' ? ['Apfel', 'Banane', 'Schokolade'] : ['apple', 'banana', 'helicopter'];

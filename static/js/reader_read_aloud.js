@@ -184,6 +184,8 @@
             ? label('speechBusy', 'Local read-aloud is busy. Wait a moment, then try again.')
             : label('speechTimeout', 'Preparing local audio took too long. Wait a moment, then try again.');
           release('error', guidance, request.continuing && request.page !== request.anchorPage ? request.page : null);
+        } else if (code === 'speech_disabled') {
+          release('unavailable', label('speechDisabled', 'Read aloud is turned off in Local extras.'));
         } else if (code === 'android_speech_unavailable') {
           release('unavailable', label('speechAndroidUnavailable', 'Install an offline voice for this language in Android settings.'));
         } else if (code === 'pdf_source_timeout') {
@@ -228,6 +230,9 @@
       const page = pageNumber();
       const continuing = button === continuous;
       if (continuing && page !== displayedPage) return;
+      if (typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+        window.dispatchEvent(new CustomEvent('simpleoffice:speech-start', {detail: root}));
+      }
       return fetchPage({
         endpoint, page, anchorPage: page, ocr: button === ocr, continuing,
         endPage: continuing ? Math.min(lastPage, page + maxPagesPerRun - 1) : page,
@@ -324,7 +329,15 @@
       if (rotation) rotation.value = '0';
       release();
     });
-    window.addEventListener('pagehide', () => { if (active) release(); });
+    window.addEventListener('simpleoffice:speech-start', event => {
+      if (active && event.detail !== root) release();
+    });
+    document.addEventListener?.('visibilitychange', () => {
+      if (document.hidden && active) release();
+    });
+    const stopPlayback = () => { if (active) release(); };
+    window.addEventListener('pagehide', stopPlayback);
+    window.addEventListener('simpleoffice:speech-stop', stopPlayback);
   }
 
   document.querySelectorAll('[data-reader-read-aloud]').forEach(initialize);

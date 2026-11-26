@@ -149,7 +149,7 @@ def initialize(root):
 @contextmanager
 def instance(root, name, tls, context, password, bearer, port=0):
     home = root / "home"
-    env = {"PATH": os.environ.get("PATH", os.defpath), "HOME": str(home),
+    env = {"PATH": os.environ.get("PATH", os.defpath), "PYTHONPATH": str(root / "checkout"), "HOME": str(home),
            "XDG_CONFIG_HOME": str(home / "config"), "XDG_DATA_HOME": str(home / "data"),
            "SIMPLEOFFICE_DOCUMENT_ROOT": str(root / "documents"), "SIMPLEOFFICE_LOG_STDERR_ONLY": "1",
            "SSL_CERT_FILE": str(tls / "ca.crt"), "NO_PROXY": "127.0.0.1", "TMPDIR": str(root),

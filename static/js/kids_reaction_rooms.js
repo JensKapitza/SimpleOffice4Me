@@ -17,6 +17,9 @@
   const mode = element("mode");
   const peers = element("roster");
   const invite = element("invite");
+  const qrWrap = element("qr-wrap");
+  const qr = element("qr");
+  const CODE_PATTERN = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$/;
   const stationLabel = element("station");
   const targetLabel = element("target");
   const board = element("board");
@@ -120,6 +123,8 @@
     if (!room) {
       hideCue();
       show(invite, false);
+      qr.removeAttribute("src");
+      show(qrWrap, false);
       for (const field of [stationLabel, peers, invite, targetLabel, touch, result]) copy(field, "");
       times.replaceChildren();
       copy(notice, feedback || text("No room is open on this browser.", "In diesem Browser ist kein Raum geöffnet."));
@@ -131,6 +136,13 @@
     copy(peers, `${text("Connected stations:", "Verbundene Stationen:")} ${room.stations.join(", ")}`);
     show(invite, !!room.join_code);
     copy(invite, room.join_code ? `${text("Room code:", "Raumcode:")} ${room.join_code}` : "");
+    if (room.join_code && page.dataset.qr) {
+      qr.setAttribute("src", `${page.dataset.qr}?code=${encodeURIComponent(room.join_code)}`);
+      show(qrWrap, true);
+    } else {
+      qr.removeAttribute("src");
+      show(qrWrap, false);
+    }
     show(element("controls"), host);
     const canStart = lobby || room.phase === "complete";
     mode.disabled = !canStart;
@@ -269,12 +281,18 @@
     wake("press", { ticket: cue.ticket, ms });
   }
 
+  try {
+    const shared = new URLSearchParams(window.location.search).get("code") || "";
+    const code = shared.trim().toUpperCase();
+    if (CODE_PATTERN.test(code)) element("code").value = code;
+  } catch (_ignored) { /* prefill is best-effort; manual entry always works */ }
+
   element("host").addEventListener("click", () => wake("host"));
   element("join").addEventListener("submit", (event) => {
     event.preventDefault();
     const input = element("code");
     const code = input.value.trim().toUpperCase();
-    if (!/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$/.test(code)) {
+    if (!CODE_PATTERN.test(code)) {
       copy(notice, languageError("bad_request"));
       return;
     }

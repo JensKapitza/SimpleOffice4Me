@@ -48,6 +48,37 @@ class PrivateScanShareTests(unittest.TestCase):
             self.shares.read("target", code)
         self.assertEqual([], self.shares.list_owned(1))
 
+    def test_only_the_first_response_is_recorded_and_it_follows_offer_lifetime(self):
+        offer = self.shares.publish(1, "target", self.payload, self.digest)
+        code = offer["offer"]
+        self.shares.note_served("other", code)
+        self.assertIsNone(self.shares.list_owned(1)[0]["first_served_at"])
+        first = offer["expires_at"] - 60
+        with patch("app.library.book_scan_shares.time.time", return_value=first):
+            self.shares.note_served("target", code)
+        with patch("app.library.book_scan_shares.time.time", return_value=first + 1):
+            self.shares.note_served("target", code)
+            self.assertEqual(first, Shares(self.shares.root).list_owned(1)[0]["first_served_at"])
+            self.assertEqual([], self.shares.list_owned(2))
+        self.shares.revoke(1, code)
+        self.shares.note_served("target", code)
+        with self.shares._open() as db:
+            self.assertEqual(0, db.execute("SELECT count(*) FROM book_scan_served").fetchone()[0])
+
+    def test_existing_offer_table_is_unchanged_and_old_rows_get_no_false_status(self):
+        code = self.shares.publish(1, "target", self.payload, self.digest)["offer"]
+        with self.shares._open() as db, db:
+            db.execute("DROP TRIGGER book_scan_served_cleanup")
+            db.execute("DROP TABLE book_scan_served")
+        self.assertIsNone(self.shares.list_owned(1)[0]["first_served_at"])
+        self.shares.note_served("target", code)
+        self.assertIsNotNone(self.shares.list_owned(1)[0]["first_served_at"])
+        with self.shares._open() as db, db:
+            self.assertEqual(6, len(db.execute("PRAGMA table_info(book_scan_share)").fetchall()))
+            # Legacy deletion (revoke/expiry) also removes the status.
+            db.execute("DELETE FROM book_scan_share WHERE offer_id=?", (code,))
+            self.assertEqual(0, db.execute("SELECT count(*) FROM book_scan_served").fetchone()[0])
+
     def test_expiry_and_storage_do_not_open_a_legacy_fallback(self):
         offer = self.shares.publish(1, "target", self.payload, self.digest)
         with patch("app.library.book_scan_shares.time.time", return_value=offer["expires_at"]):
@@ -113,6 +144,7 @@ class PrivateScanShareTests(unittest.TestCase):
 
     def test_replace_same_recipient_switches_authority_but_other_owner_or_peer_cannot(self):
         first = self.shares.publish(1, "target", self.payload, self.digest)
+        self.shares.note_served("target", first["offer"])
         new = self.payload + b":revised"
         version = sha256(new).hexdigest()
         for owner, recipient in ((1, "other"), (2, "target")):
@@ -124,3 +156,6 @@ class PrivateScanShareTests(unittest.TestCase):
         with self.assertRaisesRegex(ScanError, "offer"):
             self.shares.read("target", first["offer"])
         self.assertEqual(1, len(self.shares.list_owned(1)))
+        self.assertIsNone(self.shares.list_owned(1)[0]["first_served_at"])
+        with self.shares._open() as db:
+            self.assertEqual(0, db.execute("SELECT count(*) FROM book_scan_served").fetchone()[0])

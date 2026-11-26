@@ -215,6 +215,17 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertIn('webView.onResume()', activity)
         self.assertIn('downloadHandler.close()', activity)
 
+    def test_device_speech_autoplay_is_limited_to_the_bundled_application_pages(self):
+        activity = self.read(JAVA / "MainActivity.java")
+        self.assertIn("setMediaPlaybackRequiresUserGesture(true)", activity)
+        self.assertIn("setMediaPlaybackRequiresUserGesture(!isLocalSpeechPage(url))", activity)
+        section = activity.split("private static boolean isLocalSpeechPage", 1)[1].split(
+            "private static boolean isOfflineSpeechSettingsPage", 1,
+        )[0]
+        self.assertIn("if (!isLocalUrl(value)) return false", section)
+        self.assertIn('case "/kids/lernen"', section)
+        self.assertNotIn('"/kids/"', section)
+
     def test_android_offline_worksets_are_bounded_account_scoped_and_versioned(self):
         activity = self.read(JAVA / "MainActivity.java")
         store = self.read(JAVA / "AndroidOfflineWorksetStore.java")

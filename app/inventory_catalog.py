@@ -367,6 +367,30 @@ def _variant_match(row: dict, observed: dict[str, str]) -> str:
     return "unverified"
 
 
+def _google_books_key() -> str:
+    return os.getenv("SIMPLEOFFICE_GOOGLE_BOOKS_API_KEY", "").strip()
+
+
+def lookup_availability(barcode: Any, *, google_books: bool) -> dict[str, Any]:
+    """Describe configuration without contacting a provider or exposing its key."""
+    try:
+        kind = normalize_catalog_code(barcode).kind
+    except ValueError:
+        return {"kind": "", "providers": []}
+    if kind == "product":
+        # No live product adapter is configured by this deployment.
+        return {"kind": kind, "providers": []}
+    return {
+        "kind": kind,
+        "providers": [PROVIDER_NAMES[name] for name in BOOK_PROVIDERS
+                      if name != "google_books" or google_books],
+    }
+
+
+def google_books_configured() -> bool:
+    return bool(_google_books_key())
+
+
 def lookup_catalog(code: str, *, observed_title: str = "", observed_variant: str = "",
                    observed_size: str = "", observed_unit: str = "", book_fetch: Fetch | None = None,
                    product_fetch: Fetch | None = None) -> dict[str, Any]:
@@ -375,7 +399,7 @@ def lookup_catalog(code: str, *, observed_title: str = "", observed_variant: str
     providers = BOOK_PROVIDERS if identifier.kind == "book" else ("ebay",)
     statuses: dict[str, str] = {}
     candidates: list[dict] = []
-    api_key = os.getenv("SIMPLEOFFICE_GOOGLE_BOOKS_API_KEY", "").strip() if book_fetch is None else ""
+    api_key = _google_books_key() if book_fetch is None else ""
     for provider in providers:
         try:
             if identifier.kind == "book":

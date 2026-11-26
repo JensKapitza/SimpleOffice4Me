@@ -53,22 +53,43 @@ lokale OCR-Engine, für PDF-OCR außerdem die benötigten PDF-Werkzeuge und für
 Piper zusätzlich ein lokal konfiguriertes Sprachmodell. Ein separat
 installierter Termux-Server ist ebenfalls eine andere Instanz.
 
-### Gerätevorlesen ohne zusätzliche SimpleOffice-Modelle
+### Lokale Sprachausgabe in der APK
 
-In der APK kannst du als Administrator unter **Lokale Extras → Lokales
-Vorlesen in Reader & Mail → Gerätestimme einschalten** die in Android
-eingestellte Sprachausgabe ausdrücklich freigeben. Installiere dort bei
-Bedarf eine Offline-Stimme (Deutsch oder Englisch). SimpleOffice lädt
-keine Stimme oder Engine, benutzt keine als netzwerkpflichtig oder nicht
-installiert gemeldete Stimme und fällt nicht auf einen Onlinedienst zurück.
-Beim Klick auf **Vorlesen** geht der ausgewählte Text an die vom Gerät
-gewählte Sprachausgabe. Verwende daher eine Engine, der du vertraust.
-Die APK setzt die Android-Engine nicht um und verändert keine Server-,
-Desktop- oder Kids-Stimmeneinstellungen. Die Geräteoption gilt nur für
-Reader und Mail im lokalen Android-Backend. Mail, TXT und EPUB brauchen
-für die Textgewinnung keine OCR; PDF-Textextraktion und Scan-OCR bleiben
-von ihren eigenen Werkzeugen abhängig. Dies ist keine Piper- oder
-RapidOCR-Installation für Android.
+Unter **Lokale Extras → Lokales Vorlesen** stellst du als Administrator für
+**Reader und Mail** sowie **Kids** getrennt ein, welche Sprachausgabe läuft:
+
+- **Automatisch:** Piper verwenden, wenn Engine und passende Stimme
+  vorhanden sind. Nur wenn du den Android-Fallback für den Bereich
+  ausdrücklich erlaubst, kann stattdessen die Gerätestimme einspringen.
+- **Android-Gerätestimme:** Die in Android eingestellte Engine verwenden,
+  ausschließlich mit bereits installierten Offline-Stimmen. Android
+  erhält beim Vorlesen nur den ausgewählten Text. Verwende eine Engine,
+  der du vertraust. Die App sendet Texte nicht an einen eigenen Onlinedienst.
+- **Piper:** Nur vorhandener lokaler Piper, ohne automatischen Ersatz oder
+  Download. Das ist kein Android-Piper-Installer.
+- **Deaktiviert:** Für den gewählten Bereich keine synthetische Sprache.
+  Bestehende lokale Lernaufnahmen sind keine TTS-Stimmen.
+
+Deutsch und Englisch lassen sich aus den verfügbaren Offline-Stimmen wählen.
+Wenn keine passende Stimme vorhanden ist, kannst du über die App die
+Android-Einstellungen für Text-in-Sprache öffnen. Die Installation erfolgt
+dort bewusst über Android; SimpleOffice lädt nichts im Hintergrund. Tempo
+und Tonhöhe gelten für die Gerätestimme. Die Testansage verwendet ausschließlich
+einen fest vorgegebenen Beispielsatz, niemals ein Dokument oder eine E-Mail.
+
+Reader (TXT und EPUB), Mail/EML und die unterstützten Kids-Sprechaufgaben
+verwenden denselben lokalen Sprachdienst. Der PDF-Reader kann PDFs anzeigen;
+PDF-Textentnahme und OCR auf der Standard-APK sind getrennte Aufgaben. Die APK benötigt
+weder Termux noch einen externen Server für die Gerätestimme. Die
+Sprachausgabe von Desktop, PWA und Server bleibt unabhängig.
+
+Vorgehensweise für die Geräteabnahme: bereits installierte DE/EN-Offline-
+Stimmen auswählen, Flugmodus einschalten, je einen Text in Reader und
+Mail abspielen, im Kids-Mixed-Modus Frage sehen und hören, wiederholen,
+schnell zur nächsten Frage wechseln, App in den Hintergrund senden und
+zurückkehren. Mit fehlender/nur online verfügbarer Stimme muss Text
+sichtbar bleiben. Anschließend Android-Engine wechseln, neu starten und
+die Liste prüfen; Bluetooth-Ausgabe mit demselben Ablauf separat prüfen.
 
 Wer die OCR- und Audio-Einrichtung seines Servers nutzen will, öffnet dessen
 Adresse am Handy als PWA. Siehe

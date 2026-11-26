@@ -215,7 +215,7 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
             "app.private_read_aloud.render_tts", side_effect=voice_stub,
         ), patch(
             "app.audio_output_engine.render_tts", side_effect=voice_stub,
-        ), patch("app.kids_learning._kids_tts_cache_dir", return_value=self.root.parent / "dummy-audio"):
+        ):
             self.assertEqual("configured", self.status("speech-default"))
             for url in (f"/documents/reader/{txt['document_id']}/text",
                         f"/documents/{eml['document_id']}/eml-preview"):
@@ -291,9 +291,7 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
             optional.shutil, "which", return_value="/synthetic/piper",
         ), patch.object(piper, "build_opener", return_value=Opener()), patch(
             "app.private_read_aloud.render_tts", side_effect=voice_stub,
-        ), patch("app.audio_output_engine.render_tts", side_effect=voice_stub), patch(
-            "app.kids_learning._kids_tts_cache_dir", return_value=self.root.parent / "dummy-audio",
-        ):
+        ), patch("app.audio_output_engine.render_tts", side_effect=voice_stub):
             self.assertEqual(403, self.client.post(SETUP + chooser, data={"action": "select"}).status_code)
             self.assertEqual(400, self.action(self.client, chooser, action="other").status_code)
             self.assertEqual(303, self.action(self.client, chooser, action="select").status_code)

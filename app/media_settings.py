@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from .android_speech_settings import validate as validate_android_speech
 from .archive_settings import (
     DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED,
     DEFAULT_ARCHIVE_DISK_RESERVE_MB,
@@ -114,6 +115,7 @@ DEFAULT_MEDIA_SETTINGS: dict[str, Any] = {
     "piper_model_en": DEFAULT_PIPER_MODEL_EN,
     "piper_reader_choice": DEFAULT_PIPER_READER_CHOICE,
     "android_private_speech": False,
+    "android_speech": None,
 }
 
 
@@ -129,6 +131,10 @@ def normalize_media_settings(media: dict[str, Any]) -> dict[str, Any]:
     normalized["piper_model"] = normalize_piper_model(normalized.get("piper_model", DEFAULT_PIPER_MODEL))
     normalized["piper_model_en"] = normalize_piper_model(normalized.get("piper_model_en", DEFAULT_PIPER_MODEL_EN))
     normalized["android_private_speech"] = normalized.get("android_private_speech") is True
+    try:
+        normalized["android_speech"] = validate_android_speech(normalized.get("android_speech"))
+    except ValueError:
+        normalized["android_speech"] = None
     if normalized.get("piper_reader_choice") != PIPER_READER_THORSTEN:
         normalized["piper_reader_choice"] = DEFAULT_PIPER_READER_CHOICE
     (
@@ -290,4 +296,5 @@ def validate_media_settings(media: dict[str, Any]) -> dict[str, Any]:
         "piper_model_en": validate_piper_model(media.get("piper_model_en", DEFAULT_PIPER_MODEL_EN)),
         "piper_reader_choice": reader_choice,
         "android_private_speech": android_speech,
+        "android_speech": validate_android_speech(media.get("android_speech")),
     }
