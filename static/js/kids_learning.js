@@ -371,11 +371,11 @@
         ? text(`Finde den Pfeil, der nach ${target.name} zeigt.`, `Find the arrow pointing ${target.name}.`)
         : text(`Finde ${target.name}.`, `Find ${target.name}.`);
       const early = ['preschool','1','2'].includes(selectedLevel);
-      searchPrompt.textContent = early || selectedSearchMode === 'directions' ? '' : text(`Finde: ${target.name}`, `Find: ${target.name}`);
+      searchPrompt.textContent = spokenPrompt;
       searchPrompt.setAttribute('aria-label', spokenPrompt);
       root.querySelector('[data-search-speak]').hidden = false;
       root.querySelector('[data-search-speak]').onclick = () => speak(spokenPrompt, english ? 'en-US' : 'de-DE');
-      if (early || selectedSearchMode === 'directions') speak(spokenPrompt, english ? 'en-US' : 'de-DE');
+      speak(spokenPrompt, english ? 'en-US' : 'de-DE');
       searchPrompt.focus();
       const targetImage = root.querySelector('[data-search-target-image]');
       targetImage.textContent = target.emoji;
@@ -403,7 +403,7 @@
       const card = searchTargets[searchIndex];
       activeWordCard = card;
       const prompt = text('Welcher Buchstabe fehlt in dem Wort?', 'Which letter is missing from the German word?');
-      searchPrompt.textContent = ['preschool','1','2'].includes(selectedLevel) ? '' : prompt;
+      searchPrompt.textContent = prompt;
       searchPrompt.setAttribute('aria-label', prompt);
       root.querySelector('[data-search-speak]').hidden = false;
       const wordPrompt = [
@@ -411,7 +411,7 @@
         {text:card.word, language:'de-DE'}
       ];
       root.querySelector('[data-search-speak]').onclick = () => speak(wordPrompt);
-      if (['preschool','1','2'].includes(selectedLevel)) speak(wordPrompt);
+      speak(wordPrompt);
       searchPrompt.focus();
       root.querySelector('[data-search-target-image]').hidden = true;
       searchScene.hidden = true;
@@ -433,7 +433,7 @@
       const card = searchTargets[searchIndex];
       const targetImage = root.querySelector('[data-search-target-image]');
       const prompt = card.prompt;
-      searchPrompt.textContent = ['preschool','1','2'].includes(selectedLevel) ? '' : prompt;
+      searchPrompt.textContent = prompt;
       searchPrompt.setAttribute('aria-label', prompt);
       targetImage.textContent = card.image;
       targetImage.hidden = false;
@@ -523,6 +523,7 @@
     root.querySelector('[data-search-speak]').hidden = true;
     searchPrompt.textContent = '';
     const task = text(`Führe ${mazeFriend.character} zum ${mazeFriend.de} und sammle unterwegs die Buchstaben.`, `Guide ${mazeFriend.character} to the ${mazeFriend.en} and collect the letters along the way.`);
+    searchPrompt.textContent = task;
     searchPrompt.setAttribute('aria-label', task);
     updateMazeTask();
     mazeTask.setAttribute('aria-label', task);
@@ -770,16 +771,16 @@
     const item = questions[index];
     wrongAttempts = 0;
     progress.textContent = text(`Frage ${index + 1} von ${questions.length}`, `Question ${index + 1} of ${questions.length}`);
-    questionNode.textContent = item.visual || item.q;
+    questionNode.textContent = item.visual ? `${item.q} ${item.visual}` : item.q;
     if (item.visual) questionNode.setAttribute('aria-label', item.q);
     else questionNode.removeAttribute('aria-label');
     questionNode.focus();
     setQuizFeedback('', '');
     root.querySelector('[data-next]').hidden = true;
-    speakButton.hidden = !item.speak && !item.audioPrompt && !item.questionAudioUrl && !item.pronunciationAudioUrl;
-    const promptSpeech = item.audioParts?.length ? item.audioParts : item.audioPrompt || item.speak;
-    speakButton.onclick = () => readQuestion(item, promptSpeech);
-    if (item.audioPrompt || item.audioParts?.length) readQuestion(item, promptSpeech);
+    speakButton.hidden = false;
+    const promptSpeech = item.audioParts?.length ? item.audioParts : item.audioPrompt || item.q;
+    speakButton.onclick = () => readQuestion({...item, promptLang: item.promptLang || item.speechLang || promptSpeechLanguage}, promptSpeech);
+    readQuestion({...item, promptLang: item.promptLang || item.speechLang || promptSpeechLanguage}, promptSpeech);
     choicesNode.replaceChildren();
     shuffle(item.c).forEach(choice => {
       const button = document.createElement('button');
