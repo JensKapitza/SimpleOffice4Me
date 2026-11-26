@@ -37,9 +37,11 @@ on:
       - 'templates/admin/**'
       - 'static/js/library_book_scanner.js'
       - 'static/js/inventory_intake.js'
+      - 'static/js/inventory_intake_native_scan.js'
       - 'static/js/i18n.js'
       - 'tests/*book_scan*'
       - 'tests/*inventory_intake*'
+      - 'tests/fixtures/inventory_intake_native_dom.cjs'
       - 'tests/i18n_literal.test.cjs'
       - 'tests/test_inventory_mixed_intake.py'
       - 'tests/test_inventory_catalog.py'
@@ -94,9 +96,10 @@ jobs:
           python -m unittest tests.test_library_book_scan tests.test_library_book_scan_shares \
             tests.test_v2_authorization tests.test_federation_catalog_http tests.test_template_accessibility \
             tests.test_inventory_mixed_intake tests.test_inventory_catalog tests.test_inventory_intake_matches \
-            tests.test_s3_overlay_coverage \
+            tests.test_inventory_intake_native_contract tests.test_s3_overlay_coverage \
             tests.test_s3_overlay.S3OverlayTests.test_book_scan_leases_stay_local_and_are_not_s3_objects
-          node --test tests/library_book_scanner.test.cjs tests/inventory_intake_js.test.cjs tests/i18n_literal.test.cjs
+          node --test tests/library_book_scanner.test.cjs tests/inventory_intake_js.test.cjs \
+            tests/inventory_intake_native_scan.test.cjs tests/i18n_literal.test.cjs
       - name: Verify chosen and unselected peers through normal HTTPS forms
         shell: bash
         timeout-minutes: 8
@@ -132,7 +135,7 @@ jobs:
       - name: Submit synthetic barcodes through the normal mobile form
         env:
           SIMPLEOFFICE_INTAKE_BROWSER_REQUIRED: '1'
-        run: python -m unittest -v tests.test_inventory_intake_browser
+        run: python -m unittest -v tests.test_inventory_intake_browser tests.test_inventory_intake_native_browser
 
   deployment:
     name: Two normal Docker peers with scanner and Reader

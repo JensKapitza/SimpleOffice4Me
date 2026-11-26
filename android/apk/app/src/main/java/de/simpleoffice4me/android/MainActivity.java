@@ -79,6 +79,7 @@ public class MainActivity extends Activity {
     private final String nativeBridgeToken = UUID.randomUUID().toString();
     private final AndroidAudioStreamer audioStreamer = new AndroidAudioStreamer();
     private final AndroidIntentRouter intentRouter = new AndroidIntentRouter();
+    private final AndroidIntakeBarcodeBridge intakeBarcode = new AndroidIntakeBarcodeBridge(this, mainHandler);
     private AndroidDownloadHandler downloadHandler;
     private AndroidGoogleAuthorization googleAuthorization;
     private AndroidOfflineWorksetStore offlineWorksetStore;
@@ -146,6 +147,7 @@ public class MainActivity extends Activity {
     private volatile boolean deviceSourcePageReady;
     private AndroidDeviceSourcePreview deviceSourcePreview;
     private boolean mainFrameLoadFailed;
+    private boolean bundledBackendReady;
     private String pendingBarcodeResult;
     private String pendingBarcodeStatus;
     private String pendingAudioTargets;
@@ -320,6 +322,7 @@ public class MainActivity extends Activity {
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
+                intakeBarcode.onLoadStarted();
                 deviceSourcePageReady = false;
                 if (deviceSourcePreview != null) deviceSourcePreview.onPageChanged();
                 webPermissionFlow.denyPending();
@@ -351,6 +354,7 @@ public class MainActivity extends Activity {
                     flushPendingLocalFolderResult();
                     flushPendingBarcodeResult();
                     if (navigateToPendingIntent(view, url)) return;
+                    if (bundledBackendReady && !mainFrameLoadFailed) intakeBarcode.onLoadFinished(view, url);
                     injectPendingShareUi(view, url);
                     if (!mainFrameLoadFailed) {
                         progress.setVisibility(View.GONE);
@@ -360,9 +364,16 @@ public class MainActivity extends Activity {
             }
 
             @Override
+            public void doUpdateVisitedHistory(WebView view, String url, boolean isReload) {
+                super.doUpdateVisitedHistory(view, url, isReload);
+                intakeBarcode.onHistory(url, isReload);
+            }
+
+            @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 super.onReceivedError(view, request, error);
                 if (request.isForMainFrame()) {
+                    intakeBarcode.onLoadFailed();
                     deviceSourcePageReady = false;
                     if (deviceSourcePreview != null) deviceSourcePreview.onPageChanged();
                     mainFrameLoadFailed = true;
@@ -379,6 +390,7 @@ public class MainActivity extends Activity {
                     WebResourceRequest request,
                     WebResourceResponse errorResponse) {
                 super.onReceivedHttpError(view, request, errorResponse);
+                if (request.isForMainFrame()) intakeBarcode.onLoadFailed();
                 if (request.isForMainFrame() && errorResponse.getStatusCode() >= 500) {
                     mainFrameLoadFailed = true;
                     webPermissionFlow.denyPending();
@@ -1778,7 +1790,8 @@ public class MainActivity extends Activity {
             showStatus("Lokales Backend wird geprüft …", true);
             waitForBackend();
             mainHandler.post(() -> {
-                if (webView == null) return;
+                if (webView == null || isDestroyed()) return;
+                bundledBackendReady = true;
                 Bundle state = pendingWebState;
                 pendingWebState = null;
                 if (!intentRouter.hasPendingNavigation()
@@ -1864,6 +1877,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
+        intakeBarcode.setResumed(false);
         // The Android permission dialog may pause this Activity before delivering its result.
         webPermissionFlow.setResumed(false);
         if (deviceSourcePreview != null) deviceSourcePreview.onPause();
@@ -1898,6 +1912,7 @@ public class MainActivity extends Activity {
                 }
             }
         }
+        intakeBarcode.setResumed(true);
         webPermissionFlow.setResumed(true);
         if (deviceSourcePreview != null) deviceSourcePreview.onResume();
     }
@@ -1922,6 +1937,8 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        bundledBackendReady = false;
+        intakeBarcode.close();
         AndroidFolderImportTask activeFolderImport = folderImportTask;
         boolean canStopExecutorImmediately = activeFolderImport == null
                 || activeFolderImport.pauseForActivityDestroy();

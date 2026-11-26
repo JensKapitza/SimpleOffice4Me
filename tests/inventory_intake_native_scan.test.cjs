@@ -1,0 +1,100 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const { readFileSync } = require("node:fs");
+const { fixture, until } = require("./fixtures/inventory_intake_native_dom.cjs");
+const { setTimeout: delay } = require("node:timers/promises");
+
+const SOURCE = readFileSync("static/js/inventory_intake_native_scan.js", "utf8");
+const GOOD = "9780140328721";
+const UPC = "036000291452";
+
+test("an explicit click stages exactly one validated value without starting a request", async (t) => {
+  const f = fixture(t, SOURCE);
+  assert.equal(f.button.hidden, true);
+  f.transfer("http://example.invalid", {});
+  assert.equal(f.button.hidden, true);
+  const bridge = f.transfer();
+  assert.equal(f.button.hidden, false);
+  assert.equal(f.help.hidden, false);
+  f.button.emit("click", { isTrusted:false });
+  f.button.emit("click", { isTrusted:true });
+  f.button.emit("click", { isTrusted:true });
+  await until(() => bridge.calls.length === 1);
+  const id = bridge.calls[0].slice(5);
+  assert.match(id, /^[a-f0-9]{32}$/);
+  assert.equal(f.button.disabled, true);
+  bridge.reply(id, GOOD);
+  await until(() => f.field.value === GOOD);
+  bridge.reply(id, UPC);
+  await delay(25);
+  assert.equal(f.field.value, GOOD);
+  assert.match(f.status.textContent, /Zum Speichern/);
+  assert.equal(f.effects(), 0);
+});
+
+test("edits, including text changed back to its original value, and cancellation preserve manual input", async (t) => {
+  const f = fixture(t, SOURCE);
+  const bridge = f.transfer();
+  f.field.value = UPC;
+  const click = () => f.button.emit("click", { isTrusted:true });
+  click();
+  await until(() => bridge.calls.length === 1);
+  f.field.value = "manual";
+  f.field.emit("input");
+  f.field.value = UPC;
+  f.field.emit("input");
+  await until(() => bridge.cancellations.length === 1);
+  assert.equal(bridge.cancellations[0], "cancel:" + bridge.calls[0].slice(5));
+  bridge.reply(bridge.calls[0].slice(5), GOOD);
+  await delay(25);
+  assert.equal(f.field.value, UPC);
+  click();
+  await until(() => bridge.calls.length === 2);
+  bridge.reply(bridge.calls[1].slice(5), "", "cancelled");
+  await until(() => /abgebrochen/.test(f.status.textContent));
+  assert.match(f.status.textContent, /eingeben oder ein Foto wählen/);
+  assert.equal(f.field.value, UPC);
+  click();
+  await until(() => bridge.calls.length === 3);
+  bridge.reply(bridge.calls[2].slice(5), "9780140328722");
+  await until(() => /Kein unterstützter/.test(f.status.textContent));
+  assert.equal(f.field.value, UPC);
+  click();
+  await until(() => bridge.calls.length === 4);
+  bridge.reply(bridge.calls[3].slice(5), "", "unavailable");
+  await until(() => /nicht verfügbar/.test(f.status.textContent));
+  assert.match(f.status.textContent, /eingeben oder ein Foto wählen/);
+  assert.equal(f.button.disabled, false);
+  assert.equal(f.field.value, UPC);
+  assert.equal(f.effects(), 0);
+});
+
+test("photo, history, replacing the form and page disposal cannot receive a late result", async (t) => {
+  const f = fixture(t, SOURCE);
+  const bridge = f.transfer("http://127.0.0.1:8765", f.window);
+  const click = () => f.button.emit("click", { isTrusted:true });
+  click();
+  await until(() => bridge.calls.length === 1);
+  f.form.emit("change", { target:{name:"photo"} });
+  bridge.reply(bridge.calls[0].slice(5), GOOD);
+  await delay(25);
+  assert.equal(f.field.value, "");
+
+  click();
+  await until(() => bridge.calls.length === 2);
+  f.window.navigation.emit("navigate");
+  f.location.hash = "draft";
+  bridge.reply(bridge.calls[1].slice(5), GOOD);
+  await delay(25);
+  assert.equal(f.field.value, "");
+
+  click();
+  await until(() => bridge.calls.length === 3);
+  f.replace();
+  bridge.reply(bridge.calls[2].slice(5), GOOD);
+  await delay(25);
+  assert.equal(f.field.value, "");
+  f.window.emit("pagehide");
+  assert.equal(f.button.hidden, true);
+  assert.equal(f.effects(), 0);
+});

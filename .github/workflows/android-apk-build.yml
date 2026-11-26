@@ -206,6 +206,8 @@ jobs:
           grep -F 'assets/simpleoffice/tools/launcher.py' /tmp/apk-files.txt
           grep -F 'assets/simpleoffice/templates/' /tmp/apk-files.txt
           grep -F 'assets/simpleoffice/static/' /tmp/apk-files.txt
+          grep -F 'assets/simpleoffice/templates/inventory/intake.html' /tmp/apk-files.txt
+          grep -F 'assets/simpleoffice/static/js/inventory_intake_native_scan.js' /tmp/apk-files.txt
           grep -F "lib/${{ matrix.abi }}/" /tmp/apk-files.txt
           if grep -E 'lib/(arm64-v8a|armeabi-v7a)/' /tmp/apk-files.txt | grep -Fv "lib/${{ matrix.abi }}/"; then
             echo "APK contains native libraries for an unexpected ABI" >&2
