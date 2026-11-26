@@ -205,7 +205,7 @@ def set_enabled(document_root: str | Path, enable: bool, *, allow_download: bool
 
 
 def _update_package(document_root: str | Path, *, enable_kids: bool | None, allow_download: bool) -> str:
-    if enable_kids is not False and not shutil.which("piper"):
+    if enable_kids is True and not shutil.which("piper"):
         return "unavailable"
     directory = _voice_dir(document_root)
     try:
