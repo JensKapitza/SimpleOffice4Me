@@ -979,6 +979,7 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | PR #1341: `keystrokesPerMinute` (Spiel-Logik + Export), Tempo in lokaler Wertung, Server-`rate` in Raum-Scores + Anzeige, CSS-Cue-Puls mit Reduced-Motion-Neutralisierung. #1305 mit Lückenstand kommentiert. |
 | Tests und Soll-Ist-Vergleich | Soll: weiteres Issue + PRs. Ist: WPM-Fälle + Harness-Fix (Test 8 brach durch neuen Export, Harness ergänzt), `rate`-Assertions im Raum-Duell; lokal 10/10 + 3/3 Node, 9/9 + 1/1 Python, ruff/node-check grün. |
 | Review und Abschluss | Offen: #1341-CI → mergen; #1305-Rest (QR, Ordered-Rooms, Hardware-Praxistest). |
+<<<<<<< HEAD
 ## 26. November 2026 · PR-Merge-Kampagne der Assistenz-Session (42 eigene Merges, 23.–26.11.)
 
 | Phase | Arbeit und Nachweis |
@@ -996,3 +997,13 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | Kein Patch möglich: kein Release mit glib ≥ 0.20 existiert; `[patch]`-Vendoring wegen ABI-Risiko verworfen. Befund mit Entblockungs-Kriterium als Issue-Kommentar dokumentiert. |
 | Tests und Soll-Ist-Vergleich | Soll: Upgrade-Pfad. Ist: zweifach belegter Negativbefund (Subagent + crates.io-API-Dependencies); kein Code geändert, keine Tests nötig; Issue bleibt offen als Watch-Item. |
 | Review und Abschluss | Medium/Crash-only/Linux-only ohne CVE; Neubewertung bei erstem Runtime-wry mit `wry ^0.58`. |
+=======
+## 26. November 2026 · Issue-Runde 12: #1305-QR als PR #1347
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | #1305 hatte nach dem Reaktionsraum und WPM noch keine einfache Geräte-Kopplung. #1340 wurde separat geprüft und gemergt; #1343/#1344 wurden auf den aktuellen Main-Stand rebased. #1225 (glib/Tauri) bleibt beim Peer. |
+| Implementierung | PR #1347: `/rooms/qr`-Route (Login + lokales HTTPS + Code-Format), Invite-QR mit Aufräumen, `?code=`-Prefill (validiert, Best-Effort). #1341 war bereits gemergt. |
+| Tests und Soll-Ist-Vergleich | Route prüft 200/400/302/403; Harness prüft QR/Prefill. Lokal 5/5 Node, 8/8 Flask, Ruff, Compile und Node-Check bestanden. Nach Rebase sind GitHub-Checks für #1347 noch in Bearbeitung. |
+| Review und Abschluss | #1340 gemergt; #1343/#1344/#1346/#1347 warten auf die neu gestartete CI. #1305-Rest: Ordered-in-Rooms und Hardware-Praxistest. |
+>>>>>>> 30e9d446 (docs: Issue-Runde-12-Protokoll (#1305-QR, PR #1347))
