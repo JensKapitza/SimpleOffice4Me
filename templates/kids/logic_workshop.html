@@ -1,0 +1,82 @@
+{% extends "layout.html" %}
+{% set en = g.language == 'en' %}
+{% block header %}{% include "kids/_header.html" %}{% endblock %}
+{% block title %}{{ 'Logic lab' if en else 'Logikwerkstatt' }} · SimpleOffice{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/kids_logic_workshop.css', v=app_build.version) }}">{% endblock %}
+{% block body %}
+<main id="main-content" class="kids-logic container py-3 py-lg-4" data-kids-logic data-language="{{ 'en' if en else 'de' }}">
+  <header>
+    <h1>{{ 'Logic lab' if en else 'Logikwerkstatt' }}</h1>
+    <p class="lead">{{ 'Switch things on and off. Find which shapes belong together. No timer!' if en else 'Schalte Dinge ein und aus. Entdecke, welche Formen zusammengehören. Ohne Zeitdruck!' }}</p>
+  </header>
+  <nav class="logic-actions" aria-label="{{ 'Pick an activity' if en else 'Wähle eine Station' }}">
+    <a class="btn btn-primary" href="#schalter"><span aria-hidden="true">🔋</span> {{ 'Switches and machines' if en else 'Schalter und Maschinen' }}</a>
+    <a class="btn btn-primary" href="#mengen"><span aria-hidden="true">🔴</span> {{ 'Shapes and sets' if en else 'Formen und Mengen' }}</a>
+    <a class="btn btn-primary" href="#sicherheit"><span aria-hidden="true">🖼️</span> {{ 'Electricity safety story' if en else 'Bildergeschichte: Strom sicher' }}</a>
+  </nav>
+  <noscript><p>{{ 'This workshop needs JavaScript for play. No camera, microphone or internet service is needed.' if en else 'Zum Spielen braucht diese Werkstatt JavaScript. Kamera, Mikrofon und Internetdienst sind nicht nötig.' }}</p></noscript>
+
+  <section id="schalter" class="logic-region" aria-labelledby="logic-circuits">
+    <h2 id="logic-circuits">{{ 'Switches and machines' if en else 'Schalter und Maschinen' }}</h2>
+    <aside class="logic-safety" role="note">
+      <strong>{{ 'It is all pretend.' if en else 'Alles ist nachgespielt.' }}</strong>
+      {{ 'Play only on the screen. Leave real sockets, wires and equipment alone and ask an adult.' if en else 'Spiele nur am Bildschirm. Lass echte Steckdosen, Kabel und Geräte in Ruhe und frage Erwachsene.' }}
+      <a href="{{ url_for('electrical_learning.index', audience='kids') }}">{{ 'Meet electricity safely' if en else 'Strom sicher erkennen' }}</a>
+    </aside>
+    <div class="logic-grid">
+      <section class="logic-card" data-logic-unit="circuit" aria-labelledby="logic-lamp">
+        <h3 id="logic-lamp">{{ '1 · Light the lamp' if en else '1 · Bring die Lampe zum Leuchten' }}</h3>
+        <label for="logic-circuit-select">{{ 'Choose a setup' if en else 'Wähle eine Schaltung' }}</label>
+        <select id="logic-circuit-select" class="form-select" data-circuit-mode disabled>
+          <option value="single">{{ 'One switch' if en else 'Ein Schalter' }}</option>
+          <option value="and">{{ 'Series (AND)' if en else 'Reihe (UND)' }}</option>
+          <option value="or">{{ 'Parallel (OR)' if en else 'Parallel (ODER)' }}</option>
+          <option value="not">{{ 'Opposite signal (NOT)' if en else 'Signal umdrehen (NICHT)' }}</option>
+        </select>
+        <p data-circuit-rule>{{ 'When the switch closes the loop to the battery, the lamp can light.' if en else 'Schließt der Schalter den Weg zur Batterie, kann die Lampe leuchten.' }}</p>
+        {% include "kids/_logic_circuit_figures.html" %}
+        <div class="logic-actions">
+          <button class="btn btn-outline-primary" type="button" data-switch="a" aria-pressed="false" disabled>{{ 'Switch A' if en else 'Schalter A' }}</button>
+          <button class="btn btn-outline-primary" type="button" data-switch="b" aria-pressed="false" disabled hidden>{{ 'Switch B' if en else 'Schalter B' }}</button>
+        </div>
+        <p class="logic-result" data-logic-status role="status"></p>
+      </section>
+
+      <section class="logic-card" data-logic-unit="gate" aria-labelledby="logic-gate">
+        <h3 id="logic-gate">{{ '2 · Move the gate' if en else '2 · Beweg das Tor' }}</h3>
+        <p>{{ 'Try both directions together. Why does the gate wait? Then try moving to an end stop.' if en else 'Probier beide Richtungen zusammen. Warum wartet das Tor? Fahr danach bis zum Anschlag.' }}</p>
+        <div class="logic-gate" data-position="0" aria-hidden="true"><span class="logic-gate-panel">▰</span></div>
+        <p data-gate-position></p>
+        <div class="logic-actions">
+          <button class="btn btn-outline-primary" type="button" data-switch="up" aria-pressed="false" disabled>↑ {{ 'Up' if en else 'Hoch' }}</button>
+          <button class="btn btn-outline-primary" type="button" data-switch="down" aria-pressed="false" disabled>↓ {{ 'Down' if en else 'Runter' }}</button>
+          <button class="btn btn-primary" type="button" data-step disabled>{{ 'One step' if en else 'Ein Schritt' }}</button>
+        </div>
+        <p class="logic-result" data-logic-status role="status"></p>
+      </section>
+
+      <section class="logic-card logic-wide" data-logic-unit="apple" aria-labelledby="logic-apple">
+        <h3 id="logic-apple">{{ '3 · From apple to applesauce' if en else '3 · Vom Apfel zum Apfelmus' }}</h3>
+        <p>{{ 'Move the apple from left to right. Give each station what it needs. The jar fills only when the sauce, filler and empty jar are ready.' if en else 'Bring den Apfel von links nach rechts. Gib jeder Station, was sie braucht. Das Glas füllt sich erst, wenn Mus, Abfüller und ein leeres Glas bereit sind.' }}</p>
+        <ol class="logic-line" aria-label="{{ 'Process from left to right' if en else 'Ablauf von links nach rechts' }}">
+          {% for key, symbol, de, eng in [('left','🍎','Start links','Start on the left'), ('press','🍎','Presse','Press'), ('sauce','🥣','Apfelmus','Applesauce'), ('jar','🫙','Glas rechts','Jar on the right')] %}
+          <li data-station="{{ key }}"{% if key == 'left' %} aria-current="step"{% endif %}><span aria-hidden="true">{{ symbol }}</span>{{ eng if en else de }}</li>
+          {% endfor %}
+        </ol>
+        <div class="logic-actions">
+          <button class="btn btn-outline-primary" type="button" data-switch="belt" aria-pressed="false" disabled>{{ 'Conveyor' if en else 'Fließband' }}</button>
+          <button class="btn btn-outline-primary" type="button" data-switch="processing" aria-pressed="false" disabled>{{ 'Press' if en else 'Presse' }}</button>
+          <button class="btn btn-outline-primary" type="button" data-switch="filling" aria-pressed="false" disabled>{{ 'Filler' if en else 'Abfüller' }}</button>
+          <button class="btn btn-outline-primary" type="button" data-switch="glass" aria-pressed="false" disabled>{{ 'Set out jar' if en else 'Glas bereitstellen' }}</button>
+          <button class="btn btn-primary" type="button" data-step disabled>{{ 'One step' if en else 'Ein Schritt' }}</button>
+          <button class="btn btn-outline-secondary" type="button" data-reset disabled>{{ 'Reset apple line' if en else 'Apfelstrecke neu starten' }}</button>
+        </div>
+        <p class="logic-result" data-logic-status role="status"></p>
+      </section>
+    </div>
+  </section>
+  {% include "kids/_logic_shapes.html" %}
+  {% include "kids/_logic_safety_story.html" %}
+</main>
+<script type="module" src="{{ url_for('static', filename='js/kids_logic_workshop.mjs', v=app_build.version) }}"></script>
+{% endblock %}

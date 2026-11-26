@@ -1,0 +1,64 @@
+.kids-logic { max-width: 72rem; }
+.kids-logic .logic-region { margin-block: 2rem; scroll-margin-top: 1rem; }
+.kids-logic .logic-safety { padding: 0.8rem 1rem; border-inline-start: 0.25rem solid #b45e06; margin-block-end: 1rem; background: var(--bs-tertiary-bg); }
+.kids-logic .logic-actions { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0.5rem; margin-block: 0.75rem; }
+.kids-logic :is(button, select, .logic-actions a) { min-block-size: 3rem; }
+.kids-logic :is(button, select, a):focus-visible { outline: 3px solid var(--bs-emphasis-color); outline-offset: 2px; }
+.kids-logic .logic-grid, .kids-logic .logic-set-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.kids-logic .logic-wide { grid-column: 1 / -1; }
+.kids-logic .logic-card, .kids-logic .logic-set-zone { padding: 1rem; border: 2px solid var(--bs-border-color); border-radius: 1rem; background: var(--bs-body-bg); }
+.kids-logic .logic-set-zone[data-zone="both"] { border-style: double; border-width: 4px; }
+.kids-logic .logic-set-zone h3 { font-size: 1.1rem; }
+.kids-logic .logic-result { padding: 0.6rem; min-height: 3rem; margin-block-end: 0; border-radius: 0.5rem; background: var(--bs-tertiary-bg); font-weight: 650; }
+.kids-logic .logic-actions button[aria-pressed="true"] { background: var(--bs-primary); color: #fff; border: 2px solid var(--bs-emphasis-color); }
+.kids-logic svg { width: 100%; max-height: 9rem; }
+.kids-logic [hidden] { display: none !important; }
+.kids-logic .logic-circuit :is(path,circle) { stroke: var(--bs-secondary-color); stroke-width: 3px; fill: none; }
+.kids-logic .logic-circuit text { fill: var(--bs-emphasis-color); font: 700 18px system-ui; }
+.kids-logic .logic-circuit[data-lit="on"] .logic-lamp-path { stroke: #cb7900; stroke-width: 5px; }
+.kids-logic .logic-circuit .logic-contact-closed,
+.kids-logic .logic-circuit[data-a="on"] .logic-contact-open.logic-contact-a,
+.kids-logic .logic-circuit[data-b="on"] .logic-contact-open.logic-contact-b { display: none; }
+.kids-logic .logic-circuit[data-a="on"] .logic-contact-closed.logic-contact-a,
+.kids-logic .logic-circuit[data-b="on"] .logic-contact-closed.logic-contact-b { display: initial; stroke: #aa6900; }
+.kids-logic .logic-gate { display: flex; align-items: end; height: 7.5rem; position: relative; max-width: 16rem; margin-inline: auto; border: 5px solid var(--bs-border-color); background: var(--bs-tertiary-bg); }
+.kids-logic .logic-gate-panel { width: 100%; text-align: center; color: var(--bs-emphasis-color); background: var(--bs-secondary-bg); border-block: 2px solid var(--bs-emphasis-color); font-size: 1.5rem; }
+.kids-logic .logic-gate[data-position="1"] { align-items: center; }
+.kids-logic .logic-gate[data-position="2"] { align-items: start; }
+.kids-logic .logic-line { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 0.4rem; padding-inline: 0.25rem; list-style: none; }
+.kids-logic .logic-line li { text-align: center; border: 2px dashed var(--bs-border-color); border-radius: .5rem; padding: .4rem .2rem; overflow-wrap: anywhere; }
+.kids-logic .logic-line li[aria-current="step"] { border-style: solid; border-color: var(--bs-primary); background: var(--bs-primary-bg-subtle); font-weight: 700; }
+.kids-logic .logic-line li span { display: block; font-size: clamp(1.35rem, 4vw, 2.2rem); opacity: 0.6; }
+.kids-logic .logic-line li[aria-current="step"] span { opacity: 1; }
+.kids-logic .logic-venn { display: flex; margin-block: 0.8rem; }
+.kids-logic .logic-venn span { display: grid; place-items: center; width: 5rem; height: 4.5rem; border-radius: 50%; border: 3px solid var(--bs-emphasis-color); font-weight: 700; background: color-mix(in srgb, var(--bs-primary) 14%, transparent); }
+.kids-logic .logic-venn span + span { margin-inline-start: -1.2rem; border-style: dashed; background: color-mix(in srgb, var(--bs-danger) 14%, transparent); }
+.kids-logic .logic-tile { color: var(--bs-body-color); display: grid; justify-items: center; align-items: center; gap: .25rem; min-width: min(8rem, 100%); max-width: 100%; white-space: normal; }
+.kids-logic .logic-tile[data-result] { border-width: 3px; }
+.kids-logic .logic-tile[data-result="missing"] { border-style: dashed; }
+.kids-logic .logic-shape { display: block; width: 2rem; aspect-ratio: 1; background: var(--tile-color); border: 2px solid #303030; }
+.kids-logic [data-color="red"] { --tile-color: #e64d52; }
+.kids-logic [data-color="blue"] { --tile-color: #58aaf2; }
+.kids-logic [data-color="yellow"] { --tile-color: #f5ce4e; }
+.kids-logic [data-shape="circle"] .logic-shape { border-radius: 50%; }
+.kids-logic [data-shape="triangle"] .logic-shape { clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+@media (max-width: 44rem) {
+  .kids-logic :is(.logic-grid,.logic-set-grid) { grid-template-columns: minmax(0,1fr); }
+}
+
+.kids-logic .logic-story figure { max-width: 35rem; margin: 1rem auto; border: 2px solid var(--bs-border-color); border-radius: 1rem; padding: .65rem; }
+.kids-logic .logic-story svg { max-height: none; display: block; }
+.kids-logic .logic-story figcaption { font-weight: 650; text-align: center; margin-block-start: .5rem; }
+.kids-logic .logic-story button span { font-size: 1.3rem; margin-inline-end: .2rem; }
+.kids-logic .story-wall { fill: #e3f5fb; }
+.kids-logic .story-floor { fill: #c7dce8; }
+.kids-logic .story-person, .kids-logic .story-outlet, .kids-logic .story-dropped, .kids-logic .story-plug,
+.kids-logic .story-switch, .kids-logic .story-lamp { fill: none; stroke: #263142; stroke-linecap: round; stroke-linejoin: round; stroke-width: 3; }
+.kids-logic .story-person .story-head { fill: #dbac84; }
+.kids-logic .story-child .story-body { fill: #ffd56b; }
+.kids-logic .story-adult .story-body { fill: #82cca9; }
+.kids-logic .story-outlet rect, .kids-logic rect.story-outlet { fill: #fff; }
+.kids-logic .story-arrow, .kids-logic .story-sound { fill: none; stroke: #0c6874; stroke-linecap: round; stroke-linejoin: round; stroke-width: 4; }
+.kids-logic .story-lamp { fill: #ffdc62; }
+.kids-logic .story-switch { fill: #a0b6cf; }
+.kids-logic .story-dropped { fill: #8fafd1; }

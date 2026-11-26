@@ -1,0 +1,80 @@
+{# Original simplified illustrations. Each pose models the safe action only. #}
+{% macro adult(x, y) -%}
+<g transform="matrix(1 0 0 1 {{ x }} {{ y }})" class="story-person story-adult">
+  <circle class="story-head" cx="0" cy="-49" r="13"/>
+  <path class="story-body" d="M-13 -35 Q0 -42 13 -35 L17 -1 H-17 Z"/>
+  <path d="M-9 0 L-12 22 M9 0 L12 22 M-13 -28 L-24 -12 M13 -28 L24 -12"/>
+</g>
+{%- endmacro %}
+{% macro child(x, y, scale=1, gesture='call') -%}
+<g transform="matrix({{ scale }} 0 0 {{ scale }} {{ x }} {{ y }})" class="story-person story-child">
+  <circle class="story-head" cx="0" cy="-43" r="12"/>
+  <path class="story-body" d="M-10 -30 Q0 -36 10 -30 L13 -1 H-13 Z"/>
+  <path d="M-6 0 L-10 18 M6 0 L10 18"/>
+  {% if gesture == 'beckon' %}<path d="M-11 -26 L-22 -32 L-27 -43"/>
+  {% else %}<path d="M-11 -26 L-20 -15"/>{% endif %}
+  {% if gesture in ('call', 'beckon') %}<path d="M11 -26 L23 -36 L27 -49"/><path class="story-sound" d="M37 -52 L47 -57 M38 -43 H50 M38 -36 L47 -31"/>
+  {% elif gesture == 'switch' %}<path d="M11 -26 L27 -30 L43 -35"/>
+  {% else %}<path d="M11 -26 L20 -15"/>{% endif %}
+</g>
+{%- endmacro %}
+{% macro outlet() -%}
+<g class="story-outlet">
+  <rect x="22" y="77" width="30" height="28" rx="4"/>
+  <circle cx="37" cy="91" r="9"/>
+  <path d="M34 89 V93 M40 89 V93"/>
+</g>
+{%- endmacro %}
+{% macro room() -%}
+<rect class="story-wall" x="0" y="0" width="340" height="128" rx="9"/>
+<path class="story-floor" d="M0 128 H340 V165 H0 Z"/>
+{%- endmacro %}
+
+<section id="sicherheit" class="logic-region logic-story" data-logic-unit="story" aria-labelledby="logic-story-heading">
+  <h2 id="logic-story-heading">{{ 'Picture story: safe around electricity' if en else 'Bildergeschichte: Strom sicher begegnen' }}</h2>
+  <figure data-story-scene="outlet">
+    <svg viewBox="0 0 340 165" role="img" aria-label="{{ 'An unplugged plug lies below an outlet. A child stays well away and calls an adult.' if en else 'Ein loser Stecker liegt unter der Steckdose. Ein Kind hält Abstand und ruft einen Erwachsenen.' }}">
+      {{ room() }}{{ outlet() }}
+      <g class="story-plug" aria-hidden="true">
+        <path d="M29 131 H40 M29 140 H40 M58 136 H65 Q72 136 72 143 V150"/>
+        <rect class="story-outlet" x="40" y="127" width="18" height="18" rx="3"/>
+      </g>
+      <path class="story-arrow" d="M83 122 H143 L133 112 M143 122 L133 132"/>
+      {{ child(192,108) }}{{ adult(295,105) }}
+    </svg>
+    <figcaption>{{ 'Leave the plug alone. Step back and get a grown-up.' if en else 'Lass den Stecker liegen. Geh zurück und hol einen Erwachsenen.' }}</figcaption>
+  </figure>
+  <figure data-story-scene="dropped" hidden>
+    <svg viewBox="0 0 340 165" role="img" aria-label="{{ 'A dropped device stays by the outlet. The child keeps hands away and calls an adult.' if en else 'Ein heruntergefallenes Gerät bleibt neben der Steckdose liegen. Das Kind hält Abstand und ruft einen Erwachsenen.' }}">
+      {{ room() }}{{ outlet() }}
+      <rect class="story-dropped" x="44" y="128" width="38" height="17" rx="3" transform="rotate(-12 63 136)"/>
+      <path class="story-arrow" d="M95 122 H143 L133 112 M143 122 L133 132"/>
+      {{ child(192,108) }}{{ adult(295,105) }}
+    </svg>
+    <figcaption>{{ 'Leave the device there. Tell a grown-up.' if en else 'Lass das Gerät liegen. Ruf einen Erwachsenen.' }}</figcaption>
+  </figure>
+  <figure data-story-scene="siblings" hidden>
+    <svg viewBox="0 0 340 165" role="img" aria-label="{{ 'Both children are safely away from the outlet. The older child waves the younger child over and calls an adult.' if en else 'Beide Kinder sind schon weit von der Steckdose entfernt. Das ältere winkt dem jüngeren Kind und ruft einen Erwachsenen.' }}">
+      {{ room() }}{{ outlet() }}
+      {{ child(160,111,0.72,'none') }}{{ child(214,111,0.95,'beckon') }}{{ adult(306,105) }}
+      <path class="story-arrow" d="M155 143 H199 L189 134 M199 143 L189 152"/>
+    </svg>
+    <figcaption>{{ 'Wave your sibling over from a distance and call a grown-up.' if en else 'Wink deinem Geschwisterkind aus sicherem Abstand zu und ruf einen Erwachsenen.' }}</figcaption>
+  </figure>
+  <figure data-story-scene="normal-switch" hidden>
+    <svg viewBox="0 0 340 165" role="img" aria-label="{{ 'A child uses an intact wall light switch as usual. The ceiling lamp lights up.' if en else 'Das Kind benutzt einen intakten Lichtschalter ganz normal. Die Deckenlampe leuchtet.' }}">
+      {{ room() }}
+      <path class="story-lamp" d="M239 6 V24 M224 40 L232 24 H246 L254 40 Z M223 48 L216 54 M254 48 L261 54 M239 51 V60"/>
+      <rect class="story-outlet" x="205" y="72" width="30" height="34" rx="4"/>
+      <rect class="story-switch" x="218" y="80" width="9" height="15" rx="2"/>
+      {{ child(174,117,1,'switch') }}
+    </svg>
+    <figcaption>{{ 'An intact light switch is fine to use as usual.' if en else 'Einen intakten Lichtschalter kannst du ganz normal benutzen.' }}</figcaption>
+  </figure>
+  <p class="logic-story-progress" data-story-progress role="status"></p>
+  <div class="logic-actions">
+    <button class="btn btn-outline-primary" data-story-back type="button" disabled><span aria-hidden="true">◀</span> {{ 'Previous picture' if en else 'Vorheriges Bild' }}</button>
+    <button class="btn btn-primary" data-story-next type="button" disabled><span aria-hidden="true">▶</span> {{ 'Next picture' if en else 'Nächstes Bild' }}</button>
+    <button class="btn btn-outline-secondary" data-story-replay type="button" disabled><span aria-hidden="true">↺</span> {{ 'Play again' if en else 'Noch einmal' }}</button>
+  </div>
+</section>

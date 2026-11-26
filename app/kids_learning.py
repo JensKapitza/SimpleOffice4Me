@@ -135,6 +135,11 @@ def shinobi_mission():
         "kids/shinobi.html", kids_mode=True,
         hand_game_available="kids_learning.hand_game" in current_app.view_functions,
     )
+@bp.get("/logikwerkstatt")
+@login_required
+def logic_workshop():
+    """Local, playful Boolean and set operations, never connected to hardware."""
+    return render_template("kids/logic_workshop.html", kids_mode=True)
 
 
 @bp.get("/spielpause")

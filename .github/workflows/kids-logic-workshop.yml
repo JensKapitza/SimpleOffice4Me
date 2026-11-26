@@ -1,0 +1,59 @@
+name: Kids logic workshop browser
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/kids-logic-workshop.yml'
+      - 'app/kids_learning.py'
+      - 'templates/kids/*logic*.html'
+      - 'templates/kids/dashboard.html'
+      - 'static/js/kids_logic_*.mjs'
+      - 'static/css/kids_logic_workshop.css'
+      - 'tests/*kids_logic_workshop*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+concurrency:
+  group: kids-logic-workshop-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  workshop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Install app and browser test tooling
+        run: |
+          python -m pip install --editable '.[web-export,test]'
+          python -m playwright install --with-deps chromium
+      - name: Play the workshop from authenticated Kids pages
+        env:
+          SIMPLEOFFICE_LOGIC_BROWSER_REQUIRED: '1'
+          SIMPLEOFFICE_LOGIC_SCREENSHOTS: ${{ runner.temp }}/kids-logic-screenshots
+          PYTHONPATH: .:tests
+        run: |
+          node --test tests/kids_logic_workshop.test.mjs
+          python -m unittest -v test_kids_logic_workshop test_kids_logic_workshop_browser
+      - name: Save portrait pictures of the original illustrated story
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: kids-logic-workshop-pictures
+          path: ${{ runner.temp }}/kids-logic-screenshots
+          if-no-files-found: ignore
+          retention-days: 7
