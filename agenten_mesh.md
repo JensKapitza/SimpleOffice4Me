@@ -1017,3 +1017,12 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests | `node --test tests/kids_logic_workshop.test.mjs`: 5/5 bestanden, darunter fünf Fehlversuche, verfrühte Lösungsablehnung und Regelwechsel. `PYTHONPATH=tests python -m unittest -q test_kids_logic_workshop`: 4/4 bestanden. `PYTHONPATH=tests python -m unittest -q test_kids_logic_workshop_browser`: 2/2 echte Chromium-Tests bestanden, darunter Portrait-Touch, fünf Versuche, Lösungsanzeige, aria-pressed und nächster Regelablauf bei 360×800 px. Netzwerk-Nebenwirkungen werden vom Browser-Test ausgeschlossen. |
 | Soll-Ist-Vergleich | Soll: nicht vorsortierte Mengenübung, keine sofortige Komplettlösung, verständlicher Lernfortschritt und Fortsetzung. Ist: Karten werden gemischt, falsche Karten verblassen, Lösung ist bis zum fünften Fehlversuch gesperrt und die Regeln gehen zyklisch weiter. |
 | Review und Abschluss | Lokale Node-, Flask- und Chromium-Tests bestanden. Diff-Review und PR-CI folgen. Der Browser-Testprozess schreibt nach dem erfolgreichen Testlauf Playwright-Aufräumwarnungen zu geschlossenen Tasks; Testresultat ist Exitcode 0. |
+
+## 26. November 2026 · #1329-Follow-up: Android-TTS-Fallback nutzt verwaltetes Piper
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Der automatische Android-Gerätestimmen-Fallback prüfte Piper noch direkt nur über `PATH`. Dadurch würde er eine sichere, privat verwaltete Piper-Runtime aus dem Komponentenmanager übersehen. |
+| Soll und Implementierung | Piper-Erkennung im Fallback über `component_runtime.resolve_command` führen, damit System- und verwaltete Runtime gleich behandelt werden. Bestehendes Android-TTS bleibt Fallback, wenn Piper oder das lokale Stimmenmodell fehlt. |
+| Tests | Echter `_speech_choice`-Regressionstest mit verwaltetem Binary-Pfad und vorhandenem Stimmenmodell; Android-Geräte-Fallback-Regression zusätzlich ausgeführt. Beide bestanden. |
+| Soll-Ist-Vergleich und Review | Soll erfüllt für die Erkennung/Weiterleitung des verwalteten Piper-Pfads. Keine Piper-Engine installiert und keine Sprachausgabe simuliert oder als real behauptet. `python -m unittest -q tests.test_reader_read_aloud.ReaderReadAloudTests.test_android_automatic_fallback_uses_managed_piper_runtime tests.test_reader_read_aloud.ReaderReadAloudTests.test_kids_android_shared_engine_checks_scope_locale_permission_and_opt_in` bestanden. |

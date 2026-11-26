@@ -161,6 +161,26 @@ class ReaderReadAloudTests(unittest.TestCase):
         device.assert_called_once()
         piper.assert_not_called()
 
+    def test_android_automatic_fallback_uses_managed_piper_runtime(self):
+        from app.private_read_aloud import _speech_choice
+
+        voice = self.root.parent / "fixture.onnx"
+        Path(str(voice) + ".json").write_text("{}", encoding="utf-8")
+        android = {
+            "reader": "automatic", "kids": "automatic", "reader_fallback": True,
+            "kids_fallback": False, "voice_de": "", "voice_en": "", "rate": 1.0, "pitch": 1.0,
+        }
+        SettingsStore(self.root).save({"media": {"android_speech": android}}, "admin")
+        def device_engine(*_args):
+            return True
+
+        with patch.dict(app.config, ANDROID_PRIVATE_SPEECH=device_engine), patch(
+            "app.private_read_aloud.resolve_command", return_value="/private/components/bin/piper",
+        ), app.test_request_context("/"):
+            selected_model, selected_device = _speech_choice("reader", "de", lambda _language: str(voice))
+        self.assertEqual(str(voice), selected_model)
+        self.assertIsNone(selected_device)
+
     def test_kids_android_shared_engine_checks_scope_locale_permission_and_opt_in(self):
         url = "/kids/lernen/sprache"
         headers = {"X-CSRF-Token": self.csrf}
@@ -176,7 +196,7 @@ class ReaderReadAloudTests(unittest.TestCase):
                     "kids_fallback": True, "voice_en": "en-installed", "rate": 1.25, "pitch": .9}
         SettingsStore(self.root).save({"media": {"android_speech": settings}}, "admin")
         doc = self.document("private.txt", b"Private boundary.")
-        with patch.dict(app.config, ANDROID_PRIVATE_SPEECH=device), patch("app.private_read_aloud.shutil.which", return_value=None):
+        with patch.dict(app.config, ANDROID_PRIVATE_SPEECH=device), patch("app.private_read_aloud.resolve_command", return_value=None):
             self.assertEqual(403, self.client.post(url, json=request_json).status_code)
             self.assertEqual(405, self.client.get(url, query_string=request_json).status_code)
             self.assertEqual(503, self.post(doc).status_code)
