@@ -494,6 +494,9 @@ app.register_blueprint(reader_routes.bp)
 from . import reader_runtime_check
 app.register_blueprint(reader_runtime_check.bp)
 
+from . import optional_setup_routes
+app.register_blueprint(optional_setup_routes.bp)
+
 from . import v3_entity_routes
 app.register_blueprint(v3_entity_routes.bp)
 
@@ -568,6 +571,7 @@ def verify_browser_request():
     library.book_scan_routes.limit_upload()
     fakturama_admin.limit_preview_upload()
     reader_runtime_check.limit_request()
+    optional_setup_routes.limit_request()
     if request.endpoint in PRIVATE_READ_ALOUD_ENDPOINTS and request.method == "POST":
         from .private_read_aloud import limit_read_aloud_request
 

@@ -1,6 +1,7 @@
 <section class="card mb-4" id="kids-voice">
   <div class="card-header"><strong>{{ 'Kids read-aloud voice (German)' if g.language == 'en' else 'Kinder-Vorlesestimme (Deutsch)' }}</strong></div>
   <div class="card-body">
+    <p><a href="{{ url_for('optional_setup.index', _anchor='kids-voice') }}">{{ 'Open shared first-run setup and status' if g.language == 'en' else 'Gemeinsame Einrichtung und Status öffnen' }}</a></p>
     <p>{{ 'Thorsten-Voice Piper-Scratch is experimental. It only reads German maze instructions when no German Piper voice has been configured. Pronunciation examples and English audio are unchanged.' if g.language == 'en' else 'Thorsten-Voice Piper-Scratch ist experimentell. Die Stimme liest deutsche Labyrinth-Anleitungen vor, wenn keine deutsche Piper-Stimme eingerichtet ist. Aussprachebeispiele und englische Audios bleiben unverändert.' }}</p>
     <p>{{ 'On activation the server downloads and verifies approximately 64 MB from Hugging Face. This can take up to about 90 seconds. Afterwards, speech works offline on the server. No learning text is sent to Hugging Face. Piper must already be installed on the server.' if g.language == 'en' else 'Beim Aktivieren lädt der Server rund 64 MB von Hugging Face herunter und prüft die Dateien. Das kann bis zu etwa 90 Sekunden dauern. Danach läuft die Sprachausgabe offline auf dem Server. Lerntexte werden nicht an Hugging Face gesendet. Piper muss auf dem Server bereits installiert sein.' }}</p>
     <p class="small">{{ 'Try it in Kids → Learning games → Search and letters → Find the way → Easy → Listen mode.' if g.language == 'en' else 'Zum Ausprobieren: Kinder → Lernspiele → Suchbild & Buchstaben → Finde den Weg → Leicht → Hörmodus.' }}</p>
@@ -18,13 +19,11 @@
       'failed': ('The voice could not be downloaded or verified. No unchecked model was enabled. Please try again.', 'Die Stimme konnte nicht geladen oder geprüft werden. Kein ungeprüftes Modell wurde aktiviert. Bitte versuche es erneut.')
     } %}
     {% if result in messages %}<p class="alert {{ 'alert-info' if result in ('enabled', 'disabled') else 'alert-warning' }}" role="status">{{ messages[result][0 if g.language == 'en' else 1] }}</p>{% endif %}
+    {% if kids_piper_enabled %}
     <form method="post" action="{{ url_for('admin.set_kids_piper_voice') }}">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-      {% if kids_piper_enabled %}
       <button class="btn btn-outline-secondary" type="submit" name="action" value="disable">{{ 'Disable German Kids voice' if g.language == 'en' else 'Deutsche Kinderstimme deaktivieren' }}</button>
-      {% else %}
-      <button class="btn btn-outline-primary" type="submit" name="action" value="enable">{{ 'Download and enable German Kids voice' if g.language == 'en' else 'Deutsche Kinderstimme laden und aktivieren' }}</button>
-      {% endif %}
     </form>
+    {% endif %}
   </div>
 </section>

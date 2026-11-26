@@ -11,6 +11,8 @@ from typing import Callable
 from flask import Response, current_app, jsonify, request
 
 from .audio_output_engine import render_tts
+from .kids_piper_assets import installed_model
+from .media_settings import PIPER_READER_THORSTEN
 from .settings_store import SettingsStore
 
 MAX_SPEECH_CHARS = 5000
@@ -99,8 +101,18 @@ def read_aloud_epub_request() -> tuple[int, str, int]:
 
 
 def configured_piper_model(language: str) -> str:
-    media = SettingsStore(current_app.config["DOCUMENT_ROOT"]).settings()["media"]
-    model = media.get("piper_model_en", "") if language.lower().startswith("en") else ""
+    root = current_app.config["DOCUMENT_ROOT"]
+    media = SettingsStore(root).settings()["media"]
+    locale = language.lower()
+    german = locale == "de" or locale.startswith(("de-", "de_"))
+    if german and media.get("piper_reader_choice") == PIPER_READER_THORSTEN:
+        # Revalidate the same installed pair at point of use. Neither the Kids
+        # enable marker nor an administrator-provided path authorizes this choice.
+        model = installed_model(root)
+        if not model:
+            raise ReadAloudError("piper_unavailable", 503)
+        return model
+    model = media.get("piper_model_en", "") if locale.startswith("en") else ""
     configured = str(model or media.get("piper_model", "")).strip()
     if not configured or "://" in configured or configured.startswith(("//", "\\")):
         raise ReadAloudError("piper_unavailable", 503)

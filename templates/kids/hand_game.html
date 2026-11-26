@@ -14,7 +14,7 @@
   </header>
   <p class="kids-hand-privacy">🔒 {{ 'The camera stays off until you tap. No recording, no microphone. The browser checks your hand on this device.' if en else 'Die Kamera bleibt bis zum Klick aus. Keine Aufnahme, kein Mikrofon. Der Browser erkennt deine Hand auf diesem Gerät.' }}</p>
   {% if not hand_game_ready %}
-  <p class="alert alert-warning" role="status">{{ 'The verified local hand model is not set up yet. A grown-up can follow docs/KIDS_HAND_GAME.md. You can still look at the signs below.' if en else 'Das geprüfte lokale Handmodell ist noch nicht eingerichtet. Erwachsene finden die Einrichtung in docs/KIDS_HAND_GAME.md. Die Zeichen kannst du dir unten schon ansehen.' }}</p>
+  <p class="alert alert-warning" role="status">{{ 'The verified local hand model is not set up yet. A grown-up can open optional setup. Manual steps: docs/KIDS_HAND_GAME.md. You can still look at the signs below.' if en else 'Das geprüfte lokale Handmodell ist noch nicht eingerichtet. Erwachsene können die optionale Einrichtung öffnen. Manuelle Einrichtung: docs/KIDS_HAND_GAME.md. Die Zeichen kannst du dir unten schon ansehen.' }} <a class="alert-link" href="{{ url_for('optional_setup.index', _anchor='kids-hand') }}">{{ 'Optional setup' if en else 'Optionale Einrichtung' }}</a></p>
   {% endif %}
   <div class="kids-hand-camera-actions">
     <button class="btn btn-primary btn-lg" data-hand-camera type="button" disabled>📷 {{ 'Turn camera on' if en else 'Kamera einschalten' }}</button>

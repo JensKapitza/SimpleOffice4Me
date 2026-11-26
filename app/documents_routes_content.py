@@ -276,6 +276,7 @@ def access_navigation_proof():
 def dashboard():
     from .business_documents import customer_account_overview
     from .dashboard_briefing import build_dashboard_briefing
+    from .optional_local_setup import hand_override, readiness
 
     store = _store()
     actor = str(g.user["username"])
@@ -299,6 +300,7 @@ def dashboard():
         pending=_calendar().pending_bookings(),
         scan_status=_store().scan_status(),
         setup_status=_setup().status(str(g.user["username"])),
+        optional_setup=readiness(store.root, manual_hand_directory=hand_override(current_app.config)),
         customer_accounts=customer_account_overview(_store().root, str(g.user["username"])),
     )
 

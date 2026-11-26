@@ -12,9 +12,16 @@ Fingeralphabet und keine Übersetzung der Deutschen Gebärdensprache (DGS).
 ## Einmalige Einrichtung durch Erwachsene / One-time administrator setup
 
 Ein aktueller PC-Browser auf **HTTPS oder localhost** und eine Webcam werden
-benötigt. Die Anwendung enthält keine Drittanbieter-Binärdateien und lädt sie
-weder beim Start noch beim Klick aus dem Internet. Erwachsene müssen einmalig die
-folgenden zwei Originaldateien bewusst beschaffen und lokal bereitstellen:
+benötigt. Das Spiel lädt keine Modell- oder Laufzeitdateien aus dem Internet.
+Administratoren können die geprüften Versionen unter **Übersicht → Lokale Extras
+→ Fingerzauber** ausdrücklich laden lassen. Die Dateien werden serverseitig einmal
+von npm/Google geholt und vor der Freigabe auf Größe und Prüfsummen geprüft.
+Ohne Einwilligung, beim Start und beim Öffnen des Spiels erfolgen keine externen
+Downloads. Manuell bereitgestellte Ordner bleiben vorrangig. Fehlt im installierten
+Paket die Lizenzdatei oder ist keine Verbindung zu den festen Anbietern möglich,
+bleibt die folgende manuelle Einrichtung verfügbar.
+
+Für die manuelle Einrichtung die folgenden zwei Originaldateien bewusst beschaffen:
 
 - [MediaPipe Tasks Vision 0.10.21](https://registry.npmjs.org/@mediapipe/tasks-vision/-/tasks-vision-0.10.21.tgz).
   SHA-256: `343736570f433c0100ffc360dbe70f09cc502a5fc573f5cd95954692edc9cfde`.

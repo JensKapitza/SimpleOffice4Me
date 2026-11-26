@@ -33,10 +33,10 @@ def verify_bytes(name: str, content: bytes) -> bool:
 
 
 @lru_cache(maxsize=len(ASSETS) + len(SIMD_ASSETS))
-def _verified(path: Path, identity: tuple[int, int, int, int], size: int, digest: str) -> bytes | None:
+def _verified(path: Path, identity: tuple[int, int, int, int, int], size: int, digest: str) -> bytes | None:
     with path.open("rb") as stream:
         stat = os.fstat(stream.fileno())
-        if identity != (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns):
+        if identity != (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns):
             return None
         data = stream.read(size + 1)
     return data if len(data) == size and hashlib.sha256(data).hexdigest() == digest else None
@@ -53,7 +53,9 @@ def asset(directory: str, name: str) -> bytes | None:
         stat = path.stat()
         if path.is_symlink() or not path.is_file() or stat.st_size != size:
             return None
-        return _verified(path, (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns), size, digest)
+        return _verified(
+            path, (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns), size, digest,
+        )
     except (OSError, RuntimeError, ValueError):
         return None
 

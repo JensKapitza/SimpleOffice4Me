@@ -28,6 +28,7 @@ class SetupStore:
             "completed": item.get("completed") is True,
             "platform": item.get("platform") if item.get("platform") in {"windows", "linux", "macos"} else "windows",
             "completed_at": str(item.get("completed_at", "")),
+            "optional_skipped": item.get("optional_skipped") is True,
         }
 
     def complete(self, username: str, platform: str, actor: str) -> dict:
@@ -42,8 +43,21 @@ class SetupStore:
             except (OSError, json.JSONDecodeError):
                 value = {"version": 1, "users": {}}
             users = value.setdefault("users", {})
-            users[username] = {"completed": True, "platform": platform, "completed_at": now}
+            item = users.setdefault(username, {})
+            item.update(completed=True, platform=platform, completed_at=now)
             atomic_json_write(self.path, value)
         safe = {"username": username, "completed": True, "platform": platform, "completed_at": now}
         self.history.record("first_run_setup_completed", actor, "setup", username, safe)
         return safe
+
+
+    def set_optional_skipped(self, username: str, skipped: bool, actor: str) -> None:
+        if username != actor:
+            raise ValueError("Optional setup preference belongs to the active account")
+        with exclusive_file_lock(self.lock):
+            try:
+                value = json.loads(self.path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                value = {"version": 1, "users": {}}
+            value.setdefault("users", {}).setdefault(username, {})["optional_skipped"] = bool(skipped)
+            atomic_json_write(self.path, value)

@@ -1,0 +1,96 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+{% set en = g.language == 'en' %}
+<main id="main-content" class="container-xl py-4" data-optional-setup
+      data-progress="{{ url_for('optional_setup.progress') }}">
+  <a href="{{ url_for('documents.dashboard') }}">{{ 'Back to overview' if en else 'Zurück zur Übersicht' }}</a>
+  <header class="my-3">
+    <h1 class="h2">{{ 'Set up local extras' if en else 'Lokale Extras einrichten' }}</h1>
+    <p>{{ 'All steps are optional. Documents, Mail and Kids work without these extras. Nothing is downloaded or played from this page without an explicit administrator action.' if en else 'Alle Schritte sind optional. Dokumente, Mail und Kids funktionieren auch ohne diese Extras. Diese Seite lädt nichts automatisch herunter und spielt nichts ab.' }}</p>
+    {% if not manage %}<p>{{ 'Only an administrator can install or choose server assets. You can check their status and use the ready features here.' if en else 'Nur die Administration kann Serverdateien installieren oder Stimmen auswählen. Hier kannst du den Stand prüfen und fertige Funktionen öffnen.' }}</p>{% endif %}
+  </header>
+  <div class="d-flex flex-wrap gap-2 mb-3">
+    <a class="btn btn-outline-secondary" href="{{ url_for('optional_setup.index') }}">{{ 'Refresh status' if en else 'Status neu laden' }}</a>
+    <form method="post" action="{{ url_for('optional_setup.preference') }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-outline-secondary" name="action" value="{{ 'resume' if optional_skipped else 'skip' }}">{{ ('Show readiness on my dashboard' if en else 'Status wieder auf meiner Übersicht zeigen') if optional_skipped else ('Skip these extras for now' if en else 'Extras vorerst überspringen') }}</button>
+    </form>
+  </div>
+  {% if optional_skipped %}<p class="small" role="status">{{ 'Skipped for this account only. Installed files and other users are not affected.' if en else 'Nur für dieses Konto übersprungen. Installierte Dateien und andere Konten bleiben unverändert.' }}</p>{% endif %}
+  <section class="card mb-3" id="reader-speech">
+    <div class="card-body">
+      <h2 class="h4">{{ '1. Local read-aloud in Reader & Mail' if en else '1. Lokales Vorlesen in Reader & Mail' }}</h2>
+      <p>{{ 'Piper must be installed separately on the server. Choose local ONNX voices with matching JSON in Media settings; these can be independently configured for default and English. This readiness check reads no document or email and does not run the engine.' if en else 'Piper muss separat auf dem Server installiert sein. Wähle in den Medien-Einstellungen lokale ONNX-Stimmen mit passender JSON-Datei für Standard und Englisch. Die Statusprüfung liest weder Dokumente noch E-Mails und startet die Engine nicht.' }}</p>
+      <dl>
+        <dt>{{ 'Piper engine' if en else 'Piper-Engine' }}</dt>
+        <dd id="speech-engine">{% with status=readiness.piper %}{% include 'optional_setup/_status.html' %}{% endwith %}</dd>
+        <dt>{{ 'Default voice (German Reader and Mail)' if en else 'Standardstimme (Reader und Mail auf Deutsch)' }}</dt>
+        <dd id="speech-default">{% with status=readiness.reader_default %}{% include 'optional_setup/_status.html' %}{% endwith %}</dd>
+        <dt>{{ 'English voice' if en else 'Englische Stimme' }}</dt>
+        <dd id="speech-english">{% with status=readiness.reader_english %}{% include 'optional_setup/_status.html' %}{% endwith %}</dd>
+      </dl>
+      <section id="voice-package" class="border rounded p-3 my-3" aria-labelledby="voice-package-heading">
+        <h3 id="voice-package-heading" class="h5">{{ 'Thorsten Scratch (German, experimental adult voice)' if en else 'Thorsten Scratch (Deutsch, experimentelle Erwachsenenstimme)' }}</h3>
+        {% with status=readiness.voice_package %}{% include 'optional_setup/_status.html' %}{% endwith %}
+        <p>{{ 'The server can download these two files from Hugging Face once (about 64 MB). The download sends no text or game input and does not select a voice or change Kids activation. Reader, Mail and Kids use the same local files only with their own settings.' if en else 'Der Server kann diese zwei Dateien einmal von Hugging Face laden (rund 64 MB). Dabei werden keine Texte oder Spieleingaben übertragen, keine Stimme ausgewählt und die Kids-Aktivierung bleibt unverändert. Reader, Mail und Kids nutzen dieselben lokalen Dateien nur mit ihren eigenen Einstellungen.' }}</p>
+        <details class="mb-2"><summary>{{ 'License, version and checksums' if en else 'Lizenz, Version und Prüfsummen' }}</summary>
+          <p><a href="{{ voice_card }}" rel="noreferrer">Thorsten-Voice Piper-Scratch</a>, <a href="https://creativecommons.org/publicdomain/zero/1.0/" rel="noreferrer">CC0 1.0</a> ({{ 'model and recordings' if en else 'Modell und Aufnahmen' }}). <a href="https://github.com/OHF-Voice/piper1-gpl/blob/main/docs/LICENSING.md" rel="noreferrer">GPL-3.0-or-later</a> ({{ 'separate Piper engine' if en else 'separate Piper-Engine' }}). <code class="text-break">{{ voice_release }}</code></p>
+          <ul>{% for item in voice_manifest %}<li>{{ item.name }} · {{ item.size }} Bytes · SHA-256 <code class="text-break">{{ item.digest }}</code></li>{% endfor %}</ul>
+        </details>
+        {% if manage and readiness.piper == 'engine-found' and readiness.voice_package in ('missing', 'failed') %}
+          {% with feature='voice-package', retry=readiness.voice_package == 'failed' %}{% include 'optional_setup/_install_form.html' %}{% endwith %}
+        {% endif %}
+      </section>
+      <p class="small">{{ 'An administrator can separately select the already installed and verified Thorsten Scratch adult voice for Reader and Mail when the interface language is German. The text language is not detected automatically. An existing English voice or its previous shared fallback, the manual settings, Kids and other audio are unchanged. This is a configuration choice, not playback or a download.' if en else 'Die Administration kann die bereits installierte und verifizierte Erwachsenenstimme Thorsten Scratch separat für Reader und Mail mit deutscher Oberflächensprache auswählen. Die Textsprache wird nicht automatisch erkannt. Englische Stimme oder bisheriger gemeinsamer Fallback, manuelle Einstellungen, Kids und andere Audiofunktionen bleiben unverändert. Die Auswahl startet weder Wiedergabe noch Download.' }}</p>
+      {% if manage %}
+        {% if readiness.reader_thorsten_selected or readiness.reader_thorsten_available %}
+        <form class="d-inline-block me-2" method="post" action="{{ url_for('optional_setup.select_reader_voice') }}">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          {% if readiness.reader_thorsten_selected %}
+          <button class="btn btn-outline-secondary" type="submit" name="action" value="restore">{{ 'Return to the configured default' if en else 'Zur eingerichteten Standardstimme zurück' }}</button>
+          {% else %}
+          <button class="btn btn-primary" type="submit" name="action" value="select">{{ 'Choose Thorsten Scratch for Reader & Mail' if en else 'Thorsten Scratch für Reader & Mail auswählen' }}</button>
+          {% endif %}
+        </form>
+        {% endif %}
+        <a class="btn btn-outline-primary" href="{{ url_for('admin.documents_media_settings') }}">{{ 'Choose local voices in Media settings' if en else 'Lokale Stimmen in den Medien-Einstellungen wählen' }}</a>
+      {% endif %}
+    </div>
+  </section>
+  <section class="card mb-3" id="kids-voice">
+    <div class="card-body">
+      <h2 class="h4">{{ '2. German Kids maze instructions' if en else '2. Deutsche Kids-Labyrinth-Ansagen' }}</h2>
+      {% with status=readiness.kids_voice %}{% include 'optional_setup/_status.html' %}{% endwith %}
+      <p>{{ 'The optional Thorsten Scratch voice works here only for German maze instructions when no default voice is configured. It does not change the Reader or Mail voice.' if en else 'Die optionale Stimme Thorsten Scratch spricht hier nur deutsche Labyrinth-Ansagen, wenn keine Standardstimme eingerichtet ist. Sie ändert die Stimme in Reader oder Mail nicht.' }}</p>
+      {% if manage %}
+      <a class="btn btn-outline-secondary" href="#voice-package">{{ 'Check shared voice files' if en else 'Gemeinsame Stimmdateien prüfen' }}</a>
+      {% endif %}
+      {% if manage and readiness.kids_voice == 'installed-disabled' %}
+        <form class="d-inline-block me-2" method="post" action="{{ url_for('optional_setup.activate_voice') }}">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-primary">{{ 'Enable existing local voice' if en else 'Vorhandene lokale Stimme aktivieren' }}</button>
+        </form>
+      {% endif %}
+      <a class="btn btn-outline-secondary" href="{{ url_for('kids_learning.index') }}">{{ 'Open learning games' if en else 'Lernspiele öffnen' }}</a>
+    </div>
+  </section>
+  <section class="card mb-3" id="kids-hand">
+    <div class="card-body">
+      <h2 class="h4">{{ '3. Finger magic camera game' if en else '3. Kameraspiel Fingerzauber' }}</h2>
+      {% with status=readiness.kids_hand %}{% include 'optional_setup/_status.html' %}{% endwith %}
+      <p>{{ 'The server can fetch the pinned runtime and model once from npm and Google. During play the files come from SimpleOffice; camera frames and hand points stay in the browser. Playing requires a supported browser on trusted HTTPS or localhost and a deliberately enabled webcam.' if en else 'Der Server kann einmalig die festgelegte Laufzeit und das Modell von npm und Google laden. Im Spiel kommen die Dateien von SimpleOffice; Kamerabilder und Handpunkte bleiben im Browser. Zum Spielen sind ein unterstützter Browser über vertrauenswürdiges HTTPS oder localhost und eine ausdrücklich freigegebene Webcam nötig.' }}</p>
+      <details class="mb-2"><summary>{{ 'License, version and checksums' if en else 'Lizenz, Version und Prüfsummen' }}</summary>
+        <p>MediaPipe Tasks Vision {{ hand_runtime_release }} (<a href="https://www.apache.org/licenses/LICENSE-2.0" rel="noreferrer">Apache-2.0</a>); <a href="{{ hand_model_card }}" rel="noreferrer">Hand Landmarker {{ hand_model_release }}</a> (Apache-2.0). {{ 'Runtime package limit' if en else 'Laufzeitpaket maximal' }} {{ hand_archive_limit }} Bytes · SHA-256 <code class="text-break">{{ hand_package_hash }}</code>.</p>
+        <ul>{% for name, item in hand_manifest.items() %}<li>{{ name }} · {{ item[1] }} Bytes · SHA-256 <code class="text-break">{{ item[2] }}</code></li>{% endfor %}</ul>
+      </details>
+      {% if manage and not manual_hand and readiness.kids_hand in ('missing', 'failed') %}
+        {% with feature='kids-hand', retry=readiness.kids_hand == 'failed' %}{% include 'optional_setup/_install_form.html' %}{% endwith %}
+      {% endif %}
+      {% if readiness.kids_hand == 'manual' %}<p class="small">{{ 'Use the manual instructions in docs/KIDS_HAND_GAME.md. An administrator-provided folder takes precedence over downloaded assets.' if en else 'Manuelle Einrichtung: docs/KIDS_HAND_GAME.md. Ein von der Administration vorgegebener Ordner hat Vorrang vor verwalteten Downloads.' }}</p>{% endif %}
+      <a class="btn btn-outline-secondary" href="{{ url_for('kids_learning.hand_game') }}">{{ 'Open Finger magic' if en else 'Fingerzauber öffnen' }}</a>
+    </div>
+  </section>
+</main>
+<script src="{{ url_for('static', filename='js/optional-setup-progress.js') }}" defer></script>
+{% endblock %}

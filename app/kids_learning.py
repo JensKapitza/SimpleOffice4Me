@@ -3,7 +3,6 @@ import base64
 import io
 import ipaddress
 import json
-import os
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
@@ -150,8 +149,10 @@ def mini_games():
 
 
 def _hand_game_asset_directory() -> str:
-    return str(current_app.config.get("KIDS_HAND_GAME_ASSET_DIR")
-               or os.environ.get("SIMPLEOFFICE_KIDS_HAND_GAME_ASSET_DIR", ""))
+    from .optional_hand_game_install import asset_directory
+    from .optional_local_setup import hand_override
+
+    return asset_directory(current_app.config["DOCUMENT_ROOT"], hand_override(current_app.config))
 
 
 @bp.get("/handzeichen")

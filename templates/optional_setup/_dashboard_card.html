@@ -1,0 +1,21 @@
+{% if optional_setup is defined %}
+<section class="card mb-3" id="optional-setup-dashboard" aria-labelledby="optional-setup-dashboard-title">
+  <div class="card-body py-3 d-flex flex-wrap align-items-start justify-content-between gap-2">
+    <div>
+      <h2 class="h6 mb-2" id="optional-setup-dashboard-title">{{ 'Local extras' if g.language == 'en' else 'Lokale Extras' }}</h2>
+      {% if setup_status.optional_skipped %}
+      <small>{{ 'Optional setup skipped for your account.' if g.language == 'en' else 'Optionale Einrichtung für dein Konto übersprungen.' }}</small>
+      {% else %}
+      <ul class="d-flex gap-2 flex-wrap list-unstyled small mb-0">
+        <li>Reader &amp; Mail {% with status=optional_setup.piper %}{% include 'optional_setup/_status.html' %}{% endwith %} {% with status=optional_setup.reader_default %}{% include 'optional_setup/_status.html' %}{% endwith %}</li>
+        <li>{{ 'Thorsten voice files' if g.language == 'en' else 'Thorsten-Stimmdateien' }} {% with status=optional_setup.voice_package %}{% include 'optional_setup/_status.html' %}{% endwith %}</li>
+        <li>{{ 'Kids maze voice (experimental)' if g.language == 'en' else 'Kids-Labyrinthstimme (experimentell)' }} {% with status=optional_setup.kids_voice %}{% include 'optional_setup/_status.html' %}{% endwith %}</li>
+        <li>Fingerzauber {% with status=optional_setup.kids_hand %}{% include 'optional_setup/_status.html' %}{% endwith %}</li>
+      </ul>
+      <p class="small mb-0 text-secondary">{{ 'Kids installs do not enable Reader or Mail speech.' if g.language == 'en' else 'Die Kids-Installation aktiviert nicht das Vorlesen in Reader oder Mail.' }}</p>
+      {% endif %}
+    </div>
+    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('optional_setup.index') }}">{{ 'Open optional setup' if g.language == 'en' else 'Optionale Einrichtung öffnen' }}</a>
+  </div>
+</section>
+{% endif %}
