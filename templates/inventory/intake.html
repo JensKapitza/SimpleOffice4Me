@@ -16,6 +16,10 @@
       <div class="col-sm">
         <label for="intake-barcode" class="form-label">Barcode / ISBN (alternativ zum Foto)</label>
         <input id="intake-barcode" name="barcode" class="form-control" maxlength="120" autocomplete="off">
+        <button type="button" data-intake-native-scan hidden class="btn btn-sm btn-outline-secondary mt-2"
+                aria-describedby="intake-native-scan-help intake-native-scan-status">{{ 'Scan barcode' if g.language == 'en' else 'Barcode scannen' }}</button>
+        <p id="intake-native-scan-help" data-intake-native-scan-help hidden class="form-text mb-0">{{ 'Scanning fills this field only. You can also enter a barcode or choose a photo.' if g.language == 'en' else 'Scannen füllt nur dieses Feld. Du kannst den Barcode auch eingeben oder ein Foto wählen.' }}</p>
+        <p id="intake-native-scan-status" data-intake-native-scan-status role="status" class="form-text mb-0"></p>
       </div>
       <div class="col-sm">
         <label for="intake-photo" class="form-label">Foto aufnehmen oder auswählen</label>
@@ -215,4 +219,7 @@
   {% endif %}
 </main>
 {% endblock %}
-{% block script %}<script defer src="{{ url_for('static', filename='js/inventory_intake.js') }}"></script>{% endblock %}
+{% block script %}
+<script defer src="{{ url_for('static', filename='js/inventory_intake.js') }}"></script>
+<script defer src="{{ url_for('static', filename='js/inventory_intake_native_scan.js') }}"></script>
+{% endblock %}
