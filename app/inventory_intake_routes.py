@@ -20,6 +20,7 @@ from .capture_intake_state import (
 from .file_lock import exclusive_file_lock
 from .inventory import _objects, bp
 from .inventory_capture import store_upload
+from .inventory_catalog import google_books_configured, lookup_availability
 from .inventory_intake_matches import match_key, matching_owned_copies
 from .inventory_intake_evidence import local_proposal, local_target, ocr_fields
 from .inventory_library_capture import (
@@ -131,8 +132,10 @@ def mixed_intake():
     keys = {draft["id"]: match_key(draft["manual"].get("barcode")) for draft in drafts if not draft["confirmed"]}
     known = {key for key in keys.values() if key is not None}
     matches = matching_owned_copies(_objects(), _library_store(), _actor(), known) if known else {}
+    google_books = google_books_configured()
     for draft in drafts:
         draft["existing_copies"] = matches.get(keys.get(draft["id"]), ())
+        draft["catalog_availability"] = lookup_availability(draft["manual"].get("barcode"), google_books=google_books)
     reply = make_response(render_template(
         "inventory/intake.html", drafts=drafts, locations=capture_locations() if supported else [],
         storage_supported=supported,
