@@ -24,6 +24,7 @@
             <li><a class="dropdown-item" href="{{ url_for('documents.forms') }}">{{ 'Forms' if g.language == 'en' else 'Formulare' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('rentals.index') }}">{{ 'Rentals' if g.language == 'en' else 'Vermietung' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('inventory.index') }}">{{ 'Inventory scan' if g.language == 'en' else 'Inventar Scan' }}</a></li>
+            {% if v3_automation_nav %}<li><a class="dropdown-item" href="{{ url_for('v3_automation.index') }}">Automation 3.0</a></li>{% endif %}
           </ul>
         </div>
 

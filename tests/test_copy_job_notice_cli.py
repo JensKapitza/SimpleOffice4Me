@@ -62,6 +62,10 @@ class CopyJobNoticeCliTests(PublicHttpTestCase):
         other_page = other.get("/automation-v3").get_data(as_text=True)
         self.assertIn(notice.occurred_at, owner_page)
         self.assertNotIn(notice.occurred_at, other_page)
+        feed = "/automation-v3/copy-notices"
+        self.assertEqual([{"id": notice.event_id, "kind": "job", "at": notice.occurred_at}],
+                         self.client.get(feed).get_json()["notices"])
+        self.assertEqual([], other.get(feed).get_json()["notices"])
         result = self._run("--notify-account", "owner")
         self.assertEqual(result.exit_code, 0, str(result.exception))  # unchanged files
         self.output.unlink()

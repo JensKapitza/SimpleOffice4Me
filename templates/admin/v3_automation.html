@@ -9,7 +9,12 @@
     <div class="alert alert-secondary">{{ 'The capability' if g.language == 'en' else 'Die Capability' }} <code>v3.automation</code> {{ 'is disabled.' if g.language == 'en' else 'ist deaktiviert.' }}</div>
   {% else %}
   {% if copy_notices_enabled %}
-  <section class="card mb-4" aria-labelledby="copy-notices-heading">
+  <section class="card mb-4" aria-labelledby="copy-notices-heading" data-copy-notice-feed
+           data-endpoint="{{ url_for('v3_automation.copy_notices_feed') }}"
+           data-browser-label="{{ 'Document copied' if g.language == 'en' else 'Dokument kopiert' }}"
+           data-job-label="{{ 'Copy job completed' if g.language == 'en' else 'Kopierjob abgeschlossen' }}"
+           data-empty-label="{{ 'No notifications yet.' if g.language == 'en' else 'Noch keine Meldungen.' }}"
+           data-new-label="{{ 'New copy notification.' if g.language == 'en' else 'Neue Kopiermeldung.' }}">
     <div class="card-body">
       <h2 class="h5" id="copy-notices-heading">{{ 'Local copy notifications' if g.language == 'en' else 'Lokale Kopiermeldungen' }}</h2>
       <p>{{ 'Select which completed copies to show in this account.' if g.language == 'en' else 'Wähle aus, welche abgeschlossenen Kopien in diesem Konto angezeigt werden sollen.' }}</p>
@@ -30,9 +35,11 @@
         {% endif %}
       </div>
       {% endfor %}
-      <ul class="mb-0">
+      <p class="small text-secondary">{{ 'Updates while this page is open.' if g.language == 'en' else 'Die Meldungen aktualisieren sich, solange diese Seite geöffnet ist.' }}</p>
+      <p class="visually-hidden" role="status" aria-live="polite" data-copy-notice-announcement></p>
+      <ul class="mb-0" data-copy-notice-list>
         {% for notice in copy_notices %}
-          <li>{% if notice.event_type == copy_job_notice_type %}{{ 'Copy job completed' if g.language == 'en' else 'Kopierjob abgeschlossen' }}{% else %}{{ 'Document copied' if g.language == 'en' else 'Dokument kopiert' }}{% endif %} · <time datetime="{{ notice.occurred_at }}">{{ notice.occurred_at }}</time></li>
+          <li data-notice-id="{{ notice.event_id }}">{% if notice.event_type == copy_job_notice_type %}{{ 'Copy job completed' if g.language == 'en' else 'Kopierjob abgeschlossen' }}{% else %}{{ 'Document copied' if g.language == 'en' else 'Dokument kopiert' }}{% endif %} · <time datetime="{{ notice.occurred_at }}">{{ notice.occurred_at }}</time></li>
         {% else %}
           <li>{{ 'No notifications yet.' if g.language == 'en' else 'Noch keine Meldungen.' }}</li>
         {% endfor %}
@@ -104,4 +111,7 @@
   </div>
   {% endif %}
 </main>
+{% if enabled and copy_notices_enabled %}
+<script src="{{ url_for('static', filename='js/v3_copy_notices.js', v=app_build.version) }}" defer></script>
+{% endif %}
 {% endblock %}

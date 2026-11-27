@@ -108,7 +108,7 @@ def enable_copy_notice_preset(
         })
 
 
-def recent_copy_notices(root, principal: str):
+def recent_copy_notices(root, principal: str, *, strict=False):
     if not principal or not enabled("v3.activity", root=root):
         return []
     try:
@@ -120,4 +120,6 @@ def recent_copy_notices(root, principal: str):
         return sorted(rows, key=lambda row: (row.occurred_at, row.event_id), reverse=True)[:10]
     except (OSError, sqlite3.Error) as exc:
         LOG.warning("local copy notices could not be loaded: %s", type(exc).__name__)
+        if strict:
+            raise
         return []

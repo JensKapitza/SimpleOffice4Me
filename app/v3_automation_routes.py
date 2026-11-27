@@ -6,7 +6,7 @@ import hashlib
 import re
 import secrets
 import sqlite3
-from flask import Blueprint, abort, current_app, flash, g, make_response, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, flash, g, jsonify, make_response, redirect, render_template, request, url_for
 
 from .access_control import has_feature
 from .auth import login_required
@@ -19,6 +19,20 @@ from .v3_copy_notices import (
 
 
 bp = Blueprint("v3_automation", __name__, url_prefix="/automation-v3")
+
+
+@bp.app_context_processor
+def _automation_navigation():
+    user = getattr(g, "user", None)
+    return {"v3_automation_nav": bool(user is not None and enabled("v3.automation"))}
+
+
+@bp.after_request
+def _private_response(response):
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.vary.add("Cookie")
+    return response
 
 
 def _store() -> AutomationStore:
@@ -105,6 +119,24 @@ def index():
     if not enabled("v3.automation"):
         return render_template("admin/v3_automation.html", enabled=False, rules=[], logs=[])
     return _render_index(actor)
+
+
+@bp.get("/copy-notices")
+@login_required
+def copy_notices_feed():
+    if not enabled("v3.automation") or not enabled("v3.activity"):
+        abort(404)
+    try:
+        rows = recent_copy_notices(
+            current_app.config["DOCUMENT_ROOT"], str(g.user["username"]), strict=True,
+        )
+    except (OSError, sqlite3.Error):
+        abort(503)
+    return jsonify({"notices": [
+        {"id": row.event_id, "kind": "job" if row.event_type == JOB_NOTICE else "browser",
+         "at": row.occurred_at}
+        for row in rows
+    ]})
 
 
 @bp.post("/copy-notice")

@@ -130,3 +130,27 @@ class DocumentCopyEventTests(PublicHttpTestCase):
         self.assertEqual(self._copy().status_code, 302)
         self.assertEqual(ActivityStore(self.root).list(event_type=NOTICE), [])
         self.assertEqual(store.logs("owner"), [])
+
+
+    def test_feed_is_private_minimal_and_independent_of_browser_refresh(self):
+        SettingsStore(self.root).save({"v3": {"v3.activity": True, "v3.automation": True}}, "owner")
+        endpoint = "/automation-v3/copy-notices"
+        self.assertEqual(app.test_client().get(endpoint).status_code, 302)
+        self.assertIn(b'href="/automation-v3"', self.client.get("/tasks/").data)
+        initial = self.client.get(endpoint)
+        self.assertEqual({"notices": []}, initial.get_json())
+        self.assertIn("no-store", initial.headers["Cache-Control"])
+        self.assertIn("Cookie", initial.headers["Vary"])
+        self.client.post("/automation-v3/copy-notice", headers=self.csrf)
+        self.assertEqual(self._copy().status_code, 302)
+        fresh = self.client.get(endpoint)
+        notice, = fresh.get_json()["notices"]
+        self.assertEqual({"id", "kind", "at"}, set(notice))
+        self.assertEqual("browser", notice["kind"])
+        self.assertNotIn(b"sensitive-name.txt", fresh.data)
+        self._register(self.client, "other")
+        other = app.test_client()
+        self._login(other, "other")
+        self.assertEqual({"notices": []}, other.get(endpoint).get_json())
+        SettingsStore(self.root).save({"v3": {"v3.activity": False, "v3.automation": True}}, "owner")
+        self.assertEqual(404, self.client.get(endpoint).status_code)

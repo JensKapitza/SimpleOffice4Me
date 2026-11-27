@@ -44,7 +44,13 @@ flask --app app run-replications --run-id spiegelung-2026-11-27T1800Z --notify-a
 
 Der Job läuft standardmäßig als Audit-Akteur `system`. Ein `--actor` ist keine Empfängerfreigabe und eine Anmeldung im Browser legt keinen Job-Empfänger fest. Ohne `--notify-account` bleiben Kopierjobs unverändert und versenden keine Meldung. Ein unbekanntes oder gesperrtes Konto fällt vor dem Kopieren auf; zusätzlich wird die Kontofreigabe beim Zustellen geprüft. Auch bei gültigem Ziel muss das Konto die Job-Meldungen selbst aktiviert haben. Teilläufe, Läufe ohne Änderungen und einzeln aus der Oberfläche gestartete Spiegelungsregeln lösen die Job-Meldung nicht aus. Die optionale Meldung wird nach der bestätigten Kopie verarbeitet; sie ist keine atomare Zustellgarantie bei Prozessabbruch.
 
-Die Aktion `app.copy_notice` akzeptiert keine Parameter oder Zielgeräte. Der Einstieg führt keine anderen oder gemischten Aktionen aus. Sofortige Ablauffristen können geprüft werden, verzögerte Aktionen und Zeitfenster werden hier nicht eingeplant. Beim Seitenaufruf erscheinen die letzten zehn Meldungen dieses Kontos. Kein Live-Push, Ton oder föderiertes Ziel.
+Die Aktion `app.copy_notice` akzeptiert keine Parameter oder Zielgeräte. Der Einstieg führt keine anderen oder gemischten Aktionen aus. Sofortige Ablauffristen können geprüft werden, verzögerte Aktionen und Zeitfenster werden hier nicht eingeplant. Unter **Arbeit → Automation 3.0** erscheinen die letzten zehn Meldungen
+dieses Kontos. Die Liste aktualisiert sich, solange der Tab sichtbar und
+online ist, normalerweise alle fünf Sekunden. Ein Hintergrund-Tab startet
+keine Anfragen. Bei vorübergehenden Fehlern bleibt die letzte sichtbare Liste
+erhalten; nach Ende der Sitzung oder Abschalten der Funktion stoppt der Abruf.
+Das ist eine Aktualisierung dieser Seite, kein Push außerhalb der App, Ton
+oder föderiertes Ziel.
 
 ## Nächster Anschluss
 
