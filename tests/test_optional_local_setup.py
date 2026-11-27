@@ -93,6 +93,7 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
                 patch.object(optional, "resolve_command", return_value=None), \
                 patch.object(piper_runtime, "install_supported", return_value=False), \
                 patch.object(ffmpeg_runtime, "install_supported", return_value=False), \
+                patch.object(ocr_runtime, "install_supported", return_value=False), \
                 patch.object(optional._WORKERS, "submit") as submit:
             inventory = optional.component_inventory(self.root)
             self.assertEqual("android-apk", inventory["runtime"])
