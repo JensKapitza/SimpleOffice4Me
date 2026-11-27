@@ -427,7 +427,7 @@ def live_read_aloud():
             _store(), _actor(), request.args.get("account", ""),
             request.args.get("folder", ""), request.args.get("uid", ""), version,
         ),
-        language=g.language, recheck_source=True,
+        language=g.language, recheck_source=True, allow_device_voice=True,
     )
 
 
@@ -442,7 +442,7 @@ def archive_read_aloud(archive_id: str):
         return read_aloud_error(exc.code, exc.status)
     return private_audio_response(
         lambda: archive_mail_text(_store(), _actor(), request.args.get("account", ""), archive_id, version, part=part),
-        language=g.language, recheck_source=True,
+        language=g.language, recheck_source=True, allow_device_voice=True,
     )
 
 
@@ -469,7 +469,7 @@ def case_read_aloud(case_id: str, archive_id: str):
             raise ReadAloudError("source_unavailable", 404) from None
         return archive_mail_text(store, case["account_owner"], account_id, archive_id, version)
 
-    return private_audio_response(load_case_message, language=g.language, recheck_source=True)
+    return private_audio_response(load_case_message, language=g.language, recheck_source=True, allow_device_voice=True)
 
 
 @bp.get("/contacts")

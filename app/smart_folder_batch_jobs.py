@@ -107,7 +107,7 @@ def batch_handler(root: str | Path, jobs: JobStore, worker_id: str):
                         raise PermanentJobError("Smart Folder batch exceeds the total size limit")
                     documents.append(document_id)
 
-                previews = PreviewService(root, detect_preview_tools())
+                previews = PreviewService(root, detect_preview_tools(root))
                 jobs.update_progress(job.job_id, worker_id, {
                     "action": action, "completed": 0, "total": len(documents),
                 })

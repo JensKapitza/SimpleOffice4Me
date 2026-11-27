@@ -15,7 +15,9 @@
   'installed-disabled': ('Verified local copy, disabled', 'Lokale Kopie geprüft, deaktiviert'),
   'queued': ('Queued', 'Vorgemerkt'),
   'downloading': ('Downloading and verifying', 'Wird geladen und geprüft'),
+  'cancelling': ('Cancelling download', 'Download wird abgebrochen'),
+  'cancelled': ('Download cancelled', 'Download abgebrochen'),
   'ready': ('Files verified', 'Dateien verifiziert'),
   'failed': ('Setup failed', 'Einrichtung fehlgeschlagen')
 } -%}
-<span class="badge text-bg-{{ 'success' if status in ('ready', 'configured', 'shared', 'fallback', 'shared-fallback', 'engine-found', 'reader-thorsten') else 'info' if status in ('queued', 'downloading') else 'warning' if status in ('failed', 'invalid', 'manual', 'config-missing', 'reader-thorsten-invalid') else 'secondary' }}" data-optional-status="{{ status }}">{{ status_labels[status][0 if en else 1] }}</span>
+<span class="badge text-bg-{{ 'success' if status in ('ready', 'configured', 'shared', 'fallback', 'shared-fallback', 'engine-found', 'reader-thorsten') else 'info' if status in ('queued', 'downloading', 'cancelling') else 'warning' if status in ('failed', 'invalid', 'manual', 'config-missing', 'reader-thorsten-invalid') else 'secondary' }}" data-optional-status="{{ status }}">{{ status_labels[status][0 if en else 1] }}</span>

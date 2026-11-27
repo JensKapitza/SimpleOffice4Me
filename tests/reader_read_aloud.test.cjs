@@ -557,6 +557,16 @@ test('known final page ends a shorter run and offers only a manual jump to the l
   assert.deepEqual(f.requests.map(bodyPage), [4, 5]);
 });
 
+test('APK background signal cancels a pending read without playing the late body', async () => {
+  const f = fixture();
+  const request = f.start.fire('click');
+  f.window.fire('simpleoffice:speech-stop');
+  assert.equal(f.requests[0].opts.signal.aborted, true);
+  f.requests[0].resolve(response());
+  await request;
+  assert.equal(f.audios.length, 0);
+});
+
 test('manual navigation, stop, pagehide and stale permission/version end subsequent in-flight playback', async () => {
   for (const cancel of [f => f.goTo(7), f => f.stop.fire('click'), f => f.window.fire('pagehide')]) {
     const f = pdfRun();

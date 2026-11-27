@@ -5,7 +5,7 @@ const test = require('node:test');
 const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '../static/js/kids_numbers.js'), 'utf8');
-const sound = fs.readFileSync(path.join(__dirname, '../static/js/kids_shared.js'), 'utf8');
+const {load, soundFixture} = require('./kids_audio_fixture.cjs');
 
 class Element {
   constructor(tag = '') {
@@ -42,32 +42,29 @@ function round(level, audioAvailable = true) {
     medium: {max: 5, choices: 3, tasks: 4, compare: true}}};
   root.querySelector = key => key === '#kids-numbers-config' ? {textContent: JSON.stringify(config)} : ui[key.slice(6, -1)];
   root.querySelectorAll = () => [start];
-  const clips = [];
-  const fallback = [];
-  const window = {
-    Audio: audioAvailable ? class Audio {
-      constructor(url) { this.url = url; this.handlers = new Map(); }
-      addEventListener(key, callback) { this.handlers.set(key, callback); }
-      play() {
-        clips.push(this.url.split('/').at(-1).split('?')[0]);
-        queueMicrotask(() => this.handlers.get('ended')?.());
-        return Promise.resolve();
-      }
-      pause() { this.handlers.get('pause')?.(); }
-    } : undefined,
-    KidsPiperVoice: {stop() {}, speak: value => fallback.push(value)},
+  const document = {
+    querySelector: selector => selector.includes('csrf-token') ? {content: 'fixture-csrf'} : root,
+    createElement: tag => new Element(tag),
   };
+  const fixture = soundFixture({document, autoEnd: audioAvailable, transport: audioAvailable ? undefined : async () => ({ok:false})});
+  if (!audioAvailable) {
+    const Base = fixture.window.Audio;
+    fixture.window.Audio = class extends Base {
+      play() { queueMicrotask(() => this.fail()); return Promise.resolve(); }
+    };
+  }
   let draws = 0;
   const math = Object.create(Math);
   math.random = () => ++draws % 2 ? .9 : .1;
-  const sandbox = vm.createContext({
-    window, Math: math, document: {querySelector: () => root, createElement: tag => new Element(tag)},
-  });
-  vm.runInContext(sound, sandbox);
-  window.KidsShared.shuffle = values => [...values];
-  vm.runInContext(source, sandbox);
+  fixture.context.Math = math;
+  load(fixture.context, 'kids_shared.js');
+  fixture.window.KidsShared.shuffle = values => [...values];
+  vm.runInContext(source, fixture.context);
   start.click();
-  return {ui, clips, fallback};
+  return {ui,
+    get clips() { return fixture.events.filter(event => event.startsWith('play:/')).map(event => event.split('/').at(-1).split('?')[0]); },
+    get fallback() { return fixture.requests.map(request => request.payload.text); },
+  };
 }
 
 const tick = () => new Promise(resolve => setImmediate(resolve));

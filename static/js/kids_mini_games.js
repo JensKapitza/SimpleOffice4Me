@@ -10,6 +10,7 @@
   const stage = root.querySelector('[data-mini-stage]');
   const title = root.querySelector('[data-mini-title]');
   const prompt = root.querySelector('[data-mini-prompt]');
+  const speechStatus = root.querySelector('[data-speech-status]');
   const feedback = root.querySelector('[data-mini-feedback]');
   const progress = root.querySelector('[data-mini-progress]');
   const memoryProgress = root.querySelector('[data-mini-memory-progress]');
@@ -300,7 +301,7 @@
   // All prompts play through the local Piper TTS endpoint (offline-first,
   // one consistent voice). There is intentionally no SpeechSynthesis fallback.
   function speak(value, language) {
-    if (window.KidsPiperVoice) window.KidsPiperVoice.speak(value, language, null);
+    if (window.KidsPiperVoice) window.KidsPiperVoice.speak(value, language, speechStatus);
   }
 
   gameButtons.forEach(button => button.addEventListener('click', () => begin(button.dataset.miniGame)));

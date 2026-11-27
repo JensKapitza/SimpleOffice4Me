@@ -3,6 +3,8 @@ import base64
 import io
 import ipaddress
 import json
+import tempfile
+import threading
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
@@ -11,15 +13,20 @@ from flask import Blueprint, abort, current_app, jsonify, render_template, reque
 from . import kids_hand_assets, kids_piper_assets
 from .auth import login_required
 from .federation_qr_image import render_qr_svg
+from .private_read_aloud import (
+    MAX_SPEECH_AUDIO_BYTES, ReadAloudError, android_speech_available, private_audio_response, read_aloud_error,
+)
 from .settings_store import SettingsStore
 
 
 bp = Blueprint("kids_learning", __name__, url_prefix="/kids/lernen")
 
 #: Highest text length the read-aloud endpoint renders in one request.
-#: Maze instructions and quiz prompts are short; the cap keeps Piper renders
-#: small, cacheable and responsive on low-end devices.
+#: Maze instructions and quiz prompts are short; the cap keeps renders
+#: small and responsive on low-end devices.
 MAX_KIDS_TTS_CHARS = 500
+_MAX_KIDS_TTS_BODY = 4096
+_LEGACY_RENDER = threading.BoundedSemaphore(1)
 
 _PIPER_MISSING_MESSAGE = (
     "Vorlesestimme ist nicht eingerichtet. "
@@ -30,13 +37,7 @@ _PIPER_MISSING_MESSAGE = (
 
 @bp.after_request
 def _private_response(response):
-    if (request.endpoint == "kids_learning.sprache" and response.status_code == 200
-            and request.args.get("purpose") != "instructions"):
-        # Rendered speech is addressed by its (text, language) hash, so a
-        # successful render is immutable and safe to cache on the device.
-        response.headers["Cache-Control"] = "private, max-age=31536000, immutable"
-    else:
-        response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Cache-Control"] = "private, no-store"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["X-Robots-Tag"] = "noindex, nofollow"
     return response
@@ -60,32 +61,82 @@ def _kids_tts_model(language: str) -> str:
     return model.strip()
 
 
-def _kids_tts_cache_dir() -> Path:
-    from .mini_services import default_config_path
+def limit_speech_request():
+    """Reject invalid Kids POST envelopes before the global CSRF form parser."""
+    if request.endpoint != "kids_learning.sprache" or request.method != "POST":
+        return None
+    if not request.is_json:
+        return read_aloud_error("invalid_request", 400)
+    if request.content_length is not None and request.content_length > _MAX_KIDS_TTS_BODY:
+        return read_aloud_error("request_too_large", 413)
+    return None
 
-    return default_config_path().parent / "audio" / "kids-tts"
+
+def _selected_kids_piper(language, text="", purpose=""):
+    model = _kids_tts_model(language)
+    if not model and language == "de-DE" and purpose == "instructions" and kids_piper_assets.is_maze_instruction(text):
+        model = kids_piper_assets.enabled_model(current_app.config["DOCUMENT_ROOT"])
+    if not model or "://" in model or model.startswith(("//", "\\")):
+        raise ReadAloudError("piper_unavailable", 503)
+    path = Path(model).expanduser()
+    if path.suffix.casefold() != ".onnx" or not path.is_file():
+        raise ReadAloudError("piper_unavailable", 503)
+    return str(path.resolve())
 
 
-@bp.get("/sprache")
+def _speech_arguments():
+    if request.method == "GET":
+        return request.args
+    if request.args or not request.is_json:
+        raise ReadAloudError("invalid_request", 400)
+    # Limit the encoded envelope, including UTF-8 and escaped JSON. Do not use
+    # request.get_json() on an unbounded stream without a declared length.
+    maximum = _MAX_KIDS_TTS_BODY
+    if request.content_length is not None and request.content_length > maximum:
+        raise ReadAloudError("request_too_large", 413)
+    body = request.stream.read(maximum + 1)
+    if len(body) > maximum:
+        raise ReadAloudError("request_too_large", 413)
+    try:
+        value = json.loads(body)
+    except (ValueError, UnicodeError, RecursionError) as exc:
+        raise ReadAloudError("invalid_request", 400) from exc
+    if (not isinstance(value, dict) or set(value) != {"text", "lang", "purpose"}
+            or not all(isinstance(item, str) for item in value.values())):
+        raise ReadAloudError("invalid_request", 400)
+    return value
+
+
+@bp.route("/sprache", methods=("GET", "POST"))
 @login_required
 def sprache():
-    """Render short read-aloud texts with the local Piper voice.
-
-    Offline-first: speech is synthesized by the local Piper CLI and cached on
-    disk by text hash, so repeated maze and quiz prompts need no recompute.
-    Query params: ``text`` (1..500 chars), ``lang`` (``de-DE`` or ``en-US``).
-    """
-    language = (request.args.get("lang", "de-DE") or "de-DE").strip()
+    """Speak one local learning prompt; Android speech is authenticated POST only."""
+    try:
+        args = _speech_arguments()
+    except ReadAloudError as exc:
+        return read_aloud_error(exc.code, exc.status)
+    language = (args.get("lang", "de-DE") or "de-DE").strip()
     if language not in {"de-DE", "en-US"}:
         return jsonify(error="Unbekannte Sprache. Erlaubt sind de-DE und en-US."), 400
-    text = " ".join((request.args.get("text", "") or "").split())
+    text = " ".join((args.get("text", "") or "").split())
     if not text or len(text) > MAX_KIDS_TTS_CHARS:
         return jsonify(error="Vorlesetext muss 1 bis 500 Zeichen enthalten."), 400
     if any(ord(char) < 32 or ord(char) == 127 for char in text):
         return jsonify(error="Vorlesetext enthält ungültige Zeichen."), 400
-    purpose = request.args.get("purpose", "")
+    purpose = args.get("purpose", "")
     if purpose not in {"", "instructions"}:
         return jsonify(error="Unbekannter Einsatzzweck."), 400
+    if request.method == "POST":
+        return private_audio_response(
+            lambda: text, language=language, device_scope="kids",
+            piper_model=lambda locale: _selected_kids_piper(locale, text, purpose),
+        )
+    if android_speech_available():
+        return read_aloud_error("method_not_allowed", 405)
+    return _piper_kids_audio(text, language, purpose)
+
+
+def _piper_kids_audio(text, language, purpose):
     model = _kids_tts_model(language)
     root = current_app.config["DOCUMENT_ROOT"]
     managed = ""
@@ -93,25 +144,33 @@ def sprache():
         managed = kids_piper_assets.enabled_model(root)
     if not model and not managed:
         return jsonify(error=_PIPER_MISSING_MESSAGE, code="piper_unavailable"), 503
+    if not _LEGACY_RENDER.acquire(blocking=False):
+        return jsonify(error="Eine Ansage läuft bereits. Bitte erneut versuchen.", code="piper_busy"), 503
     try:
         if managed:
             wav = kids_piper_assets.render_instruction(root, text, managed)
             if wav is None:
                 return jsonify(error="Eine Ansage läuft bereits. Bitte erneut versuchen.", code="piper_busy"), 503
-            return send_file(io.BytesIO(wav), mimetype="audio/wav")
+        else:
+            from .audio_output_engine import render_tts
 
-        from .audio_output_engine import render_tts
-
-        audio_path = render_tts(
-            text,
-            "kids-de" if language == "de-DE" else "kids-en",
-            _kids_tts_cache_dir(),
-            model=model,
-        )
+            # Retain the old short GET contract for desktop clients, but never
+            # write their arbitrary rendered text into a persistent WAV cache.
+            with tempfile.TemporaryDirectory(prefix="simpleoffice-kids-speech-") as directory:
+                audio_path = render_tts(
+                    text, "kids-de" if language == "de-DE" else "kids-en", directory,
+                    model=model, document_root=root,
+                )
+                with audio_path.open("rb") as output:
+                    wav = output.read(MAX_SPEECH_AUDIO_BYTES + 1)
+            if len(wav) > MAX_SPEECH_AUDIO_BYTES:
+                return read_aloud_error("audio_too_large", 413)
+        return send_file(io.BytesIO(wav), mimetype="audio/wav")
     except (RuntimeError, TimeoutError, ValueError, OSError) as exc:
         current_app.logger.warning("Kids read-aloud failed: %s", type(exc).__name__)
         return jsonify(error=_PIPER_MISSING_MESSAGE, code="piper_unavailable"), 503
-    return send_file(audio_path, mimetype="audio/wav", max_age=31536000)
+    finally:
+        _LEGACY_RENDER.release()
 
 
 @bp.get("")

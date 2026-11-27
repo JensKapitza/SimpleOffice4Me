@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from .document_store_core import CONTROL_DIR
+from .component_runtime import resolve_command
 from .file_lock import exclusive_file_lock
 
 
@@ -161,7 +162,9 @@ def render_instruction(document_root: str | Path, text: str, model: str) -> byte
         return data
 
 
-def _download(asset: Asset, target: Path, deadline: float) -> None:
+def _download(asset: Asset, target: Path, deadline: float, *, progress=None, cancel_event=None) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise InterruptedError("Piper-Download abgebrochen")
     request = Request(_MODEL_BASE + asset.name, headers={"Accept-Encoding": "identity"})
     digest = hashlib.sha256()
     received = 0
@@ -169,6 +172,8 @@ def _download(asset: Asset, target: Path, deadline: float) -> None:
         if response.status != 200:
             raise OSError("Unerwartete HTTP-Antwort für die Piper-Stimme")
         while time.monotonic() < deadline:
+            if cancel_event is not None and cancel_event.is_set():
+                raise InterruptedError("Piper-Download abgebrochen")
             block = response.read1(min(_CHUNK, asset.size + 1 - received))
             if not block:
                 break
@@ -177,6 +182,8 @@ def _download(asset: Asset, target: Path, deadline: float) -> None:
                 raise ValueError("Piper-Datei größer als erwartet")
             digest.update(block)
             stream.write(block)
+            if progress is not None:
+                progress(asset.name, received, asset.size)
         else:
             raise TimeoutError("Zeitlimit für den Piper-Download erreicht")
     if received != asset.size or digest.hexdigest() != asset.digest:
@@ -184,19 +191,30 @@ def _download(asset: Asset, target: Path, deadline: float) -> None:
     target.chmod(0o600)
 
 
-def _download_pair(directory: Path) -> None:
+def _download_pair(directory: Path, *, progress=None, cancel_event=None) -> None:
     with tempfile.TemporaryDirectory(prefix="piper-download-", dir=directory) as staging:
         stage = Path(staging)
         deadline = time.monotonic() + _DOWNLOAD_TIMEOUT
+        offset = 0
+        total_size = sum(asset.size for asset in _ASSETS)
         for asset in _ASSETS:
-            _download(asset, stage / asset.name, deadline)
+            report = None
+            if progress is not None:
+                report = lambda name, received, _size, base=offset: progress(  # noqa: E731
+                    name, base + received, total_size,
+                )
+            _download(asset, stage / asset.name, deadline, progress=report, cancel_event=cancel_event)
+            offset += asset.size
+        if cancel_event is not None and cancel_event.is_set():
+            raise InterruptedError("Piper-Download abgebrochen")
         for asset in _ASSETS:
             os.replace(stage / asset.name, directory / asset.name)
 
 
-def install_package(document_root: str | Path) -> str:
+def install_package(document_root: str | Path, *, progress=None, cancel_event=None) -> str:
     """Install only the pinned pair; leave every use/activation setting untouched."""
-    return _update_package(document_root, enable_kids=None, allow_download=True)
+    return _update_package(document_root, enable_kids=None, allow_download=True,
+                           progress=progress, cancel_event=cancel_event)
 
 
 def set_enabled(document_root: str | Path, enable: bool, *, allow_download: bool = True) -> str:
@@ -204,8 +222,9 @@ def set_enabled(document_root: str | Path, enable: bool, *, allow_download: bool
     return _update_package(document_root, enable_kids=enable, allow_download=allow_download)
 
 
-def _update_package(document_root: str | Path, *, enable_kids: bool | None, allow_download: bool) -> str:
-    if enable_kids is True and not shutil.which("piper"):
+def _update_package(document_root: str | Path, *, enable_kids: bool | None, allow_download: bool,
+                    progress=None, cancel_event=None) -> str:
+    if enable_kids is True and not resolve_command("piper", document_root):
         return "unavailable"
     directory = _voice_dir(document_root)
     try:
@@ -225,7 +244,7 @@ def _update_package(document_root: str | Path, *, enable_kids: bool | None, allo
                     marker.unlink(missing_ok=True)
                 if not allow_download:
                     return "failed"
-                _download_pair(directory)
+                _download_pair(directory, progress=progress, cancel_event=cancel_event)
                 if not _verified(directory):
                     return "failed"
             if enable_kids is None:
@@ -234,6 +253,8 @@ def _update_package(document_root: str | Path, *, enable_kids: bool | None, allo
                 marker.unlink()
             marker.touch(mode=0o600)
             return "enabled"
+    except InterruptedError:
+        return "cancelled"
     except (HTTPException, OSError, RuntimeError, ValueError) as exc:
         # Never log URLs: redirected CDN links contain query authentication.
         _LOG.warning("Pinned Piper files setup failed: %s", type(exc).__name__)

@@ -1,4 +1,4 @@
-"""Short, private audio responses using the operator's local Piper setup."""
+"""Short, private audio responses using a configured local speech engine."""
 from __future__ import annotations
 
 import json
@@ -10,7 +10,9 @@ from typing import Callable
 
 from flask import Response, current_app, jsonify, request
 
+from . import android_speech_settings
 from .audio_output_engine import render_tts
+from .component_runtime import resolve_command
 from .kids_piper_assets import installed_model
 from .media_settings import PIPER_READER_THORSTEN
 from .settings_store import SettingsStore
@@ -122,14 +124,92 @@ def configured_piper_model(language: str) -> str:
     return str(path.resolve())
 
 
+def android_speech_available() -> bool:
+    if not callable(current_app.config.get("ANDROID_PRIVATE_SPEECH")):
+        return False
+    # ProxyFix can replace REMOTE_ADDR/HTTP_HOST. A native-only capability
+    # must depend on the actual socket and bundled WebView origin.
+    original = request.environ.get("werkzeug.proxy_fix.orig", request.environ)
+    address = original.get("REMOTE_ADDR")
+    host = str(original.get("HTTP_HOST") or "").casefold()
+    allowed_hosts = {"127.0.0.1:8765", "localhost:8765", "[::1]:8765"}
+    if current_app.testing:
+        allowed_hosts |= {"localhost", "127.0.0.1"}
+    return (address in {"127.0.0.1", "::1"} and host in allowed_hosts
+            and not request.environ.get("simpleoffice.lan_https")
+            and not any(name in request.headers for name in (
+                "Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Port", "X-Forwarded-Proto",
+            )))
+
+def device_preferences() -> dict:
+    media = SettingsStore(current_app.config["DOCUMENT_ROOT"]).settings()["media"]
+    return android_speech_settings.effective(media)
+
+
+def device_voices() -> tuple[dict, ...]:
+    inventory = current_app.config.get("ANDROID_PRIVATE_SPEECH_VOICES")
+    if not android_speech_available() or not callable(inventory):
+        return ()
+    try:
+        items = inventory()
+    except Exception as exc:
+        current_app.logger.info("Android voice inventory unavailable (%s)", type(exc).__name__)
+        return ()
+    if not isinstance(items, (list, tuple)):
+        return ()
+    voices = {}
+    for item in items[:256]:
+        if not isinstance(item, dict):
+            continue
+        voice, label, locale = (item.get(name) for name in ("id", "label", "language"))
+        if not voice or not android_speech_settings.valid_voice_id(voice):
+            continue
+        if not isinstance(locale, str) or len(locale) > 35:
+            continue
+        language = locale.casefold().replace("_", "-").split("-", 1)[0]
+        if language not in android_speech_settings.LANGUAGES:
+            continue
+        name = label if label and android_speech_settings.valid_voice_id(label) else voice
+        voices[(language, voice)] = {"id": voice, "label": name, "language": language}
+    return tuple(sorted(voices.values(), key=lambda item: (item["language"], item["label"], item["id"])))
+
+
+def _speech_choice(scope, language, piper_model):
+    if scope is None or not android_speech_available():
+        return piper_model(language), None
+    settings = device_preferences()
+    engine = settings[scope]
+    if engine == "disabled":
+        raise ReadAloudError("speech_disabled", 503)
+    if engine == "android":
+        return None, settings
+    if engine == "automatic" and settings[scope + "_fallback"]:
+        if not resolve_command("piper"):
+            return None, settings
+        try:
+            model = piper_model(language)
+            # A model alone is not runnable with the existing Piper CLI.
+            if not Path(str(model) + ".json").is_file():
+                return None, settings
+            return model, None
+        except ReadAloudError as exc:
+            if exc.code != "piper_unavailable":
+                raise
+            return None, settings
+    return piper_model(language), None
+
+
 def private_audio_response(
     load_text: Callable[[], str], *, language: str = "", recheck_source: bool = False,
+    allow_device_voice: bool = False, device_scope: str | None = None, piper_model=None,
 ) -> Response:
-    """Run a server-selected text loader and local Piper without a shared cache."""
+    """Run a server-selected text loader with local audio and no shared cache."""
     if not _slots.acquire(blocking=False):
         return read_aloud_error("read_aloud_busy", 503)
     try:
-        model = configured_piper_model(language)
+        scope = device_scope or ("reader" if allow_device_voice else None)
+        model, device = _speech_choice(scope, language, piper_model or configured_piper_model)
+        use_device_voice = device is not None
         text = " ".join(load_text().split())
         if not text:
             raise ReadAloudError("no_text", 422)
@@ -139,8 +219,29 @@ def private_audio_response(
             text.encode("utf-8", errors="strict")
         except UnicodeError as exc:
             raise ReadAloudError("invalid_text", 422) from exc
-        with tempfile.TemporaryDirectory(prefix="simpleoffice-private-speech-") as directory:
-            path = render_tts(text, "private-reader", directory, model=model)
+        if use_device_voice and len(text.encode("utf-16-le")) // 2 > 4000:
+            raise ReadAloudError("too_much_text", 413)
+        temp_root = current_app.config.get("ANDROID_PRIVATE_SPEECH_CACHE") if use_device_voice else None
+        with tempfile.TemporaryDirectory(prefix="simpleoffice-private-speech-", dir=temp_root) as directory:
+            if use_device_voice:
+                path = Path(directory) / "speech.wav"
+                try:
+                    locale = language.replace("_", "-") or "de"
+                    lang_key = locale.casefold().split("-", 1)[0]
+                    voice = device.get("voice_" + lang_key, "")
+                    generated_ok = current_app.config["ANDROID_PRIVATE_SPEECH"](
+                        text, locale, path, voice or None, device["rate"], device["pitch"],
+                    )
+                except Exception as exc:
+                    # The Java call may raise an Android/Chaquopy exception.
+                    # Do not log the exception message (it may include inputs).
+                    current_app.logger.info("Android speech render failed: %s", type(exc).__name__)
+                    raise ReadAloudError("android_speech_unavailable", 503) from exc
+                if not generated_ok or not path.is_file():
+                    raise ReadAloudError("android_speech_unavailable", 503)
+            else:
+                path = render_tts(text, "private-reader", directory, model=model,
+                                  document_root=current_app.config["DOCUMENT_ROOT"])
             with path.open("rb") as generated:
                 audio = generated.read(MAX_SPEECH_AUDIO_BYTES + 1)
         if len(audio) > MAX_SPEECH_AUDIO_BYTES:

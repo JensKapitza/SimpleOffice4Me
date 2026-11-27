@@ -16,7 +16,7 @@ from app.audio_output_store import AudioOutputStore
 class AudioOutputTests(unittest.TestCase):
     def test_ffplay_never_silently_ignores_selected_output(self):
         with patch("app.audio_output_engine.shutil.which", side_effect=lambda name: "/bin/ffplay" if name == "ffplay" else None):
-            self.assertIn("ffplay", playback_command("audio.wav", "default"))
+            self.assertEqual("/bin/ffplay", playback_command("audio.wav", "default")[0])
             with self.assertRaises(RuntimeError):
                 playback_command("audio.wav", "specific-speaker")
 

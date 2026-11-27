@@ -581,7 +581,7 @@ def register(bp) -> None:
                 Path(current_app.config["DOCUMENT_ROOT"]), str(g.user["username"]),
                 document_id, version, part=part,
             ),
-            language=g.language, recheck_source=True,
+            language=g.language, recheck_source=True, allow_device_voice=True,
         )
 
     @bp.get("/documents/<document_id>/eml-metadata.json", endpoint="eml_metadata")

@@ -16,6 +16,7 @@ from typing import Any
 from PIL import Image, ImageDraw, ImageOps
 
 from .archive_preview import ARCHIVE_SUFFIXES, archive_preview
+from .component_runtime import resolve_command
 from .settings_store import SettingsStore
 
 
@@ -70,14 +71,14 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def detect_preview_tools() -> dict[str, Any]:
+def detect_preview_tools(document_root: str | Path | None = None) -> dict[str, Any]:
     """Detect commands without executing them, so startup stays fast and safe."""
     commands = {
         "imagemagick": shutil.which("magick") or shutil.which("convert"),
         "pdftoppm": shutil.which("pdftoppm"),
         "libreoffice": shutil.which("libreoffice") or shutil.which("soffice"),
-        "ffmpeg": shutil.which("ffmpeg"),
-        "ffprobe": shutil.which("ffprobe"),
+        "ffmpeg": resolve_command("ffmpeg", document_root),
+        "ffprobe": resolve_command("ffprobe", document_root),
     }
     return {
         "detected_at": utc_now(),
@@ -100,7 +101,7 @@ class PreviewService:
     def __init__(self, root: str | Path, tools: dict[str, Any] | None = None):
         self.root = Path(root).expanduser().resolve()
         self.cache = self.root / CACHE_DIR
-        self.tools = tools or detect_preview_tools()
+        self.tools = tools or detect_preview_tools(self.root)
         self.settings_store = SettingsStore(self.root)
         self._settings_mtime_ns = -1
         self._settings_refresh_after = 0.0

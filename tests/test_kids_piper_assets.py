@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import io
 import tempfile
+import threading
 import time
 import unittest
 import wave
@@ -205,3 +206,24 @@ class KidsPiperDownloadUnitTests(unittest.TestCase):
                 with self.assertRaises(TimeoutError):
                     assets._download(asset, output, time.monotonic() - 1)
                 self.assertEqual(0, output.stat().st_size)
+
+    def test_download_reports_verified_transfer_progress_and_honors_cancellation(self):
+        with tempfile.TemporaryDirectory() as root:
+            asset = MANIFEST[0]
+            output = Path(root) / asset.name
+            progress = []
+            with patch.object(assets, "build_opener") as opener:
+                opener.return_value.open.return_value = Response(PAYLOADS[asset.name])
+                assets._download(asset, output, time.monotonic() + 2,
+                                 progress=lambda name, received, total: progress.append((name, received, total)))
+            self.assertEqual([(asset.name, asset.size, asset.size)], progress)
+            self.assertEqual(PAYLOADS[asset.name], output.read_bytes())
+            output.unlink()
+            cancelled = threading.Event()
+            cancelled.set()
+            with patch.object(assets, "build_opener") as opener:
+                opener.return_value.open.return_value = Response(PAYLOADS[asset.name])
+                with self.assertRaises(InterruptedError):
+                    assets._download(asset, output, time.monotonic() + 2, cancel_event=cancelled)
+                opener.return_value.open.assert_not_called()
+            self.assertFalse(output.exists())

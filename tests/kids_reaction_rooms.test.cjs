@@ -12,6 +12,10 @@ function mockElement() {
   const listeners = new Map();
   return {
     dataset: {}, hidden: false, textContent: "", disabled: false, value: "", focused: false, children: [],
+    attributes: {},
+    setAttribute(name, value) { this.attributes[name] = String(value); },
+    removeAttribute(name) { delete this.attributes[name]; },
+    getAttribute(name) { return this.attributes[name] ?? null; },
     addEventListener: (event, handle) => listeners.set(event, handle),
     focus() { this.focused = true; },
     replaceChildren(...items) { this.children = items; },
@@ -23,7 +27,7 @@ function mockElement() {
   };
 }
 
-function harness(token = "fictive-station-token") {
+function harness(token = "fictive-station-token", search = "") {
   const elements = new Map();
   const get = (name) => {
     if (!elements.has(name)) elements.set(name, mockElement());
@@ -37,14 +41,15 @@ function harness(token = "fictive-station-token") {
     ...mockElement(), hidden: false,
     createElement: mockElement,
     querySelector: () => ({
-      dataset: { api: "/rooms/api", csrf: "fictive-csrf-token", en: "1" },
-      querySelector: (selector) => get(selector.match(/^\[data-room-([a-z]+)\]$/)[1]),
+      dataset: { api: "/rooms/api", csrf: "fictive-csrf-token", en: "1", qr: "/rooms/qr" },
+      querySelector: (selector) => get(selector.match(/^\[data-room-([a-z-]+)\]$/)[1]),
     }),
   };
   let now = 100;
   let timerId = 0;
   const window = {
     ...mockElement(),
+    location: { search },
     setTimeout(fn, delay) { jobs.set(++timerId, { fn, delay }); return timerId; },
     clearTimeout(id) { jobs.delete(id); },
     requestAnimationFrame(fn) { frames.push(fn); },
@@ -63,7 +68,7 @@ function harness(token = "fictive-station-token") {
     await drain();
   }
   runInNewContext(script, {
-    document, window, AbortController, KidsReactionGame: { keyStation, elapsedMs: (start) => elapsedMs(start, now) },
+    document, window, AbortController, URLSearchParams, KidsReactionGame: { keyStation, elapsedMs: (start) => elapsedMs(start, now) },
     performance: { now: () => now },
     async fetch(url, options) {
       calls.push({ url, body: JSON.parse(options.body), headers: options.headers, keepalive: options.keepalive });
@@ -161,4 +166,27 @@ test("host stop releases everyone and clears the visible code", async () => {
   assert.equal(h.get("play").hidden, true);
   assert.equal(h.get("active").hidden, true);
   assert.equal(h.get("invite").textContent, "");
+});
+
+test("host invite shows a QR code that disappears when the room closes", async () => {
+  const h = harness();
+  h.respond(h.snapshot({ station: 1, role: "host", token: "host-token", join_code: "ABCDEFGH" }));
+  h.get("host").dispatch("click");
+  await drain();
+  assert.equal(h.get("qr-wrap").hidden, false);
+  assert.equal(h.get("qr").getAttribute("src"), "/rooms/qr?code=ABCDEFGH");
+  h.respond({ phase: "closed" });
+  h.get("leave").dispatch("click");
+  await drain();
+  assert.equal(h.get("qr-wrap").hidden, true);
+  assert.equal(h.get("qr").getAttribute("src"), null);
+});
+
+test("shared room code from the URL is prefilled, invalid codes are ignored", async () => {
+  const good = harness("fictive-station-token", "?code=abcdefgh");
+  assert.equal(good.get("code").value, "ABCDEFGH");
+  const bad = harness("fictive-station-token", "?code=evil!!!");
+  assert.equal(bad.get("code").value, "");
+  const none = harness();
+  assert.equal(none.get("code").value, "");
 });
