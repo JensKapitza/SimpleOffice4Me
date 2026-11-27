@@ -19,7 +19,7 @@ function setup(adapter) {
       this.signal = signal;
     }
   };
-  runInNewContext(script, {window, AbortController});
+  runInNewContext(script, {window, AbortController, Event, setTimeout, clearTimeout});
   return {window, readers, reading, helper: window.SimpleOfficeInventoryNfc};
 }
 
@@ -134,4 +134,53 @@ test('inventory USB field consumes Enter, submits no form and never uses a scann
   assert.equal(calls.length, 1);
   assert.match(status.textContent, /Ungültige ID/);
   assert.equal(submits, 0);
+});
+
+test('hiding the inventory ends the active scan without replacing an existing ID', async () => {
+  const {helper, readers, reading} = setup();
+  class Button extends EventTarget {
+    attrs = new Map();
+    setAttribute(k, v) { this.attrs.set(k, v); }
+    removeAttribute(k) { this.attrs.delete(k); }
+  }
+  const nfcButton = new Button();
+  const field = new EventTarget();
+  field.value = 'AABB';
+  const page = new EventTarget();
+  const statuses = [];
+  const writes = [];
+  const controls = helper.bindControls({
+    nfc: field, nfcButton, page, english: true,
+    setStatus(message) { statuses.push(message); },
+    duplicateProbe(uid) { writes.push(uid); },
+  });
+  nfcButton.dispatchEvent(new Event('click'));
+  assert.equal(controls.isScanning(), true);
+  assert.equal(nfcButton.attrs.get('aria-busy'), 'true');
+  page.hidden = true;
+  page.dispatchEvent(new Event('visibilitychange'));
+  readers[0].dispatchEvent(reading('12:34'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(controls.isScanning(), false);
+  assert.equal(nfcButton.attrs.has('aria-busy'), false);
+  assert.match(statuses.at(-1), /cancelled/);
+  assert.equal(field.value, 'AABB');
+  assert.equal(writes.length, 0);
+});
+
+test('an older cached helper leaves the rest of inventory usable without consuming NFC as a submit', () => {
+  const window = new EventTarget();
+  window.SimpleOfficeInventoryNfc = {normalizeUid() {}, scan() {}};
+  window.SimpleOfficeInventoryNavigation = {};
+  const document = new EventTarget();
+  const field = new EventTarget();
+  Object.assign(document, {documentElement: {lang: 'en'}, getElementById: id => ({
+    'inventory-app': {dataset: {}}, 'nfc-id': field,
+  })[id], querySelectorAll: () => [], querySelector: () => null});
+  runInNewContext(readFileSync('static/js/inventory.js', 'utf8'), {
+    window, document, Event, setTimeout, clearTimeout, AbortController,
+  });
+  const enter = Object.assign(new Event('keydown', {cancelable: true}), {key: 'Enter'});
+  field.dispatchEvent(enter);
+  assert.equal(enter.defaultPrevented, true);
 });

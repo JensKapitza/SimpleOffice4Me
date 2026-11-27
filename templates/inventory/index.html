@@ -69,7 +69,7 @@
           {% endif %}
           <div class="row g-2 mb-3">
             <div class="col-12 col-md-6 d-grid"><button type="button" class="btn btn-primary btn-lg" id="start-barcode">Barcode / ISBN scannen</button></div>
-            <div class="col-12 col-md-6 d-grid"><button type="button" class="btn btn-outline-primary btn-lg" id="scan-nfc">NFC lesen</button></div>
+            <div class="col-12 col-md-6 d-grid"><button type="button" class="btn btn-outline-primary btn-lg" id="scan-nfc" disabled>NFC lesen</button></div>
           </div>
           {% if contextflow_enabled|default(false) and feature_enabled('documents') %}
           <div class="row g-2 mb-3" id="photo-actions">
@@ -113,7 +113,7 @@
               </div>
             </div>
 
-            <div class="col-12"><label class="form-label" for="nfc-id">NFC-ID</label><div class="input-group"><input class="form-control" id="nfc-id" name="nfc_id" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="240" aria-describedby="nfc-help"><button type="button" class="btn btn-outline-secondary" id="nfc-keyboard">USB-NFC-Leser</button></div><div class="form-text" id="nfc-help">Für einen USB-Leser den Tastaturmodus wählen. Die Kennung kann auch von Hand eingegeben werden.</div></div>
+            <div class="col-12"><label class="form-label" for="nfc-id">NFC-ID</label><div class="input-group"><input class="form-control" id="nfc-id" name="nfc_id" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="240" aria-describedby="nfc-help"><button type="button" class="btn btn-outline-secondary" id="nfc-keyboard" disabled>USB-NFC-Leser</button></div><div class="form-text" id="nfc-help">Für einen USB-Leser den Tastaturmodus wählen. Die Kennung kann auch von Hand eingegeben werden.</div></div>
 
             <div class="col-md-4"><label class="form-label" for="manufacturer">Hersteller</label><input class="form-control" id="manufacturer" name="manufacturer" maxlength="240"></div>
             <div class="col-md-4"><label class="form-label" for="model">Modell</label><input class="form-control" id="model" name="model" maxlength="240"></div>
@@ -236,8 +236,8 @@
 <script src="{{ url_for('static', filename='js/camera_capture.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/suggestion_fields.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/inventory_navigation.js') }}" defer></script>
-<script src="{{ url_for('static', filename='js/inventory_nfc.js') }}" defer></script>
-<script src="{{ url_for('static', filename='js/inventory.js') }}" data-module="static/js/inventory.js" defer></script>
+<script src="{{ url_for('static', filename='js/inventory_nfc.js', v=app_build.version) }}" defer></script>
+<script src="{{ url_for('static', filename='js/inventory.js', v=app_build.version) }}" data-module="static/js/inventory.js" defer></script>
 <script src="{{ url_for('static', filename='js/inventory_suggest.js') }}" data-module="static/js/inventory_suggest.js" defer></script>
 <script src="{{ url_for('static', filename='js/angel.js') }}" data-module="static/js/angel.js" defer></script>
 {% endblock %}

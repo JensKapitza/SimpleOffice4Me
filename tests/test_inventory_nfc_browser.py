@@ -43,11 +43,10 @@ class InventoryNfcBrowserTests(PublicHttpTestCase):
         cookie = self.client.get_cookie(cookie_name)
 
         with sync_playwright() as playwright:
-            options = {}
             executable = os.getenv("SIMPLEOFFICE_INTAKE_CHROMIUM")
-            if executable:
-                options["executable_path"] = executable
-            browser = playwright.chromium.launch(**options)
+            # CI installs the full Chromium channel with --no-shell, not headless_shell.
+            options = {"executable_path": executable} if executable else {"channel": "chromium"}
+            browser = playwright.chromium.launch(headless=True, **options)
             try:
                 ctx = browser.new_context()
                 ctx.add_cookies([{"name": cookie_name, "value": cookie.value, "url": origin}])
