@@ -28,7 +28,10 @@ final class ManagedCalendarProviderAcceptance {
     private static final String BIRTHDAYS = "provider-test-birthdays";
     private static final String LOCAL_NAME = "Unrelated local calendar";
     private static final String LOCAL_TITLE = "Unrelated local event";
-    private record Occurrence(long begin, long eventId) {}
+    private record Occurrence(long begin, long eventId, String title) {}
+    private record LocalFixture(long calendarId, long eventId) {}
+    private static final String LOCAL_START = "2027-03-21T10:00:00Z";
+    private static final String LOCAL_END = "2027-03-21T11:00:00Z";
 
     private ManagedCalendarProviderAcceptance() {}
 
@@ -39,7 +42,10 @@ final class ManagedCalendarProviderAcceptance {
         try (Cursor rows = resolver.query(Calendars.CONTENT_URI, new String[]{Calendars._ID}, null, null, null)) {
             require(rows != null && !rows.moveToFirst(), "Android calendar store is not empty");
         }
-        long localEvent = createUnrelatedEvent(resolver);
+        LocalFixture local = createUnrelatedEvent(resolver);
+        List<Occurrence> baseline = localOccurrences(resolver, local);
+        require(baseline.equals(List.of(new Occurrence(ms(LOCAL_START), local.eventId(), LOCAL_TITLE))),
+                "Unrelated local event fixture was not visible before sync");
         Account account = AndroidManagedSyncAccount.require(context);
 
         JSONObject master = row("master", SERIES, "Weekly series", "2027-03-18T09:00:00Z",
@@ -74,11 +80,8 @@ final class ManagedCalendarProviderAcceptance {
             require(previousBirthday == null || previousBirthday.equals(leap), "Birthday provider ID changed on resync");
             previous = weekly;
             previousBirthday = leap;
-            try (Cursor row = resolver.query(ContentUris.withAppendedId(Events.CONTENT_URI, localEvent),
-                    new String[]{Events.TITLE}, null, null, null)) {
-                require(row != null && row.moveToFirst() && LOCAL_TITLE.equals(row.getString(0)),
-                        "Unrelated local calendar event changed");
-            }
+            require(baseline.equals(localOccurrences(resolver, local)),
+                    "Unrelated local calendar event changed after sync " + (repetition + 1));
         }
     }
 
@@ -105,10 +108,10 @@ final class ManagedCalendarProviderAcceptance {
         ContentUris.appendId(range, ms(start));
         ContentUris.appendId(range, ms(end));
         ArrayList<Occurrence> results = new ArrayList<>();
-        try (Cursor rows = resolver.query(range.build(), new String[]{Instances.BEGIN, Instances.EVENT_ID},
+        try (Cursor rows = resolver.query(range.build(), new String[]{Instances.BEGIN, Instances.EVENT_ID, Events.TITLE},
                 Events.CALENDAR_ID + "=?", new String[]{Long.toString(calendar)}, Instances.BEGIN + " ASC")) {
             require(rows != null, "Could not query expanded Android calendar instances");
-            while (rows.moveToNext()) results.add(new Occurrence(rows.getLong(0), rows.getLong(1)));
+            while (rows.moveToNext()) results.add(new Occurrence(rows.getLong(0), rows.getLong(1), rows.getString(2)));
         }
         return results;
     }
@@ -120,15 +123,21 @@ final class ManagedCalendarProviderAcceptance {
         }
     }
 
-    private static long createUnrelatedEvent(ContentResolver resolver) {
-        String localType = CalendarContract.ACCOUNT_TYPE_LOCAL;
-        Uri calendarEndpoint = Calendars.CONTENT_URI.buildUpon()
+    private static List<Occurrence> localOccurrences(ContentResolver resolver, LocalFixture fixture) {
+        return instances(resolver, fixture.calendarId(), "2027-03-21T00:00:00Z", "2027-03-22T00:00:00Z");
+    }
+
+    private static Uri localFixtureScope(Uri endpoint) {
+        return endpoint.buildUpon()
                 .appendQueryParameter(CalendarContract.CALLER_IS_SYNCADAPTER, "true")
                 .appendQueryParameter(Calendars.ACCOUNT_NAME, LOCAL_NAME)
-                .appendQueryParameter(Calendars.ACCOUNT_TYPE, localType).build();
+                .appendQueryParameter(Calendars.ACCOUNT_TYPE, CalendarContract.ACCOUNT_TYPE_LOCAL).build();
+    }
+
+    private static LocalFixture createUnrelatedEvent(ContentResolver resolver) {
         ContentValues calendar = new ContentValues();
         calendar.put(Calendars.ACCOUNT_NAME, LOCAL_NAME);
-        calendar.put(Calendars.ACCOUNT_TYPE, localType);
+        calendar.put(Calendars.ACCOUNT_TYPE, CalendarContract.ACCOUNT_TYPE_LOCAL);
         calendar.put(Calendars.NAME, LOCAL_NAME);
         calendar.put(Calendars.CALENDAR_DISPLAY_NAME, LOCAL_NAME);
         calendar.put(Calendars.CALENDAR_TIME_ZONE, "UTC");
@@ -136,18 +145,19 @@ final class ManagedCalendarProviderAcceptance {
         calendar.put(Calendars.CALENDAR_ACCESS_LEVEL, Calendars.CAL_ACCESS_OWNER);
         calendar.put(Calendars.VISIBLE, 1);
         calendar.put(Calendars.SYNC_EVENTS, 1);
-        Uri localCalendar = resolver.insert(calendarEndpoint, calendar);
+        Uri localCalendar = resolver.insert(localFixtureScope(Calendars.CONTENT_URI), calendar);
         require(localCalendar != null, "Unrelated local calendar fixture was not created");
 
         ContentValues event = new ContentValues();
         event.put(Events.CALENDAR_ID, ContentUris.parseId(localCalendar));
         event.put(Events.TITLE, LOCAL_TITLE);
-        event.put(Events.DTSTART, ms("2027-03-21T10:00:00Z"));
-        event.put(Events.DTEND, ms("2027-03-21T11:00:00Z"));
+        event.put(Events._SYNC_ID, "external-local-event");
+        event.put(Events.DTSTART, ms(LOCAL_START));
+        event.put(Events.DTEND, ms(LOCAL_END));
         event.put(Events.EVENT_TIMEZONE, "UTC");
-        Uri localEvent = resolver.insert(Events.CONTENT_URI, event);
+        Uri localEvent = resolver.insert(localFixtureScope(Events.CONTENT_URI), event);
         require(localEvent != null, "Unrelated local event fixture was not created");
-        return ContentUris.parseId(localEvent);
+        return new LocalFixture(ContentUris.parseId(localCalendar), ContentUris.parseId(localEvent));
     }
 
     private static long ms(String timestamp) { return Instant.parse(timestamp).toEpochMilli(); }
