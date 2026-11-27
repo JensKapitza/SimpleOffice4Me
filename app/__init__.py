@@ -572,6 +572,9 @@ def verify_browser_request():
     fakturama_admin.limit_preview_upload()
     reader_runtime_check.limit_request()
     optional_setup_routes.limit_request()
+    limited_kids = kids_learning.limit_speech_request()
+    if limited_kids is not None:
+        return limited_kids
     if request.endpoint in PRIVATE_READ_ALOUD_ENDPOINTS and request.method == "POST":
         from .private_read_aloud import limit_read_aloud_request
 
@@ -841,7 +844,11 @@ def add_header(response):
             policy = policy.replace("frame-ancestors 'self'", "frame-ancestors 'none'")
             policy += "; media-src 'self' blob:"
         # Private read-aloud uses only same-origin audio responses and transient object URLs.
-        if request.endpoint in {"reader.open_book", "reader.open_text", "mail_reader.index", "contact_audit.eml_preview"}:
+        if request.endpoint in {
+            "reader.open_book", "reader.open_text", "mail_reader.index", "contact_audit.eml_preview",
+            "optional_setup.index", "kids_learning.index", "kids_learning.mini_games", "kids_learning.syllables",
+            "kids_matching.matching", "kids_numbers.index",
+        }:
             policy += "; media-src 'self' blob:"
         response.headers.setdefault("Content-Security-Policy", policy)
     return response

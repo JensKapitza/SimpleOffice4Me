@@ -77,6 +77,9 @@ public class MainActivity extends Activity {
     private final Semaphore pdfRenderSlots = new Semaphore(2);
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final String nativeBridgeToken = UUID.randomUUID().toString();
+    private final Object offlineSpeechOwner = new Object();
+    private volatile boolean offlineSpeechResumed;
+    private volatile String offlineSpeechSettingsNonce = "";
     private final AndroidAudioStreamer audioStreamer = new AndroidAudioStreamer();
     private final AndroidIntentRouter intentRouter = new AndroidIntentRouter();
     private final AndroidIntakeBarcodeBridge intakeBarcode = new AndroidIntakeBarcodeBridge(this, mainHandler);
@@ -323,6 +326,9 @@ public class MainActivity extends Activity {
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
                 intakeBarcode.onLoadStarted();
+                // Default-deny every navigation until a locally served speech page loads.
+                view.getSettings().setMediaPlaybackRequiresUserGesture(true);
+                offlineSpeechSettingsNonce = "";
                 deviceSourcePageReady = false;
                 if (deviceSourcePreview != null) deviceSourcePreview.onPageChanged();
                 webPermissionFlow.denyPending();
@@ -354,7 +360,11 @@ public class MainActivity extends Activity {
                     flushPendingLocalFolderResult();
                     flushPendingBarcodeResult();
                     if (navigateToPendingIntent(view, url)) return;
-                    if (bundledBackendReady && !mainFrameLoadFailed) intakeBarcode.onLoadFinished(view, url);
+                    if (bundledBackendReady && !mainFrameLoadFailed) {
+                        view.getSettings().setMediaPlaybackRequiresUserGesture(!isLocalSpeechPage(url));
+                        intakeBarcode.onLoadFinished(view, url);
+                        bindOfflineSpeechSettings(view, url);
+                    }
                     injectPendingShareUi(view, url);
                     if (!mainFrameLoadFailed) {
                         progress.setVisibility(View.GONE);
@@ -367,6 +377,7 @@ public class MainActivity extends Activity {
             public void doUpdateVisitedHistory(WebView view, String url, boolean isReload) {
                 super.doUpdateVisitedHistory(view, url, isReload);
                 intakeBarcode.onHistory(url, isReload);
+                if (isReload || !isOfflineSpeechSettingsPage(url)) offlineSpeechSettingsNonce = "";
             }
 
             @Override
@@ -374,6 +385,7 @@ public class MainActivity extends Activity {
                 super.onReceivedError(view, request, error);
                 if (request.isForMainFrame()) {
                     intakeBarcode.onLoadFailed();
+                    offlineSpeechSettingsNonce = "";
                     deviceSourcePageReady = false;
                     if (deviceSourcePreview != null) deviceSourcePreview.onPageChanged();
                     mainFrameLoadFailed = true;
@@ -390,7 +402,10 @@ public class MainActivity extends Activity {
                     WebResourceRequest request,
                     WebResourceResponse errorResponse) {
                 super.onReceivedHttpError(view, request, errorResponse);
-                if (request.isForMainFrame()) intakeBarcode.onLoadFailed();
+                if (request.isForMainFrame()) {
+                    intakeBarcode.onLoadFailed();
+                    offlineSpeechSettingsNonce = "";
+                }
                 if (request.isForMainFrame() && errorResponse.getStatusCode() >= 500) {
                     mainFrameLoadFailed = true;
                     webPermissionFlow.denyPending();
@@ -444,6 +459,70 @@ public class MainActivity extends Activity {
     private static String localUrl(String path) {
         if (path == null || path.isEmpty() || "/".equals(path)) return LOCAL_URL;
         return LOCAL_URL + (path.startsWith("/") ? path.substring(1) : path);
+    }
+
+    private static boolean isLocalSpeechPage(String value) {
+        if (!isLocalUrl(value)) return false;
+        Uri url = Uri.parse(value);
+        if (url.getUserInfo() != null) return false;
+        String path = url.getPath();
+        if (path == null) return false;
+        // A deliberate lesson/replay click renders a WAV asynchronously. Keep
+        // the default media gesture gate on every other WebView page.
+        return switch (trimTrailingSlash(path)) {
+            case "/kids/lernen", "/kids/lernen/spielpause", "/kids/lernen/silben",
+                    "/kids/zuordnen", "/kids/numbers", "/documents/mail/reader", "/setup/optional" -> true;
+            default -> path.matches("^/documents/reader/[A-Za-z0-9._-]{1,200}(/text)?$")
+                    || path.matches("^/documents/[A-Za-z0-9._-]{1,200}/eml-preview$");
+        };
+    }
+
+    private static boolean isOfflineSpeechSettingsPage(String url) {
+        if (url == null) return false;
+        int anchor = url.indexOf('#');
+        return localUrl("/setup/optional").equals(anchor < 0 ? url : url.substring(0, anchor));
+    }
+
+    private void bindOfflineSpeechSettings(WebView view, String url) {
+        if (!isOfflineSpeechSettingsPage(url) || !url.equals(view.getUrl())) return;
+        String nonce = UUID.randomUUID().toString();
+        offlineSpeechSettingsNonce = nonce;
+        view.evaluateJavascript("(function(token,nonce){"
+                + "const button=document.querySelector('[data-android-offline-speech-settings]');"
+                + "const note=document.querySelector('[data-android-offline-speech-settings-status]');"
+                + "if(!button||!note)return;button.hidden=false;button.disabled=false;"
+                + "button.onclick=event=>{if(!event.isTrusted)return;"
+                + "const en=document.documentElement.lang==='en';"
+                + "const state=window.SimpleOfficeAndroid.openOfflineSpeechSettings(token,nonce);"
+                + "button.disabled=state==='pending';"
+                + "note.textContent=state==='pending'?(en?'Opening Android settings …':'Android-Einstellungen werden geöffnet …')"
+                + ":(en?'Open Text-to-speech in Android settings.':'Öffne die Text-in-Sprache-Ausgabe in den Android-Einstellungen.');};"
+                + "})(" + JSONObject.quote(nativeBridgeToken) + "," + JSONObject.quote(nonce) + ");", null);
+    }
+
+    private boolean offlineSpeechSettingsAllowed(String token, String nonce) {
+        return bridgeAllowed(token) && offlineSpeechResumed && nonce != null && !nonce.isEmpty()
+                && nonce.equals(offlineSpeechSettingsNonce) && isOfflineSpeechSettingsPage(currentWebViewUrl);
+    }
+
+    private void openOfflineSpeechSettingsUi(String token, String nonce) {
+        if (!offlineSpeechSettingsAllowed(token, nonce) || webView == null
+                || !isOfflineSpeechSettingsPage(webView.getUrl())) return;
+        boolean opened = false;
+        try {
+            startActivity(new Intent("com.android.settings.TTS_SETTINGS").setPackage("com.android.settings"));
+            opened = true;
+        } catch (ActivityNotFoundException | SecurityException ignored) {
+            // Not all Android vendors expose the dedicated settings activity.
+        }
+        webView.evaluateJavascript("(function(opened){"
+                + "const note=document.querySelector('[data-android-offline-speech-settings-status]');if(!note)return;"
+                + "const button=document.querySelector('[data-android-offline-speech-settings]');"
+                + "if(button&&!opened)button.disabled=false;"
+                + "const en=document.documentElement.lang==='en';note.textContent=opened"
+                + "?(en?'Return here and reload the voice list.':'Kehre hierher zurück und lade die Stimmliste neu.')"
+                + ":(en?'Open Text-to-speech in Android settings.':'Öffne die Text-in-Sprache-Ausgabe in den Android-Einstellungen.');"
+                + "})(" + opened + ");", null);
     }
 
     private static boolean isDocumentsIndexUrl(String value) {
@@ -1009,6 +1088,13 @@ public class MainActivity extends Activity {
                 return "unavailable";
             }
             return "ok";
+        }
+
+        @JavascriptInterface
+        public String openOfflineSpeechSettings(String token, String nonce) {
+            if (!offlineSpeechSettingsAllowed(token, nonce)) return "blocked";
+            mainHandler.post(() -> openOfflineSpeechSettingsUi(token, nonce));
+            return "pending";
         }
 
         @JavascriptInterface
@@ -1792,6 +1878,7 @@ public class MainActivity extends Activity {
             mainHandler.post(() -> {
                 if (webView == null || isDestroyed()) return;
                 bundledBackendReady = true;
+                if (offlineSpeechResumed) AndroidOfflineSpeech.onResume(offlineSpeechOwner, getApplicationContext());
                 Bundle state = pendingWebState;
                 pendingWebState = null;
                 if (!intentRouter.hasPendingNavigation()
@@ -1877,6 +1964,11 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
+        if (webView != null && bundledBackendReady && !mainFrameLoadFailed && isLocalUrl(webView.getUrl())) {
+            webView.evaluateJavascript("window.dispatchEvent(new Event('simpleoffice:speech-stop'));", null);
+        }
+        offlineSpeechResumed = false;
+        AndroidOfflineSpeech.onPause(offlineSpeechOwner);
         intakeBarcode.setResumed(false);
         // The Android permission dialog may pause this Activity before delivering its result.
         webPermissionFlow.setResumed(false);
@@ -1895,6 +1987,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        offlineSpeechResumed = true;
+        if (bundledBackendReady) AndroidOfflineSpeech.onResume(offlineSpeechOwner, getApplicationContext());
         if (webView != null) {
             webView.resumeTimers();
             webView.onResume();
@@ -1908,6 +2002,7 @@ public class MainActivity extends Activity {
                     webPermissionFlow.denyPending();
                 } else {
                     flushPendingBarcodeResult();
+                    if (bundledBackendReady && !mainFrameLoadFailed) bindOfflineSpeechSettings(webView, webView.getUrl());
                     injectPendingShareUi(webView, webView.getUrl());
                 }
             }
@@ -1919,6 +2014,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onStop() {
+        AndroidOfflineSpeech.onStop(offlineSpeechOwner);
         webPermissionFlow.denyPending();
         super.onStop();
     }
@@ -1937,6 +2033,9 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        offlineSpeechResumed = false;
+        offlineSpeechSettingsNonce = "";
+        AndroidOfflineSpeech.onStop(offlineSpeechOwner);
         bundledBackendReady = false;
         intakeBarcode.close();
         AndroidFolderImportTask activeFolderImport = folderImportTask;

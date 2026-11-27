@@ -55,7 +55,7 @@ def require_stock_recognition():
         raise OSError("Stock Tesseract English data (eng) required.")
 
 
-def exercise(root, source, target, a, b, third=None, *, progress=lambda _stage: None):
+def exercise(root, source, target, a, b, third=None, *, progress=lambda _stage: None, restart_source=None):
     from pypdf import PdfReader
 
     progress("private-export")
@@ -127,6 +127,7 @@ def exercise(root, source, target, a, b, third=None, *, progress=lambda _stage: 
     expect_error(409, lambda: publish("1", data + b"\n"))
     offered = publish("1")
     code = offered.select_one("[data-book-offer]")["data-book-offer"]
+    assert offered.select_one('[data-book-serve-status="waiting"]') is not None
     assert publish("1").select_one("[data-book-offer]")["data-book-offer"] == code
     assert len(refreshed().select(remote_forms)) == 0, "Explicit scoped publication leaked into ordinary catalog"
 
@@ -147,13 +148,23 @@ def exercise(root, source, target, a, b, third=None, *, progress=lambda _stage: 
         expect_error(404, lambda: third.request(publication, fields={
             "_csrf_token": third.csrf(publication), "action": "receive", "peer_id": a, "offer": code,
         }))
+        assert source.page(publication).select_one('[data-book-serve-status="waiting"]') is not None
     progress("verified-retrieval")
     received = claim()
     assert received == data
+    served = source.page(publication).select_one('[data-book-serve-status="served"] time')
+    assert served is not None and served["datetime"].endswith("+00:00")
+    assert claim() == data
+    assert source.page(publication).select_one('[data-book-serve-status="served"] time')["datetime"] == served["datetime"]
+    if restart_source is not None:
+        progress("sender-status-after-restart")
+        source = restart_source()
+        assert source.page(publication).select_one('[data-book-serve-status="served"] time')["datetime"] == served["datetime"]
     assert "assembled" not in target.page("/documents/reader").get_text(" ", strip=True)
     progress("revocation")
     source.submit(source.page(publication).select_one("form:has([name=action][value=revoke])"), {})
     expect_error(404, claim)
+    assert source.page(publication).select_one("[data-book-serve-status]") is None
     assert artifact.read_bytes() == data
     progress("explicit-reader-import")
     uploaded = multipart(target, "/documents/upload",
@@ -248,23 +259,37 @@ def loopback(root, *, progress):
     shared = secrets.token_urlsafe(32)
     for peer in LOOPBACK_PEERS:
         initialize(root / peer)
-    with ExitStack() as stack:
-        peers = {name: stack.enter_context(instance(root / name, name, tls, context, passwords[name], shared))[0]
-                 for name in LOOPBACK_PEERS}
-        a, b, c = LOOPBACK_PEERS
+    a, b, c = LOOPBACK_PEERS
+    with ExitStack() as stack, ExitStack() as source_stack:
+        browser, source_port = source_stack.enter_context(instance(root / a, a, tls, context, passwords[a], shared))
+        peers = {a: browser, **{
+            name: stack.enter_context(instance(root / name, name, tls, context, passwords[name], shared))[0]
+            for name in (b, c)
+        }}
+
+        def restart_source():
+            source_stack.close()
+            peers[a], rebound = source_stack.enter_context(instance(
+                root / a, a, tls, context, passwords[a], shared, port=source_port,
+            ))
+            assert rebound == source_port
+            return peers[a]
+
         progress("pairing")
         for neighbor in (b, c):
             token = secrets.token_urlsafe(32)
             configure_pair(peers[a], peers[neighbor], a, neighbor, token)
             configure_pair(peers[neighbor], peers[a], neighbor, a, token)
-        result = exercise(root, peers[a], peers[b], a, b, peers[c], progress=progress)
+        result = exercise(root, peers[a], peers[b], a, b, peers[c], progress=progress, restart_source=restart_source)
         progress("private-intake")
         exercise_mixed_intake(peers[a])
+        progress("signed-retrieval-audit")
         calls = [json.loads(line) for line in (root / a / "calls.jsonl").read_text().splitlines()]
         signed = [item for item in calls if "/federation/v1/book-scans/" in item[1]]
-        assert len(signed) == 3 and all(item[0] == "GET" and item[2] == "https" and item[3] for item in signed)
+        assert len(signed) == 4 and all(item[0] == "GET" and item[2] == "https" and item[3] for item in signed)
         print("Verified third configured peer: zero catalog or document search hits, no owned offer and no PDF.")
-        return {**result, "paired_peers": 3, "signed_fetch_requests": len(signed), "unselected_peer_denied": True, "mixed_intake_confirmed": True}
+        return {**result, "paired_peers": 3, "signed_fetch_requests": len(signed), "unselected_peer_denied": True,
+                "mixed_intake_confirmed": True, "sender_status_after_restart": True}
 
 
 def _docker_progress(stage):

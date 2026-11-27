@@ -2,7 +2,7 @@
 
 Blackbox tests with synthetic texts only: the endpoint renders short
 learning/game prompts (including maze announcements) with the configured
-Piper model and caches them on disk. No customer data, no live AI calls.
+Piper model without retaining the rendered outputs. No customer data or live AI calls.
 """
 from __future__ import annotations
 
@@ -74,8 +74,7 @@ class KidsTtsEndpointTests(PublicHttpTestCase):
         self.assertEqual(200, response.status_code)
         self.assertTrue(response.content_type.startswith("audio/"))
         self.assertGreater(len(response.data), 1000)
-        self.assertIn("max-age=", response.headers.get("Cache-Control", ""))
-        self.assertNotIn("no-store", response.headers.get("Cache-Control", ""))
+        self.assertEqual("private, no-store", response.headers.get("Cache-Control"))
         self.assertEqual(1, len(calls))
         self.assertEqual("Hallo Welt", calls[0]["text"])
         self.assertEqual("/models/de-thorsten.onnx", calls[0]["model"])

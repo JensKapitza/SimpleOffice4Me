@@ -20,10 +20,12 @@ from reportlab.pdfgen import canvas
 
 from app import app
 from app import db as database
+from app.android_speech_settings import DEFAULTS as ANDROID_SPEECH_DEFAULTS
 from app.audio_output_engine import render_tts
 from app.document_store import DocumentStore
 from app.reader_speech_text import MAX_READ_ALOUD_PDF_BYTES, MAX_READ_ALOUD_TEXT_SECTION_CHARS
 from app.reading_store import reader_version
+from app.settings_store import SettingsStore
 from app.v2.contracts import ErrorCode, LogicalObjectId, OperationResult, StorageLocation, StoredObject
 from app.v2.cutover import activate_v2, prepare_shadow
 from app.v2.migration import create_migration_backup, transfer_legacy_documents
@@ -71,7 +73,7 @@ class ReaderReadAloudTests(unittest.TestCase):
             session["_csrf_token"] = self.csrf
             session["simpleoffice_language"] = "de"
 
-    def render_wave(self, text, voice, directory, *, model):
+    def render_wave(self, text, voice, directory, *, model, document_root=None):
         self.spoken.append(text)
         directory = Path(directory)
         self.temp_dirs.append(directory)
@@ -117,6 +119,134 @@ class ReaderReadAloudTests(unittest.TestCase):
         self.assertEqual(b"RIFF", response.data[:4])
         self.assertTrue(self.temp_dirs)
         self.assertTrue(all(not path.exists() for path in self.temp_dirs))
+
+    def test_android_device_speech_explicit_opt_in_and_private_response(self):
+        doc = self.document("offline.txt", b"Private local example.")
+        options = "/setup/optional/android-speech"
+        rendered = []
+
+        def device(text, language, path, voice, rate, pitch):
+            self.assertEqual("Private local example.", text)
+            self.assertEqual(("de", None, 1.0, 1.0), (language, voice, rate, pitch))
+            rendered.append(path)
+            self.render_wave(text, "android", path.parent, model=None).rename(path)
+            return True
+
+        with patch.dict(app.config, ANDROID_PRIVATE_SPEECH=device), patch(self.speech_patch, side_effect=self.render_wave):
+            self.assert_private_audio(self.post(doc))
+            self.assertEqual([], rendered)
+            self.login("member")
+            self.assertEqual(403, self.client.post(options, data={"_csrf_token": self.csrf, "action": "enable"}).status_code)
+            self.login("admin")
+            self.assertEqual(403, self.client.post(options, data={"_csrf_token": self.csrf, "action": "enable"},
+                                                  environ_overrides={"REMOTE_ADDR": "192.0.2.4"}).status_code)
+            self.assertEqual(303, self.client.post(options, data={"_csrf_token": self.csrf, "action": "enable"}).status_code)
+            self.assertTrue(SettingsStore(self.root).settings()["media"]["android_private_speech"])
+            self.assertEqual([], rendered)
+            self.assert_private_audio(self.post(doc))
+            self.assertEqual(1, len(rendered))
+            self.assertFalse(rendered[0].parent.exists())
+            self.assertEqual(303, self.client.post(options, data={"_csrf_token": self.csrf, "action": "disable"}).status_code)
+            self.assertFalse(SettingsStore(self.root).settings()["media"]["android_private_speech"])
+
+    def test_android_device_speech_failure_never_falls_back_or_leaks_engine_error(self):
+        doc = self.document("offline.txt", b"Private local example.")
+        SettingsStore(self.root).save({"media": {"android_private_speech": True}}, "admin")
+        device = Mock(side_effect=RuntimeError("private engine detail"))
+        with patch.dict(app.config, ANDROID_PRIVATE_SPEECH=device), patch(self.speech_patch) as piper:
+            response = self.post(doc)
+        self.assertEqual(503, response.status_code)
+        self.assertEqual({"error": "android_speech_unavailable"}, response.get_json())
+        self.assertEqual("private, no-store", response.headers["Cache-Control"])
+        device.assert_called_once()
+        piper.assert_not_called()
+
+    def test_android_automatic_fallback_uses_managed_piper_runtime(self):
+        from app.private_read_aloud import _speech_choice
+
+        voice = self.root.parent / "fixture.onnx"
+        Path(str(voice) + ".json").write_text("{}", encoding="utf-8")
+        android = {
+            "reader": "automatic", "kids": "automatic", "reader_fallback": True,
+            "kids_fallback": False, "voice_de": "", "voice_en": "", "rate": 1.0, "pitch": 1.0,
+        }
+        SettingsStore(self.root).save({"media": {"android_speech": android}}, "admin")
+        def device_engine(*_args):
+            return True
+
+        with patch.dict(app.config, ANDROID_PRIVATE_SPEECH=device_engine), patch(
+            "app.private_read_aloud.resolve_command", return_value="/private/components/bin/piper",
+        ), app.test_request_context("/"):
+            selected_model, selected_device = _speech_choice("reader", "de", lambda _language: str(voice))
+        self.assertEqual(str(voice), selected_model)
+        self.assertIsNone(selected_device)
+
+    def test_kids_android_shared_engine_checks_scope_locale_permission_and_opt_in(self):
+        url = "/kids/lernen/sprache"
+        headers = {"X-CSRF-Token": self.csrf}
+        request_json = {"text": "What is four plus two?", "lang": "en-US", "purpose": "instructions"}
+        received = []
+
+        def device(text, locale, path, voice, rate, pitch):
+            received.append((text, locale, voice, rate, pitch))
+            self.render_wave(text, "android", path.parent, model=None).rename(path)
+            return True
+
+        settings = {**ANDROID_SPEECH_DEFAULTS, "reader": "disabled", "kids": "automatic",
+                    "kids_fallback": True, "voice_en": "en-installed", "rate": 1.25, "pitch": .9}
+        SettingsStore(self.root).save({"media": {"android_speech": settings}}, "admin")
+        doc = self.document("private.txt", b"Private boundary.")
+        with patch.dict(app.config, ANDROID_PRIVATE_SPEECH=device), patch("app.private_read_aloud.resolve_command", return_value=None):
+            self.assertEqual(403, self.client.post(url, json=request_json).status_code)
+            self.assertEqual(405, self.client.get(url, query_string=request_json).status_code)
+            self.assertEqual(503, self.post(doc).status_code)
+            unsupported = self.client.post(url, json={**request_json, "lang": "fr-FR"}, headers=headers)
+            self.assertEqual(400, unsupported.status_code)
+            self.assertEqual([], received)
+            response = self.client.post(url, json=request_json, headers=headers)
+            self.assert_private_audio(response)
+            self.assertEqual([("What is four plus two?", "en-US", "en-installed", 1.25, .9)], received)
+            SettingsStore(self.root).save({"media": {"android_speech": {**settings, "kids_fallback": False}}}, "admin")
+            self.assertEqual(503, self.client.post(url, json=request_json, headers=headers).status_code)
+            self.assertEqual(1, len(received))
+
+    def test_kids_speech_envelope_preflight_is_bounded_and_native_selection_requires_direct_loopback(self):
+        self.login("admin")
+        device = Mock()
+        url = "/kids/lernen/sprache"
+        setup = "/setup/optional/android-speech"
+        data = {"_csrf_token": self.csrf, "action": "enable"}
+        with patch.dict(app.config, ANDROID_PRIVATE_SPEECH=device), patch.dict(app.config, TESTING=False):
+            self.assertEqual(400, self.client.post(url, data={"text": "Form is not JSON"}).status_code)
+            too_large = self.client.post(url, content_type="application/json", data=" " * 4097)
+            self.assertEqual(413, too_large.status_code)
+            self.assertEqual(403, self.client.post(setup, data=data, base_url="http://office.example").status_code)
+            direct = self.client.post(setup, data=data, base_url="http://localhost:8765")
+            self.assertEqual(303, direct.status_code)
+        device.assert_not_called()
+
+    def test_android_setup_validates_voice_locale_and_test_audio_is_a_fixed_sample(self):
+        url = "/setup/optional/android-speech"
+        voices = lambda: [{"id": "de-installed", "language": "de-DE", "label": "Deutsch"},
+                          {"id": "en-installed", "language": "en-US", "label": "English"}]
+        received = []
+
+        def device(text, locale, path, voice, rate, pitch):
+            received.append((text, locale, voice, rate, pitch))
+            self.render_wave(text, "android", path.parent, model=None).rename(path)
+            return True
+
+        form = {"_csrf_token": self.csrf, "action": "save", "reader": "android", "kids": "piper",
+                "voice_de": "de-installed", "voice_en": "en-installed", "rate": "1.40", "pitch": "0.55"}
+        with patch.dict(app.config, ANDROID_PRIVATE_SPEECH=device, ANDROID_PRIVATE_SPEECH_VOICES=voices):
+            self.assertEqual(400, self.client.post(url, data={**form, "voice_de": "en-installed"}).status_code)
+            self.assertEqual(400, self.client.post(url, data={**form, "pitch": "nan"}).status_code)
+            self.assertEqual(303, self.client.post(url, data=form).status_code)
+            self.assertEqual([], received)
+            token = {"_csrf_token": self.csrf, "scope": "reader", "language": "en"}
+            self.assertEqual(400, self.client.post(url + "/test", data={**token, "text": "No egress."}).status_code)
+            self.assert_private_audio(self.client.post(url + "/test", data=token))
+            self.assertEqual([("This is SimpleOffice local speech.", "en-US", "en-installed", 1.4, .55)], received)
 
     def test_epub_reads_one_bounded_body_segment_without_scripts_or_front_matter(self):
         from tests.test_document_reader import epub_bytes
@@ -421,7 +551,7 @@ class ReaderReadAloudTests(unittest.TestCase):
         piper_model = os.environ.get("SIMPLEOFFICE_TEST_PIPER_MODEL")
         real_piper = piper_model and shutil.which("piper") and Path(piper_model).is_file()
 
-        def after_stage(text, voice, directory, *, model):
+        def after_stage(text, voice, directory, *, model, document_root=None):
             self.assertEqual(1, len(set(stage_paths)))
             self.assertFalse(stage_paths[0].parent.exists())
             if real_piper:
@@ -638,15 +768,15 @@ class ReaderReadAloudTests(unittest.TestCase):
         revoked = self.document("revoked.txt", b"Currently readable")
         self.login("member")
 
-        def render_then_change(text, voice, directory, *, model):
-            generated = self.render_wave(text, voice, directory, model=model)
+        def render_then_change(text, voice, directory, *, model, document_root=None):
+            generated = self.render_wave(text, voice, directory, model=model, document_root=document_root)
             record = self.store.get_document(changed["document_id"])
             record["version_number"] += 1
             self.store._save_document(record)
             return generated
 
-        def render_then_revoke(text, voice, directory, *, model):
-            generated = self.render_wave(text, voice, directory, model=model)
+        def render_then_revoke(text, voice, directory, *, model, document_root=None):
+            generated = self.render_wave(text, voice, directory, model=model, document_root=document_root)
             record = self.store.get_document(revoked["document_id"])
             record["attributes"]["chat_attachment"] = {"visibility": "chat", "allowed_local_users": ["elsewhere"]}
             self.store._save_document(record)

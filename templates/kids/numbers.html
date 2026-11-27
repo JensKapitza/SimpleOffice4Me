@@ -12,7 +12,7 @@
   {% if preschool %}
   <p class="badge text-bg-primary mb-3 text-wrap text-start">{{ 'Preschool round · 1 of 2: Counting' if g.language == 'en' else 'Vorschulrunde · 1 von 2: Zählen' }}</p>
   {% endif %}
-  <p class="small text-warning-emphasis mb-2" data-speech-status role="status" aria-live="polite"></p>
+  {% include "kids/_speech_status.html" %}
 
   <section class="kids-numbers-setup" data-setup aria-labelledby="kids-numbers-setup-title">
     {% if preschool %}

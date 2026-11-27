@@ -206,7 +206,7 @@ test('clap level counts taps and finishes a full round', () => {
   assert.equal(page.title.textContent, 'Stufe 1: Klatsche mit');
   for (let round = 1; round <= 3; round += 1) {
     assert.equal(page.progress.textContent, `Aufgabe ${round} von 3`);
-    const word = page.prompt.textContent.replace(/^👏 /, '');
+    const word = page.prompt.textContent.match(/^👏 (.+): Tippe einmal pro Silbe auf die Hände\.$/)?.[1];
     const card = api.WORDS.de.find(item => item.word === word);
     assert.ok(card, `prompt word ${word} comes from the vocabulary`);
     const total = card.parts.length;
@@ -241,7 +241,7 @@ test('count level accepts a retry and returns to the picker', () => {
   const api = runScript(page);
   page.levelButtons.count.click();
   assert.equal(page.title.textContent, 'Level 2: Count syllables');
-  const word = page.prompt.textContent.replace(/^🔢 /, '');
+  const word = page.prompt.textContent.match(/^🔢 How many syllables are in “(.+)”\?$/)?.[1];
   const entry = api.WORDS.en.find(item => item.word === word);
   assert.ok(entry, `prompt word ${word} must come from the vocabulary`);
   const buttons = page.stage.querySelectorAll('button');
@@ -263,7 +263,7 @@ test('rhyme level praises pairs and reveals answers after five tries', () => {
   const page = buildPage('de');
   const api = runScript(page);
   page.levelButtons.rhyme.click();
-  const targetWord = page.prompt.textContent.replace(/^🎵 /, '').replace(/ → \?$/, '');
+  const targetWord = page.prompt.textContent.match(/^🎵 Was reimt sich auf (.+)\?$/)?.[1];
   const set = api.RHYMES.de.find(item => item.target.word === targetWord);
   assert.ok(set, `rhyme target ${targetWord} must come from the rhyme sets`);
   const buttons = page.stage.querySelectorAll('button');
@@ -271,7 +271,7 @@ test('rhyme level praises pairs and reveals answers after five tries', () => {
   assert.match(page.feedback.textContent, /reimen sich/);
   page.next.click();
   const second = page.stage.querySelectorAll('button');
-  const wrongTarget = page.prompt.textContent.replace(/^🎵 /, '').replace(/ → \?$/, '');
+  const wrongTarget = page.prompt.textContent.match(/^🎵 Was reimt sich auf (.+)\?$/)?.[1];
   const wrongSet = api.RHYMES.de.find(item => item.target.word === wrongTarget);
   const wrongButton = second.find(button => button.getAttribute('aria-label') !== wrongSet.rhyme.word);
   assert.ok(wrongButton, 'distractor buttons must exist');

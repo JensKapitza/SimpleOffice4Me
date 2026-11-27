@@ -10,6 +10,7 @@ from flask import Blueprint, abort, current_app, g, render_template, request
 from werkzeug.wsgi import LimitedStream
 
 from .admin import admin_required
+from .component_runtime import resolve_command
 
 from .document_store_core import ocr_subprocess_environment
 from .private_read_aloud import ReadAloudError, configured_piper_model, private_audio_response
@@ -49,7 +50,7 @@ def _ocr_languages() -> tuple[str, tuple[str, ...]]:
 
 
 def _piper_status(language: str) -> str:
-    if not shutil.which("piper"):
+    if not resolve_command("piper"):
         return "missing"
     try:
         model = Path(configured_piper_model(language))

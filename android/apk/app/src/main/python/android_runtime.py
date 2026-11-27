@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import os
 import sys
 import threading
@@ -145,6 +146,45 @@ def _verify_android_cryptography_extension() -> None:
     print(RUST_SMOKE_MARKER, flush=True)
 
 
+def _android_speech_class():
+    from java import jclass
+
+    return jclass("de.simpleoffice4me.android.AndroidOfflineSpeech")
+
+
+def _render_android_speech(
+    text: str, language: str, output: Path, voice: str | None = None,
+    rate: float = 1.0, pitch: float = 1.0,
+) -> bool:
+    return bool(_android_speech_class().render(
+        text, language.replace("_", "-"), str(output), voice or "", float(rate), float(pitch),
+    ))
+
+
+def _android_speech_voices() -> list[dict[str, str]]:
+    try:
+        value = json.loads(str(_android_speech_class().voicesJson()))
+    except (AttributeError, TypeError, ValueError, RuntimeError):
+        return []
+    if not isinstance(value, list):
+        return []
+    return [{name: row[name] for name in ("id", "language", "label")}
+            for row in value[:96] if isinstance(row, dict)
+            and all(isinstance(row.get(name), str) for name in ("id", "language", "label"))]
+
+
+def _android_speech_status() -> str:
+    try:
+        state = str(_android_speech_class().status())
+    except (AttributeError, TypeError, ValueError, RuntimeError):
+        return "unavailable"
+    return state if state in {"loading", "ready", "unavailable"} else "unavailable"
+
+
+def _refresh_android_speech() -> bool:
+    return bool(_android_speech_class().refresh())
+
+
 def _serve() -> None:
     assert _SERVER is not None
     _SERVER.serve_forever(poll_interval=0.25)
@@ -213,6 +253,18 @@ def start(
     except Exception as exc:
         raise RuntimeError(f"SimpleOffice4Me import failed: {type(exc).__name__}: {exc}") from exc
 
+    try:
+        app.config["ANDROID_PRIVATE_SPEECH_CACHE"] = str(_android_speech_class().cacheDirectory())
+    except Exception as exc:
+        app.logger.warning("Optional Android device speech unavailable: %s", type(exc).__name__)
+    else:
+        app.config.update(
+            ANDROID_PRIVATE_SPEECH=_render_android_speech,
+            ANDROID_PRIVATE_SPEECH_VOICES=_android_speech_voices,
+            ANDROID_PRIVATE_SPEECH_STATUS=_android_speech_status,
+            ANDROID_PRIVATE_SPEECH_REFRESH=_refresh_android_speech,
+            ANDROID_PRIVATE_SPEECH_SETTINGS=True,
+        )
     app.config["TEMPLATES_AUTO_RELOAD"] = False
     app.config["MAX_CONTENT_LENGTH"] = min(int(app.config["MAX_CONTENT_LENGTH"]), 256 * 1024 * 1024)
     # The native bootstrap runs on every cold app start. A long cookie lifetime

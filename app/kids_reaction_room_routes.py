@@ -6,6 +6,7 @@ from flask import current_app, g, jsonify, make_response, render_template, reque
 
 from .auth import login_required
 from .desktop_proxy_status import _lan_proxy_status
+from .federation_qr_image import render_qr_svg
 from .kids_reaction_room import CODE, MAX_TICKETS, TOKEN, ReactionRooms, RoomError, digest
 
 
@@ -100,6 +101,24 @@ def _action():
     if action == "press" and (type(data["ms"]) is not int or not 0 <= data["ms"] <= 120_000):
         raise RoomError("bad_request", 400)
     return action, data
+
+
+@login_required
+def room_qr():
+    # QR encodes the same short code the host reads aloud — no new secret.
+    # The payload URL is display-only for the host's own browser.
+    if not _room_network():
+        return _response(jsonify(error="local_https_only"), 403)
+    code = (request.args.get("code", "") or "").strip().upper()
+    if len(code) > 16 or not CODE.fullmatch(code):
+        return _response(jsonify(error="bad_request"), 400)
+    join_url = request.host_url.rstrip("/") + url_for("kids_reaction.rooms") + "?code=" + code
+    response = make_response(render_qr_svg(join_url), 200)
+    response.headers["Content-Type"] = "image/svg+xml; charset=utf-8"
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Robots-Tag"] = "noindex, nofollow"
+    return response
 
 
 @login_required

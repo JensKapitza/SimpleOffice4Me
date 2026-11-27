@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from hashlib import sha256
 import io
 import re
+import sqlite3
 import time
 from urllib.error import HTTPError, URLError
 
@@ -93,8 +95,12 @@ def _receive(peer_id, raw_offer):
 
 def _publication_page(shares, owner: int, *, result=None, error="", retry_peer="", retry_offer=""):
     can_publish = supported_storage(_root())
+    offers = shares.list_owned(owner)
+    for offer in offers:
+        timestamp = offer["first_served_at"]
+        offer["served_at"] = datetime.fromtimestamp(timestamp, tz=UTC).isoformat(timespec="seconds") if timestamp else ""
     return _private(current_app.make_response(render_template(
-        "library/book_scan_publications.html", offers=shares.list_owned(owner), result=result, error=error,
+        "library/book_scan_publications.html", offers=offers, result=result, error=error,
         send_storage_supported=can_publish, send_peers=peers_for(_root(), "send") if can_publish else [],
         receive_peers=peers_for(_root(), "receive"), retry_peer=retry_peer, retry_offer=retry_offer,
     )))
@@ -138,10 +144,17 @@ def receive_pdf(code: str):
         peer = authenticate(root, request)
     except (ValueError, TypeError):
         abort(401)
+    shares = Shares(root)
     try:
-        data, digest = Shares(root).read(peer, code)
+        data, digest = shares.read(peer, code)
     except ScanError:
         abort(404)
     response = _download(data)
     response.headers["X-Book-Scan-SHA256"] = digest
+    # HEAD can verify availability but does not return the PDF.
+    if request.method == "GET" and response.status_code == 200:
+        try:
+            shares.note_served(peer, code)
+        except (OSError, sqlite3.Error) as exc:
+            current_app.logger.warning("Book scan retrieval status unavailable (%s)", type(exc).__name__)
     return response

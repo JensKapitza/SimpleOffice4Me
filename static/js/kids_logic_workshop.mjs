@@ -1,4 +1,4 @@
-import {logic, gateSignal, gateStep, appleSignal, appleStep, matchingIds, compareSelection} from './kids_logic_rules.mjs';
+import {logic, gateSignal, gateStep, appleSignal, appleStep, matchingIds, SetChallenge} from './kids_logic_rules.mjs';
 
 const de = {
   circuit: {
@@ -31,8 +31,10 @@ const de = {
     or: 'Finde Karten, die rot ODER rund sind. Eine Karte, die beides ist, gehört auch dazu.',
     not: 'Finde unter allen Karten die, die NICHT rot sind.',
     difference: 'Finde Karten, die rot UND NICHT rund sind.',
-    right: '✓ Passt genau!', answer: 'Das ist die Lösung. Passende Karten sind mit ✓ markiert.',
-    wrong: (missing, outside) => `Noch ${missing} passend(e) Karte(n) fehlen, ${outside} gewählte passen nicht.`,
+    right: '🌼😊 Genau! Du hast alle passenden Karten gefunden.', answer: 'Das ist die Lösung. Passende Karten sind mit ✓ markiert.',
+    wrong: (missing, outside, attempt) => `Noch nicht ganz! ${missing} passende Karte(n) fehlen, ${outside} gewählte passen nicht. Versuch ${attempt} von 5.`,
+    limit: 'Fünf Versuche sind vorbei. Du kannst dir jetzt die Lösung ansehen.',
+    attempts: (count) => `Fehlversuche: ${count} von 5`,
     labels: {right:'✓ Passt', missing:'＋ Fehlt', outside:'× Passt nicht'},
   },
   story: {progress: (index, count) => `Bild ${index} von ${count}`},
@@ -68,8 +70,10 @@ const en = {
     or: 'Find tiles that are red OR round. A tile that is both counts too.',
     not: 'From all the tiles, find ones that are NOT red.',
     difference: 'Find tiles that are red AND NOT round.',
-    right: '✓ Exactly right!', answer: 'Here is the answer. Tiles that fit have a ✓.',
-    wrong: (missing, outside) => `${missing} matching tile(s) missing; ${outside} chosen tile(s) do not fit.`,
+    right: '🌼😊 Exactly right! You found all matching tiles.', answer: 'Here is the answer. Tiles that fit have a ✓.',
+    wrong: (missing, outside, attempt) => `Not quite! ${missing} matching tile(s) are missing, and ${outside} selected tile(s) do not fit. Try ${attempt} of 5.`,
+    limit: 'That was five tries. You can reveal the answer now.',
+    attempts: (count) => `Wrong tries: ${count} of 5`,
     labels: {right:'✓ Fits', missing:'＋ Missing', outside:'× Does not fit'},
   },
   story: {progress: (index, count) => `Picture ${index} of ${count}`},
@@ -158,43 +162,93 @@ function wireSets(root, text) {
   const mode = query(root, '[data-set-operation]');
   const prompt = query(root, '[data-set-rule]');
   const result = query(root, '[data-set-result]');
+  const attempts = query(root, '[data-set-attempts]');
+  const next = query(root, '[data-set-next]');
+  const grid = query(root, '[data-token-grid]');
   const cards = all(root, '[data-token]');
   const objects = cards.map(({dataset}) => ({id: dataset.token, shape: dataset.shape, color: dataset.color}));
-  const selected = new Set();
+  const challenge = new SetChallenge(objects, mode.value);
+  const shuffle = (items) => {
+    const shuffled = [...items];
+    for (let i = shuffled.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+  };
+  const clearFades = () => cards.forEach((node) => {
+    delete node.dataset.mistakes;
+    node.style.removeProperty('opacity');
+  });
+  const shuffleCards = () => grid.replaceChildren(...shuffle(cards));
+  const freshChallenge = () => {
+    clearFades();
+    shuffleCards();
+    render();
+  };
   function render(marks = new Map(), feedback = '') {
     say(prompt, text[mode.value]);
     for (const node of cards) {
       const id = node.dataset.token;
       const mark = marks.get(id);
-      node.setAttribute('aria-pressed', String(selected.has(id)));
+      node.setAttribute('aria-pressed', String(challenge.selected.has(id)));
+      node.disabled = challenge.solved || challenge.attempts >= challenge.maxAttempts;
       if (mark) node.dataset.result = mark;
       else delete node.dataset.result;
       say(query(node, '[data-token-hint]'), mark ? text.labels[mark] : '');
+      node.setAttribute('aria-label', mark ? `${node.dataset.tokenLabel}. ${text.labels[mark]}` : node.dataset.tokenLabel);
     }
+    say(attempts, text.attempts(challenge.attempts));
+    query(root, '[data-set-check]').disabled = challenge.solved || challenge.attempts >= challenge.maxAttempts;
+    query(root, '[data-set-reveal]').disabled = !challenge.canReveal;
+    next.hidden = !challenge.solved;
     say(result, feedback);
   }
   for (const node of cards) {
     node.disabled = false;
     node.addEventListener('click', () => {
-      const id = node.dataset.token;
-      if (selected.has(id)) selected.delete(id);
-      else selected.add(id);
+      challenge.toggle(node.dataset.token);
       render();
     });
   }
-  const clear = () => { selected.clear(); render(); };
+  const clear = () => { challenge.reset(); freshChallenge(); };
   mode.disabled = false;
-  mode.addEventListener('change', clear);
+  mode.addEventListener('change', () => { challenge.setOperation(mode.value); freshChallenge(); });
   button(root, '[data-set-reset]', clear);
-  button(root, '[data-set-reveal]', () => render(
-    new Map(matchingIds(objects, mode.value).map((id) => [id, 'right'])), text.answer,
-  ));
-  button(root, '[data-set-check]', () => {
-    const {missing, outside} = compareSelection(objects, mode.value, [...selected]);
-    const marks = new Map([...selected].map((id) => [id, outside.includes(id) ? 'outside' : 'right']));
-    missing.forEach((id) => marks.set(id, 'missing'));
-    render(marks, missing.length || outside.length ? text.wrong(missing.length, outside.length) : text.right);
+  button(root, '[data-set-next]', () => {
+    challenge.next();
+    mode.value = challenge.operation;
+    freshChallenge();
+    cards[0].focus();
   });
+  button(root, '[data-set-reveal]', () => {
+    if (!challenge.reveal()) return;
+    const marks = new Map(matchingIds(objects, mode.value).map((id) => [id, 'right']));
+    challenge.selected.forEach((id) => { if (!marks.has(id)) marks.set(id, 'outside'); });
+    render(marks, text.answer);
+    next.focus();
+  });
+  button(root, '[data-set-check]', () => {
+    const checked = challenge.check();
+    if (checked.result === 'correct') {
+      render(new Map([...challenge.selected].map((id) => [id, 'right'])), text.right);
+      next.focus();
+      return;
+    }
+    if (!['wrong', 'limit'].includes(checked.result)) return;
+    const marks = new Map([...challenge.selected].map((id) => [id, checked.outside.includes(id) ? 'outside' : 'right']));
+    checked.outside.forEach((id) => {
+      const node = cards.find((card) => card.dataset.token === id);
+      const mistakes = Number(node.dataset.mistakes || 0) + 1;
+      node.dataset.mistakes = String(mistakes);
+      node.style.opacity = String(Math.max(.12, 1 - mistakes * .17));
+    });
+    const feedback = checked.result === 'limit'
+      ? text.limit
+      : text.wrong(checked.missing.length, checked.outside.length, checked.attempts);
+    render(marks, feedback);
+  });
+  shuffleCards();
   render();
 }
 function wireStory(root, text) {

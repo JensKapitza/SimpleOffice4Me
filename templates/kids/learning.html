@@ -11,7 +11,7 @@
     <button class="btn btn-outline-primary mt-3" type="button" data-share-game>🔳 {{ 'Share this game by QR' if g.language == 'en' else 'Spiel per QR-Code öffnen' }}</button>
   </header>
   <p class="small"><a href="{{ url_for('optional_setup.index', _anchor='kids-voice') }}">{{ 'For grown-ups: speech status and setup' if g.language == 'en' else 'Für Erwachsene: Stimmenstatus und Einrichtung' }}</a></p>
-  <p class="small text-warning-emphasis mb-2" data-speech-status role="status" aria-live="polite"></p>
+  {% include "kids/_speech_status.html" %}
 
   <section class="kids-learning-setup" data-setup aria-labelledby="kids-learning-level-heading">
     <a class="kids-mini-promo d-flex flex-wrap align-items-center justify-content-between gap-2 p-3 mb-4 rounded border text-decoration-none" href="{{ url_for('kids_learning.mini_games') }}">

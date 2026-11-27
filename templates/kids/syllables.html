@@ -8,6 +8,7 @@
   <header class="kids-syll-header d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4">
     <div><h1 class="h2 mb-1">{{ 'Syllable clapping' if g.language == 'en' else 'Silben klatschen' }} 👏</h1><p class="text-secondary mb-0">{{ 'Listen, clap the syllables and find rhymes. No timer and no reading needed.' if g.language == 'en' else 'Höre zu, klatsche die Silben und finde Reime. Ohne Zeitdruck und ohne Lesen.' }}</p></div>
   </header>
+  {% include "kids/_speech_status.html" %}
 
   {% if preschool %}
   <p class="badge text-bg-primary mb-3 text-wrap text-start">{{ 'Preschool round · 2 of 2: Clapping' if g.language == 'en' else 'Vorschulrunde · 2 von 2: Klatschen' }}</p>
