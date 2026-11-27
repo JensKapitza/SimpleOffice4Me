@@ -156,4 +156,7 @@ Android APK uses Chaquopy's Android ARM64 Python ABI; the
 installer's manylinux wheels are not compatible with that ABI. The APK has no
 verified Piper/ONNX Runtime native Android build or linked phonemizer libraries.
 Android device TextToSpeech remains the functional local speech alternative.
-Piper is therefore not advertised as an APK install option.
+If the APK has no compatible Piper runtime, setup points to the Android device
+voice and does not offer or accept new Piper-model downloads. Previously
+downloaded files are not removed, and a pending download can still be cancelled.
+This does not change the optional Piper download workflow on desktop or server.

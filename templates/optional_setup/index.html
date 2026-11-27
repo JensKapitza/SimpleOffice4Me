@@ -9,6 +9,11 @@
   <header class="my-3">
     <h1 class="h2">{{ 'Set up local extras' if en else 'Lokale Extras einrichten' }}</h1>
     <p>{{ 'All steps are optional. Documents, Mail and Kids work without these extras. Nothing is downloaded or played from this page without an explicit administrator action.' if en else 'Alle Schritte sind optional. Dokumente, Mail und Kids funktionieren auch ohne diese Extras. Diese Seite lädt nichts automatisch herunter und spielt nichts ab.' }}</p>
+    {% if android_speech_available and not inventory.voice_download_supported %}
+    <p class="alert alert-info" role="status" aria-live="polite">{{ 'For offline read-aloud on this device, use the Android device voice. You do not need to download Piper or a Piper model.' if en else 'Nutze zum Offline-Vorlesen die Android-Gerätestimme. Dafür musst du weder Piper noch ein Piper-Modell herunterladen.' }}
+      <a class="alert-link" href="#android-speech">{{ 'Set up or test the device voice' if en else 'Gerätestimme einstellen oder testen' }}</a>
+    </p>
+    {% endif %}
     {% if not manage %}<p>{{ 'Only an administrator can install or choose server assets. You can check their status and use the ready features here.' if en else 'Nur die Administration kann Serverdateien installieren oder Stimmen auswählen. Hier kannst du den Stand prüfen und fertige Funktionen öffnen.' }}</p>{% endif %}
   </header>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
@@ -25,7 +30,6 @@
       <h2 class="h4" id="component-manager-title">{{ 'Component manager' if en else 'Komponentenverwaltung' }}</h2>
       <p>{{ 'Detected environment' if en else 'Erkannte Umgebung' }}: <strong>{{ inventory.runtime|replace('-', ' ')|title }} · {{ inventory.architecture }}</strong>.</p>
       <p>{{ 'The managed Piper installer supports Linux x86_64, CPython 3.12 and glibc 2.28 or later. The verified FFmpeg/FFprobe/FFplay installer supports Linux x86_64 with glibc 2.28 or later. Both use pinned SHA-256 artifacts in private app data; voice models remain separate opt-in downloads. Other Piper/FFmpeg platforms, RapidOCR/ONNX and OSM are detected or linked to their existing workflows.' if en else 'Der verwaltete Piper-Installer unterstützt Linux x86_64, CPython 3.12 und glibc 2.28 oder neuer. Der geprüfte FFmpeg-/FFprobe-/FFplay-Installer unterstützt Linux x86_64 mit glibc 2.28 oder neuer. Beide verwenden festgelegte SHA-256-Artefakte im privaten Anwendungsdatenverzeichnis; Sprachmodelle bleiben getrennte freiwillige Downloads. Andere Piper-/FFmpeg-Plattformen, RapidOCR/ONNX und OSM werden erkannt oder mit ihren vorhandenen Abläufen verknüpft.' }}</p>
-      <p>{{ 'The managed Piper installer supports Linux x86_64, CPython 3.12 and glibc 2.28 or later. The verified FFmpeg/FFprobe/FFplay installer supports Linux x86_64 with glibc 2.28 or later. Both use pinned SHA-256 artifacts in private app data; voice models remain separate opt-in downloads. Other Piper/FFmpeg platforms, RapidOCR/ONNX and OSM are detected or linked to their existing workflows.' if en else 'Der verwaltete Piper-Installer unterstützt Linux x86_64, CPython 3.12 und glibc 2.28 oder neuer. Der geprüfte FFmpeg-/FFprobe-/FFplay-Installer unterstützt Linux x86_64 mit glibc 2.28 oder neuer. Beide verwenden festgelegte SHA-256-Artefakte im privaten Anwendungsdatenverzeichnis; Sprachmodelle bleiben getrennte freiwillige Downloads. Andere Piper-/FFmpeg-Plattformen, RapidOCR/ONNX und OSM werden erkannt oder mit ihren vorhandenen Abläufen verknüpft.' }}</p>
       <div class="row g-2 mb-3" role="group" aria-label="{{ 'Component status' if en else 'Komponentenstatus' }}">
         {% for item in inventory.components %}
         <div class="col-12 col-md-6 col-xl-4"><div {% if item.id == 'piper-engine' %}id="piper-engine"{% elif item.id == 'ffmpeg' %}id="ffmpeg-runtime"{% endif %} class="h-100 border rounded p-3">
@@ -37,13 +41,13 @@
           <h3 class="h6 mb-2">{{ labels[item.id] }}</h3>
           <p class="mb-2"><span class="badge text-bg-{{ 'success' if item.status in ('installed', 'ready', 'configured', 'shared', 'fallback', 'shared-fallback', 'reader-thorsten') else 'info' if item.status in ('queued', 'downloading', 'cancelling') else 'warning' if item.status in ('missing', 'unsupported', 'partial', 'failed', 'manual', 'engine-missing', 'installed-disabled', 'invalid', 'config-missing', 'reader-thorsten-invalid') else 'secondary' }}">{{ status_label }}</span></p>
           {% if item.download_bytes %}<p class="small text-muted">{{ 'Download' if en else 'Download' }} ≈ {{ (item.download_bytes / 1048576)|round(1) }} MiB · {{ 'free space' if en else 'freier Speicher' }} ≥ {{ (item.required_bytes / 1048576)|round(0)|int }} MiB</p>{% endif %}
-          {% if item.id == 'piper-engine' %}
+          {% if item.id == 'piper-engine' and (inventory.runtime != 'android-apk' or item.detail in ('host', 'app-managed')) %}
           {% if item.version %}<p class="small">{{ 'Version' if en else 'Version' }} {{ item.version }}</p>{% endif %}
           <details class="small mb-2"><summary>{{ 'Expert: license and wheel checksums' if en else 'Experteninfo: Lizenz und Wheel-Prüfsummen' }}</summary>
             <p class="mt-2">Piper {{ item.version or '1.8.0' }} · {{ item.license }} · Linux x86_64 · CPython 3.12</p>
             <ul class="ps-3">{% for wheel in item.wheels %}<li class="text-break">{{ wheel.name }} · {{ wheel.size }} Bytes · SHA-256 <code>{{ wheel.sha256 }}</code> · <a href="{{ wheel.url }}" rel="noreferrer">PyPI-Datei</a></li>{% endfor %}</ul>
           </details>
-          {% elif item.id == 'ffmpeg' and item.artifact %}
+          {% elif item.id == 'ffmpeg' and item.artifact and inventory.runtime != 'android-apk' %}
           {% if item.version %}<p class="small">{{ 'Version' if en else 'Version' }} {{ item.version }}</p>{% endif %}
           <details class="small mb-2"><summary>{{ 'Expert: license and archive checksum' if en else 'Experteninfo: Lizenz und Archiv-Prüfsumme' }}</summary>
             <p class="mt-2">{{ item.version or 'FFmpeg' }} · {{ item.license }} · Linux x86_64 · <a href="{{ item.artifact.url }}" rel="noreferrer">{{ 'Pinned release archive' if en else 'Festgelegtes Release-Archiv' }}</a></p>
@@ -58,7 +62,7 @@
           {% elif item.id == 'osm-data' and manage %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('admin.osm_address_index') }}">{{ 'Open OSM setup' if en else 'OSM-Einrichtung öffnen' }}</a>
           {% elif item.id == 'osm-data' %}<span class="small text-muted">{{ 'Administrator access required.' if en else 'Nur für Administratoren.' }}</span>
           {% elif item.id == 'rapidocr-onnx' %}<span class="small text-muted">{{ 'Uses the configured server Python environment.' if en else 'Nutzt die konfigurierte Server-Python-Umgebung.' }}</span>
-          {% elif item.id == 'piper-engine' %}<span class="small text-muted">{% if item.detail == 'app-managed' %}{{ ('App-managed Piper ' ~ item.version ~ '; install-time CLI check passed. Playback depends on a selected voice.') if en and item.version else ('Verwaltete Piper-Laufzeit; die CLI-Prüfung wurde bei der Installation bestanden. Zum Vorlesen muss zusätzlich eine Stimme ausgewählt sein.' if not en else 'App-managed Piper runtime; playback depends on a selected voice.') }}{% elif item.detail == 'host' %}{{ 'Using the detected system Piper. The manager will not replace it.' if en else 'Der gefundene System-Piper wird verwendet und vom Manager nicht ersetzt.' }}{% else %}{{ 'No verified installer is available for this detected platform and Python runtime.' if en else 'Für diese erkannte Plattform und Python-Laufzeit ist kein geprüfter Installer verfügbar.' }}{% endif %}</span>
+          {% elif item.id == 'piper-engine' %}<span class="small text-muted">{% if item.detail == 'app-managed' %}{{ ('App-managed Piper ' ~ item.version ~ '; install-time CLI check passed. Playback depends on a selected voice.') if en and item.version else ('Verwaltete Piper-Laufzeit; die CLI-Prüfung wurde bei der Installation bestanden. Zum Vorlesen muss zusätzlich eine Stimme ausgewählt sein.' if not en else 'App-managed Piper runtime; playback depends on a selected voice.') }}{% elif item.detail == 'host' %}{{ 'Using the detected system Piper. The manager will not replace it.' if en else 'Der gefundene System-Piper wird verwendet und vom Manager nicht ersetzt.' }}{% else %}{{ ('The Android APK does not include a compatible Piper runtime.' if en else 'Diese Android-APK enthält keine passende Piper-Laufzeit.') if inventory.runtime == 'android-apk' else ('No verified installer is available for this detected platform and Python runtime.' if en else 'Für diese erkannte Plattform und Python-Laufzeit ist kein geprüfter Installer verfügbar.') }}{% endif %}</span>
           {% elif item.id == 'ffmpeg' %}<span class="small text-muted">{{ 'A host installation is used when available. The managed runtime is installable only on Linux x86_64 with glibc 2.28 or later.' if en else 'Eine vorhandene Systeminstallation wird bevorzugt. Die verwaltete Laufzeit ist nur auf Linux x86_64 mit glibc 2.28 oder neuer installierbar.' }}</span>{% endif %}
         </div></div>
         {% endfor %}
@@ -96,6 +100,7 @@
         <h3 id="voice-package-heading" class="h5">{{ 'Thorsten Scratch (German, experimental adult voice)' if en else 'Thorsten Scratch (Deutsch, experimentelle Erwachsenenstimme)' }}</h3>
         {% with status=readiness.voice_package %}{% include 'optional_setup/_status.html' %}{% endwith %}
         {% with feature='voice-package' %}{% include 'optional_setup/_job_progress.html' %}{% endwith %}
+        {% if not inventory.voice_download_supported %}<p class="small">{{ 'No download: this Piper model cannot play in this APK.' if en else 'Kein Download: Dieses Piper-Modell lässt sich in dieser APK nicht abspielen.' }}</p>{% endif %}
         {% if readiness.piper == 'engine-missing' and readiness.voice_package == 'ready' %}
           <p id="voice-package-next-step" class="small mt-2">{{ 'The voice files are ready. Playback and activation still need Piper. Do not download the files again.' if en else 'Die Stimmdateien sind bereit. Zum Aktivieren und Vorlesen fehlt noch die Piper-Engine. Die Dateien musst du nicht erneut laden.' }}</p>
           {% set piper_card = inventory.components|selectattr('id', 'equalto', 'piper-engine')|first %}
@@ -106,7 +111,7 @@
           <p><a href="{{ voice_card }}" rel="noreferrer">Thorsten-Voice Piper-Scratch</a>, <a href="https://creativecommons.org/publicdomain/zero/1.0/" rel="noreferrer">CC0 1.0</a> ({{ 'model and recordings' if en else 'Modell und Aufnahmen' }}). <a href="https://github.com/OHF-Voice/piper1-gpl/blob/main/docs/LICENSING.md" rel="noreferrer">GPL-3.0-or-later</a> ({{ 'separate Piper engine' if en else 'separate Piper-Engine' }}). <code class="text-break">{{ voice_release }}</code></p>
           <ul>{% for item in voice_manifest %}<li>{{ item.name }} · {{ item.size }} Bytes · SHA-256 <code class="text-break">{{ item.digest }}</code></li>{% endfor %}</ul>
         </details>
-        {% if manage and readiness.voice_package in ('missing', 'failed') %}
+        {% if manage and inventory.voice_download_supported and readiness.voice_package in ('missing', 'failed', 'cancelled') %}
           {% with feature='voice-package', retry=readiness.voice_package == 'failed' %}{% include 'optional_setup/_install_form.html' %}{% endwith %}
         {% endif %}
       </section>
@@ -114,14 +119,15 @@
         <h3 id="english-voice-heading" class="h5">{{ 'English voice: LibriTTS high' if en else 'Englische Stimme: LibriTTS High' }}</h3>
         {% with status=readiness.english_voice_package %}{% include 'optional_setup/_status.html' %}{% endwith %}
         {% with feature='english-voice' %}{% include 'optional_setup/_job_progress.html' %}{% endwith %}
+        {% if not inventory.voice_download_supported %}<p class="small">{{ 'No download: this Piper model cannot play in this APK.' if en else 'Kein Download: Dieses Piper-Modell lässt sich in dieser APK nicht abspielen.' }}</p>{% endif %}
         <p>{{ 'Optional high-quality US English voice model. Download is about 130 MiB. Files are SHA-256 verified and remain local. It is separate from Piper, does not run automatically, and is selected only after an explicit action.' if en else 'Optionales hochwertiges US-englisches Sprachmodell. Der Download umfasst rund 130 MiB. Die Dateien werden mit SHA-256 geprüft und bleiben lokal. Es ist getrennt von Piper, startet nicht automatisch und wird erst nach ausdrücklicher Auswahl verwendet.' }}</p>
-        {% if readiness.piper == 'engine-missing' %}<p class="small" role="status">{{ 'Piper is not installed. You can save the model for later, but it cannot read aloud yet.' if en else 'Piper fehlt. Du kannst das Modell für später laden, aber noch nicht damit vorlesen.' }}</p>{% set piper_card = inventory.components|selectattr('id', 'equalto', 'piper-engine')|first %}{% if manage and piper_card.install_feature %}<a class="btn btn-sm btn-outline-primary mb-2" href="#piper-engine">{{ 'Install the Piper runtime' if en else 'Piper-Laufzeit installieren' }}</a>{% endif %}{% endif %}
+        {% if inventory.voice_download_supported and readiness.piper == 'engine-missing' %}<p class="small" role="status">{{ 'Piper is not installed. You can save the model for later, but it cannot read aloud yet.' if en else 'Piper fehlt. Du kannst das Modell für später laden, aber noch nicht damit vorlesen.' }}</p>{% set piper_card = inventory.components|selectattr('id', 'equalto', 'piper-engine')|first %}{% if manage and piper_card.install_feature %}<a class="btn btn-sm btn-outline-primary mb-2" href="#piper-engine">{{ 'Install the Piper runtime' if en else 'Piper-Laufzeit installieren' }}</a>{% endif %}{% endif %}
         {% if readiness.reader_english == 'configured' and not readiness.managed_english_selected %}<p class="small">{{ 'Your configured English voice is preserved. Download this model only if you want a separate copy.' if en else 'Deine eingerichtete englische Stimme bleibt erhalten. Lade dieses Modell nur, wenn du eine zusätzliche Kopie möchtest.' }}</p>{% endif %}
         <details class="mb-2"><summary>{{ 'License, version and checksums' if en else 'Lizenz, Version und Prüfsummen' }}</summary>
           <p><a href="{{ english_voice_card }}" rel="noreferrer">LibriTTS high model card</a> · <a href="{{ english_voice_license }}" rel="noreferrer">CC BY 4.0</a> · {{ english_voice_release }}</p>
           <ul>{% for item in english_voice_manifest %}<li>{{ item.name }} · {{ item.size }} Bytes · SHA-256 <code class="text-break">{{ item.digest }}</code></li>{% endfor %}</ul>
         </details>
-        {% if manage and readiness.english_voice_package in ('missing', 'failed') %}
+        {% if manage and inventory.voice_download_supported and readiness.english_voice_package in ('missing', 'failed', 'cancelled') %}
           {% with feature='english-voice', retry=readiness.english_voice_package == 'failed' %}{% include 'optional_setup/_install_form.html' %}{% endwith %}
         {% endif %}
         {% if manage and readiness.english_voice_package == 'ready' %}
