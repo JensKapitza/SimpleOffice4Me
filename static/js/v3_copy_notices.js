@@ -41,7 +41,7 @@
       li.dataset.noticeId = item.id;
       instant.dateTime = item.at;
       instant.textContent = item.at;
-      li.append(pane.dataset[item.kind === 'job' ? 'jobLabel' : 'browserLabel'], ' · ', instant);
+      li.append(pane.dataset[item.kind === 'peer' ? 'peerLabel' : (item.kind === 'job' ? 'jobLabel' : 'browserLabel')], ' · ', instant);
       return li;
     });
     if (!entries.length) {
@@ -82,7 +82,7 @@
       const rows = payload?.notices;
       if (!Array.isArray(rows) || rows.length > 10 || !rows.every(item => (
         item && typeof item.id === 'string' && /^[a-f0-9]{64}$/.test(item.id) &&
-        ['browser', 'job'].includes(item.kind) && typeof item.at === 'string' && !Number.isNaN(Date.parse(item.at))
+        ['browser', 'job', 'peer'].includes(item.kind) && typeof item.at === 'string' && !Number.isNaN(Date.parse(item.at))
       ))) throw new Error('copy notice response invalid');
       render(rows, true);
     } catch (_error) {

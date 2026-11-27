@@ -13,6 +13,7 @@
            data-endpoint="{{ url_for('v3_automation.copy_notices_feed') }}"
            data-browser-label="{{ 'Document copied' if g.language == 'en' else 'Dokument kopiert' }}"
            data-job-label="{{ 'Copy job completed' if g.language == 'en' else 'Kopierjob abgeschlossen' }}"
+           data-peer-label="{{ 'Copy notice from a paired instance' if g.language == 'en' else 'Kopiermeldung einer gekoppelten Instanz' }}"
            data-empty-label="{{ 'No notifications yet.' if g.language == 'en' else 'Noch keine Meldungen.' }}"
            data-new-label="{{ 'New copy notification.' if g.language == 'en' else 'Neue Kopiermeldung.' }}">
     <div class="card-body">
@@ -52,12 +53,40 @@
       <p class="visually-hidden" role="status" aria-live="polite" data-copy-notice-announcement></p>
       <ul class="mb-0" data-copy-notice-list>
         {% for notice in copy_notices %}
-          <li data-notice-id="{{ notice.event_id }}">{% if notice.event_type == copy_job_notice_type %}{{ 'Copy job completed' if g.language == 'en' else 'Kopierjob abgeschlossen' }}{% else %}{{ 'Document copied' if g.language == 'en' else 'Dokument kopiert' }}{% endif %} · <time datetime="{{ notice.occurred_at }}">{{ notice.occurred_at }}</time></li>
+          <li data-notice-id="{{ notice.event_id }}">{% if notice.event_type == peer_notice_type %}{{ 'Copy notice from a paired instance' if g.language == 'en' else 'Kopiermeldung einer gekoppelten Instanz' }}{% elif notice.event_type == copy_job_notice_type %}{{ 'Copy job completed' if g.language == 'en' else 'Kopierjob abgeschlossen' }}{% else %}{{ 'Document copied' if g.language == 'en' else 'Dokument kopiert' }}{% endif %} · <time datetime="{{ notice.occurred_at }}">{{ notice.occurred_at }}</time></li>
         {% else %}
           <li>{{ 'No notifications yet.' if g.language == 'en' else 'Noch keine Meldungen.' }}</li>
         {% endfor %}
       </ul>
     </div>
+  </section>
+  {% endif %}
+  {% if peer_notice_options %}
+  <section class="card p-3 mb-4" aria-labelledby="peer-notice-title">
+    <h2 class="h5" id="peer-notice-title">{{ 'Paired copy notices' if g.language == 'en' else 'Kopiermeldungen gekoppelter Instanzen' }}</h2>
+    <p>{{ 'Grant a verified peer permission to show fixed copy notices in this account. No files or commands are accepted.' if g.language == 'en' else 'Erlaube einer verifizierten Instanz, feste Kopiermeldungen in diesem Konto anzuzeigen. Es werden weder Dateien noch Befehle angenommen.' }}</p>
+    {% if peer_notice_options.peers %}
+    <form method="post" action="{{ url_for('v3_automation.peer_notices_consent') }}" class="mb-2">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="operation" value="grant">
+      <label class="form-label" for="workflow-peer">{{ 'Verified instance' if g.language == 'en' else 'Verifizierte Instanz' }}</label>
+      <select id="workflow-peer" name="peer" class="form-select w-auto mb-2">
+        {% for item in peer_notice_options.peers %}<option value="{{ item.peer_id }}">{{ item.label }}</option>{% endfor %}
+      </select>
+      <button type="submit" class="btn btn-outline-primary">{{ 'Allow copy notices' if g.language == 'en' else 'Kopiermeldungen erlauben' }}</button>
+    </form>
+    {% else %}
+    <p class="small">{{ 'No verified instance with receive permission is configured.' if g.language == 'en' else 'Keine verifizierte Instanz mit Empfangserlaubnis eingerichtet.' }}</p>
+    {% endif %}
+    {% for destination, peer in peer_notice_options.grants %}
+    <form method="post" action="{{ url_for('v3_automation.peer_notices_consent') }}" class="mb-2">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="operation" value="revoke">
+      <input type="hidden" name="grant" value="{{ destination }}">
+      <span>{{ peer }} · {{ 'Destination ID' if g.language == 'en' else 'Zielkennung' }} <code>{{ destination }}</code></span>
+      <button type="submit" class="btn btn-sm btn-outline-secondary">{{ 'Revoke' if g.language == 'en' else 'Widerrufen' }}</button>
+    </form>
+    {% endfor %}
   </section>
   {% endif %}
   <div class="row g-4">

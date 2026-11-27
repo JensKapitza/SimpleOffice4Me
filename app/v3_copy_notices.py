@@ -18,6 +18,7 @@ from .v3_automation import ActionRegistry, AutomationEngine, AutomationStore, Ex
 from .v3_capabilities import enabled
 from .v3_automation_timing import received_window_status, timing_envelope, utc_instant
 from .v3_jobs import JobStore, PermanentJobError, RetryableJobError
+from .workflow_peer_notices import PEER_NOTICE
 
 
 ACTION = "app.copy_notice"
@@ -221,7 +222,7 @@ def recent_copy_notices(root, principal: str, *, strict=False):
     try:
         store = ActivityStore(root)
         rows = [
-            notice for kind in NOTICE_EVENTS.values()
+            notice for kind in (*NOTICE_EVENTS.values(), PEER_NOTICE)
             for notice in store.list(actor=principal, event_type=kind, limit=10)
         ]
         return sorted(rows, key=lambda row: (row.occurred_at, row.event_id), reverse=True)[:10]

@@ -464,8 +464,11 @@ app.register_blueprint(v3_crm_routes.bp)
 from . import v3_health_routes
 app.register_blueprint(v3_health_routes.bp)
 
-from . import v3_federation_routes
+from . import v3_federation_routes, workflow_peer_notices
 app.register_blueprint(v3_federation_routes.bp)
+app.register_blueprint(workflow_peer_notices.bp)
+app.cli.add_command(workflow_peer_notices.send_command)
+app.cli.add_command(workflow_peer_notices.list_command)
 
 from . import v3_jobs_admin
 app.register_blueprint(v3_jobs_admin.bp)

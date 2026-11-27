@@ -12,6 +12,8 @@ from .access_control import has_feature
 from .auth import login_required
 from .v3_automation import AutomationEngine, AutomationStore, default_action_registry
 from .v3_capabilities import enabled
+from .workflow_peer_notices import DEST, PEER_NOTICE, PeerNoticeGrants, feature_on, permitted_peer
+from .federation_store import FederationStore
 from .v3_copy_notices import (
     COPY_EVENT, JOB_EVENT_NAME, JOB_NOTICE, PRESET, TIMER_PRESETS, enable_copy_notice_preset,
     is_local_copy_notice_rule, recent_copy_notices,
@@ -87,6 +89,20 @@ def _task_check_rule(rule) -> bool:
     return True
 
 
+def _peer_notice_options():
+    root = current_app.config["DOCUMENT_ROOT"]
+    if not feature_on(root) or not has_feature(g.user, "sync"):
+        return None
+    peers = []
+    for row in FederationStore(root).list_peers():
+        try:
+            peer = permitted_peer(root, row["peer_id"], "receive")
+            peers.append({"peer_id": peer["peer_id"], "label": peer["label"]})
+        except (ValueError, PermissionError):
+            continue
+    return {"peers": peers, "grants": PeerNoticeGrants(root).for_account(g.user)}
+
+
 def _render_index(actor: str, *, preview=None):
     store = _store()
     rules = store.list(actor)
@@ -111,6 +127,8 @@ def _render_index(actor: str, *, preview=None):
         copy_notice_timer_enabled=enabled("v3.jobs"),
         copy_notice_delays=copy_notice_delays,
         copy_job_notice_type=JOB_NOTICE,
+        peer_notice_type=PEER_NOTICE,
+        peer_notice_options=_peer_notice_options(),
         copy_notices=recent_copy_notices(current_app.config["DOCUMENT_ROOT"], actor),
         manual_check_rule_ids=manual_check_rule_ids,
     )
@@ -137,10 +155,35 @@ def copy_notices_feed():
     except (OSError, sqlite3.Error):
         abort(503)
     return jsonify({"enabled": True, "notices": [
-        {"id": row.event_id, "kind": "job" if row.event_type == JOB_NOTICE else "browser",
+        {"id": row.event_id, "kind": {JOB_NOTICE: "job", PEER_NOTICE: "peer"}.get(row.event_type, "browser"),
          "at": row.occurred_at}
         for row in rows
     ]})
+
+
+@bp.post("/peer-notices")
+@login_required
+def peer_notices_consent():
+    root = current_app.config["DOCUMENT_ROOT"]
+    if not feature_on(root):
+        abort(404)
+    grants = PeerNoticeGrants(root)
+    if request.form.get("operation") == "grant":
+        if not has_feature(g.user, "sync"):
+            abort(403)
+        try:
+            peer = permitted_peer(root, request.form.get("peer", ""), "receive")
+        except (ValueError, PermissionError):
+            abort(403)
+        grants.grant(peer["peer_id"], g.user)
+    elif request.form.get("operation") == "revoke":
+        grant = request.form.get("grant", "")
+        if not DEST.fullmatch(grant):
+            abort(400)
+        grants.revoke(grant, g.user)
+    else:
+        abort(400)
+    return redirect(url_for("v3_automation.index"), code=303)
 
 
 @bp.post("/copy-notice")

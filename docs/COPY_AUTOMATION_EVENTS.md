@@ -78,6 +78,50 @@ erhalten; nach Ende der Sitzung oder Abschalten der Funktion stoppt der Abruf.
 Das ist eine Aktualisierung dieser Seite, kein Push außerhalb der App, Ton
 oder föderiertes Ziel.
 
+## Erste Zustellung zwischen zwei verifizierten Instanzen
+
+Der Betreiber kann eine **bereits bestätigte** Browser-Kopie oder erfolgreiche
+Spiegelung ausdrücklich an eine gekoppelte Instanz melden. Beide Seiten
+benötigen `v3.federation`, `v3.automation` und `v3.activity`. Die normalen
+Schritte für verifiziertes, direktes Peer-Pairing gelten weiterhin; die Peer-
+Adresse muss ein HTTPS-Ursprung mit überprüfbarem Zertifikat sein. Eine
+lokale Entwicklungs-CA kann ausdrücklich als vertrauenswürdig konfiguriert
+werden; TLS-Prüfung abschalten ist nicht vorgesehen.
+
+In der Peer-Policy steht auf der Senderseite
+`"data_classes":{"workflow_notices":{"send":true}}`,
+auf der Empfängerseite entsprechend `"receive":true`. Bestehende andere
+Policy-Einträge bleiben erhalten. Das Empfängerkonto erlaubt die verifizierte
+Instanz zusätzlich in **Kommunikation → Automation 3.0 → Kopiermeldungen
+gekoppelter Instanzen** und gibt die dortige Zielkennung dem Betreiber der
+Senderinstanz. Das gleiche Konto kann den Empfang jederzeit widerrufen.
+
+```sh
+flask --app app list-workflow-copy-events --actor system
+flask --app app send-workflow-copy-notice \
+  --peer verifizierter-peer --destination ZIELKENNUNG \
+  --actor system --event-id EREIGNISKENNUNG
+```
+
+Für Browser-Kopien ist der Audit-Akteur das angemeldete Konto, nicht
+`system`. Das Paket enthält einen festen Meldungstyp, eine opaque ID,
+die Zielkennung und das unveränderte UTC-Zeitfenster (der Pilot verwendet
+UTC als Ursprungszone und maximal zehn Minuten ab dem Kopierereignis).
+Keine Benutzernamen, Dateinamen, Texte, Inhalte, URLs oder Befehle im Paket.
+Der Empfänger verifiziert Peer, Richtung, Freigabe, gültiges Konto, Frist
+und früheste Zeit vor dem Schreiben. Eine Wiederholung erzeugt keine
+zweite Meldung. Das Resultat `delivered` bedeutet, dass die Anzeige im
+Empfängerkonto bereitsteht, nicht dass das Endgerät sie gesehen hat.
+
+Noch kein automatisches Senden dieser Meldung durch eine Regel, kein
+Hintergrund-Push, kein Ton und keine Fernsteuerung. Der reproduzierbare
+Positivpfad mit echten isolierten HTTPS-Instanzen lautet:
+
+```sh
+python -m pip install -e '.[test]'
+python -m tools.smoke_workflow_peer_notices
+```
+
 ## Nächster Anschluss
 
 Die vorhandene V3-Automation speichert benutzerbezogene Regeln mit Ereignis,
@@ -88,7 +132,7 @@ und den Cursor sowie Quittungen pro Aktion dauerhaft speichern. Regelrecht
 und Zielzustimmung müssen vor jeder echten Aktion erneut geprüft werden;
 Ziel-IDs nur aus lokal bekannten oder ausdrücklich freigegebenen gekoppelten
 Clients. Ein Test zeigt geordnete Auswertung als Dry-Run ohne Zustellung.
-Ein produktiver Worker, gekoppelte App-Zustellung sowie Adapter für Lampen und
+Ein produktiver Worker für föderierte Aktionen, Gerätesignale im Hintergrund sowie Adapter für Lampen und
 Aktionen am Betriebssystem fehlen in diesem Stand. Kein generischer Skript-
 oder HTTP-Aufruf, keine Umgehung der Nicht-stören-Einstellung. Explizites
 Ein-/Ausschalten ist besser wiederholbar als Umschalten; befristete Aktionen
