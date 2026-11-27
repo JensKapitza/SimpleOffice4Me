@@ -30,8 +30,19 @@ if [[ -z "$serial" ]]; then
   test -x "$adb_bin" || { echo 'SDK platform-tools installed without usable adb' >&2; exit 2; }
   timeout 30 "$adb_bin" start-server
   avd='simpleoffice-provider-acceptance'
-  printf 'no\n' | "$sdk/cmdline-tools/latest/bin/avdmanager" create avd -n "$avd" -k "$image"
-  emulator_log="${RUNNER_TEMP:?}/android-provider-emulator.log"
+  # The CLI and emulator may look at different homes on CI unless both are set.
+  export ANDROID_USER_HOME
+  ANDROID_USER_HOME="$(mktemp -d "${RUNNER_TEMP:?}/contacts-android.XXXXXX")"
+  export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
+  mkdir -p "$ANDROID_AVD_HOME"
+  printf 'no\n' | "$sdk/cmdline-tools/latest/bin/avdmanager" create avd \
+    -n "$avd" -k "$image" -p "$ANDROID_AVD_HOME/$avd.avd"
+  if ! test -s "$ANDROID_AVD_HOME/$avd.ini" ||
+     ! "$sdk/emulator/emulator" -list-avds | grep -Fx "$avd"; then
+    echo 'The newly created AVD is not visible to the emulator' >&2
+    exit 2
+  fi
+  emulator_log="$ANDROID_USER_HOME/emulator.log"
   "$sdk/emulator/emulator" -avd "$avd" -port 5560 -no-window -no-audio -no-boot-anim \
     -no-snapshot -wipe-data -gpu swiftshader_indirect >"$emulator_log" 2>&1 &
   emulator_pid=$!
@@ -43,10 +54,13 @@ if [[ ! -x "$adb_bin" ]]; then
   adb_bin="$(command -v adb)" || { echo 'adb is missing from the Android SDK and PATH' >&2; exit 2; }
 fi
 adb_for_test() { timeout 120 "$adb_bin" -s "$serial" "$@"; }
-adb_for_test wait-for-device
 booted=false
 for ((i=0; i<60; i++)); do
-  if [[ "$(timeout 5 "$adb_bin" -s "$serial" shell getprop sys.boot_completed | tr -d '\r')" == 1 ]]; then
+  if [[ -n "${emulator_pid:-}" ]] && ! kill -0 "$emulator_pid" 2>/dev/null; then
+    echo 'Emulator process exited before Android boot' >&2
+    exit 2
+  fi
+  if [[ "$(timeout 5 "$adb_bin" -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == 1 ]]; then
     booted=true
     break
   fi
