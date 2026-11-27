@@ -9,6 +9,7 @@ from .contact_company_data import company_data_metadata_from_form, company_searc
 from .mail_document_access import private_mail_document
 from .form_store import StockAdjustmentCommittedError
 from .document_search_return import document_search_return
+from .document_copy_events import capture_copy_completed
 from .v2.contracts import LogicalObjectId, StorageLocation
 from .v2.storage_runtime import (
     restore_document as restore_document_v2,
@@ -355,6 +356,7 @@ def copy_document(document_id: str):
         if not result.ok:
             flash(result.error.message)
         else:
+            capture_copy_completed(current_app.config["DOCUMENT_ROOT"], actor, result.value.object_id.value)
             flash(
                 f"Dokument kopiert nach {result.value.location.relative_path}. "
                 "Die Kopie hat eine eigene Dokument-ID."

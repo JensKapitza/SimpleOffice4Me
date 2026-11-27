@@ -20,6 +20,7 @@ from typing import Any
 import click
 from flask import current_app
 
+from .document_copy_events import capture_copy_job_completed, copy_run_id
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
 from .revision_history import RevisionHistory
@@ -114,7 +115,7 @@ class ReplicationStore:
         self._save(data, actor, "replication_rule_created", rule["rule_id"])
         return rule
 
-    def run_rule(self, rule_id: str, actor: str) -> dict[str, Any]:
+    def run_rule(self, rule_id: str, actor: str, *, record_completion: bool = True) -> dict[str, Any]:
         data = self.status()
         rule = next((item for item in data["rules"] if item["rule_id"] == rule_id), None)
         if not rule:
@@ -147,17 +148,27 @@ class ReplicationStore:
         target["last_run"] = result["at"]
         target["last_error"] = ""
         self._save(data, actor, "replication_completed", rule_id)
+        if record_completion:
+            capture_copy_job_completed(
+                self.root, actor, copy_run_id(""), files_copied=copied, rules_completed=1, rule_id=rule_id,
+            )
         return result
 
-    def run_all(self, actor: str) -> dict[str, Any]:
+    def run_all(self, actor: str, *, run_id: str = "") -> dict[str, Any]:
+        run_id = copy_run_id(run_id)
         results, errors = [], []
         for rule in self.status()["rules"]:
             if not rule.get("enabled", True):
                 continue
             try:
-                results.append({"rule_id": rule["rule_id"], **self.run_rule(rule["rule_id"], actor)})
+                results.append({"rule_id": rule["rule_id"], **self.run_rule(rule["rule_id"], actor, record_completion=False)})
             except ValueError as exc:
                 errors.append({"rule_id": rule["rule_id"], "error": str(exc)})
+        if not errors:
+            capture_copy_job_completed(
+                self.root, actor, run_id, files_copied=sum(item["copied"] for item in results),
+                rules_completed=len(results),
+            )
         return {"completed": results, "errors": errors}
 
     def add_restic_repository(self, values: dict[str, Any], actor: str) -> dict[str, Any]:
@@ -313,8 +324,12 @@ class ReplicationStore:
 
 @click.command("run-replications")
 @click.option("--actor", default="system", show_default=True)
-def run_replications_command(actor: str) -> None:
-    result = ReplicationStore(current_app.config["DOCUMENT_ROOT"]).run_all(actor)
+@click.option("--run-id", default="", help="Stable opaque run ID; reuse it only for retries.")
+def run_replications_command(actor: str, run_id: str) -> None:
+    try:
+        result = ReplicationStore(current_app.config["DOCUMENT_ROOT"]).run_all(actor, run_id=run_id)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
     click.echo(json.dumps(result, ensure_ascii=False))
     if result["errors"]:
         raise click.ClickException("one or more replications failed")

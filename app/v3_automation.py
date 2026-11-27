@@ -10,10 +10,12 @@ from pathlib import Path
 import re
 import sqlite3
 import uuid
+from zoneinfo import ZoneInfo
 from typing import Any, Callable, Mapping
 
 from .file_lock import exclusive_file_lock
 from .sqlite_utils import connect as sqlite_connect
+from .v3_automation_timing import received_window_status, timing_envelope, utc_instant, validate_timing
 
 
 OPERATORS = {"eq", "ne", "in", "contains", "gt", "gte", "lt", "lte", "exists"}
@@ -278,6 +280,8 @@ class AutomationStore:
         for action in actions:
             if not str(action.get("type", "")).strip():
                 raise ValueError("automation action type is required")
+            if "timing" in action:
+                validate_timing(action["timing"], scope.get("timezone", "UTC"))
         _json(scope); _json(trigger); _json(conditions); _json(actions)
         return scope, trigger, conditions, actions
 
@@ -394,7 +398,22 @@ class AutomationStore:
                    WHERE r.owner=? ORDER BY e.created_at DESC LIMIT ?""",
                 (principal, size),
             ).fetchall()
-        return [dict(row) for row in rows]
+        result = []
+        for row in rows:
+            view = dict(row)
+            try:
+                view["action_states"] = [
+                    {k: action[k] for k in ("type", "state", "requested_at", "origin_timezone", "not_before", "expires_at") if k in action}
+                    for action in json.loads(view["detail_json"]) if isinstance(action, dict) and "state" in action
+                ]
+                for action in view["action_states"]:
+                    if action.get("expires_at") and action.get("origin_timezone"):
+                        end = utc_instant(action["expires_at"]).astimezone(ZoneInfo(action["origin_timezone"]))
+                        action["expires_at_local"] = end.strftime("%Y-%m-%d %H:%M:%S %Z")
+            except (KeyError, TypeError, ValueError):
+                view["action_states"] = []
+            result.append(view)
+        return result
 
     def create_confirmation(
         self,
@@ -459,9 +478,10 @@ class AutomationStore:
 
 
 class AutomationEngine:
-    def __init__(self, store: AutomationStore, actions: ActionRegistry):
+    def __init__(self, store: AutomationStore, actions: ActionRegistry, *, clock=None):
         self.store = store
         self.actions = actions
+        self.clock = clock or (lambda: datetime.now(timezone.utc))
 
     @staticmethod
     def _trigger_matches(trigger: Mapping[str, Any], trigger_type: str, event: Mapping[str, Any]) -> bool:
@@ -503,6 +523,25 @@ class AutomationEngine:
                 self.store.record_execution(rule, key=key, correlation_id=correlation, principal=principal, result=result)
             return result
 
+        windows = {}
+        preview = []
+        clock = self.clock()
+        for index, item in enumerate(rule.actions):
+            if "timing" not in item:
+                continue
+            try:
+                occurred = event.get("occurred_at") or (clock if dry_run else None)
+                envelope = timing_envelope(item["timing"], occurred, rule.scope.get("timezone", "UTC"))
+                status = received_window_status(envelope, clock)
+            except (OverflowError, ValueError):
+                return ExecutionResult("invalid_time_window", True, dry_run, (), "action timing could not be established")
+            windows[index] = envelope
+            preview.append({"type": item["type"], "state": status, **envelope})
+        if not dry_run and any(row["state"] == "waiting_for_window" for row in preview):
+            # Immediate engine must not partially run a workflow while a timed
+            # action needs a persisted scheduler. No terminal receipt is written.
+            return ExecutionResult("waiting_for_window", True, False, tuple(preview))
+
         planned: list[dict[str, Any]] = []
         for action_index, action in enumerate(rule.actions):
             action_type = str(action.get("type", "")).strip()
@@ -517,8 +556,12 @@ class AutomationEngine:
                 if not dry_run:
                     self.store.record_execution(rule, key=key, correlation_id=correlation, principal=principal, result=result)
                 return result
-            planned.append({"type": action_type, "payload": payload})
-            if dry_run:
+            entry = {"type": action_type, "payload": payload}
+            if action_index in windows:
+                envelope = windows[action_index]
+                entry.update(envelope, state=received_window_status(envelope, self.clock()))
+            planned.append(entry)
+            if dry_run or entry.get("state") in {"window_missed", "waiting_for_window"}:
                 continue
             try:
                 action_context = dict(context)
@@ -527,13 +570,19 @@ class AutomationEngine:
                         f"{principal}\0{key}\0{action_index}".encode("utf-8")
                     ).hexdigest()
                 self.actions.invoke(principal, action_type, payload, action_context)
+                if action_index in windows:
+                    entry["state"] = "executed"
             except Exception as exc:
+                if action_index in windows:
+                    entry["state"] = "failed"
                 LOG.warning("automation action failed action=%s type=%s", action_type, type(exc).__name__)
                 result = ExecutionResult("failed", True, False, tuple(planned), "automation action failed")
                 self.store.record_execution(rule, key=key, correlation_id=correlation, principal=principal, result=result)
                 return result
 
-        result = ExecutionResult("dry_run" if dry_run else "succeeded", True, dry_run, tuple(planned))
+        missed = any(action.get("state") == "window_missed" for action in planned)
+        result = ExecutionResult("dry_run" if dry_run else "window_missed" if missed else "succeeded",
+                                 True, dry_run, tuple(planned))
         if not dry_run:
             self.store.record_execution(rule, key=key, correlation_id=correlation, principal=principal, result=result)
             self.store.mark_run(rule.rule_id, _utc())
