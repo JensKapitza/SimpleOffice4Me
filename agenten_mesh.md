@@ -1018,6 +1018,16 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | Kein Patch möglich: kein Release mit glib ≥ 0.20 existiert; `[patch]`-Vendoring wegen ABI-Risiko verworfen. Befund mit Entblockungs-Kriterium als Issue-Kommentar dokumentiert. |
 | Tests und Soll-Ist-Vergleich | Soll: Upgrade-Pfad. Ist: zweifach belegter Negativbefund (Subagent + crates.io-API-Dependencies); kein Code geändert, keine Tests nötig; Issue bleibt offen als Watch-Item. |
 | Review und Abschluss | Medium/Crash-only/Linux-only ohne CVE; Neubewertung bei erstem Runtime-wry mit `wry ^0.58`. |
+## 26. November 2026 · Setup: lokale Piper- und RapidOCR-Wheels
+
+| Phase | Aufgabe und Ergebnis |
+| --- | --- |
+| Analyse | Die OCR-Pakete stehen in `pyproject.toml` unter dem optionalen Extra `ocr`; die reguläre Startinstallation zieht dieses Extra nicht mit ein. Der Startskript-Status konnte die optionalen Engines überspringen, wenn die übrige `.venv` bereits vollständig war. Piper fehlte ebenfalls standardmäßig. |
+| Planung | Auf unterstütztem Linux die vorhandenen Projektversionen von RapidOCR/ONNX Runtime und Piper in die Projekt-`.venv` aufnehmen. Wheels erzwingen, damit kein nativer Quellbuild die Installation blockiert. Termux überspringt diese optionalen Engines; Tesseract und der Start bleiben verfügbar. Stimmenmodelle werden nie automatisch geladen. `run`, `--check-system` und Opt-out-Variablen bleiben nicht installierend. |
+| Implementierung | `start.sh` prüft optionale Engines auch beim Schnellstart. Fehlende Pakete werden mit festen Projektversionen installiert; Piper wird gezielt in `$VENV/bin` geprüft und dessen Verzeichnis liegt im Laufzeit-PATH. Lesbare Warnungen und Opt-outs sind ergänzt. Admin- und Setup-Hinweise dokumentieren Engine-/Stimmen-Trennung. |
+| Tests | `bash -n start.sh`; `python -m unittest -q tests.test_start_script tests.test_object_vision_packaging tests.test_piper_settings`: 26 Tests bestanden. Zusätzlich `./start.sh setup` mit echter Wheelinstallation in einer isolierten Python-3.12-`.venv` ausgeführt: RapidOCR 3.10.0 und ONNX Runtime 1.32.0 importieren; Piper 1.8.0 CLI startet mit `--help`. `git diff --check` bestanden. Kein OCR-Modell und keine Stimme wurden automatisch heruntergeladen. |
+| Soll-Ist-Vergleich | Soll: beim regulären Linux-Setup sind Piper, RapidOCR und ONNX Runtime in der Projektumgebung verfügbar. Ist: realer Setup-Lauf und Wheel-Import/CLI-Nachweis bestanden. Das Container-Python 3.13 ohne `ensurepip` wurde umgangen, indem der vorhandene unterstützte Python 3.12 explizit gewählt wurde. Termux bleibt bewusst ausgenommen. OCR-Inferenz und Piper-Audio mit lokalem Stimm-Modell sind nicht geprüft. |
+| Review und Abschluss | Kein automatischer Import von Stimmen/Modellen. Setup-Skript und reale Paketinstallation geprüft; PR-CI läuft noch. Inferenz und Audiowiedergabe benötigen lokale Modelle und bleiben separat zu prüfen. |
 ## 26. November 2026 · Logikwerkstatt: Mengen-Übung ausbauen
 
 | Phase | Aufgabe und Ergebnis |

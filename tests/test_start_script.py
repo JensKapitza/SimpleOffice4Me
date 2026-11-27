@@ -1,9 +1,17 @@
+import re
 import subprocess
 import unittest
 from pathlib import Path
 
 
 class StartScriptTests(unittest.TestCase):
+    def test_python_dependency_checks_compile(self):
+        script = (Path(__file__).resolve().parents[1] / "start.sh").read_text()
+        checks = re.findall(r"<<'PY'\n(.*?)^PY$", script, re.MULTILINE | re.DOTALL)
+        self.assertTrue(checks)
+        for check in checks:
+            compile(check, "start.sh embedded Python", "exec")
+
     def test_help_lists_google_oauth_options_without_starting_the_server(self):
         root = Path(__file__).resolve().parents[1]
         result = subprocess.run(["bash", str(root / "start.sh"), "--help"], cwd=root, text=True, capture_output=True, check=False)
@@ -20,6 +28,7 @@ class StartScriptTests(unittest.TestCase):
         self.assertIn("pkg", result.stdout)
         self.assertIn("pip", result.stdout)
         self.assertIn("Versionsanforderungen", result.stdout)
+        self.assertIn("SIMPLEOFFICE_PIPER_INSTALL=1", result.stdout)
 
     def test_linux_script_rejects_invalid_server_limits_before_starting(self):
         root = Path(__file__).resolve().parents[1]
@@ -113,6 +122,31 @@ class StartScriptTests(unittest.TestCase):
 
         self.assertIn(f"'playwright=={version}'", script)
         self.assertIn(f"playwright=={version}", docs)
+
+    def test_linux_setup_installs_optional_piper_and_ocr_wheels(self):
+        import tomllib
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "start.sh").read_text(encoding="utf-8")
+        project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+
+        self.assertIn('PIPER_TTS_VERSION="1.8.0"', script)
+        self.assertIn('"piper-tts==$PIPER_TTS_VERSION"', script)
+        self.assertIn('"rapidocr==$RAPIDOCR_VERSION"', script)
+        self.assertIn('"onnxruntime==$ONNXRUNTIME_VERSION"', script)
+        self.assertIn('RAPIDOCR_VERSION="3.10.0"', script)
+        self.assertIn('ONNXRUNTIME_VERSION="1.32.0"', script)
+        self.assertEqual(["rapidocr==3.10.0", "onnxruntime==1.32.0"], project["project"]["optional-dependencies"]["ocr"])
+        self.assertIn("--only-binary=:all:", script)
+        self.assertIn("SIMPLEOFFICE_PIPER_INSTALL", script)
+        self.assertIn("SIMPLEOFFICE_OCR_INSTALL", script)
+        self.assertIn('[ "$IS_TERMUX" -eq 0 ]', script)
+        self.assertIn('export PATH="$PATH:$VENV/bin"', script)
+        self.assertIn('&& ! piper_available; then', script)
+        self.assertIn('if piper_available; then', script)
+        self.assertIn("Stimmdateien werden separat konfiguriert", script)
+        self.assertIn('echo "WARNUNG: Piper konnte nicht installiert werden;', script)
+        self.assertIn('echo "WARNUNG: RapidOCR/ONNX Runtime konnten nicht installiert werden;', script)
+        self.assertIn('[ "$START_MODE" = run ] || optional_engines_ready', script)
 
     def test_windows_script_supports_the_same_google_oauth_options(self):
         root = Path(__file__).resolve().parents[1]

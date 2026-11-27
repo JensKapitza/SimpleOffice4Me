@@ -247,3 +247,5 @@ der Dienst auf „stopping“ und startet keine neuen Wiedergaben. Nach Behebung
 der Betriebssystem-/Berechtigungsursache erneut Stop ausführen. Temporäre
 Lautstärkedateien und der aktive Auftragsverweis werden trotzdem bereinigt;
 Dateifehler bleiben in der Diagnose sichtbar.
+
+Für ein administratives Linux-Setup kann `SIMPLEOFFICE_PIPER_INSTALL=1 ./start.sh setup` die feste Piper-Version in der Projektumgebung installieren. RapidOCR/ONNX ist separat über `SIMPLEOFFICE_OCR_INSTALL=1 ./start.sh setup` wählbar. Stimmenmodelle werden separat eingerichtet. Unter Termux bleiben beide Wheel-Installationen deaktiviert.
