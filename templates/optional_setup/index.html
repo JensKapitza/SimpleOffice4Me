@@ -11,6 +11,7 @@
     <p>{{ 'All steps are optional. Documents, Mail and Kids work without these extras. Nothing is downloaded or played from this page without an explicit administrator action.' if en else 'Alle Schritte sind optional. Dokumente, Mail und Kids funktionieren auch ohne diese Extras. Diese Seite lädt nichts automatisch herunter und spielt nichts ab.' }}</p>
     {% if not manage %}<p>{{ 'Only an administrator can install or choose server assets. You can check their status and use the ready features here.' if en else 'Nur die Administration kann Serverdateien installieren oder Stimmen auswählen. Hier kannst du den Stand prüfen und fertige Funktionen öffnen.' }}</p>{% endif %}
   </header>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   <div class="d-flex flex-wrap gap-2 mb-3">
     <a class="btn btn-outline-secondary" href="{{ url_for('optional_setup.index') }}">{{ 'Refresh status' if en else 'Status neu laden' }}</a>
     <form method="post" action="{{ url_for('optional_setup.preference') }}">

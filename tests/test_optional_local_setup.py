@@ -138,6 +138,11 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
         self.assertTrue(document(member.get("/kids/lernen/")).select_one(f'a[href="{SETUP}#kids-voice"]'))
 
     def test_admin_can_cancel_queued_asset_job_without_starting_its_download(self):
+        self.assertEqual(303, self.action(self.client, "/cancel", feature="kids-hand").status_code)
+        flash_text = document(self.client.get(SETUP)).get_text(" ", strip=True)
+        self.assertTrue(any(message in flash_text for message in (
+            "There is no active setup.", "Es läuft keine aktive Einrichtung.",
+        )))
         with patch.object(optional._WORKERS, "submit") as submit, patch.object(
             hand, "install_managed", side_effect=AssertionError("cancelled work must not start"),
         ):
@@ -616,6 +621,10 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
         }[name]), patch.object(optional, "queue", return_value="queued") as queue:
             reply = self.action(self.client, "/install-all")
         self.assertEqual(303, reply.status_code)
+        follow_up = document(self.client.get(reply.headers["Location"]))
+        self.assertTrue(any(message in follow_up.get_text(" ", strip=True) for message in (
+            "Finger Magic: queued", "Fingerzauber: vorgemerkt",
+        )))
         self.assertEqual(["kids-hand"],
                          [call.args[1] for call in queue.call_args_list])
 

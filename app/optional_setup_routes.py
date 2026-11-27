@@ -210,7 +210,7 @@ def cancel_install():
         "ready": ("The component is already installed.", "Die Komponente ist bereits installiert."),
         "failed": ("Cancellation could not be recorded. Refresh the status.", "Abbruch konnte nicht gespeichert werden. Bitte Status aktualisieren."),
     }
-    message = messages.get(state, ("There is no active download.", "Es läuft kein Download."))
+    message = messages.get(state, ("There is no active setup.", "Es läuft keine aktive Einrichtung."))
     flash(message[0 if g.language == "en" else 1])
     return redirect(url_for("optional_setup.index", _anchor=feature), code=303)
 
