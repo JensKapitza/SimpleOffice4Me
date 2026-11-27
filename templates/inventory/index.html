@@ -5,6 +5,7 @@
   <div id="inventory-app" class="d-none" aria-hidden="true"
        data-library-capture="{{ '1' if capture_context.enabled else '0' }}"
        data-find-url="{{ url_for('inventory.find_item') }}"
+       data-nfc-find-url="{{ url_for('inventory.find_nfc_tag') }}"
        data-lookup-url="{{ url_for('inventory.book_lookup') }}"
        data-amazon-url="{{ url_for('inventory.amazon_search') }}"
        data-objects-url="{{ url_for('documents.objects') }}"

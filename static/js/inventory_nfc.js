@@ -9,6 +9,18 @@
     if (!/^[0-9a-f]{2}(?:[ :\-]?[0-9a-f]{2}){0,31}$/i.test(trimmed)) return '';
     return trimmed.replace(/[ :\-]/g, '').toUpperCase();
   };
+  const requestMatches = async ({endpoint, token, uid, signal}) => {
+    const reply = await fetch(endpoint, {
+      method: 'POST', credentials: 'same-origin', cache: 'no-store', redirect: 'error',
+      referrerPolicy: 'no-referrer', signal, headers: {
+        'Content-Type': 'application/json', 'X-CSRF-Token': token,
+      }, body: JSON.stringify({uid}),
+    });
+    if (!reply.ok) throw new Error('lookup unavailable');
+    const data = await reply.json();
+    if (!Array.isArray(data.matches) || data.matches.length > 20) throw new Error('invalid lookup');
+    return data;
+  };
   const scan = ({signal}) => new Promise((resolve, reject) => {
     const adapter = window.SimpleOfficeNativeNfc;
     const Reader = window.NDEFReader;
@@ -190,14 +202,8 @@
       speak('Looking for the tag…', 'Tag wird gesucht…');
       const timeout = setTimeout(() => own.abort(), 8000);
       try {
-        const reply = await fetch(panel.dataset.endpoint, {
-          method: 'POST', credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: own.signal,
-          headers: {'Content-Type': 'application/json', 'X-CSRF-Token': token}, body: JSON.stringify({uid}),
-        });
-        if (!reply.ok) throw new Error('lookup unavailable');
-        const data = await reply.json();
+        const data = await requestMatches({endpoint: panel.dataset.endpoint, token, uid, signal: own.signal});
         if (lookup !== own) return;
-        if (!Array.isArray(data.matches) || data.matches.length > 20) throw new Error('invalid lookup');
         const rows = data.matches.map(item => {
           if (!item || typeof item.object_id !== 'string' || !/^[0-9a-f-]{36}$/i.test(item.object_id)) {
             throw new Error('invalid item');
@@ -254,6 +260,6 @@
     panel.hidden = false;
   };
 
-  window.SimpleOfficeInventoryNfc = Object.freeze({normalizeUid, scan, bindControls});
+  window.SimpleOfficeInventoryNfc = Object.freeze({normalizeUid, scan, bindControls, requestMatches});
   if (typeof document !== 'undefined') bindFinder(document);
 })();

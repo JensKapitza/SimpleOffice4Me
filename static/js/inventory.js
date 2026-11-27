@@ -428,11 +428,37 @@
     } finally { findInput.removeAttribute('aria-busy'); }
   };
 
-  const duplicateProbe = async (value, source) => {
-    const raw = cleanText(value); if (!raw || !urls.find) return; const query = source === 'nfc' ? raw : normalizeIsbn(raw) || raw;
+  let tagProbe;
+  const cancelTagProbe = () => { tagProbe?.abort(); tagProbe = undefined; };
+  const probeTagDuplicate = async (value) => {
+    cancelTagProbe();
+    const helper = window.SimpleOfficeInventoryNfc;
+    const uid = helper?.normalizeUid?.(value);
+    const endpoint = root.dataset.nfcFindUrl;
+    const token = form?.querySelector('input[name="_csrf_token"]')?.value;
+    if (!uid || !endpoint || !token || !helper?.requestMatches || document.hidden) return;
+    const own = new AbortController();
+    tagProbe = own;
+    const timeout = setTimeout(() => own.abort(), 8000);
     try {
-      const response = await fetch(`${urls.find}?identifier=${encodeURIComponent(source === 'nfc' ? '' : query)}&nfc=${encodeURIComponent(source === 'nfc' ? query : '')}`, { headers: { Accept: 'application/json' }, cache: 'no-store' });
-      const data = await safeJson(response); if (response.ok && data.found && (source !== 'nfc' || (nfc?.value === raw && !nfcControls?.isScanning()))) setStatus(STR.duplicateFound(data.display_id || '', data.name || ''), 'warning');
+      const {matches} = await helper.requestMatches({endpoint, token, uid, signal: own.signal});
+      const first = matches[0];
+      if (tagProbe === own && !own.signal.aborted && !document.hidden && first && nfc?.value === value && !nfcControls?.isScanning()) {
+        setStatus(STR.duplicateFound(first.display_id || '', first.name || ''), 'warning');
+      }
+    } catch (_error) {} finally {
+      clearTimeout(timeout);
+      if (tagProbe === own) tagProbe = undefined;
+    }
+  };
+  nfc?.addEventListener('input', cancelTagProbe);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) cancelTagProbe(); });
+  const duplicateProbe = async (value, source) => {
+    if (source === 'nfc') return probeTagDuplicate(value);
+    const raw = cleanText(value); if (!raw || !urls.find) return; const query = normalizeIsbn(raw) || raw;
+    try {
+      const response = await fetch(`${urls.find}?identifier=${encodeURIComponent(query)}`, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+      const data = await safeJson(response); if (response.ok && data.found) setStatus(STR.duplicateFound(data.display_id || '', data.name || ''), 'warning');
     } catch (_error) {}
   };
 

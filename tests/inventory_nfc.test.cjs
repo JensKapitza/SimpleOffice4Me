@@ -5,7 +5,7 @@ const {runInNewContext} = require('node:vm');
 
 const script = readFileSync('static/js/inventory_nfc.js', 'utf8');
 
-function setup(adapter) {
+function setup(adapter, fetch) {
   const window = new EventTarget();
   if (adapter) window.SimpleOfficeNativeNfc = adapter;
   const readers = [];
@@ -19,7 +19,7 @@ function setup(adapter) {
       this.signal = signal;
     }
   };
-  runInNewContext(script, {window, AbortController, Event, setTimeout, clearTimeout});
+  runInNewContext(script, {window, AbortController, Event, setTimeout, clearTimeout, fetch});
   return {window, readers, reading, helper: window.SimpleOfficeInventoryNfc};
 }
 
@@ -92,8 +92,12 @@ test('native disabled and browser unsupported return separate failure reasons', 
   await assert.rejects(helper.scan({signal}), {code: 'unavailable'});
 });
 
-test('inventory USB field consumes Enter, submits no form and never uses a scanned URL', async () => {
-  const {window} = setup();
+test('inventory USB field posts only UID, submits no form and never uses a scanned URL', async () => {
+  const calls = [];
+  const {window} = setup(undefined, (url, options) => {
+    calls.push([url, options]);
+    return Promise.resolve({ok: true, json: async () => ({matches: []})});
+  });
   const nfc = new EventTarget();
   nfc.value = '';
   nfc.focus = () => { nfc.focused = true; };
@@ -102,18 +106,17 @@ test('inventory USB field consumes Enter, submits no form and never uses a scann
   const status = {};
   const form = new EventTarget();
   form.dataset = {};
-  const nodes = {'inventory-app': {dataset: {findUrl: '/inventory/find'}}, 'nfc-id': nfc,
+  form.querySelector = () => ({value: 'test-csrf'});
+  const nodes = {'inventory-app': {dataset: {findUrl: '/inventory/find', nfcFindUrl: '/inventory/nfc-find'}}, 'nfc-id': nfc,
     'nfc-keyboard': usb, 'scan-status': status, 'inventory-form': form};
   const document = new EventTarget();
   Object.assign(document, {documentElement: {lang: 'de'}, getElementById: id => nodes[id],
     querySelectorAll: () => [], querySelector: () => null});
-  const calls = [];
   let submits = 0;
   form.addEventListener('submit', () => { submits++; });
   window.SimpleOfficeInventoryNavigation = {};
   runInNewContext(readFileSync('static/js/inventory.js', 'utf8'), {
     window, document, Event, setTimeout, clearTimeout, AbortController,
-    fetch(url) { calls.push(url); return Promise.resolve({ok: true, json: async () => ({found: false})}); },
   });
   const enter = () => {
     const event = Object.assign(new Event('keydown', {cancelable: true}), {key: 'Enter'});
@@ -125,7 +128,12 @@ test('inventory USB field consumes Enter, submits no form and never uses a scann
   nfc.value = '00-aa-bb-cd';
   assert.equal(enter(), true);
   assert.equal(nfc.value, '00AABBCD');
-  assert.deepEqual(calls, ['/inventory/find?identifier=&nfc=00AABBCD']);
+  assert.equal(calls.length, 1);
+  const [url, request] = calls[0];
+  assert.equal(url, '/inventory/nfc-find');
+  assert.equal(request.method, 'POST');
+  assert.equal(request.headers['X-CSRF-Token'], 'test-csrf');
+  assert.deepEqual(JSON.parse(request.body), {uid: '00AABBCD'});
   assert.equal(submits, 0);
   usb.dispatchEvent(new Event('click'));
   nfc.value = 'https://example.invalid/payload';

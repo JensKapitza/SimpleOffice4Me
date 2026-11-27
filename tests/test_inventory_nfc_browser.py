@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import threading
 import unittest
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import urlsplit
 
 try:
     from playwright.sync_api import expect, sync_playwright
@@ -56,11 +56,14 @@ class InventoryNfcBrowserTests(PublicHttpTestCase):
                 page.locator("#nfc-keyboard").click()
                 expect(page.locator("#nfc-id")).to_be_focused()
                 page.keyboard.type("04-aa-12-ff")
-                with page.expect_response(lambda reply: urlsplit(reply.url).path == "/inventory/find") as call:
+                with page.expect_response(lambda reply: urlsplit(reply.url).path == "/inventory/nfc-find") as call:
                     page.keyboard.press("Enter")
                 reply = call.value
-                self.assertEqual(["04AA12FF"], parse_qs(urlsplit(reply.url).query)["nfc"])
-                self.assertTrue(reply.json()["found"])
+                self.assertEqual("POST", reply.request.method)
+                self.assertEqual("", urlsplit(reply.url).query)
+                self.assertEqual({"uid": "04AA12FF"}, reply.request.post_data_json)
+                self.assertEqual("Previously stored tag", reply.json()["matches"][0]["name"])
+                self.assertEqual("private, no-store", reply.headers["cache-control"])
                 expect(page.locator("#nfc-id")).to_have_value("04AA12FF")
                 expect(page.locator("#scan-status")).to_contain_text("Previously stored tag")
 

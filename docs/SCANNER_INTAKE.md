@@ -124,8 +124,9 @@ SIMPLEOFFICE_INTAKE_BROWSER_REQUIRED=1 python -m unittest -v tests.test_inventor
   kein Objekt an. Vorhandene NFC-Datensätze mit der früheren Form
   `UID | Inhalt` bleiben über ihre UID auffindbar. In der allgemeinen
   Inventarsuche hat ein exakter Barcode- oder ISBN-Treffer Vorrang, falls
-  die gleiche Zeichenfolge auch als UID vorkommt. Die Prüfung direkt im
-  NFC-Feld sucht gezielt nach der UID. UIDs sind keine
+  die gleiche Zeichenfolge auch als UID vorkommt. Die automatische Prüfung
+  im NFC-Feld sucht gezielt nach gültigen Hex-UIDs und überträgt sie wie die
+  separate NFC-Suche nur im privaten POST-Body. UIDs sind keine
   Authentifizierung; Tags mit wechselnder oder nicht lesbarer UID sind keine
   verlässlichen Inventaretiketten.
 
