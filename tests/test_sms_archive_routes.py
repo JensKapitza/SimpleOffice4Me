@@ -221,9 +221,15 @@ class SmsArchiveRoutesTests(PublicHttpTestCase):
             self.assertEqual(2, len(SmsArchive(self.root, "owner").page()))
 
     def test_mail_draft_without_writable_account_and_large_selection(self):
+        from bs4 import BeautifulSoup
+
         path = self.base + "/mail-draft"
         small = self.client.post(path, headers=self.csrf, data={"selected": f"{self.source}:1"})
         self.assertEqual(200, small.status_code)
+        notice = BeautifulSoup(small.data, "html.parser").select_one("#main-content > p.alert.alert-info")
+        self.assertIsNotNone(notice)
+        self.assertEqual("status", notice.get("role"))
+        self.assertEqual("polite", notice.get("aria-live"))
         self.assertIn(b'sms-mail-preview', small.data)
         self.assertNotIn(b'sms-mail-to', small.data)
         rows = [{**self.first, "provider_id": n, "body": "x" * 16000} for n in range(3, 8)]

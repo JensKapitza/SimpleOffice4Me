@@ -33,7 +33,7 @@
     <a class="btn btn-outline-secondary" href="{{ url_for('sms_archive.index') }}">{{ 'Discard draft' if en else 'Entwurf verwerfen' }}</a>
   </form>
   {% else %}
-    <p class="alert alert-info">{{ 'No writable mail account with composing enabled. You can review the copy, but cannot send it here.' if en else 'Kein beschreibbares Mailkonto mit aktiviertem Editor. Du kannst die Kopie prüfen, aber hier nicht versenden.' }}</p>
+    <p class="alert alert-info" role="status" aria-live="polite">{{ 'No writable mail account with composing enabled. You can review the copy, but cannot send it here.' if en else 'Kein beschreibbares Mailkonto mit aktiviertem Editor. Du kannst die Kopie prüfen, aber hier nicht versenden.' }}</p>
     <label for="sms-mail-preview" class="form-label">{{ 'Selected messages' if en else 'Ausgewählte Nachrichten' }}</label>
     <textarea id="sms-mail-preview" class="form-control mb-3" readonly rows="12" dir="auto">{{ body }}</textarea>
     <a class="btn btn-outline-secondary" href="{{ url_for('sms_archive.index') }}">{{ 'Back to the archive' if en else 'Zurück zum Archiv' }}</a>
