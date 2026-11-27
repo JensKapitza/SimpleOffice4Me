@@ -23,7 +23,7 @@ function harness({scope, initialChoice} = {}) {
   let dirty = false;
   const picture = node({hidden: true, children: [], replaceChildren(...children) { this.children = children; }});
   let choice = initialChoice ?? null;
-  const batch = scope ? node({value: '', dataset: {intakeBatchScope: scope}, options: ['', 'one', 'two']
+  const batch = scope ? node({value: '', disabled: true, dataset: {intakeBatchScope: scope}, options: ['', 'one', 'two']
     .map(value => ({value, remove() {batch.options = batch.options.filter(row => row !== this);}})),
     dispatchEvent(event) { this.handlers[event.type]?.(); }}) : null;
   const form = node({action: '/inventory/capture/intake',
@@ -200,6 +200,7 @@ test('a stalled native save stops waiting and can only retry the original payloa
 
 test('batch destination is restored only in the same session and uses existing options', () => {
   const ui = harness({scope: 'session-a'});
+  assert.equal(ui.batch.disabled, false);
   ui.batch.value = 'one';
   ui.batch.handlers.change();
   const initialChoice = ui.getChoice();

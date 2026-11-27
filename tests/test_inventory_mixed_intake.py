@@ -75,6 +75,8 @@ class MixedIntakeTests(unittest.TestCase):
         first = self.get_page().select_one(picker)
         self.assertEqual("", first.select_one("option")["value"])
         self.assertIsNotNone(first.find("option", value=location))
+        self.assertTrue(first.has_attr("disabled"))
+        self.assertEqual("off", first["autocomplete"])
         scope = first["data-intake-batch-scope"]
         self.assertEqual(scope, self.get_page().select_one(picker)["data-intake-batch-scope"])
         self.assertNotEqual(scope, self.get_page(self.bob).select_one(picker)["data-intake-batch-scope"])

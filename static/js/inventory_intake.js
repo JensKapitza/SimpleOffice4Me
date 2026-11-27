@@ -22,6 +22,7 @@
   const batchKey = 'simpleoffice.intake.batch-location';
   if (batch) {
     const scope = batch.dataset.intakeBatchScope;
+    batch.value = '';
     try {
       const choice = JSON.parse(window.sessionStorage.getItem(batchKey));
       if (choice?.scope === scope && Array.from(batch.options).some(option => option.value === choice.location)) {
@@ -35,6 +36,8 @@
         else window.sessionStorage.removeItem(batchKey);
       } catch (_) { /* The current capture still uses the selected destination. */ }
     });
+    // Do not accept a selection while the deferred script is still restoring it.
+    batch.disabled = false;
   }
   const showBarcode = () => {
     const value = !input.files[0] ? barcode.value.trim() : '';

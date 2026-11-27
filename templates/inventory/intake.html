@@ -15,13 +15,14 @@
     {% if locations %}
     <div class="mb-3">
       <label for="intake-batch-location" class="form-label">Regal oder Box für diesen Stapel</label>
-      <select id="intake-batch-location" name="location_id" class="form-select"
+      <select id="intake-batch-location" name="location_id" class="form-select" autocomplete="off" disabled
               data-intake-batch-scope="{{ batch_scope }}" aria-describedby="intake-batch-help">
         <option value="">Später zuordnen</option>
         {% for location in locations %}
         <option translate="no" value="{{ location.location_id }}">{{ location.name }}</option>
         {% endfor %}
       </select>
+      <noscript><p class="form-text">Ohne JavaScript lassen sich Lagerorte in den einzelnen Entwürfen auswählen.</p></noscript>
       <p id="intake-batch-help" class="form-text mb-0">Gilt nur für neue Entwürfe in diesem Tab. Bereits erfasste Entwürfe bleiben unverändert.</p>
     </div>
     {% endif %}
