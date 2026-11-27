@@ -966,6 +966,17 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Tests und Soll-Ist-Vergleich | Soll: Welle 7 + 1 Issue. Ist: 8/8 Reviews MERGE-READY ohne Blocker; je-PR CI-Grün + Merge-State verifiziert; Issue-Dateien per `git cat-file` auf Main belegt. #1318 rot (staged-hand-browser, fremd), #1303 weiter CodeQL-rot (fremd). |
 | Review und Abschluss | Offen: #1317 (CI), #1323/#1324 (fremde Code-Konflikte), #1303/#1318 (fremd rot), Rest-Issues brauchen Geräte-Praxistests. |
 
+## 26. November 2026 · Kids-Handzeichen: Übungsablauf nach Erkennung
+
+| Phase | Aufgabe und Ergebnis |
+| --- | --- |
+| Analyse | Auf `/kids/lernen/handzeichen` erkannte die Webcam stabile Gesten. Im Einzel-Üben wurde eine richtige Geste lediglich bestätigt; das Zielzeichen blieb unverändert. Dadurch wirkte das Spiel trotz funktionierender Erkennung festgefahren. Im Duell gibt es bereits eine Fortschrittslogik. |
+| Planung | Auf richtige, stabil erkannte Geste automatisch zum nächsten Übungszeichen wechseln. Falsche Gesten sollen das Ziel nicht verändern. Manuelles Weiterschalten und Duell bleiben erhalten. Teste die echte Kette aus `HoldFilter` und Übungszustand mit Node-Tests. |
+| Implementierung | `PracticeSession` in `static/js/kids_hand_logic.mjs` besitzt Ziel, Trefferprüfung, Weiterschalten und zyklischen Wechsel. `static/js/kids_hand_game.mjs` rendert nach einem stabilen Treffer sofort das nächste Zeichen und zeigt die Bestätigung. Falsche und unbekannte Ergebnisse verändern den Fortschritt nicht. |
+| Tests | `node --test tests/kids_hand_game.test.mjs`: 6/6 bestanden. `PYTHONPATH=tests python -m unittest -q test_kids_hand_game`: 3/3 bestanden. Der echte Chromium/MediaPipe-Test wurde aufgerufen, aber mangels lokal bestätigter Modell-/Videodateien korrekt übersprungen. Er prüft nun zusätzlich, dass nach dem Kamera-Treffer der Titel auf das nächste Zeichen wechselt. `git diff --check` bestanden. |
+| Soll-Ist-Vergleich | Soll: richtige erkannte Handzeichen lassen den Übungsmodus sichtbar weiterlaufen. Ist: Einzel-Üben springt nach einer stabil erkannten richtigen Geste zum nächsten Zeichen; falsche Geste bleibt beim aktuellen Ziel. |
+| Review und Abschluss | Funktionale Regressionstests bestanden. Echter Kameratest mit Geräten steht weiterhin aus; kein Erfolg für diesen Praxistest behauptet. |
+
 ## 26. November 2026 · Merge-Runde 8: Code-Queue abgeschlossen
 
 | Phase | Arbeit und Nachweis |
@@ -1046,14 +1057,3 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | Bestehende Änderung beibehalten, Beschriftung/Ergebnistext für die Sammelaktion anpassen und Modellstatus bzw. Modell-Einstellungen unverändert lassen. Dokumentationsaussagen zur Sammelaktion korrigiert. |
 | Tests | Fokussierte Integrationstests für „install-all“ und expliziten Stimmen-Download mit bestehender benutzerdefinierter EN-Stimme: 2 bestanden. Ruff für Route/Test und `git diff --check` bestanden. |
 | Soll-Ist-Vergleich und Review | Soll erfüllt für die Modell-Auswahl im Sammelablauf: Sprachdownloads werden nicht durch „Alle fehlenden Basis-Komponenten“ gestartet; explizite Einzelaktion bleibt verfügbar und überschreibt keine manuelle Stimme. Vollständige Installer-Abdeckung #1329 bleibt offen. |
-
-## 26. November 2026 · Kids-Handzeichen: Übungsablauf nach Erkennung
-
-| Phase | Aufgabe und Ergebnis |
-| --- | --- |
-| Analyse | Auf `/kids/lernen/handzeichen` erkannte die Webcam stabile Gesten. Im Einzel-Üben wurde eine richtige Geste lediglich bestätigt; das Zielzeichen blieb unverändert. Dadurch wirkte das Spiel trotz funktionierender Erkennung festgefahren. Im Duell gibt es bereits eine Fortschrittslogik. |
-| Planung | Auf richtige, stabil erkannte Geste automatisch zum nächsten Übungszeichen wechseln. Falsche Gesten sollen das Ziel nicht verändern. Manuelles Weiterschalten und Duell bleiben erhalten. Teste die echte Kette aus `HoldFilter` und Übungszustand mit Node-Tests. |
-| Implementierung | `PracticeSession` in `static/js/kids_hand_logic.mjs` besitzt Ziel, Trefferprüfung, Weiterschalten und zyklischen Wechsel. `static/js/kids_hand_game.mjs` rendert nach einem stabilen Treffer sofort das nächste Zeichen und zeigt die Bestätigung. Falsche und unbekannte Ergebnisse verändern den Fortschritt nicht. |
-| Tests | `node --test tests/kids_hand_game.test.mjs`: 6/6 bestanden. `PYTHONPATH=tests python -m unittest -q test_kids_hand_game`: 3/3 bestanden. Der echte Chromium/MediaPipe-Test wurde aufgerufen, aber mangels lokal bestätigter Modell-/Videodateien korrekt übersprungen. Er prüft nun zusätzlich, dass nach dem Kamera-Treffer der Titel auf das nächste Zeichen wechselt. `git diff --check` bestanden. |
-| Soll-Ist-Vergleich | Soll: richtige erkannte Handzeichen lassen den Übungsmodus sichtbar weiterlaufen. Ist: Einzel-Üben springt nach einer stabil erkannten richtigen Geste zum nächsten Zeichen; falsche Geste bleibt beim aktuellen Ziel. |
-| Review und Abschluss | Funktionale Regressionstests bestanden. Echter Kameratest mit Geräten steht weiterhin aus; kein Erfolg für diesen Praxistest behauptet. |
