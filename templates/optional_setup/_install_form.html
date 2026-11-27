@@ -1,4 +1,4 @@
 <form class="d-inline-block me-2" method="post" action="{{ url_for('optional_setup.install') }}">
   <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-  <button type="submit" name="feature" value="{{ feature }}" class="btn btn-primary">{{ ('Retry verified download' if g.language == 'en' else 'Geprüften Download wiederholen') if retry else (('Download voice model' if g.language == 'en' else 'Sprachmodell laden') if feature in ('voice-package', 'english-voice') else ('Download files' if g.language == 'en' else 'Dateien laden')) }}</button>
+  <button type="submit" name="feature" value="{{ feature }}" class="btn btn-primary">{{ ('Retry verified download' if g.language == 'en' else 'Geprüften Download wiederholen') if retry else ('Install Piper runtime' if g.language == 'en' else 'Piper-Laufzeit installieren') if feature == 'piper-engine' else (('Download voice model' if g.language == 'en' else 'Sprachmodell laden') if feature in ('voice-package', 'english-voice') else ('Download files' if g.language == 'en' else 'Dateien laden')) }}</button>
 </form>

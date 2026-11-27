@@ -8,7 +8,9 @@ function setup(initial, returned, feature = "kids-hand", hidden = false) {
   const events = new Map(), delays = [], fetched = [];
   let reloaded = 0;
   const badge = {dataset:{optionalStatus:initial}};
-  const fill = {style:{width:""}};
+  const classes = new Set();
+  const fill = {style:{width:""}, classList:{add:(...names) => names.forEach(name => classes.add(name)),
+    remove:(...names) => names.forEach(name => classes.delete(name))}};
   const barAttributes = new Map();
   const bar = {
     setAttribute:(name, value) => barAttributes.set(name, value),
@@ -38,7 +40,7 @@ function setup(initial, returned, feature = "kids-hand", hidden = false) {
     fetched.push([path, options]);
     return {ok:true, json:async () => ({[feature]:returned})};
   }});
-  return {document, events, delays, fetched, barAttributes, fill, container, message, reloaded:() => reloaded};
+  return {document, events, delays, fetched, barAttributes, fill, classes, container, message, reloaded:() => reloaded};
 }
 
 test("no polling when a fresh or ready page has no queued job", () => {
@@ -73,9 +75,12 @@ test("hidden tab makes no requests and page leave stops an outstanding refresh",
   assert.equal(fixture.reloaded(), 0);
 });
 
-test("terminal state reloads and refreshes the independent voice package card", async () => {
+test("terminal cancellation is announced before refreshing the voice package card", async () => {
   const fixture = setup("cancelling", {state:"cancelled"}, "voice-package");
   await fixture.delays.shift()();
+  assert.equal(fixture.reloaded(), 0);
+  assert.match(fixture.message.textContent, /Einrichtung abgebrochen/);
+  fixture.delays.shift()();
   assert.equal(fixture.reloaded(), 1);
 });
 
@@ -87,4 +92,29 @@ test("English voice installation has independent progress and terminal refresh",
   assert.equal(fixture.reloaded(), 0);
   assert.equal(fixture.container.hidden, false);
   assert.match(fixture.message.textContent, /en_US-libritts-high\.onnx · 0%/);
+});
+
+test("managed Piper runtime exposes download progress and refreshes on completion", async () => {
+  const fixture = setup("downloading", {
+    state:"downloading", file:"piper_tts-1.8.0.whl", received:4096, total:8192, percent:50,
+  }, "piper-engine");
+  await fixture.delays.shift()();
+  assert.equal(fixture.reloaded(), 0);
+  assert.equal(fixture.container.hidden, false);
+  assert.match(fixture.message.textContent, /piper_tts-1\.8\.0\.whl · 50%/);
+  const finished = setup("downloading", {state:"ready"}, "piper-engine");
+  await finished.delays.shift()();
+  assert.equal(finished.reloaded(), 1);
+});
+
+test("Piper preparation, install and check phases stay indeterminate after wheel downloads", async () => {
+  for (const [phase, expected] of [["prepare", /wird vorbereitet/], ["install", /wird installiert/], ["check", /wird geprüft/]]) {
+    const fixture = setup("downloading", {
+      state:"downloading", phase, file:"Installing Piper runtime", received:0, total:0, percent:null,
+    }, "piper-engine");
+    await fixture.delays.shift()();
+    assert.equal(fixture.barAttributes.has("aria-valuenow"), false);
+    assert.ok(fixture.classes.has("progress-bar-animated"));
+    assert.match(fixture.message.textContent, expected);
+  }
 });

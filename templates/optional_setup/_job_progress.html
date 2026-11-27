@@ -1,6 +1,6 @@
 {% set en = g.language == 'en' %}
 <div class="my-2" data-component-progress="{{ feature }}" hidden>
-  <div class="progress" role="progressbar" aria-label="{{ 'Component download progress' if en else 'Fortschritt des Komponenten-Downloads' }}"
+  <div class="progress" role="progressbar" aria-label="{{ 'Component setup progress' if en else 'Fortschritt der Komponenteneinrichtung' }}"
        aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
     <div class="progress-bar" style="width:0%"></div>
   </div>
@@ -9,7 +9,7 @@
   <form method="post" action="{{ url_for('optional_setup.cancel_install') }}">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="feature" value="{{ feature }}">
-    <button type="submit" class="btn btn-outline-danger btn-sm">{{ 'Cancel download' if en else 'Download abbrechen' }}</button>
+    <button type="submit" class="btn btn-outline-danger btn-sm">{{ 'Cancel setup' if en else 'Einrichtung abbrechen' }}</button>
   </form>
   {% endif %}
 </div>

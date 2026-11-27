@@ -124,6 +124,8 @@ def install():
         "manual": ("The administrator configured an external local folder.", "Es ist ein externer lokaler Ordner konfiguriert."),
         "busy": ("Other installs are active. Try again later.", "Andere Installationen laufen. Versuche es später erneut."),
         "insufficient-space": ("There is not enough free space for this component.", "Für diese Komponente ist nicht genügend freier Speicherplatz vorhanden."),
+        "unsupported": ("This installer does not support the detected Python, platform or architecture.",
+                        "Dieser Installer unterstützt die erkannte Python-Version, Plattform oder Architektur nicht."),
         "failed": ("Setup could not be started. You can retry.", "Einrichtung konnte nicht starten. Wiederholen ist möglich."),
     }
     flash(messages[state][0 if g.language == "en" else 1])
@@ -140,20 +142,48 @@ def install_all():
         abort(400)
     root = current_app.config["DOCUMENT_ROOT"]
     manual = optional_local_setup.hand_override(current_app.config)
-    try:
-        state = optional_local_setup.queue(root, "kids-hand", manual_hand_directory=manual)
-    except (OSError, ValueError):
-        state = "failed"
+    outcomes = {}
+    inventory = {
+        item["id"]: item
+        for item in optional_local_setup.component_inventory(root, manual_hand_directory=manual)["components"]
+    }
+    features = []
+    if inventory.get(optional_local_setup.PIPER_ENGINE, {}).get("install_feature"):
+        features.append(optional_local_setup.PIPER_ENGINE)
+    features.append("kids-hand")
+    for feature in features:
+        try:
+            outcomes[feature] = optional_local_setup.queue(
+                root, feature, manual_hand_directory=manual,
+            )
+        except (OSError, ValueError):
+            outcomes[feature] = "failed"
     audit("optional_local_install_requested", "optional_setup", "recommended-basics",
-          outcome="failure" if state == "failed" else "success", detail={"features": {"kids-hand": state}})
-    failed = state not in {"queued", "downloading", "ready", "manual"}
-    flash(("Finger Magic was requested if needed. Voice downloads are separate."
-           if g.language == "en" else
-           "Fingerzauber wurde bei Bedarf vorgemerkt. Sprachmodelle werden separat ausgewählt.")
-          if not failed else
-          ("Finger Magic setup could not start. Check free space and current downloads."
-           if g.language == "en" else
-           "Fingerzauber konnte nicht eingerichtet werden. Prüfe den freien Speicher und laufende Downloads."))
+          outcome="failure" if any(value not in {"queued", "downloading", "ready", "manual", "unsupported"}
+                                    for value in outcomes.values()) else "success",
+          detail={"features": outcomes})
+    labels = {
+        optional_local_setup.PIPER_ENGINE: ("Piper runtime" if g.language == "en" else "Piper-Laufzeit"),
+        "kids-hand": ("Finger Magic" if g.language == "en" else "Fingerzauber"),
+    }
+    outcome_text = {
+        "queued": ("queued" if g.language == "en" else "vorgemerkt"),
+        "downloading": ("already in progress" if g.language == "en" else "läuft bereits"),
+        "ready": ("already ready" if g.language == "en" else "bereits bereit"),
+        "manual": ("manual folder configured" if g.language == "en" else "manueller Ordner konfiguriert"),
+        "unsupported": ("not supported here" if g.language == "en" else "hier nicht unterstützt"),
+        "busy": ("another install is active" if g.language == "en" else "eine andere Installation läuft"),
+        "insufficient-space": ("not enough free space" if g.language == "en" else "zu wenig freier Speicher"),
+        "failed": ("could not start; retry or check the server log" if g.language == "en"
+                   else "Start fehlgeschlagen; erneut versuchen oder Serverprotokoll prüfen"),
+    }
+    summary = "; ".join(
+        f"{labels[feature]}: {outcome_text.get(outcome, outcome)}"
+        for feature, outcome in outcomes.items()
+    )
+    summary += (". Voice models remain separate." if g.language == "en"
+                else ". Sprachmodelle werden separat ausgewählt.")
+    flash(summary)
     return redirect(url_for("optional_setup.index", _anchor="component-manager"), code=303)
 
 
@@ -176,11 +206,11 @@ def cancel_install():
           outcome="failure" if state in {"failed", "missing"} else "success", detail={"state": state})
     messages = {
         "cancelling": ("Cancellation requested.", "Abbruch angefordert."),
-        "cancelled": ("Download cancelled. Incomplete files were discarded.", "Download abgebrochen. Unvollständige Dateien wurden verworfen."),
+        "cancelled": ("Setup cancelled. Incomplete files were discarded.", "Einrichtung abgebrochen. Unvollständige Dateien wurden verworfen."),
         "ready": ("The component is already installed.", "Die Komponente ist bereits installiert."),
         "failed": ("Cancellation could not be recorded. Refresh the status.", "Abbruch konnte nicht gespeichert werden. Bitte Status aktualisieren."),
     }
-    message = messages.get(state, ("There is no active download.", "Es läuft kein Download."))
+    message = messages.get(state, ("There is no active setup.", "Es läuft keine aktive Einrichtung."))
     flash(message[0 if g.language == "en" else 1])
     return redirect(url_for("optional_setup.index", _anchor=feature), code=303)
 
