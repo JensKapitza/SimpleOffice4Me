@@ -73,6 +73,15 @@ class UnifiedObjectCareTests(unittest.TestCase):
         self.assertEqual(expected, result)
         managed.assert_called_once_with(Path("generated-local-image.png"))
 
+    def test_missing_host_models_use_isolated_managed_worker(self):
+        expected = {"engine": "rapidocr", "status": "completed", "text": "modell lokal vorhanden",
+                    "characters": 22, "confidence": 0.9, "blocks": []}
+        with patch("app.object_vision._rapidocr_engine", side_effect=FileNotFoundError("model missing")), \
+                patch("app.object_vision._managed_rapidocr", return_value=expected) as managed:
+            result = _run_rapidocr(Path("generated-local-image.png"))
+        self.assertEqual(expected, result)
+        managed.assert_called_once_with(Path("generated-local-image.png"))
+
     def test_ocr_falls_back_to_tesseract_when_ml_is_unavailable(self):
         ml = {
             "engine": "rapidocr",

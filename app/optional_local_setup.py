@@ -527,8 +527,8 @@ def component_inventory(root: str | Path, *, manual_hand_directory: str = "") ->
          "download_bytes": optional_hand_game_install.RUNTIME_MAX_BYTES + kids_hand_assets.ASSETS[
              optional_hand_game_install.MODEL_NAME
          ][1], "required_bytes": _HAND_INSTALL_SPACE},
-        {"id": "rapidocr-onnx", "status": "installed" if rapidocr_present and onnx_present else
-         "installed" if managed_ocr else "failed" if ocr_job == "failed" else
+        {"id": "rapidocr-onnx", "status": "installed" if system_ocr or managed_ocr else
+         "failed" if ocr_job == "failed" else
          ocr_job if ocr_job in _ACTIVE or ocr_job == "cancelled" else
          "partial" if rapidocr_present or onnx_present else
          "missing" if optional_ocr_runtime.install_supported() else "unsupported",

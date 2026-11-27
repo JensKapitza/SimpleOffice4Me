@@ -42,7 +42,9 @@ Datei, Prüfsumme und PyPI-Dateiquelle einzeln auf; die mit den Wheels
 gelieferten Lizenz- und Attribution-Dateien bleiben in der privaten Runtime.
 
 Systemweit installierte RapidOCR-/ONNX-Pakete werden weiterhin verwendet,
-wenn beide in der Server-Python-Umgebung verfügbar sind. Auf anderen
+wenn beide Pakete und alle drei Modelle in der Server-Python-Umgebung
+verfügbar sind. Fehlen Hostmodelle, bietet die Komponentenkarte die verwaltete
+Runtime an und der Aufrufpfad verwendet sie, sofern sie installiert ist. Auf anderen
 Plattformen bleibt die vorhandene Server-Python-Erkennung verfügbar; falls
 beide Engines fehlen, greift der bestehende Tesseract-Fallback, sofern
 Tesseract installiert ist.

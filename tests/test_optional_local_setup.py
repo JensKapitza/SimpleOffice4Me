@@ -745,6 +745,17 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
                 patch.object(ocr_runtime, "install_supported", return_value=False):
             self.assertEqual("ready", optional.queue(self.root, "ocr-runtime"))
 
+    def test_ocr_inventory_offers_managed_runtime_when_host_models_are_missing(self):
+        with patch.object(optional, "resolve_command", return_value=None), \
+                patch.object(optional.importlib.util, "find_spec", return_value=object()), \
+                patch.object(ocr_runtime, "host_available", return_value=False), \
+                patch.object(ocr_runtime, "ready", return_value=False), \
+                patch.object(ocr_runtime, "install_supported", return_value=True):
+            item = next(row for row in optional.component_inventory(self.root)["components"]
+                        if row["id"] == "rapidocr-onnx")
+        self.assertEqual("partial", item["status"])
+        self.assertEqual(optional.OCR_RUNTIME, item["install_feature"])
+
     def test_piper_inventory_distinguishes_unsupported_and_cancelled_states(self):
         with patch.object(optional, "resolve_command", return_value=None), patch.object(
             piper_runtime, "install_supported", return_value=False,

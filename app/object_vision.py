@@ -46,11 +46,9 @@ TESSERACT_INSTALL_HINT = (
 
 def ocr_availability() -> dict[str, bool]:
     """Report local OCR backend availability without running inference."""
-    try:
-        spec = find_spec("rapidocr")
-    except (ImportError, ValueError):
-        spec = None
-    available = spec is not None and bool(spec.submodule_search_locations)
+    from .optional_ocr_runtime import host_available
+
+    available = host_available()
     if not available:
         from .optional_ocr_runtime import managed_python
         available = managed_python() is not None
@@ -266,6 +264,11 @@ def _run_rapidocr(path: Path) -> dict[str, Any]:
         if managed_result is not None:
             return managed_result
         return _rapidocr_failure(exc, unavailable=True)
+    except FileNotFoundError as exc:
+        managed_result = _managed_rapidocr(path)
+        if managed_result is not None:
+            return managed_result
+        return _rapidocr_failure(exc)
     except Exception as exc:
         # A missing or unusable local model must not bypass the Tesseract
         # fallback and break the whole object-photo workflow.
