@@ -74,6 +74,11 @@
       if (!response.ok) throw new Error('copy notice feed unavailable');
       const payload = await response.json();
       if (controller !== own) return;
+      if (payload?.enabled === false) {
+        stopped = true;
+        render([], false);
+        return;
+      }
       const rows = payload?.notices;
       if (!Array.isArray(rows) || rows.length > 10 || !rows.every(item => (
         item && typeof item.id === 'string' && /^[a-f0-9]{64}$/.test(item.id) &&

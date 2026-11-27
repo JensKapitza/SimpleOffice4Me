@@ -44,7 +44,7 @@ function setup(initial = []) {
   return {list, status, timers, pending, document, window, navigator, tick, start, answer};
 }
 
-const good = (...notices) => ({ok: true, status: 200, json: async () => ({notices})});
+const good = (...notices) => ({ok: true, status: 200, json: async () => ({enabled: true, notices})});
 
 test('refresh renders a new job locally and announces it once without overlapping requests', async () => {
   const c = setup();
@@ -99,4 +99,11 @@ test('stalled feed is aborted and retried with a backoff', async () => {
   c.pending.shift().reject(new Error('Aborted'));
   await request;
   assert.equal([...c.timers.values()][0].delay, 30000);
+});
+
+test('disabling the capability clears the old list without trying again', async () => {
+  const c = setup([{dataset: {noticeId: eventId}}]);
+  await c.answer({ok: true, status: 200, json: async () => ({enabled: false, notices: []})}, c.start(5000));
+  assert.equal(c.list.rows[0].textContent, 'No notifications');
+  assert.equal(c.timers.size, 0);
 });

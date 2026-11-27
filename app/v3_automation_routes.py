@@ -129,14 +129,14 @@ def index():
 @login_required
 def copy_notices_feed():
     if not enabled("v3.automation") or not enabled("v3.activity"):
-        abort(404)
+        return jsonify({"enabled": False, "notices": []})
     try:
         rows = recent_copy_notices(
             current_app.config["DOCUMENT_ROOT"], str(g.user["username"]), strict=True,
         )
     except (OSError, sqlite3.Error):
         abort(503)
-    return jsonify({"notices": [
+    return jsonify({"enabled": True, "notices": [
         {"id": row.event_id, "kind": "job" if row.event_type == JOB_NOTICE else "browser",
          "at": row.occurred_at}
         for row in rows

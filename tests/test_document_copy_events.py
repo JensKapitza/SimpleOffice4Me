@@ -136,9 +136,10 @@ class DocumentCopyEventTests(PublicHttpTestCase):
         SettingsStore(self.root).save({"v3": {"v3.activity": True, "v3.automation": True}}, "owner")
         endpoint = "/automation-v3/copy-notices"
         self.assertEqual(app.test_client().get(endpoint).status_code, 302)
-        self.assertIn(b'href="/automation-v3"', self.client.get("/tasks/").data)
+        nav = self.client.get("/tasks/").data.split(b'aria-labelledby="nav-communication"', 1)[1].split(b"</ul>", 1)[0]
+        self.assertIn(b'href="/automation-v3"', nav)
         initial = self.client.get(endpoint)
-        self.assertEqual({"notices": []}, initial.get_json())
+        self.assertEqual({"enabled": True, "notices": []}, initial.get_json())
         self.assertIn("no-store", initial.headers["Cache-Control"])
         self.assertIn("Cookie", initial.headers["Vary"])
         self.client.post("/automation-v3/copy-notice", headers=self.csrf)
@@ -151,6 +152,6 @@ class DocumentCopyEventTests(PublicHttpTestCase):
         self._register(self.client, "other")
         other = app.test_client()
         self._login(other, "other")
-        self.assertEqual({"notices": []}, other.get(endpoint).get_json())
+        self.assertEqual({"enabled": True, "notices": []}, other.get(endpoint).get_json())
         SettingsStore(self.root).save({"v3": {"v3.activity": False, "v3.automation": True}}, "owner")
-        self.assertEqual(404, self.client.get(endpoint).status_code)
+        self.assertEqual({"enabled": False, "notices": []}, self.client.get(endpoint).get_json())

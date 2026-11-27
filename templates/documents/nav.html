@@ -24,7 +24,6 @@
             <li><a class="dropdown-item" href="{{ url_for('documents.forms') }}">{{ 'Forms' if g.language == 'en' else 'Formulare' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('rentals.index') }}">{{ 'Rentals' if g.language == 'en' else 'Vermietung' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('inventory.index') }}">{{ 'Inventory scan' if g.language == 'en' else 'Inventar Scan' }}</a></li>
-            {% if v3_automation_nav %}<li><a class="dropdown-item" href="{{ url_for('v3_automation.index') }}">Automation 3.0</a></li>{% endif %}
           </ul>
         </div>
 
@@ -38,10 +37,11 @@
           </ul>
         </div>
 
-        {% if feature_enabled('mail') or feature_enabled('calendar') or feature_enabled('contacts') %}
+        {% if feature_enabled('mail') or feature_enabled('calendar') or feature_enabled('contacts') or v3_automation_nav %}
           <div class="nav-item dropdown">
             <a class="nav-link dropdown-toggle" href="#" id="nav-communication" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ 'Communication' if g.language == 'en' else 'Kommunikation' }}</a>
             <ul class="dropdown-menu" aria-labelledby="nav-communication">
+              {% if v3_automation_nav %}<li><a class="dropdown-item" href="{{ url_for('v3_automation.index') }}">Automation 3.0</a></li>{% endif %}
               {% if feature_enabled('mail') %}<li><a class="dropdown-item" href="{{ url_for('chat.index') }}">Chat</a></li><li><a class="dropdown-item" href="{{ url_for('mail_reader.index') }}">Mail</a></li><li><a class="dropdown-item" href="{{ url_for('mail_index.index') }}">{{ 'Spam/duplicates' if g.language == 'en' else 'Spam/Dubletten' }}</a></li>{% endif %}
               {% if feature_enabled('calendar') %}<li><a class="dropdown-item" href="{{ url_for('documents.calendar') }}">{{ tr('calendar') }}</a></li>{% endif %}
               {% if feature_enabled('contacts') %}<li><a class="dropdown-item" href="{{ url_for('documents.contacts') }}">{{ tr('contacts') }}</a></li><li><a class="dropdown-item" href="{{ url_for('fritzbox_contacts.index') }}">FRITZ!Box</a></li>{% endif %}

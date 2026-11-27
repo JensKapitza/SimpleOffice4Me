@@ -70,7 +70,7 @@ nicht zu harter Echtzeit oder zu einer sofortigen Ersatzmeldung. Die
 Zeitplanung unterstützt hier relative Verzögerungen mit Ablauf, keine
 geplanten lokalen Zeitslots und keine Gerätezustellung.
 
-Unter **Arbeit → Automation 3.0** erscheinen die letzten zehn Meldungen
+Unter **Kommunikation → Automation 3.0** erscheinen die letzten zehn Meldungen
 dieses Kontos. Die Liste aktualisiert sich, solange der Tab sichtbar und
 online ist, normalerweise alle fünf Sekunden. Ein Hintergrund-Tab startet
 keine Anfragen. Bei vorübergehenden Fehlern bleibt die letzte sichtbare Liste
