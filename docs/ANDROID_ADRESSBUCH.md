@@ -87,6 +87,6 @@ bash tools/run_android_contacts_provider_acceptance.sh \
   emulator-5554
 ```
 
-Nur `SIMPLEOFFICE_CONTACTS_PROVIDER_PASS` zusammen mit
+Nur `INSTRUMENTATION_RESULT: simpleoffice_contacts_provider=pass` zusammen mit
 `INSTRUMENTATION_CODE: -1` ist ein bestandener Provider-Test. Der bisherige
 APK-Pakettest allein belegt keinen Android-Lauf.

@@ -111,7 +111,11 @@ case "$*" in
   'shell getprop ro.product.cpu.abilist') echo "${TEST_ABI:-x86_64,arm64-v8a}" ;;
   'shell pm list packages de.simpleoffice4me.android') ;;
   install*) printf 'install\n' >> "$TEST_CALLS" ;;
-  'shell am instrument'*) printf 'SIMPLEOFFICE_CONTACTS_PROVIDER_PASS\nINSTRUMENTATION_CODE: %s\n' "$TEST_CODE" ;;
+  'shell am instrument -w -r -e disposable yes '*) printf '%s\n' \
+    "INSTRUMENTATION_RESULT: simpleoffice_contacts_provider=$TEST_RESULT" \
+    'INSTRUMENTATION_RESULT: stream=' 'SIMPLEOFFICE_CONTACTS_PROVIDER_PASS' \
+    "INSTRUMENTATION_CODE: $TEST_CODE" ;;
+  'shell am instrument'*) printf 'SIMPLEOFFICE_CONTACTS_PROVIDER_PASS\n' ;;
   *) exit 10 ;;
 esac
 """,
@@ -126,12 +130,16 @@ esac
                 str(apk), str(test_apk), "emulator-5560",
             ]
             env = {**os.environ, "PATH": str(bin_dir), "ANDROID_HOME": str(sdk), "TEST_CALLS": str(calls)}
-            for code, abi, expected in ((0, "x86_64,arm64-v8a", 1), (-1, "x86_64,arm64-v8a", 0),
-                                        (-1, "x86_64", 2)):
-                with self.subTest(code=code, abi=abi):
+            for code, verdict, abi, expected in (
+                (0, "pass", "x86_64,arm64-v8a", 1),
+                (-1, "no-result", "x86_64,arm64-v8a", 1),
+                (-1, "pass", "x86_64,arm64-v8a", 0),
+                (-1, "pass", "x86_64", 2),
+            ):
+                with self.subTest(code=code, verdict=verdict, abi=abi):
                     calls.unlink(missing_ok=True)
                     result = subprocess.run(
-                        command, env={**env, "TEST_CODE": str(code), "TEST_ABI": abi},
+                        command, env={**env, "TEST_CODE": str(code), "TEST_ABI": abi, "TEST_RESULT": verdict},
                         capture_output=True, text=True, timeout=15, check=False,
                     )
                     self.assertEqual(expected, result.returncode, result.stderr)

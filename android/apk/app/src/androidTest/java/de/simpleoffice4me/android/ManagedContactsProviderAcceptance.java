@@ -40,7 +40,9 @@ public final class ManagedContactsProviderAcceptance extends Instrumentation {
     @Override public void onStart() {
         try {
             verify(getTargetContext());
-            finish(Activity.RESULT_OK, report("SIMPLEOFFICE_CONTACTS_PROVIDER_PASS"));
+            Bundle result = report("SIMPLEOFFICE_CONTACTS_PROVIDER_PASS");
+            result.putString("simpleoffice_contacts_provider", "pass");
+            finish(Activity.RESULT_OK, result);
         } catch (Exception | AssertionError failure) {
             String reason = failure instanceof AssertionError
                     ? failure.getMessage() : failure.getClass().getSimpleName();

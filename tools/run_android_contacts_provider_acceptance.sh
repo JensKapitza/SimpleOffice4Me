@@ -75,8 +75,8 @@ installed="$(adb_for_test shell pm list packages de.simpleoffice4me.android | tr
 [[ -z "$installed" ]] || { echo 'Use a fresh AVD without SimpleOffice already installed' >&2; exit 2; }
 adb_for_test install "$apk"
 adb_for_test install -t "$test_apk"
-result="$(adb_for_test shell am instrument -w -e disposable yes \
+result="$(adb_for_test shell am instrument -w -r -e disposable yes \
   de.simpleoffice4me.android.test/de.simpleoffice4me.android.ManagedContactsProviderAcceptance | tr -d '\r')"
 printf '%s\n' "$result"
-grep -Fxq 'SIMPLEOFFICE_CONTACTS_PROVIDER_PASS' <<<"$result"
+grep -Fxq 'INSTRUMENTATION_RESULT: simpleoffice_contacts_provider=pass' <<<"$result"
 grep -Fxq 'INSTRUMENTATION_CODE: -1' <<<"$result"
