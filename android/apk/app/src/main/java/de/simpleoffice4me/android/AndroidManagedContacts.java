@@ -28,13 +28,13 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 import java.util.regex.Pattern;
 
 /** Copies SimpleOffice contacts into the dedicated Android account, without modifying other accounts. */
 final class AndroidManagedContacts {
     private static final String MANAGED = "simpleoffice4me-contacts-v1";
     private static final String DISPLAY_ONLY = "display-only";
-    private static final int MAX_ROWS = 1000;
     private static final Pattern SOURCE_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._~-]{0,127}");
     private static final String ACCOUNT_SCOPE = RawContacts.ACCOUNT_NAME + "=? AND "
             + RawContacts.ACCOUNT_TYPE + "=? AND " + RawContacts.DATA_SET + " IS NULL";
@@ -51,12 +51,12 @@ final class AndroidManagedContacts {
     private AndroidManagedContacts() {}
 
     // Serialize requests within the APK. Provider assertions also guard against device-side changes.
-    static synchronized int sync(Context context, JSONArray rows) throws Exception {
+    static synchronized int sync(Context context, JSONArray rows, BooleanSupplier active) throws Exception {
         if (context.checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED
                 || context.checkSelfPermission(Manifest.permission.WRITE_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
             throw new SecurityException("Android contacts permission is required");
         }
-        if (rows.length() > MAX_ROWS) {
+        if (rows.length() > AndroidManagedContactCursor.MAX_ROWS) {
             throw new IllegalArgumentException("Too many contacts in one export");
         }
 
@@ -74,6 +74,9 @@ final class AndroidManagedContacts {
             return 0;
         }
 
+        if (!active.getAsBoolean()) {
+            throw new java.io.IOException("Contact sync cancelled");
+        }
         Account account = AndroidManagedSyncAccount.require(context);
         if (!AndroidManagedSyncAccount.TYPE.equals(account.type) || account.name.isEmpty()) {
             throw new IllegalStateException("Invalid SimpleOffice contacts account");
@@ -82,6 +85,9 @@ final class AndroidManagedContacts {
         ensureUngroupedVisibility(resolver, account);
         int exported = 0;
         for (Contact contact : contacts) {
+            if (!active.getAsBoolean()) {
+                throw new java.io.IOException("Contact sync cancelled");
+            }
             if (writeContact(resolver, account, contact)) {
                 exported++;
             }

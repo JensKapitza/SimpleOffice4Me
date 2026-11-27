@@ -2,6 +2,7 @@
 from datetime import date, datetime, timedelta, timezone
 from hashlib import sha256
 import hmac
+import json
 import re
 from zoneinfo import ZoneInfo
 
@@ -11,8 +12,11 @@ from .contact_birthdays import conflicting_birthdays, normal_birthday
 from .contact_store import ContactStore
 
 MAX_ROWS = 100
+CONTACT_PAGE_SIZE = 25
+MAX_CONTACT_ROWS = 1000
 BIRTHDAYS = "simpleoffice:birthdays"
 _ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
+_CONTACT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._~-]{0,127}")
 
 
 def principal_id(user):
@@ -22,7 +26,7 @@ def principal_id(user):
     return hmac.digest(key, identity, "sha256").hex()
 
 
-def contact_rows(root, actor):
+def contact_rows(root, actor, *, limit=MAX_ROWS):
     store = ContactStore(root)
     allowed = store.vcard_export_fields()
     result = []
@@ -38,9 +42,31 @@ def contact_rows(root, actor):
                        "phone": str(values.get("phone", ""))[:256] if "phone" in allowed else "",
                        "email": str(values.get("email", ""))[:320] if "email" in allowed else "",
                        "birthday": normal_birthday(values.get("birthday", "")) if "birthday" in allowed else ""})
-        if len(result) > MAX_ROWS:
+        if len(result) > limit:
             raise OverflowError("too many contact rows")
     return result
+
+
+def contact_page(root, actor, principal, offset, revision):
+    """Return one bounded slice of a single, account-bound export revision."""
+    if (type(offset) is not int or not 0 <= offset < MAX_CONTACT_ROWS
+            or offset % CONTACT_PAGE_SIZE or type(revision) is not str
+            or (offset == 0 and revision) or (offset != 0 and not re.fullmatch(r"[a-f0-9]{64}", revision))):
+        raise ValueError("invalid contact snapshot pagination")
+    rows = sorted(contact_rows(root, actor, limit=MAX_CONTACT_ROWS), key=lambda row: row["id"])
+    if any(not _CONTACT_ID.fullmatch(row["id"]) for row in rows) or len({row["id"] for row in rows}) != len(rows):
+        raise ValueError("ambiguous contact identity")
+    encoded = json.dumps(rows, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
+    tag = hmac.digest(bytes.fromhex(principal), encoded, "sha256").hex()
+    if offset and (not hmac.compare_digest(revision, tag) or offset >= len(rows)):
+        raise SnapshotChanged("contact snapshot changed")
+    end = offset + CONTACT_PAGE_SIZE
+    return {"principal": principal, "rows": rows[offset:end],
+            "revision": tag, "next_offset": end if end < len(rows) else None}
+
+
+class SnapshotChanged(ValueError):
+    """A read-only export changed before all pages were received."""
 
 
 def _moment(value, tz, all_day=False):

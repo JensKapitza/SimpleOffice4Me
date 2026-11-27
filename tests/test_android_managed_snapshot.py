@@ -95,3 +95,50 @@ class AndroidManagedSnapshotTests(fixture.AndroidDeviceSourceTests):
         self.assertIn(b"--05-01", overview.data)
         self.assertIn(b"--05-02", overview.data)
         self.assertIn(b"Geburtstag pr", overview.data)
+
+    def _contact_page(self, offset=0, revision="", *, csrf=True):
+        headers = {**APK, **self._csrf_headers_apk()} if csrf else APK
+        return self.mobile.post(
+            PAGE + "managed/contacts", base_url=ORIGIN, headers=headers,
+            json={"calendar_ids": [], "offset": offset, "revision": revision},
+        )
+
+    def test_paged_contacts_keep_stable_ids_and_never_expose_another_account(self):
+        store = ContactStore(app.config["DOCUMENT_ROOT"])
+        for n in reversed(range(131)):
+            store.upsert({"display_name": "Duplicate display name", "note": "not included"},
+                         "owner", f"contact-{n:03}")
+        store.upsert({"display_name": "Other account only"}, "other", "unshared")
+        self.assertEqual(413, self.snapshot("contacts").status_code)  # Legacy clients.
+        offset, revision = 0, ""
+        seen = []
+        sizes = []
+        while offset is not None:
+            response = self._contact_page(offset, revision)
+            self.assertEqual(200, response.status_code)
+            self.assertEqual("private, no-store", response.headers["Cache-Control"])
+            payload = response.get_json()
+            revision = payload["revision"]
+            self.assertRegex(revision, r"^[a-f0-9]{64}$")
+            seen += [row["id"] for row in payload["rows"]]
+            sizes.append(len(payload["rows"]))
+            offset = payload["next_offset"]
+        self.assertEqual([25, 25, 25, 25, 25, 6], sizes)
+        self.assertEqual([f"contact-{n:03}" for n in range(131)], seen)
+
+    def test_changed_contacts_require_restart_before_provider_side_effects(self):
+        store = ContactStore(app.config["DOCUMENT_ROOT"])
+        for n in range(27):
+            store.upsert({"display_name": f"Name {n}"}, "owner", f"contact-{n:03}")
+        first = self._contact_page().get_json()
+        offset, revision = first["next_offset"], first["revision"]
+        self.assertEqual(403, self._contact_page(offset, revision, csrf=False).status_code)
+        self.assertEqual(422, self._contact_page(offset + 1, revision).status_code)
+        self.assertEqual(409, self._contact_page(offset, "f" * 64).status_code)
+        store.upsert({"display_name": "Changed after first page"}, "owner", "contact-005")
+        self.assertEqual(409, self._contact_page(offset, revision).status_code)
+        refreshed = self._contact_page().get_json()
+        self.assertNotEqual(revision, refreshed["revision"])
+        result = self._contact_page(refreshed["next_offset"], refreshed["revision"])
+        self.assertEqual(200, result.status_code)
+        self.assertEqual(2, len(result.get_json()["rows"]))

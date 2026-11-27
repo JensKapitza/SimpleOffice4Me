@@ -5,7 +5,7 @@ from flask import Blueprint, abort, current_app, g, jsonify, make_response, rend
 from .access_control import has_feature
 from .auth import login_required
 from .calendar_collections import CalendarCollections
-from .android_managed_snapshot import BIRTHDAYS, calendar_rows, contact_rows, principal_id
+from .android_managed_snapshot import BIRTHDAYS, SnapshotChanged, calendar_rows, contact_page, contact_rows, principal_id
 from .google_drive_admin import ANDROID_USER_AGENT_TOKEN
 
 bp = Blueprint("android_device_sources", __name__, url_prefix="/android/device-sources")
@@ -79,20 +79,30 @@ def managed_snapshot(source):
     if not request.is_json or not request.content_length:
         abort(400)
     data = request.get_json(silent=True)
-    if type(data) is not dict or set(data) != {"calendar_ids"} or type(data["calendar_ids"]) is not list:
+    if type(data) is not dict or type(data.get("calendar_ids")) is not list:
+        abort(400)
+    paged = source == "contacts" and set(data) == {"calendar_ids", "offset", "revision"}
+    if not paged and set(data) != {"calendar_ids"}:
         abort(400)
     selected = data["calendar_ids"]
     if len(selected) > 8 or any(type(i) is not str or len(i) > 63 for i in selected) or (source == "contacts" and selected):
         abort(400)
     root = current_app.config["DOCUMENT_ROOT"]
     actor = str(g.user["username"])
+    principal = principal_id(g.user)
     try:
-        rows = (contact_rows(root, actor) if source == "contacts" else
-                calendar_rows(root, actor, selected, has_feature(g.user, "contacts")))
+        if paged:
+            result = contact_page(root, actor, principal, data["offset"], data["revision"])
+        else:
+            rows = (contact_rows(root, actor) if source == "contacts" else
+                    calendar_rows(root, actor, selected, has_feature(g.user, "contacts")))
+            result = {"principal": principal, "rows": rows}
+    except SnapshotChanged:
+        abort(409)
     except OverflowError:
         abort(413)
     except (ValueError, KeyError):
         abort(422)
-    response = jsonify({"principal": principal_id(g.user), "rows": rows})
+    response = jsonify(result)
     response.headers["Cache-Control"] = "private, no-store"
     return response

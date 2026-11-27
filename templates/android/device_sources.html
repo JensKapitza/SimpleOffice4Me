@@ -24,7 +24,10 @@
   <section class="card my-3 p-3" aria-labelledby="managed-sync-title">
     <h2 class="h5" id="managed-sync-title">{{ 'Copy to Android' if g.language == 'en' else 'Mit Android abgleichen' }}</h2>
     <p>{{ 'SimpleOffice copies selected data into its own account on this device. No second app is needed. Android changes are not written back.' if g.language == 'en' else 'SimpleOffice übernimmt ausgewählte Daten ins eigene Konto auf diesem Gerät. Keine Zusatz-App erforderlich. Änderungen aus Android werden nicht zurückgeschrieben.' }}</p>
-    {% if 'contacts' in sources %}<button type="button" class="btn btn-outline-primary" data-managed-source="contacts" disabled>{{ 'Sync contacts' if g.language == 'en' else 'Kontakte abgleichen' }}</button>{% endif %}
+    {% if 'contacts' in sources %}
+    <button type="button" class="btn btn-outline-primary" data-managed-source="contacts" disabled>{{ 'Sync contacts' if g.language == 'en' else 'Kontakte abgleichen' }}</button>
+    <p class="small text-secondary mb-2">{{ 'Up to 1,000 contacts per manual sync. Keep this page open during transfer.' if g.language == 'en' else 'Bis zu 1.000 Kontakte pro manuellem Abgleich. Lass die Seite während der Übertragung offen.' }}</p>
+    {% endif %}
     {% if 'calendar' in sources %}
     <fieldset class="my-2"><legend class="h6">{{ 'Choose calendars' if g.language == 'en' else 'Kalender auswählen' }}</legend>
       {% for item in calendars %}<label class="d-block"><input class="form-check-input" type="checkbox" data-managed-calendar value="{{ item.calendar_id }}"> {{ item.name }}</label>{% endfor %}

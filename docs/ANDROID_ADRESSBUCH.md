@@ -28,10 +28,19 @@ verfügbaren Quellen. Namensgleichheit allein reicht nicht. Der optionale
 Geburtstagskalender übernimmt auch 29. Februar unverändert; sein technischer
 Serienanfang ist kein Geburtsjahr.
 
-Noch nicht abgedeckt: automatischer Hintergrundabgleich, inkrementelle
-Fortsetzung für mehr als 100 Datensätze je Aktion und Entfernen nicht mehr
-gelieferter Kontakte, Termine oder Serienausnahmen. Unvollständige oder zu
-große Antworten führen nicht zu automatischen Löschungen. Kein Rückschreiben
+Ein manueller Kontaktabgleich lädt bis zu 1.000 sichtbare Kontakte in
+Seiten zu je 25. Die App verlangt dieselbe Kontokennung und dieselbe Revision
+für alle Seiten und beginnt erst nach vollständiger Prüfung mit der
+Übernahme. Ändert sich das Adressbuch beim Laden, muss der Abgleich neu
+gestartet werden. Ein Abbruch nach Beginn der Android-Schreibvorgänge kann
+bereits übernommene Kontakte hinterlassen; ein erneuter Abgleich verwendet
+deren stabile IDs. Andere Konten werden nicht bearbeitet.
+
+Noch nicht abgedeckt: automatischer Hintergrundabgleich und Entfernen nicht
+mehr gelieferter Kontakte, Termine oder Serienausnahmen. Kalender inklusive
+Geburtstagskalender bleiben in diesem Schritt bei der bestehenden 100er-Grenze.
+Unvollständige oder zu große Antworten führen nicht zu automatischen
+Löschungen. Kein Rückschreiben
 und keine Änderungen an fremden Android-Konten. Die Geräteabnahme ist erst
 erfolgreich, wenn die normalen Kontakt- und Kalender-Apps die Daten anzeigen,
 nicht bereits wenn serverseitige Tests grün sind.
