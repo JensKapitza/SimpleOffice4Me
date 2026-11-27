@@ -107,3 +107,51 @@ class SmsArchiveRoutesTests(PublicHttpTestCase):
         self.assertNotIn("paging 10", first)
         self.assertIn("paging 10", tail)
         self.assertNotIn("paging 36", tail)
+
+    def _manual_values(self, **opts):
+        return {
+            "address": "Synthetic mobile number", "direction": "inbox", "when": "2026-11-27T12:10:05",
+            "zone": "Europe/Berlin", "body": "Pasted text\r\nand a next line", "confirm": "1", **opts,
+        }
+
+    def test_manual_entry_is_confirmed_idempotent_searchable_and_exportable(self):
+        from datetime import datetime, timezone
+        from app.sms_archive_store import MANUAL_SOURCE
+
+        url = self.base + "/manual"
+        self.assertIn(b'sms-manual-body', self.client.get(self.base).data)
+        self.assertEqual(403, self.client.post(url, data=self._manual_values()).status_code)
+        self.assertEqual(400, self.client.post(url, data=self._manual_values(confirm=""), headers=self.csrf).status_code)
+        for _ in range(2):
+            response = self.client.post(url, data=self._manual_values(owner="other"), headers=self.csrf)
+            self.assertEqual(303, response.status_code)
+            self.assertNotIn("Pasted", response.headers["Location"])
+        archive = SmsArchive(self.root, "owner")
+        entry, = archive.page(query="pasted")
+        self.assertEqual(MANUAL_SOURCE, entry["source"])
+        self.assertEqual("Pasted text\nand a next line", entry["body"])
+        self.assertEqual(int(datetime(2026, 11, 27, 11, 10, 5, tzinfo=timezone.utc).timestamp() * 1000), entry["date_ms"])
+        self.assertEqual([], SmsArchive(self.root, "other").page(query="pasted"))
+        selection = f'{entry["source"]}:{entry["provider_id"]}'
+        backup = self.client.post(self.base + "/export", data={"selected": selection}, headers=self.csrf)
+        clean = SmsArchive(self.root.parent / "manual-backup", "owner")
+        self.assertEqual(1, clean.restore(backup.data))
+        self.assertEqual([entry], clean.page())
+
+    def test_manual_entry_rejects_ambiguous_clock_invalid_direction_and_oversized_text(self):
+        url = self.base + "/manual"
+        archive = SmsArchive(self.root, "owner")
+        tests = [
+            {"when": "2026-10-25T02:30:00"},  # repeated wall time in Europe/Berlin
+            {"when": "2026-03-29T02:30:00"},  # skipped wall time in Europe/Berlin
+            {"zone": "elsewhere"}, {"direction": "unknown"}, {"body": " "},
+            {"body": "é" * 8100},
+        ]
+        for sample in tests:
+            response = self.client.post(url, data=self._manual_values(**sample), headers=self.csrf)
+            self.assertEqual(422, response.status_code)
+            self.assertIn("no-store", response.headers["Cache-Control"])
+        response = self.client.post(url, data=self._manual_values(body="a" * 54000), headers=self.csrf)
+        self.assertEqual(413, response.status_code)
+        self.assertEqual([], archive.page(query="Pasted text"))
+        self.assertEqual(2, len(archive.page()))

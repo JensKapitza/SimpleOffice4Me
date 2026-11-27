@@ -18,6 +18,7 @@ _MAX_ID = (1 << 63) - 1
 _MAX_DATE_MS = 253402300799999
 _FIELDS = {"source", "provider_id", "date_ms", "direction", "address", "body"}
 _VERSION = 1
+MANUAL_SOURCE = hashlib.sha256(b"simpleoffice-sms-manual-v1").hexdigest()[:32]
 
 
 class ArchiveConflict(ValueError):
@@ -75,6 +76,17 @@ def _message(record) -> dict:
         "source": source, "provider_id": provider_id, "date_ms": stamp, "direction": direction,
         "address": _text(record["address"], 512), "body": _text(record["body"], 16000),
     }
+
+
+def manual_message(date_ms: int, direction: str, address: str, body: str) -> dict:
+    """Create a stable identity for explicitly supplied text, separate from device IDs."""
+    record = _message({"source": MANUAL_SOURCE, "provider_id": 1, "date_ms": date_ms,
+                       "direction": direction, "address": address, "body": body})
+    if not record["body"].strip() or not record["address"]:
+        raise ValueError("Message text and address are required")
+    material = {k: record[k] for k in ("date_ms", "direction", "address", "body")}
+    record["provider_id"] = (int(_digest(_canonical(material))[:16], 16) % _MAX_ID) + 1
+    return record
 
 
 def _batch(records) -> list[dict]:

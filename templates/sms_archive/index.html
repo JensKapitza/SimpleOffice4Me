@@ -12,6 +12,10 @@
   {% if archive_unavailable %}
   <p class="alert alert-warning" role="alert">{{ 'The archive could not be read. No messages were changed.' if en else 'Das Archiv konnte nicht gelesen werden. Es wurden keine Nachrichten geändert.' }}</p>
   {% else %}
+  <div class="d-flex flex-wrap gap-2 mb-3">
+    <a class="btn btn-outline-primary" href="#sms-manual">{{ 'Add copied message' if en else 'Kopierte SMS hinzufügen' }}</a>
+    <a class="btn btn-outline-secondary" href="#sms-restore">{{ 'Restore backup' if en else 'Sicherung wiederherstellen' }}</a>
+  </div>
   <section class="mb-4" aria-labelledby="sms-search-title">
     <h2 class="h5" id="sms-search-title">{{ 'Search archived messages' if en else 'Archivierte Nachrichten suchen' }}</h2>
     <form method="post" action="{{ url_for('sms_archive.index') }}">
@@ -34,6 +38,7 @@
             <input class="form-check-input" type="checkbox" name="selected" id="sms-row-{{ loop.index }}" value="{{ sms.source }}:{{ sms.provider_id }}">
             <label class="form-check-label" for="sms-row-{{ loop.index }}">
               <span class="badge text-bg-secondary">{{ 'Archived' if en else 'Archiviert' }}</span>
+              {% if sms.manual_entry %}<span>{{ 'Manually added' if en else 'Manuell hinzugefügt' }}</span>{% endif %}
               <span>{{ ('Received' if en else 'Empfangen') if sms.direction == 'inbox' else ('Sent' if en else 'Gesendet') }}</span>
               <strong>{{ sms.address }}</strong>
               <time datetime="{{ sms.sent_at }}">{{ sms.sent_at[:16].replace('T', ' ') }} UTC</time>
@@ -50,7 +55,45 @@
     <p class="mt-3">{{ ('No matching messages.' if query else 'No messages in the archive yet.') if en else ('Keine passenden Nachrichten.' if query else 'Noch keine Nachrichten im Archiv.') }}</p>
     {% endif %}
   </section>
-  <section aria-labelledby="sms-restore-title">
+  <section class="mb-4" aria-labelledby="sms-manual-title" id="sms-manual">
+    <h2 class="h5" id="sms-manual-title">{{ 'Add a copied message' if en else 'Kopierte SMS hinzufügen' }}</h2>
+    <p>{{ 'Copy the selected SMS in your messaging app and paste its text here. Nothing is read from your clipboard automatically.' if en else 'Kopiere die ausgewählte SMS in deiner Nachrichten-App und füge den Text hier ein. Die Zwischenablage wird nicht automatisch gelesen.' }}</p>
+    {% if manual_error %}<p class="alert alert-warning" role="alert">{{ manual_error }}</p>{% endif %}
+    <form method="post" action="{{ url_for('sms_archive.add_manual') }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <div class="row g-2 mb-2">
+        <div class="col-md-6">
+          <label for="sms-manual-address" class="form-label">{{ 'Phone number or sender ID' if en else 'Rufnummer oder Absenderkennung' }}</label>
+          <input id="sms-manual-address" class="form-control" name="address" maxlength="512" value="{{ manual_values.get('address', '') }}" required autocomplete="off">
+        </div>
+        <div class="col-md-6">
+          <label for="sms-manual-direction" class="form-label">{{ 'Direction' if en else 'Richtung' }}</label>
+          <select id="sms-manual-direction" class="form-select" name="direction">
+            <option value="inbox">{{ 'Received' if en else 'Empfangen' }}</option>
+            <option value="sent"{% if manual_values.get('direction') == 'sent' %} selected{% endif %}>{{ 'Sent' if en else 'Gesendet' }}</option>
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label for="sms-manual-when" class="form-label">{{ 'Original date and time' if en else 'Ursprüngliches Datum und Uhrzeit' }}</label>
+          <input id="sms-manual-when" class="form-control" name="when" type="datetime-local" step="1" value="{{ manual_values.get('when', '') }}" required>
+        </div>
+        <div class="col-md-6">
+          <label for="sms-manual-zone" class="form-label">{{ 'Time zone' if en else 'Zeitzone' }}</label>
+          <select id="sms-manual-zone" class="form-select" name="zone">
+            {% for zone in manual_zones %}<option value="{{ zone }}"{% if manual_values.get('zone') == zone %} selected{% endif %}>{{ zone }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <label for="sms-manual-body" class="form-label">{{ 'Message text' if en else 'Nachrichtentext' }}</label>
+      <textarea id="sms-manual-body" class="form-control mb-2" name="body" rows="4" maxlength="16000" required>{{ manual_values.get('body', '') }}</textarea>
+      <div class="form-check mb-2">
+        <input class="form-check-input" type="checkbox" id="sms-manual-confirm" name="confirm" value="1" required>
+        <label class="form-check-label" for="sms-manual-confirm">{{ 'Save this selected message to my private archive.' if en else 'Diese ausgewählte SMS in meinem privaten Archiv speichern.' }}</label>
+      </div>
+      <button class="btn btn-outline-primary" type="submit">{{ 'Archive message' if en else 'SMS archivieren' }}</button>
+    </form>
+  </section>
+  <section id="sms-restore" aria-labelledby="sms-restore-title">
     <h2 class="h5" id="sms-restore-title">{{ 'Restore a backup' if en else 'Sicherung wiederherstellen' }}</h2>
     <p>{{ 'Select a backup from this SimpleOffice account. Existing messages are never overwritten.' if en else 'Wähle eine Sicherung aus diesem SimpleOffice-Konto. Vorhandene Nachrichten werden nie überschrieben.' }}</p>
     <form method="post" enctype="multipart/form-data" action="{{ url_for('sms_archive.restore') }}">

@@ -13,8 +13,21 @@ Text suchen und ausgewählte Nachrichten als externe Sicherung herunterladen.
    Nachrichten bleiben unverändert. Eine abweichend wiederverwendete ID
    bricht den Import der gesamten Auswahl ab.
 
-Es gibt in dieser Oberfläche noch keine Verbindung zur SMS-Datenbank des
-Handys und keinen Import beliebiger Android-Backups. Suchbegriffe werden
+### Eine SMS ohne Android-SMS-Berechtigung übernehmen
+
+Kopiere in der vorhandenen Nachrichten-App den Text einer ausgewählten
+Nachricht. Unter **Kommunikation → SMS-Archiv → Kopierte SMS hinzufügen**
+fügst du den Text ein und ergänzt Rufnummer oder Absenderkennung, Richtung
+und ursprünglichen Zeitpunkt. Die Zeitzone steht sichtbar im Formular.
+Uneindeutige Ortszeiten bei Zeitumstellungen erfordern eine eindeutige
+UTC-Eingabe. Erst die Bestätigung archiviert; die Nachricht auf dem Handy
+bleibt unverändert. Ein Eintrag mit exakt gleichem Text, Absender, Richtung
+und Zeitpunkt wird nicht doppelt angelegt. Die Liste kennzeichnet den
+Eintrag als manuell und die Sicherung umfasst ihn wie andere SMS.
+
+Es gibt weiterhin keine Verbindung zur SMS-Datenbank des Handys und
+keinen Import beliebiger Android-Backups. Die Zwischenablage wird nie
+von SimpleOffice automatisch gelesen. Suchbegriffe werden
 per Formular gesendet statt in URL oder Serverprotokoll geschrieben.
 Sitzung, Funktionsrecht und CSRF werden nach dem üblichen Verfahren geprüft.
 Die Auswahl und die Sicherungsdatei können den Archiveigentümer nicht setzen.
