@@ -333,14 +333,9 @@ def _manifest_state(components: Path) -> dict:
 
 
 def _managed_wrapper(components: Path) -> tuple[Path | None, dict | None]:
-    manifest_path = components / "installed.json"
     wrapper = components / "bin" / "piper"
     try:
-        info = manifest_path.lstat()
-        if not stat.S_ISREG(info.st_mode) or info.st_size > _MAX_MANIFEST_BYTES:
-            return None, None
-        state = json.loads(manifest_path.read_text(encoding="utf-8"))
-        record = state.get("components", {}).get("piper") if isinstance(state, dict) else None
+        record = _manifest_state(components)["components"].get("piper")
         if (not isinstance(record, dict) or record.get("filename") != "piper"
                 or record.get("path") != "bin/piper"):
             return None, None

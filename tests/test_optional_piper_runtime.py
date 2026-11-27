@@ -26,6 +26,13 @@ class _Response(BytesIO):
 
 
 class PiperRuntimeManifestTests(unittest.TestCase):
+    def test_installed_version_handles_damaged_component_map(self):
+        with tempfile.TemporaryDirectory() as directory:
+            components = Path(directory) / ".simpleoffice-meta" / "components"
+            components.mkdir(parents=True)
+            (components / "installed.json").write_text('{"schema": 1, "components": null}')
+            self.assertEqual("", runtime.installed_version(directory))
+
     def test_manifest_is_fixed_to_pypi_linux_wheels_and_explicit_transitive_versions(self):
         wheels = runtime.manifest()
         self.assertEqual(7, len(wheels))

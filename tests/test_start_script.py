@@ -28,7 +28,7 @@ class StartScriptTests(unittest.TestCase):
         self.assertIn("pkg", result.stdout)
         self.assertIn("pip", result.stdout)
         self.assertIn("Versionsanforderungen", result.stdout)
-        self.assertIn("SIMPLEOFFICE_PIPER_INSTALL=0", result.stdout)
+        self.assertIn("SIMPLEOFFICE_PIPER_INSTALL=1", result.stdout)
 
     def test_linux_script_rejects_invalid_server_limits_before_starting(self):
         root = Path(__file__).resolve().parents[1]
@@ -140,9 +140,9 @@ class StartScriptTests(unittest.TestCase):
         self.assertIn("SIMPLEOFFICE_PIPER_INSTALL", script)
         self.assertIn("SIMPLEOFFICE_OCR_INSTALL", script)
         self.assertIn('[ "$IS_TERMUX" -eq 0 ]', script)
-        self.assertIn('export PATH="$VENV/bin:$PATH"', script)
-        self.assertIn('[ ! -x "$VENV/bin/piper" ]', script)
-        self.assertIn('if [ -x "$VENV/bin/piper" ]; then', script)
+        self.assertIn('export PATH="$PATH:$VENV/bin"', script)
+        self.assertIn('&& ! piper_available; then', script)
+        self.assertIn('if piper_available; then', script)
         self.assertIn("Stimmdateien werden separat konfiguriert", script)
         self.assertIn('echo "WARNUNG: Piper konnte nicht installiert werden;', script)
         self.assertIn('echo "WARNUNG: RapidOCR/ONNX Runtime konnten nicht installiert werden;', script)
