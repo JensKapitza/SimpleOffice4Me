@@ -89,10 +89,12 @@ class AndroidDeviceSourceTests(PublicHttpTestCase):
         self.assertEqual(403, self.gate("calendar").status_code)
         self.assertEqual(204, self.gate("contacts").status_code)
 
-    def test_manifest_adds_separate_read_permissions_without_write_permissions(self):
+    def test_manifest_declares_only_contextual_contact_and_calendar_grants(self):
         root = ElementTree.parse(MANIFEST).getroot()
         permissions = {item.attrib[ANDROID_NS + "name"] for item in root.findall("uses-permission")}
         self.assertIn("android.permission.READ_CALENDAR", permissions)
         self.assertIn("android.permission.READ_CONTACTS", permissions)
-        self.assertNotIn("android.permission.WRITE_CALENDAR", permissions)
-        self.assertNotIn("android.permission.WRITE_CONTACTS", permissions)
+        self.assertIn("android.permission.WRITE_CALENDAR", permissions)
+        self.assertIn("android.permission.WRITE_CONTACTS", permissions)
+        self.assertNotIn("android.permission.READ_SMS", permissions)
+        self.assertNotIn("android.permission.READ_PHONE_STATE", permissions)

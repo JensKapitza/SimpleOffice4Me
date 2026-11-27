@@ -5,6 +5,7 @@ import secrets
 from flask import make_response
 from .documents_core import *  # noqa: F401,F403
 from .smart_folder_views import SmartFolderViews
+from .contact_birthdays import conflicting_birthdays, normal_birthday
 from .contact_company_data import company_data_metadata_from_form, company_search_items
 from .mail_document_access import private_mail_document
 from .form_store import StockAdjustmentCommittedError
@@ -566,6 +567,24 @@ def contacts():
     )
 
 
+@bp.get("/contacts/birthdays")
+@login_required
+def contact_birthdays():
+    visible = _contacts().contacts(str(g.user["username"]))
+    eligible = [item for item in visible if normal_birthday(item.get("fields", {}).get("birthday"))]
+    eligible.sort(key=lambda item: (item["fields"]["birthday"][-5:], item["fields"].get("display_name", "").casefold()))
+    try:
+        page = max(1, int(request.args.get("page", "1")))
+    except ValueError:
+        page = 1
+    last = max(1, (len(eligible) + 49) // 50)
+    page = min(page, last)
+    rows = [(item, conflicting_birthdays(item, eligible)[:5]) for item in eligible[(page - 1) * 50:page * 50]]
+    response = make_response(render_template("documents/contact_birthdays.html", rows=rows, page=page, last=last))
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
 @bp.get("/forms")
 @login_required
 def forms():
@@ -680,7 +699,8 @@ def contact_detail(contact_id: str):
                 task_invoices.setdefault(task_id, []).append(row)
     return render_template("documents/contact_detail.html", contact=contact, users=users, has_photo=store.has_photo(contact), is_owner=not contact.get("owner") or contact.get("owner") == actor,
                            contact_tasks=contact_tasks, task_invoices=task_invoices, task_lists=_todos().lists(actor), company_contacts=company_contacts,
-                           company_people=store.company_people(contact, actor), linked_company=linked_company)
+                           company_people=store.company_people(contact, actor), linked_company=linked_company,
+                           birthday_conflicts=conflicting_birthdays(contact, visible)[:20])
 
 
 @bp.get("/contacts/company-search")
@@ -743,6 +763,11 @@ def save_contact():
     contact_id = request.form.get("contact_id", "")
     try:
         store = _contacts(); actor = str(g.user["username"]); values = request.form.to_dict(); company_id = values.get("company_contact_id", "").strip()
+        raw_birthday = values.get("birthday", "").strip()
+        if raw_birthday and not normal_birthday(raw_birthday):
+            raise ValueError("Geburtstag als JJJJ-MM-TT oder --MM-TT eingeben.")
+        if "birthday" in values:
+            values["birthday"] = raw_birthday
         existing = None
         if contact_id:
             existing = store.get(contact_id, actor)
