@@ -70,5 +70,42 @@ class InventoryNfcBrowserTests(PublicHttpTestCase):
                 expect(page.locator("#nfc-id")).to_have_value("04AA12FF")
                 self.assertEqual(origin + "/inventory", page.url)
                 self.assertEqual(1, len(objects.objects()))
+                objects.create({"name": "Same tag on second item", "type": "object",
+                                "fields": "nfc_id=04AA12FF"}, "owner")
+                finder = page.locator("#nfc-find-uid")
+                finder.fill("04-aa-12-ff")
+                with page.expect_response(lambda reply: urlsplit(reply.url).path == "/inventory/nfc-find") as search:
+                    finder.press("Enter")
+                self.assertEqual("POST", search.value.request.method)
+                self.assertEqual("", urlsplit(search.value.url).query)
+                self.assertEqual(200, search.value.status)
+                self.assertEqual("private, no-store", search.value.headers["cache-control"])
+                expect(page.locator("[data-nfc-find-results] a")).to_have_count(2)
+                expect(page.locator("[data-nfc-find-results]")).to_contain_text("Previously stored tag")
+                expect(page.locator("[data-nfc-find-results]")).to_contain_text("Same tag on second item")
+                expect(page.locator("#title")).to_have_value("New object if submitted")
+                expect(page.locator("#nfc-id")).to_have_value("04AA12FF")
+                self.assertEqual(origin + "/inventory", page.url)
+                self.assertEqual(2, len(objects.objects()))
+
+                page.evaluate("""() => {
+                    window.dispatchEvent(new Event('simpleoffice:native-ready'));
+                    window.SimpleOfficeNativeNfc = {
+                        start(requestId) {
+                            setTimeout(() => window.dispatchEvent(new CustomEvent('simpleoffice:nfc', {
+                                detail: {requestId, state:'ok', serial:'04:AA:12:FF'}
+                            })), 10);
+                            return 'ok';
+                        },
+                        stop() {},
+                    };
+                }""")
+                button = page.locator("[data-nfc-find-scan]")
+                expect(button).to_be_visible()
+                with page.expect_response(lambda reply: urlsplit(reply.url).path == "/inventory/nfc-find") as native:
+                    button.click()
+                self.assertEqual(200, native.value.status)
+                expect(page.locator("[data-nfc-find-results] a")).to_have_count(2)
+                self.assertEqual(origin + "/inventory", page.url)
             finally:
                 browser.close()

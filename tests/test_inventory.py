@@ -346,5 +346,39 @@ class InventoryFindRouteTests(PublicHttpTestCase):
         self.assertEqual(302, app.test_client().get("/inventory/find", query_string=query).status_code)
 
 
+    def test_private_nfc_finder_returns_reviewable_matches_only(self):
+        from app.db import get_db
+
+        store = ObjectStore(app.config["DOCUMENT_ROOT"])
+        for index in range(22):
+            store.create({"name": f"Matched {index}", "type": "object",
+                          "fields": "nfc_id=00:aa:bb:cd | https://example.invalid/old"}, "owner")
+        store.create({"name": "Other barcode", "type": "object", "identifier": "00AABBCD"}, "owner")
+        path = "/inventory/nfc-find"
+        csrf = self._csrf_headers(self.client, "/inventory")
+        self.assertEqual(403, self.client.post(path, json={"uid": "00-Aa-Bb-Cd"}).status_code)
+        result = self.client.post(path, headers=csrf, json={"uid": "00-Aa-Bb-Cd"})
+        self.assertEqual(200, result.status_code, result.data)
+        self.assertEqual("private, no-store", result.headers["Cache-Control"])
+        self.assertEqual("no-referrer", result.headers["Referrer-Policy"])
+        self.assertTrue(result.json["limited"])
+        self.assertEqual(20, len(result.json["matches"]))
+        self.assertNotIn(b"example.invalid", result.data)
+        self.assertNotIn(b"Other barcode", result.data)
+        self.assertEqual(400, self.client.post(path, headers=csrf, json={"uid": "https://example.invalid"}).status_code)
+        self.assertEqual(413, self.client.post(path, headers=csrf, json={"uid": "a" * 513}).status_code)
+        self._register(self.client, "restricted-reader")
+        restricted = app.test_client()
+        self._login(restricted, "restricted-reader")
+        denied_csrf = self._csrf_headers(restricted, "/inventory")
+        with app.app_context():
+            db = get_db()
+            user_id = db.execute("SELECT id FROM user WHERE username=?", ("restricted-reader",)).fetchone()[0]
+            db.execute("""INSERT INTO user_permission(user_id, feature, enabled, updated_at)
+                          VALUES(?, 'documents', 0, CURRENT_TIMESTAMP)""", (user_id,))
+            db.commit()
+        self.assertEqual(403, restricted.post(path, headers=denied_csrf, json={"uid": "00AABBCD"}).status_code)
+
+
 if __name__ == "__main__":
     unittest.main()

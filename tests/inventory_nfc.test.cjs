@@ -184,3 +184,15 @@ test('an older cached helper leaves the rest of inventory usable without consumi
   field.dispatchEvent(enter);
   assert.equal(enter.defaultPrevented, true);
 });
+
+test('two controls cannot reserve the NFC reader at the same time', async () => {
+  const {helper, readers, reading} = setup();
+  const first = helper.scan({signal: new AbortController().signal});
+  await assert.rejects(helper.scan({signal: new AbortController().signal}), {code: 'busy'});
+  assert.equal(readers.length, 1);
+  readers[0].dispatchEvent(reading('ABCD'));
+  assert.equal(await first, 'ABCD');
+  const second = helper.scan({signal: new AbortController().signal});
+  readers[1].dispatchEvent(reading('DEAD'));
+  assert.equal(await second, 'DEAD');
+});

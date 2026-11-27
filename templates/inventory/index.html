@@ -50,6 +50,26 @@
     </div>
   </div>
 
+  <section class="card mb-3" id="inventory-nfc-find" aria-labelledby="nfc-find-title"
+           data-endpoint="{{ url_for('inventory.find_nfc_tag') }}"
+           data-detail="{{ url_for('inventory.item_detail', object_id='__OBJECT__') }}" hidden>
+    <div class="card-body">
+      <h2 class="h5" id="nfc-find-title">{{ 'Find an existing NFC tag' if g.language == 'en' else 'Vorhandenen NFC-Tag finden' }}</h2>
+      <p class="small text-secondary">{{ 'Find an existing item without changing the capture form below. On a laptop, type the UID or use a USB reader in keyboard mode.' if g.language == 'en' else 'Sucht vorhandene Gegenstände, ohne das Erfassungsformular zu ändern. Am Laptop die UID eingeben oder einen USB-NFC-Leser im Tastaturmodus verwenden.' }}</p>
+      <form method="post" action="{{ url_for('inventory.find_nfc_tag') }}" class="row g-2 align-items-end">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md"><label class="form-label" for="nfc-find-uid">{{ 'Tag ID' if g.language == 'en' else 'Tag-Kennung' }}</label>
+          <input type="text" id="nfc-find-uid" class="form-control" maxlength="95" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+        <div class="col-md-auto d-flex gap-2">
+          <button type="submit" class="btn btn-outline-primary">{{ 'Find this tag' if g.language == 'en' else 'Tag suchen' }}</button>
+          <button type="button" class="btn btn-outline-secondary" data-nfc-find-scan hidden>{{ 'Read tag' if g.language == 'en' else 'Tag lesen' }}</button>
+        </div>
+      </form>
+      <p class="small my-2" role="status" aria-live="polite" data-nfc-find-status></p>
+      <ul class="list-group" data-nfc-find-results></ul>
+    </div>
+  </section>
+
   <div class="row g-3 align-items-start">
     <section class="col-xl-7">
       <div class="card shadow-sm">

@@ -128,3 +128,16 @@ SIMPLEOFFICE_INTAKE_BROWSER_REQUIRED=1 python -m unittest -v tests.test_inventor
   NFC-Feld sucht gezielt nach der UID. UIDs sind keine
   Authentifizierung; Tags mit wechselnder oder nicht lesbarer UID sind keine
   verlässlichen Inventaretiketten.
+
+
+## Vorhandenen NFC-Tag finden
+
+Unter **Inventar → Vorhandenen NFC-Tag finden** die Kennung eingeben, den
+USB-Leser im Tastaturmodus einsetzen oder in einer unterstützten Android-App
+bzw. einem Web-NFC-Browser **Tag lesen** wählen. Die Treffer bleiben auf der
+Seite; erst ein Klick öffnet den ausgewählten Gegenstand. Mehrfach vergebene
+Tags zeigen bis zu 20 Titel und Standorte statt einen beliebigen Treffer zu
+öffnen. Die Suche ändert weder den Katalog noch das separate Erfassungsformular.
+Die neue Suchmaske überträgt die Tag-Kennung per privatem Formular-POST,
+nicht in der URL, und wertet keine Daten vom Tag als Links oder Anweisungen
+aus. NFC-Tags ersetzen weder Zugriffsrechte noch Identitätsnachweise.

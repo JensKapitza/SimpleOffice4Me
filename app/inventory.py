@@ -782,6 +782,39 @@ def find_item():
     })
 
 
+@bp.post("/nfc-find")
+@login_required
+def find_nfc_tag():
+    """Private exact tag lookup; do not send the UID in URLs or follow tag payloads."""
+    if not request.is_json or not request.content_length or request.headers.get("Transfer-Encoding"):
+        abort(400)
+    if request.content_length > 512:
+        abort(413)
+    body = request.get_json(silent=True)
+    if type(body) is not dict or set(body) != {"uid"} or not isinstance(body["uid"], str):
+        abort(400)
+    uid = _canonical_nfc_uid(body["uid"].strip())
+    if not uid:
+        abort(400)
+    matches = []
+    limited = False
+    for item in _objects().objects():
+        stored = str(item.get("fields", {}).get("nfc_id", "")).strip()
+        if _canonical_nfc_uid(stored.split(" | ", 1)[0]) != uid:
+            continue
+        if len(matches) == 20:
+            limited = True
+            break
+        matches.append({
+            "object_id": item["object_id"], "name": item.get("name", "")[:160],
+            "display_id": item.get("display_id", ""), "location": item.get("location", "")[:160],
+        })
+    response = jsonify({"matches": matches, "limited": limited})
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
 @bp.get("/amazon")
 @login_required
 def amazon_search():
