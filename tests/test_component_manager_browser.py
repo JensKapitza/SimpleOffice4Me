@@ -69,6 +69,9 @@ class ComponentManagerBrowserTests(unittest.TestCase):
                 page.goto(self.origin + "/setup/optional", wait_until="domcontentloaded")
                 page.locator("#component-manager").wait_for(state="visible")
                 self.assertTrue(page.locator("form[action='/setup/optional/install-all'] button").is_visible())
+                ocr_card = page.locator("#ocr-runtime")
+                self.assertTrue(ocr_card.is_visible())
+                self.assertIn("RapidOCR / ONNX Runtime", ocr_card.inner_text())
                 mobile = page.evaluate("""() => ({
                     viewport: document.documentElement.clientWidth,
                     page: document.documentElement.scrollWidth,
