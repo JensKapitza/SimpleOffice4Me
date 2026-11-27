@@ -415,6 +415,28 @@ class AutomationStore:
             result.append(view)
         return result
 
+    def recent_peer_unqueued(self, principal: str, account_key: str) -> list[sqlite3.Row]:
+        """Read only dispatch failures recorded in the current account generation."""
+        if not principal or not re.fullmatch(r"[0-9a-f]{64}", account_key):
+            return []
+        with self._db() as db:
+            return db.execute(
+                """SELECT e.rule_id, e.rule_version, e.correlation_id, e.status,
+                          e.detail_json, substr(e.idempotency_key, -64) AS job_key
+                     FROM v3_automation_execution e
+                     JOIN v3_automation_rule r ON r.rule_id=e.rule_id
+                    WHERE r.owner=? COLLATE BINARY AND e.principal=? COLLATE BINARY
+                      AND e.idempotency_key GLOB ?
+                      AND e.status IN ('peer_queue_unavailable', 'window_missed')
+                      AND NOT EXISTS (
+                          SELECT 1 FROM v3_automation_execution q
+                           WHERE q.idempotency_key='peer_queued:' || substr(e.idempotency_key, -64)
+                             AND q.rule_id=e.rule_id AND q.principal=e.principal
+                      )
+                    ORDER BY e.created_at DESC, e.rowid DESC LIMIT 50""",
+                (principal, principal, f"peer-prequeue:{account_key}:*"),
+            ).fetchall()
+
     def recent_peer_outcomes(self, principal: str, job_keys: list[str]) -> dict[str, str]:
         """Return exact terminal peer outcomes for already scoped job keys, without action payloads."""
         keys = list(dict.fromkeys(job_keys))[:50]

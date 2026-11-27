@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import hashlib
+import json
 import logging
 import math
 from pathlib import Path
@@ -98,9 +99,17 @@ def save_rule(root, owner, peer, destination, event_type, *, delay, deadline, zo
                                     "trigger": {"type": "event", "name": event_type}, "actions": [action]})
 
 
-def _record(store, rule, event, principal, key, state, window):
+def _account_key(account):
+    return hashlib.sha256(f"{account[0]}:{account[1]}".encode()).hexdigest()
+
+
+def _record(store, rule, event, principal, key, state, window, *, unqueued_account=None):
+    execution_key = (
+        f"peer-prequeue:{_account_key(unqueued_account)}:{key}"
+        if unqueued_account else f"{state}:{key}"
+    )
     store.record_execution(
-        rule, key=f"{state}:{key}", correlation_id=event.event_id, principal=principal,
+        rule, key=execution_key, correlation_id=event.event_id, principal=principal,
         result=ExecutionResult(state, True, False, ({"type": ACTION, "state": state, **window},)),
     )
 
@@ -138,7 +147,8 @@ def dispatch(root, event, principal):
                     state = "peer_queue_unavailable"
                 else:
                     state = "peer_queued"
-            _record(store, rule, event, principal, key, state, window)
+            _record(store, rule, event, principal, key, state, window,
+                    unqueued_account=account if state != "peer_queued" else None)
     except (OSError, sqlite3.Error, ValueError) as exc:
         LOG.warning("peer copy notice dispatch did not complete: %s", type(exc).__name__)
 
@@ -245,8 +255,23 @@ def _receipt_schedule(job, window, state, *, now, end, zone):
     return state, {"at": eligible.isoformat(), "local": _local_time(eligible, zone)}
 
 
+def _add_receipt(groups, labels, *, event_id, rule, window, state, attempt, next_attempt=None):
+    end = utc_instant(window["expires_at"])
+    zone = ZoneInfo(window["origin_timezone"])
+    group = groups.setdefault(event_id, {"at": utc_instant(window["requested_at"]).isoformat(), "targets": []})
+    group["targets"].append({
+        "name": labels.get(rule, ""),
+        "state": state,
+        "deadline": end.isoformat(),
+        "local": _local_time(end, zone),
+        "zone": zone.key,
+        "next_attempt": next_attempt,
+        "attempt": attempt,
+    })
+
+
 def receipts(root, principal, store, rules, *, clock=_now):
-    """A private bounded read model: one current outcome per job, grouped by original copy."""
+    """A bounded read model for actual jobs and attempts that could not enter the queue."""
     account = _account(root, principal)
     if not feature_on(root) or not account:
         return []
@@ -264,16 +289,22 @@ def receipts(root, principal, store, rules, *, clock=_now):
             zone = ZoneInfo(window["origin_timezone"])
             state = _receipt_state(job, known.get(job.idempotency_key), window, now, worker_enabled=worker_enabled)
             state, next_attempt = _receipt_schedule(job, window, state, now=now, end=end, zone=zone)
-            group = groups.setdefault(job.payload["event_id"], {"at": window["requested_at"], "targets": []})
-            group["targets"].append({
-                "name": labels.get((job.payload["rule_id"], job.payload["version"]), ""),
-                "state": state,
-                "deadline": end.isoformat(),
-                "local": _local_time(end, zone),
-                "zone": zone.key,
-                "next_attempt": next_attempt,
-                "attempt": job.attempt,
-            })
+            _add_receipt(groups, labels, event_id=job.payload["event_id"],
+                         rule=(job.payload["rule_id"], job.payload["version"]), window=window,
+                         state=state, attempt=job.attempt, next_attempt=next_attempt)
         except (OSError, ValueError, TypeError, KeyError, OverflowError, ZoneInfoNotFoundError) as exc:
             LOG.warning("peer copy receipt could not be rendered: %s", type(exc).__name__)
-    return list(groups.values())
+    present_keys = {job.idempotency_key for job in jobs}
+    for row in store.recent_peer_unqueued(principal, _account_key(account)):
+        if row["job_key"] in present_keys:
+            continue
+        try:
+            action, = json.loads(row["detail_json"])
+            if not isinstance(action, dict) or action.get("type") != ACTION:
+                continue
+            _add_receipt(groups, labels, event_id=row["correlation_id"],
+                         rule=(row["rule_id"], row["rule_version"]), window=action,
+                         state=row["status"], attempt=0)
+        except (OSError, ValueError, TypeError, KeyError, OverflowError, ZoneInfoNotFoundError) as exc:
+            LOG.warning("unqueued peer receipt could not be rendered: %s", type(exc).__name__)
+    return sorted(groups.values(), key=lambda group: utc_instant(group["at"]), reverse=True)[:50]

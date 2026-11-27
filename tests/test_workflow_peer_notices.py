@@ -299,6 +299,51 @@ class WorkflowPeerNoticeRuleTests(_WorkflowPeerNoticeFixture):
         self.assertEqual("peer_unreachable_final", failed["targets"][0]["state"])
         self.assertIsNone(failed["targets"][0]["next_attempt"])
 
+    def test_real_queue_limit_surfaces_an_account_scoped_receipt_without_duplicate_on_replay(self):
+        from bs4 import BeautifulSoup
+        from app.db import get_db
+        from app.document_copy_events import capture_copy_completed
+        from app.v3_automation import AutomationStore
+        from app.v3_jobs import JobStore
+        from app.workflow_peer_notice_jobs import KIND, receipts
+
+        self._create()
+        jobs = JobStore(self.root)
+        filled = [jobs.enqueue(KIND, {}, "owner", idempotency_key=f"fixture-{i}") for i in range(50)]
+        with app.app_context():
+            event_id = capture_copy_completed(self.root, "owner", "real-capacity-copy")
+            self.assertIsNotNone(event_id)
+            self.assertEqual(50, len(jobs.list(kind=KIND)))
+        page = self.client.get("/automation-v3")
+        receipt = BeautifulSoup(page.data, "html.parser").select_one('[data-delivery-state="peer_queue_unavailable"]')
+        self.assertIsNotNone(receipt)
+        self.assertIn(": 0", receipt.get_text())
+        self.assertIsNone(receipt.select_one("[data-next-attempt]"))
+        self.assertNotIn("b" * 32, receipt.get_text())
+        self._register(self.client, "other")
+        other = app.test_client()
+        self._login(other, "other")
+        self.assertNotIn(b"peer-copy-receipts-title", other.get("/automation-v3").data)
+
+        with app.app_context():
+            store = AutomationStore(self.root)
+            db = get_db()
+            version = db.execute("SELECT auth_version FROM user WHERE username=?", ("owner",)).fetchone()[0]
+            db.execute("UPDATE user SET auth_version=? WHERE username=?", (version + 1, "owner"))
+            db.commit()
+            self.assertEqual([], receipts(self.root, "owner", store, store.list("owner")))
+            db.execute("UPDATE user SET auth_version=? WHERE username=?", (version, "owner"))
+            db.commit()
+
+            jobs.cancel(filled[0].job_id)
+            self.assertEqual(event_id, capture_copy_completed(self.root, "owner", "real-capacity-copy"))
+            self.assertEqual(event_id, capture_copy_completed(self.root, "owner", "real-capacity-copy"))
+            real_jobs = [job for job in jobs.list(kind=KIND) if job.payload.get("event_id") == event_id]
+            self.assertEqual(1, len(real_jobs))
+            entry, = receipts(self.root, "owner", store, store.list("owner"))
+            target, = entry["targets"]
+            self.assertEqual("peer_queued", target["state"])
+
     def test_day_end_rule_persists_bounded_long_retry_and_original_zone(self):
         from app.v3_automation_timing import action_window, utc_instant
 
