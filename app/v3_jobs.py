@@ -135,7 +135,7 @@ class JobStore:
         if type(not_before) is not int or not 0 <= not_before <= (1 << 63) - 1:
             raise ValueError("invalid earliest job time")
         now=int(time.time()); encoded=_json(payload)
-        attempts=max(1,min(20,int(max_attempts))); prio=max(-100,min(100,int(priority)))
+        attempts=max(1,min(40,int(max_attempts))); prio=max(-100,min(100,int(priority)))
         with self._db() as db:
             db.execute("BEGIN IMMEDIATE")
             existing=db.execute("SELECT * FROM v3_job WHERE idempotency_key=?",(key,)).fetchone()

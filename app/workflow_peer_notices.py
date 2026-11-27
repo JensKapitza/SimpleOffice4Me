@@ -28,7 +28,7 @@ from .federation_trust_store import FederationTrustStore
 from .file_lock import exclusive_file_lock
 from .sqlite_utils import connect
 from .v3_activity import ActivityStore
-from .v3_automation_timing import received_window_status, timing_envelope, utc_instant
+from .v3_automation_timing import action_window, received_window_status, timing_envelope, utc_instant
 from .v3_capabilities import enabled
 
 PATH = "/federation/v3/workflow-notices"
@@ -135,6 +135,22 @@ def _now():
     return datetime.now(timezone.utc)
 
 
+def _notice_window_status(window, now, *, uncertainty_seconds=0):
+    status = received_window_status(window, now, uncertainty_seconds=uncertainty_seconds)
+    if window["expires_at"] is None:
+        raise ValueError("workflow notice needs a finite deadline")
+    origin = utc_instant(window["requested_at"])
+    deadline = utc_instant(window["expires_at"])
+    elapsed = deadline - origin
+    if elapsed <= timedelta(0) or elapsed > timedelta(hours=26):
+        raise ValueError("workflow notice deadline is out of bounds")
+    if elapsed > timedelta(minutes=15):
+        _, midnight = action_window({"end_of_day": True}, origin, window["origin_timezone"])
+        if deadline != midnight:
+            raise ValueError("a long workflow notice deadline must be local midnight")
+    return status
+
+
 def receive_notice(root, peer, payload, *, clock=_now):
     if (type(payload) is not dict or set(payload) != {"id", "destination", "kind", "window"}
             or not isinstance(payload["id"], str) or not ID.fullmatch(payload["id"])
@@ -142,10 +158,7 @@ def receive_notice(root, peer, payload, *, clock=_now):
             or payload["kind"] not in ("browser", "job")):
         raise ValueError("invalid workflow notice")
     timing = payload["window"]
-    received_window_status(timing, clock(), uncertainty_seconds=1)
-    if (timing["expires_at"] is None or utc_instant(timing["expires_at"]) - utc_instant(timing["requested_at"])
-            > timedelta(minutes=15)):
-        raise ValueError("workflow notice needs a short, finite deadline")
+    _notice_window_status(timing, clock(), uncertainty_seconds=1)
     grants = PeerNoticeGrants(root)
     destination = payload["destination"]
     with grants.lock():
@@ -214,11 +227,9 @@ def send_notice(root, peer_id, destination, event, *, window=None):
         raise PermissionError("peer credential missing")
     if window is None:
         window = timing_envelope({"within_seconds": 600}, event.occurred_at)
-    status = received_window_status(window, _now())
-    if (utc_instant(window["requested_at"]) != utc_instant(event.occurred_at)
-            or not window["expires_at"]
-            or utc_instant(window["expires_at"]) - utc_instant(event.occurred_at) > timedelta(minutes=15)):
-        raise ValueError("workflow notice needs the original event and a short, finite deadline")
+    status = _notice_window_status(window, _now())
+    if utc_instant(window["requested_at"]) != utc_instant(event.occurred_at):
+        raise ValueError("workflow notice needs the original event timestamp")
     if status != "ready":
         return status
     key = hashlib.sha256(f"copy\0{event.event_id}".encode()).hexdigest()

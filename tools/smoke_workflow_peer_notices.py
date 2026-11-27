@@ -1,5 +1,6 @@
 """Exercise one workflow copy notice over two ordinary isolated HTTPS instances."""
 from contextlib import ExitStack
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -135,6 +136,12 @@ def main():
         assert len(target) == 1 and target[0]["kind"] == "peer"
         assert set(target[0]) == {"id", "kind", "at"}
         assert not json.loads(src.request("/automation-v3/copy-notices"))["notices"]
+        # Ensure this exercise includes a genuinely longer window, even around UTC midnight.
+        now = datetime.now(timezone.utc)
+        zone = "UTC" if now.hour < 23 else "Pacific/Honolulu"
+        form = src.page("/automation-v3").select_one(f'form[action="{create}"]')
+        src.submit(form, {"peer": b, "destination": grant, "source": "job", "delay": "0",
+                          "deadline": "end_of_day", "zone": zone})
         destination_server.close()
         _copy(root / a, tls, a, "synthetic-workflow-run-reconnect")
         _work(root / a, tls)
@@ -155,7 +162,7 @@ def main():
         _work(root / a, tls)
         assert src.page("/automation-v3").select_one('[data-delivery-state="denied"]')
         assert json.loads(dst.request("/automation-v3/copy-notices"))["notices"] == target
-        print("PASS: real copy triggers durable peer job; paired HTTPS delivery, replay, offline recovery, and revoke verified")
+        print("PASS: real copy triggers durable peer job; paired HTTPS delivery, replay, end-of-day offline recovery, and revoke verified")
 
 
 

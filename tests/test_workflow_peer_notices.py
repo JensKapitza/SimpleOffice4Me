@@ -87,6 +87,22 @@ class WorkflowPeerNoticeTests(_WorkflowPeerNoticeFixture):
         self.assertEqual(403, self._send(grant).status_code)
         self.assertEqual([], self._notice_rows())
 
+    def test_local_midnight_is_accepted_across_dst_but_late_copy_is_not(self):
+        from unittest.mock import patch
+        from app.v3_automation_timing import utc_instant
+
+        grant = self._grant()
+        start = datetime.fromisoformat("2026-10-24T22:05:00+00:00")  # 00:05 before Berlin's fall-back.
+        timing = {"end_of_day": True, "timezone": "Europe/Berlin"}
+        expected = datetime.fromisoformat("2026-10-25T23:00:00+00:00")
+        self.assertEqual(expected, utc_instant(timing_envelope(timing, start)["expires_at"]))
+        with patch("app.workflow_peer_notices._now", return_value=start + timedelta(hours=9)):
+            self.assertEqual(400, self._send(grant, at=start, timing={"within_seconds": 86400}).status_code)
+            self.assertEqual("delivered", self._send(grant, at=start, timing=timing).json["status"])
+        with patch("app.workflow_peer_notices._now", return_value=expected):
+            self.assertEqual("window_missed", self._send(grant, at=start, timing=timing).json["status"])
+        self.assertEqual(1, len(self._notice_rows()))
+
     def test_auth_and_policy_are_rechecked_before_delivery(self):
         grant = self._grant()
         with app.app_context():
@@ -216,3 +232,17 @@ class WorkflowPeerNoticeRuleTests(_WorkflowPeerNoticeFixture):
             expired, = receipts(self.root, "owner", store, rules, clock=lambda: deadline)
         self.assertEqual("retry_after_deadline", waiting["targets"][0]["state"])
         self.assertEqual("window_missed", expired["targets"][0]["state"])
+
+
+    def test_day_end_rule_persists_bounded_long_retry_and_original_zone(self):
+        from app.v3_automation_timing import action_window, utc_instant
+
+        self.form.update({"deadline": "end_of_day", "zone": "Pacific/Honolulu"})
+        self._create()
+        job = self._queue()
+        self.assertEqual(40, job.max_attempts)
+        window = job.payload["window"]
+        origin = utc_instant(window["requested_at"])
+        self.assertEqual("Pacific/Honolulu", window["origin_timezone"])
+        _, deadline = action_window({"end_of_day": True}, origin, "Pacific/Honolulu")
+        self.assertEqual(deadline, utc_instant(window["expires_at"]))

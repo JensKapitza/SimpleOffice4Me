@@ -116,9 +116,13 @@ Empfängerkonto bereitsteht, nicht dass das Endgerät sie gesehen hat.
 Auf der Senderseite mit `v3.jobs` in demselben Bereich **Automatische
 Kopiermeldungen senden** öffnen. Zielinstanz und Zielkennung wählen, als
 Auslöser „Dokument kopiert“ oder „Kopierjob abgeschlossen“ setzen und
-Absenderzeitzone (z. B. `Europe/Berlin`) angeben. Die Frist beträgt wahlweise
-10, 120 oder 600 Sekunden **ab Kopie**; bei längeren Fristen sind 30 Sekunden
-Wartezeit möglich. Kopierjobs benötigen weiterhin den expliziten
+die vorausgewählte Absenderzeitzone prüfen (z. B. `Europe/Berlin`). Die Frist beträgt wahlweise
+10, 120 oder 600 Sekunden **ab Kopie** oder bis zum Ende des ursprünglichen
+Tages in der Absenderzeitzone. Die Frist rollt nicht auf den nächsten Tag,
+auch nicht nach Zeitzonenwechsel, Neustart oder Sommerzeitumstellung.
+Bei längeren Fristen sind 30 Sekunden Wartezeit möglich. Für „Tagesende“
+müssen beide Instanzen diese Funktion unterstützen; mit älteren Empfängern
+verwende die kurze Frist. Kopierjobs benötigen weiterhin den expliziten
 `--notify-account` beim geplanten Aufruf. Der Hintergrunddienst von oben
 muss auf der Senderseite laufen. Das erneute Speichern derselben Kombination
 aus Auslöser, Peer und Zielkennung aktualisiert die vorhandene Regel.

@@ -104,7 +104,8 @@ def _peer_notice_options():
                 continue
     return {"peers": peers["receive"], "send": peers["send"] if peer_jobs.available(root) else [],
             "grants": PeerNoticeGrants(root).for_account(g.user),
-            "delays": peer_jobs.DELAYS, "deadlines": peer_jobs.DEADLINES}
+            "delays": peer_jobs.DELAYS, "deadlines": peer_jobs.DEADLINES,
+            "zone": g.app_settings.get("interface", {}).get("timezone", "UTC")}
 
 
 def _render_index(actor: str, *, preview=None):
@@ -212,11 +213,13 @@ def create_peer_copy_rule():
     try:
         peer = permitted_peer(root, request.form.get("peer", ""), "send")
         delay, deadline = request.form.get("delay", ""), request.form.get("deadline", "")
-        if delay not in set(map(str, peer_jobs.DELAYS)) or deadline not in set(map(str, peer_jobs.DEADLINES)):
+        if (delay not in set(map(str, peer_jobs.DELAYS))
+                or deadline not in {*map(str, peer_jobs.DEADLINES), peer_jobs.DAY_END}):
             raise ValueError("invalid time window")
         peer_jobs.save_rule(
             root, str(g.user["username"]), peer["peer_id"], request.form.get("destination", ""), event_type,
-            delay=int(delay), deadline=int(deadline), zone=request.form.get("zone", ""),
+            delay=int(delay), deadline=peer_jobs.DAY_END if deadline == peer_jobs.DAY_END else int(deadline),
+            zone=request.form.get("zone", ""),
             name=f"{kind} → {peer['label']}",
         )
     except PermissionError:

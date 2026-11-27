@@ -27,6 +27,7 @@ KIND = "automation.peer_copy_notice"
 ACTION = "app.peer_copy_notice"
 DELAYS = (0, 30)
 DEADLINES = (10, 120, 600)
+DAY_END = "end_of_day"
 PRESET = {"peer_copy_notice_preset": True}
 LOG = logging.getLogger(__name__)
 
@@ -47,6 +48,16 @@ def _account(root, name):
     return [account["id"], account["auth_version"]]
 
 
+def _timing(delay, deadline, zone):
+    if type(delay) is not int or delay not in DELAYS:
+        raise ValueError("invalid delay for peer notice")
+    if deadline == DAY_END:
+        return {"delay_seconds": delay, "end_of_day": True, "timezone": zone}
+    if type(deadline) is not int or deadline not in DEADLINES or delay >= deadline:
+        raise ValueError("invalid deadline for peer notice")
+    return {"delay_seconds": delay, "within_seconds": deadline, "timezone": zone}
+
+
 def _action(rule, event_type):
     if (rule.scope != PRESET or rule.trigger != {"type": "event", "name": event_type}
             or rule.conditions or len(rule.actions) != 1):
@@ -57,23 +68,24 @@ def _action(rule, event_type):
     if (set(action) != {"type", "payload", "timing"} or action["type"] != ACTION
             or not isinstance(payload, dict) or set(payload) != {"peer", "destination"}
             or not isinstance(payload["peer"], str) or not isinstance(payload["destination"], str)
-            or not DEST.fullmatch(payload["destination"]) or not isinstance(timing, dict)
-            or set(timing) != {"delay_seconds", "within_seconds", "timezone"}
-            or timing["delay_seconds"] not in DELAYS or timing["within_seconds"] not in DEADLINES):
+            or not DEST.fullmatch(payload["destination"]) or not isinstance(timing, dict)):
         return None
-    return action
+    try:
+        deadline = DAY_END if timing.get("end_of_day") is True else timing.get("within_seconds")
+        return action if timing == _timing(timing.get("delay_seconds"), deadline, timing.get("timezone")) else None
+    except ValueError:
+        return None
 
 
 def save_rule(root, owner, peer, destination, event_type, *, delay, deadline, zone, name):
     if not available(root) or not _account(root, owner):
         raise PermissionError("workflow notice account is not authorized")
     peer = permitted_peer(root, peer, "send")["peer_id"]
-    if (not DEST.fullmatch(destination) or event_type not in (EVENT_NAME, JOB_EVENT_NAME)
-            or delay not in DELAYS or deadline not in DEADLINES or delay >= deadline):
+    if not DEST.fullmatch(destination) or event_type not in (EVENT_NAME, JOB_EVENT_NAME):
         raise ValueError("invalid peer copy notice rule")
     store = AutomationStore(root)
     action = {"type": ACTION, "payload": {"peer": peer, "destination": destination},
-              "timing": {"delay_seconds": delay, "within_seconds": deadline, "timezone": zone}}
+              "timing": _timing(delay, deadline, zone)}
     lock_id = hashlib.sha256(owner.encode()).hexdigest()
     with exclusive_file_lock(store.path.parent / f".peer-copy-rule-{lock_id}.lock"):
         for rule in store.list(owner):
@@ -115,7 +127,8 @@ def dispatch(root, event, principal):
                     JobStore(root).enqueue(
                         KIND, {"rule_id": rule.rule_id, "version": rule.version,
                                "event_id": event.event_id, "actor": event.actor, "account": account,
-                               "window": window}, principal, idempotency_key=key, max_attempts=10,
+                               "window": window}, principal, idempotency_key=key,
+                        max_attempts=40 if action["timing"].get("end_of_day") else 10,
                         not_before=math.ceil(utc_instant(window["not_before"]).timestamp()),
                         max_open_per_principal=50, max_open_total=500,
                         max_created_per_principal_window=300, window_seconds=3600,

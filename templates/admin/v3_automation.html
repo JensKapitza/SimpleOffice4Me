@@ -106,10 +106,10 @@
           </select></div>
         <div class="col-md-4"><label for="copy-send-delay" class="form-label">{{ 'Wait after copy' if g.language == 'en' else 'Wartezeit nach Kopie' }}</label>
           <select id="copy-send-delay" name="delay" class="form-select">{% for s in peer_notice_options.delays %}<option value="{{ s }}">{{ s }} s</option>{% endfor %}</select></div>
-        <div class="col-md-4"><label for="copy-send-deadline" class="form-label">{{ 'Deadline from copy' if g.language == 'en' else 'Frist ab Kopie' }}</label>
-          <select id="copy-send-deadline" name="deadline" class="form-select">{% for s in peer_notice_options.deadlines %}<option value="{{ s }}"{% if s == 120 %} selected{% endif %}>{{ s }} s</option>{% endfor %}</select></div>
+        <div class="col-md-4"><label for="copy-send-deadline" class="form-label">{{ 'Delivery deadline' if g.language == 'en' else 'Zustellfrist' }}</label>
+          <select id="copy-send-deadline" name="deadline" class="form-select">{% for s in peer_notice_options.deadlines %}<option value="{{ s }}"{% if s == 120 %} selected{% endif %}>{{ s }} s</option>{% endfor %}<option value="end_of_day">{{ 'End of day in the sender time zone' if g.language == 'en' else 'Tagesende in der Absenderzeitzone' }}</option></select></div>
         <div class="col-md-4"><label for="copy-send-zone" class="form-label">{{ 'Sender time zone' if g.language == 'en' else 'Absenderzeitzone' }}</label>
-          <input id="copy-send-zone" name="zone" class="form-control" required value="UTC" maxlength="80" placeholder="Europe/Berlin"></div>
+          <input id="copy-send-zone" name="zone" class="form-control" required value="{{ peer_notice_options.zone }}" maxlength="80" placeholder="Europe/Berlin"></div>
       </div>
       <button type="submit" class="btn btn-outline-primary mt-2">{{ 'Save sending rule' if g.language == 'en' else 'Senderegel speichern' }}</button>
     </form>
