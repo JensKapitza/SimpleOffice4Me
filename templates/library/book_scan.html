@@ -9,7 +9,7 @@
   <p>{{ 'Add JPEG or PNG pages, check their order and rotate individual pages before downloading a PDF.' if en else 'JPEG- oder PNG-Seiten hinzufügen, die Reihenfolge prüfen und einzelne Seiten drehen. Danach das Buch als PDF herunterladen.' }}</p>
   <p>{{ 'The working selection stays in this tab until you create the PDF. SimpleOffice does not save or share the result automatically.' if en else 'Die Auswahl bleibt bis zur PDF-Erstellung in diesem Tab. SimpleOffice speichert oder teilt das Ergebnis nicht automatisch.' }}</p>
   <noscript><p>{{ 'This page needs JavaScript for preview, order and rotation. Enable it and reload.' if en else 'Für Vorschau, Sortieren und Drehen braucht diese Seite JavaScript. Bitte aktivieren und neu laden.' }}</p></noscript>
-  <form action="{{ url_for('library.book_scan') }}" method="post" enctype="multipart/form-data">
+  <form action="{{ url_for('library.book_scan') }}" method="post" enctype="multipart/form-data" data-scan-export>
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <fieldset disabled data-scan-controls>
       <legend class="h5">{{ 'Pages' if en else 'Seiten' }}</legend>
@@ -29,6 +29,28 @@
       <button type="submit" class="btn btn-primary" data-scan-download disabled>{{ 'Create private PDF' if en else 'Privates PDF erstellen' }}</button>
     </fieldset>
   </form>
+  {% if sharing_unavailable %}
+  <p class="text-body-secondary mt-3" data-scan-sharing-unavailable role="status">{{ 'Peer sharing is temporarily unavailable. You can still download a private PDF.' if en else 'Teilen mit Gegenstellen ist vorübergehend nicht verfügbar. Du kannst das PDF weiterhin privat herunterladen.' }}</p>
+  {% endif %}
+  {% if share_peers %}
+  <form action="{{ url_for('library.book_scan_publications') }}" method="post" enctype="multipart/form-data" class="mt-3" data-scan-share hidden>
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="action" value="publish">
+    <fieldset class="vstack gap-2" data-scan-share-controls disabled>
+      <legend class="h5">{{ 'Share this PDF for one hour' if en else 'Dieses PDF für eine Stunde teilen' }}</legend>
+      <label>{{ 'Select one recipient' if en else 'Eine Gegenstelle auswählen' }}
+        <select name="peer_id" class="form-select" required>
+          <option value="">{{ 'Select…' if en else 'Auswählen…' }}</option>
+          {% for peer in share_peers %}<option value="{{ peer.id }}">{{ peer.label }} ({{ peer.id }})</option>{% endfor %}
+        </select>
+      </label>
+      <label><input type="checkbox" name="confirm" value="1" required>
+        {{ 'I reviewed the downloaded PDF and allow this peer to retrieve a copy.' if en else 'Ich habe das heruntergeladene PDF geprüft und erlaube dieser Gegenstelle, eine Kopie abzuholen.' }}
+      </label>
+      <button class="btn btn-outline-primary align-self-start" type="submit">{{ 'Share with selected peer' if en else 'Mit ausgewählter Gegenstelle teilen' }}</button>
+    </fieldset>
+  </form>
+  {% endif %}
   <p class="mt-3">
     {{ 'To read or run OCR later, you can import the PDF deliberately into Documents. Peers with document/catalog grants may then see it. Do not import a private scan into a library you already share.' if en else 'Zum Lesen oder für OCR kannst du das PDF später bewusst in Dokumente importieren. Peers mit Dokument- und Katalogfreigabe können es dann sehen. Private Scans nicht in einen bereits föderativ freigegebenen Bestand importieren.' }}
   </p>
