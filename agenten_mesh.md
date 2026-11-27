@@ -1067,3 +1067,12 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | Bestehende Änderung beibehalten, Beschriftung/Ergebnistext für die Sammelaktion anpassen und Modellstatus bzw. Modell-Einstellungen unverändert lassen. Dokumentationsaussagen zur Sammelaktion korrigiert. |
 | Tests | Fokussierte Integrationstests für „install-all“ und expliziten Stimmen-Download mit bestehender benutzerdefinierter EN-Stimme: 2 bestanden. Ruff für Route/Test und `git diff --check` bestanden. |
 | Soll-Ist-Vergleich und Review | Soll erfüllt für die Modell-Auswahl im Sammelablauf: Sprachdownloads werden nicht durch „Alle fehlenden Basis-Komponenten“ gestartet; explizite Einzelaktion bleibt verfügbar und überschreibt keine manuelle Stimme. Vollständige Installer-Abdeckung #1329 bleibt offen. |
+
+## 26. November 2026 · Issue-Runde 12: #1305-QR als PR #1347
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | #1305 hatte nach dem Reaktionsraum und WPM noch keine einfache Geräte-Kopplung. #1340 wurde separat geprüft und gemergt; #1343/#1344 wurden auf den aktuellen Main-Stand rebased. #1225 (glib/Tauri) bleibt beim Peer. |
+| Implementierung | PR #1347: `/rooms/qr`-Route (Login + lokales HTTPS + Code-Format), Invite-QR mit Aufräumen, `?code=`-Prefill (validiert, Best-Effort). #1341 war bereits gemergt. |
+| Tests und Soll-Ist-Vergleich | Route prüft 200/400/302/403; Harness prüft QR/Prefill. Lokal 5/5 Node, 8/8 Flask, Ruff, Compile und Node-Check bestanden. Nach Rebase sind GitHub-Checks für #1347 noch in Bearbeitung. |
+| Review und Abschluss | #1340 gemergt; #1343/#1344/#1346/#1347 warten auf die neu gestartete CI. #1305-Rest: Ordered-in-Rooms und Hardware-Praxistest. |
