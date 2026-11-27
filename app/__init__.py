@@ -44,6 +44,7 @@ from .settings_limits import (
     DEFAULT_WEBDAV_QUARANTINE_MIB,
     MAX_WEBDAV_QUARANTINE_MIB,
 )
+from .optional_ocr_runtime import configure_document_root as _configure_ocr_document_root
 
 
 def _jinja_error_context(error, extracted_frames):
@@ -259,6 +260,7 @@ app.config['DATABASE_FILEDIR'] = filebase_dir
 app.config['DATABASE'] = os.path.join(database_dir, "my.sqlite")
 app.config['DATABASE_TRANSLATION'] = os.path.join(database_dir, "translation.sqlite")
 app.config['DOCUMENT_ROOT'] = os.environ.get('SIMPLEOFFICE_DOCUMENT_ROOT', os.path.join(database_dir, "documents"))
+_configure_ocr_document_root(app.config['DOCUMENT_ROOT'])
 app.config['MAX_CONTENT_LENGTH'] = configured_upload_limit_bytes(app.config['DOCUMENT_ROOT'])
 _s3_boot = _s3_boot_settings(app.config['DOCUMENT_ROOT'])
 app.config['S3_OVERLAY_ENABLED'] = bool(_s3_boot["enabled"])
