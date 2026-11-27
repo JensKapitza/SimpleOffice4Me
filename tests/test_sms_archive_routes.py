@@ -114,6 +114,20 @@ class SmsArchiveRoutesTests(PublicHttpTestCase):
             "zone": "Europe/Berlin", "body": "Pasted text\r\nand a next line", "confirm": "1", **opts,
         }
 
+    def test_android_share_only_targets_the_authenticated_empty_review_form(self):
+        from bs4 import BeautifulSoup
+
+        anonymous = app.test_client().get(self.base, follow_redirects=True)
+        self.assertNotIn(b"data-android-sms-share", anonymous.data)
+        initial = self.client.get(self.base, query_string={"text": "synthetic untrusted URL input"})
+        page = BeautifulSoup(initial.data, "html.parser")
+        field = page.select_one("textarea[data-android-sms-share]")
+        self.assertIsNotNone(field)
+        self.assertEqual("", field.get_text())
+        self.assertEqual(self.base + "/manual", field.find_parent("form")["action"])
+        self.assertNotIn(b"synthetic untrusted URL input", initial.data)
+        self.assertEqual([], SmsArchive(self.root, "owner").page(query="untrusted URL input"))
+
     def test_manual_entry_is_confirmed_idempotent_searchable_and_exportable(self):
         from datetime import datetime, timezone
         from app.sms_archive_store import MANUAL_SOURCE

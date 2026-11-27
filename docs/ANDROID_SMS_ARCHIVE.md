@@ -25,6 +25,17 @@ bleibt unverändert. Ein Eintrag mit exakt gleichem Text, Absender, Richtung
 und Zeitpunkt wird nicht doppelt angelegt. Die Liste kennzeichnet den
 Eintrag als manuell und die Sicherung umfasst ihn wie andere SMS.
 
+Wenn die Android-Nachrichten-App **Teilen** für eine einzelne SMS anbietet,
+wähle **SimpleOffice4Me**. Die APK öffnet das eigene lokale SMS-Archiv und
+bietet **Ins Formular übernehmen** an. Es wird ausschließlich der geteilte
+Klartext übernommen, niemals automatisch gespeichert oder über eine URL
+transportiert. Ein bereits ausgefüllter Text bleibt unverändert. Nummer,
+Richtung und ursprüngliche Zeit kommen in der üblichen Android-Textfreigabe
+nicht zuverlässig mit; prüfe und ergänze sie vor dem Speichern. Wenn die
+Nachrichten-App kein Teilen anbietet, funktioniert Kopieren und Einfügen
+weiterhin. Die APK fordert dazu weder SMS- noch Speicherzugriff an und liest
+keine Anhänge, den Gesprächsverlauf oder die Zwischenablage.
+
 Es gibt weiterhin keine Verbindung zur SMS-Datenbank des Handys und
 keinen Import beliebiger Android-Backups. Die Zwischenablage wird nie
 von SimpleOffice automatisch gelesen. Suchbegriffe werden
@@ -83,3 +94,16 @@ Test mit ausschließlich synthetischen SMS:
 ```sh
 python -m unittest -v tests.test_sms_archive_store tests.test_sms_archive_routes
 ```
+
+
+APK-Prüfung aus `android/apk` mit konfiguriertem Android-SDK und Gradle:
+
+```sh
+gradle --no-daemon testDebugUnitTest assembleDebug
+```
+
+Auf einem Testgerät eine synthetische SMS als Klartext teilen, die Übernahme
+einmal abbrechen, dann erneut teilen und übernehmen. Vor Bestätigung der
+Pflichtfelder darf die Suche keinen neuen Eintrag zeigen. Danach suchen und
+die Nachricht in eine externe Sicherung aufnehmen. Zwei Freigaben,
+Nicht-Klartext und einen vorhandenen Textentwurf als Negativfälle prüfen.

@@ -24,11 +24,13 @@ final class AndroidIntentRouter {
     private final ArrayList<Uri> pendingSharedFiles = new ArrayList<>();
     private String pendingNavigationPath = "";
     private boolean navigationDispatched;
+    private String pendingSmsText = "";
 
     void accept(Intent intent) {
         if (intent == null) return;
         String action = intent.getAction();
         if (Intent.ACTION_SEND.equals(action) || Intent.ACTION_SEND_MULTIPLE.equals(action)) {
+            if (Intent.ACTION_SEND.equals(action) && acceptSharedText(intent)) return;
             collectSharedFiles(intent);
             if (!pendingSharedFiles.isEmpty()) setPendingNavigation("/documents");
             return;
@@ -43,6 +45,35 @@ final class AndroidIntentRouter {
             String path = deepLinkPath(data);
             if (!path.isEmpty()) setPendingNavigation(path);
         }
+    }
+
+    private boolean acceptSharedText(Intent intent) {
+        if (!"text/plain".equalsIgnoreCase(intent.getType())) return false;
+        try {
+            // Do not accept combined file/text shares as an SMS draft.
+            if (intent.hasExtra(Intent.EXTRA_STREAM) || intent.getData() != null) return false;
+            ClipData clip = intent.getClipData();
+            if (clip != null && (clip.getItemCount() != 1 || clip.getItemAt(0).getUri() != null
+                    || clip.getItemAt(0).getIntent() != null)) return false;
+            CharSequence extra = intent.getCharSequenceExtra(Intent.EXTRA_TEXT);
+            String text = SmsShareText.accept(intent.getType(), extra == null && clip != null
+                    ? clip.getItemAt(0).getText() : extra);
+            if (text.isEmpty()) return false;
+            // A recreated Activity must not replay the original draft text.
+            intent.removeExtra(Intent.EXTRA_TEXT);
+            intent.setClipData(null);
+            pendingSmsText = text;
+            setPendingNavigation(SmsShareText.PATH);
+            return true;
+        } catch (RuntimeException invalidPayload) {
+            return false;
+        }
+    }
+
+    String takePendingSmsText() {
+        String text = pendingSmsText;
+        pendingSmsText = "";
+        return text;
     }
 
     boolean hasPendingSharedFiles() {
@@ -78,11 +109,16 @@ final class AndroidIntentRouter {
             navigationDispatched = true;
             return;
         }
+        navigationTargetReached();
+    }
+
+    void navigationTargetReached() {
         pendingNavigationPath = "";
         navigationDispatched = false;
     }
 
     private void setPendingNavigation(String path) {
+        if (!SmsShareText.PATH.equals(path)) pendingSmsText = "";
         pendingNavigationPath = path;
         navigationDispatched = false;
     }
