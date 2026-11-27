@@ -7,6 +7,7 @@
   <header class="kids-mini-header d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4">
     <div><h1 class="h2 mb-1">{{ 'Quick play break' if g.language == 'en' else 'Kurze Spielpause' }} 🌟</h1><p class="text-secondary mb-0">{{ 'Tiny games for curious minds. No timer and no reading needed for the easy rounds.' if g.language == 'en' else 'Kleine Spiele für neugierige Köpfe. Ohne Zeitdruck und in den leichten Runden ohne Lesen.' }}</p></div>
   </header>
+  {% include "kids/_speech_status.html" %}
 
   <section class="kids-mini-picker" data-game-picker aria-labelledby="kids-mini-picker-title">
     <h2 class="h4 mb-3" id="kids-mini-picker-title">{{ 'Pick a little game' if g.language == 'en' else 'Such dir ein Spiel aus' }}</h2>

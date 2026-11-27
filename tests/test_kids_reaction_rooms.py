@@ -181,3 +181,23 @@ class ReactionRoomTests(PublicHttpTestCase):
         self.send(self.phone, "state", token=b["token"])
         self.now += 2
         self.send(self.client, "state", token=a["token"], status=410)
+
+    def test_room_qr_renders_svg_join_link_for_wellformed_codes_only(self):
+        a, _ = self.enroll()
+        code = a["join_code"]
+        good = self.client.get(f"{PAGE}/qr?code={code}", base_url=ORIGIN)
+        self.assertEqual(200, good.status_code)
+        self.assertEqual("image/svg+xml; charset=utf-8", good.headers["Content-Type"])
+        self.assertEqual("private, no-store", good.headers["Cache-Control"])
+        self.assertIn("<svg", good.get_data(as_text=True))
+        bad = self.client.get(f"{PAGE}/qr?code=evil!!!", base_url=ORIGIN)
+        self.assertEqual(400, bad.status_code)
+        missing = self.client.get(f"{PAGE}/qr", base_url=ORIGIN)
+        self.assertEqual(400, missing.status_code)
+
+    def test_room_qr_requires_login_and_local_https(self):
+        a, _ = self.enroll()
+        anonymous = app.test_client()
+        self.assertEqual(302, anonymous.get(f"{PAGE}/qr?code={a['join_code']}", base_url=ORIGIN).status_code)
+        plain = self.client.get(f"{PAGE}/qr?code={a['join_code']}", base_url="http://192.168.5.10:8443")
+        self.assertEqual(403, plain.status_code)

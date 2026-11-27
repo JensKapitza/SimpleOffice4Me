@@ -1,98 +1,159 @@
-/* Kids Piper read-aloud client (offline-first, kids privacy).
-   All spoken prompts in the Kids area play through the local Piper TTS
-   endpoint (/kids/lernen/sprache) instead of browser SpeechSynthesis voices.
-   Rationale: browser voices differ per device (the maze game was
-   unintelligible on some devices) and cloud voices would send children's
-   speech to a network service. There is intentionally no SpeechSynthesis
-   fallback: when Piper is unavailable the caller shows a status message that
-   names the missing server component. Clips are addressed by (text, language)
-   and cached by the server on disk plus the browser HTTP cache. */
+/* One cancelable Kids audio queue. Prompt text travels only in an authenticated
+   same-origin POST, never in an audio URL or browser speech API. */
 (() => {
   const FAMILIES = {'de-DE': 'kids-de', 'en-US': 'kids-en'};
+  const owner = {};
+  let active = null;
 
   function endpoint() {
-    const tagged = document.querySelector('[data-tts-url]');
-    const url = (tagged && tagged.dataset.ttsUrl) || '/kids/lernen/sprache';
-    return url;
+    return document.querySelector('[data-tts-url]')?.dataset.ttsUrl || '/kids/lernen/sprache';
   }
 
   function normalizeLanguage(language) {
     return String(language || '').toLowerCase().startsWith('en') ? 'en-US' : 'de-DE';
   }
 
-  function urlFor(value, language, purpose) {
-    const lang = normalizeLanguage(language);
-    const params = new URLSearchParams({text: String(value || ''), lang});
-    if (purpose === 'instructions') params.set('purpose', purpose);
-    return `${endpoint()}?${params.toString()}`;
+  function localURL(value) {
+    const url = new URL(value, window.location.href);
+    if (!['http:', 'https:'].includes(url.protocol) || url.origin !== window.location.origin ||
+        url.username || url.password || url.hash) throw new Error('Not a local audio URL');
+    return url;
   }
-
-  let sequence = 0;
-  let activePlayer = null;
 
   function stop() {
-    sequence += 1;
-    if (activePlayer) {
-      const player = activePlayer;
-      activePlayer = null;
-      try { player.pause(); } catch (error) { /* already gone */ }
-    }
+    active?.finish(false);
   }
 
-  // Speak one text through the Piper endpoint. Resolves true when playback
-  // finished, false when cancelled, superseded or unavailable (statusElement
-  // then names the missing server voice).
-  function speak(value, language, statusElement, purpose) {
-    const lang = normalizeLanguage(language);
-    const message = String(value || '').trim();
-    if (!message || typeof window.Audio !== 'function') {
-      if (statusElement) {
-        statusElement.textContent = lang === 'de-DE'
-          ? 'Vorlesestimme ist nicht eingerichtet.'
-          : 'Read-aloud voice is not set up.';
-      }
-      return Promise.resolve(false);
-    }
-    // Cancel previous playback first, then claim the new sequence number.
-    stop();
-    const run = ++sequence;
-    const player = new window.Audio(urlFor(message, lang, purpose));
-    activePlayer = player;
+  function playMedia(source, run, statusElement) {
     return new Promise(resolve => {
-      let settled = false;
+      let player;
       const finish = ok => {
-        if (settled || run !== sequence) return;
-        settled = true;
-        if (activePlayer === player) activePlayer = null;
+        if (run.release !== finish) return;
+        run.release = null;
+        if (player) {
+          try { player.pause(); } catch {}
+          try { player.removeAttribute?.('src'); player.load?.(); } catch {}
+        }
         resolve(ok);
       };
-      const unavailable = () => {
-        if (settled || run !== sequence) return;
-        settled = true;
-        if (activePlayer === player) activePlayer = null;
-        if (statusElement) {
-          statusElement.textContent = lang === 'de-DE'
-            ? 'Vorlesen gerade nicht möglich. Bitte versuche es erneut. Wenn es nicht klappt, prüfe die Piper-Stimme mit der App-Verwaltung.'
-            : 'Read-aloud is unavailable. Try again. If it still fails, ask the app administrator to check the Piper voice.';
-        }
-        resolve(false);
-      };
-      const cancelled = () => { if (run !== sequence) finish(false); };
-      player.addEventListener('playing', () => {
-        // Retry only clears the previous warning once this announcement starts playing.
-        if (!settled && run === sequence && statusElement) statusElement.textContent = '';
-      }, {once: true});
-      player.addEventListener('ended', () => finish(true), {once: true});
-      player.addEventListener('error', unavailable, {once: true});
-      player.addEventListener('pause', cancelled, {once: true});
+      run.release = finish;
       try {
-        const started = player.play();
-        if (started && typeof started.catch === 'function') started.catch(unavailable);
-      } catch (error) {
-        unavailable();
+        player = new window.Audio(source);
+        player.addEventListener('playing', () => {
+          if (active === run && run.release === finish && statusElement) statusElement.textContent = '';
+        }, {once: true});
+        player.addEventListener('ended', () => finish(true), {once: true});
+        player.addEventListener('error', () => finish(false), {once: true});
+        player.addEventListener('pause', () => finish(false), {once: true});
+        player.play()?.catch(() => finish(false));
+      } catch {
+        finish(false);
       }
     });
   }
 
-  window.KidsPiperVoice = {endpoint, urlFor, speak, stop, normalizeLanguage, families: FAMILIES};
+  async function speakPart(part, lang, run, statusElement) {
+    const value = typeof part.text === 'function' ? part.text() : part.text;
+    const text = String(value ?? '').trim();
+    if (!text || active !== run) return false;
+    const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
+    if (!csrf) return false;
+    let url;
+    try {
+      const endpointUrl = localURL(endpoint());
+      if (endpointUrl.search) return false;
+      const response = await window.fetch(endpointUrl.href, {
+        method: 'POST',
+        credentials: 'same-origin',
+        redirect: 'error',
+        cache: 'no-store',
+        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf},
+        body: JSON.stringify({text, lang, purpose: part.purpose === 'instructions' ? 'instructions' : ''}),
+        signal: run.controller.signal,
+      });
+      if (active !== run || !response.ok || !/^audio\/(?:wav|x-wav)(?:\s*;|$)/i.test(response.headers.get('Content-Type') || '')) return false;
+      const blob = await response.blob();
+      if (active !== run || !blob.size) return false;
+      url = window.URL.createObjectURL(blob);
+      run.objectURL = url;
+      return await playMedia(url, run, statusElement);
+    } catch {
+      return false;
+    } finally {
+      if (url && run.objectURL === url) {
+        run.objectURL = null;
+        window.URL.revokeObjectURL(url);
+      }
+    }
+  }
+
+  function unavailable(status, language) {
+    if (!status) return;
+    status.textContent = language === 'en-US'
+      ? 'Read-aloud is unavailable. Read the question or tap Hear again.'
+      : 'Vorlesen gerade nicht möglich. Lies die Aufgabe oder tippe auf Nochmal hören.';
+  }
+
+  function playSequence(parts, statusElement) {
+    stop();
+    if (document.hidden || !parts.length) return Promise.resolve(false);
+    if (typeof window.Audio !== 'function' || typeof window.AbortController !== 'function') {
+      unavailable(statusElement, normalizeLanguage(parts[0].lang));
+      return Promise.resolve(false);
+    }
+    return new Promise(resolve => {
+      const run = {controller: new window.AbortController(), release: null, objectURL: null};
+      active = run;
+      run.finish = result => {
+        if (active !== run) return;
+        active = null;
+        run.controller.abort();
+        run.release?.(false);
+        if (run.objectURL) {
+          window.URL.revokeObjectURL(run.objectURL);
+          run.objectURL = null;
+        }
+        resolve(result);
+      };
+      if (typeof window.CustomEvent === 'function') {
+        window.dispatchEvent(new window.CustomEvent('simpleoffice:speech-start', {detail: {owner}}));
+      }
+      void (async () => {
+        let failedLang = null;
+        for (const part of parts) {
+          if (active !== run) return;
+          const lang = normalizeLanguage(part.lang);
+          const recording = part.url && localURL(part.url).href;
+          let ok = recording ? await playMedia(recording, run, statusElement) : false;
+          if (!ok && active === run && part.fallback) {
+            ok = true;
+            for (const fallback of part.fallback) {
+              if (active !== run) return;
+              const completed = await speakPart(fallback, normalizeLanguage(fallback.lang), run, statusElement);
+              ok = ok && completed;
+            }
+          } else if (!ok && active === run) ok = await speakPart(part, lang, run, statusElement);
+          if (!ok) failedLang ||= lang;
+        }
+        if (active === run && failedLang) unavailable(statusElement, failedLang);
+        run.finish(!failedLang);
+      })().catch(() => {
+        if (active === run) unavailable(statusElement, normalizeLanguage(parts[0].lang));
+        run.finish(false);
+      });
+    });
+  }
+
+  function speak(text, lang, statusElement, purpose) {
+    return playSequence([{text, lang, purpose}], statusElement);
+  }
+
+  document.addEventListener?.('visibilitychange', () => { if (document.hidden) stop(); });
+  document.querySelectorAll?.('[data-kids-stop-audio]').forEach(button => button.addEventListener('click', stop));
+  window.addEventListener?.('pagehide', stop);
+  window.addEventListener?.('simpleoffice:speech-stop', stop);
+  window.addEventListener?.('simpleoffice:speech-start', event => {
+    if (event.detail?.owner && event.detail.owner !== owner) stop();
+  });
+  window.KidsPiperVoice = {endpoint, speak, stop, playSequence, normalizeLanguage, families: FAMILIES};
 })();

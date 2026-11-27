@@ -3,6 +3,8 @@ import ipaddress
 import shutil
 from pathlib import Path
 
+from .component_runtime import resolve_command
+
 
 def validate_transport(value, node_id):
     if value is None or value == {}:
@@ -23,11 +25,11 @@ def validate_transport(value, node_id):
     return {"kind": "rtp-udp", "host": str(address), "port": value["port"]}
 
 
-def announcement_command(path, transport):
+def announcement_command(path, transport, document_root=None):
     target = validate_transport(transport, "remote")
     if not target:
         raise ValueError("RTP-Transport fehlt")
-    ffmpeg = shutil.which("ffmpeg")
+    ffmpeg = resolve_command("ffmpeg", document_root)
     if not ffmpeg:
         raise RuntimeError("FFmpeg fehlt für entfernte Durchsagen")
     # Absolute local path prevents URL/protocol interpretation of filenames.

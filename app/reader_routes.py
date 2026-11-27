@@ -25,6 +25,7 @@ from .reader_speech_text import (
     plain_text_sections, staged_speech_pdf, verified_speech_source,
 )
 from .reading_store import ReaderVersionChanged, ReadingStateStore, reader_version
+from .v2.contracts import LogicalObjectId
 from .v2.storage_runtime import storage_for
 
 bp = Blueprint("reader", __name__, url_prefix="/documents/reader")
@@ -414,11 +415,13 @@ def _read_aloud(document_id: str, *, allow_ocr: bool):
                 raise ReadAloudError("invalid_page", 404)
             return sections[page - 1]
 
-        response = private_audio_response(load_text, language=g.language)
+        response = private_audio_response(load_text, language=g.language, allow_device_voice=True)
         if response.status_code == 200:
             current, _ = _speech_document(document_id)
             if version != reader_version(current):
                 raise ReadAloudError("document_changed", 409)
+            if not storage_for(current_app.config["DOCUMENT_ROOT"], _actor()).stat(LogicalObjectId(document_id)).ok:
+                raise ReadAloudError("document_unavailable", 404)
         return response
     except ReadAloudError as exc:
         return read_aloud_error(exc.code, exc.status)

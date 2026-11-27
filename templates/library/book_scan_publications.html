@@ -48,10 +48,23 @@
   <section class="mb-4">
     <h2 class="h5">{{ ('Your active offers' if en else 'Deine aktiven Freigaben') if send_storage_supported else ('Previous offers (not retrievable)' if en else 'Frühere Freigaben (nicht abrufbar)') }}</h2>
     <p>{{ 'Revocation stops future retrievals. It cannot delete a copy already downloaded by the recipient.' if en else 'Ein Widerruf stoppt kommende Abrufe. Bereits heruntergeladene Kopien beim Empfänger werden nicht gelöscht.' }}</p>
+    {% if send_storage_supported %}
+    <p class="small">{{ 'The status tells you what this server processed. It cannot confirm that the other device saved or imported the PDF.' if en else 'Der Status zeigt, was dieser Server bearbeitet hat. Er bestätigt nicht, dass das andere Gerät das PDF gespeichert oder importiert hat.' }}</p>
+    {% endif %}
     <ul class="list-group">
       {% for offer in offers %}
       <li class="list-group-item">
         <code>{{ offer.offer_id }}</code> · {{ offer.recipient }}
+        {% if send_storage_supported %}
+        <div class="small mt-1" data-book-serve-status="{{ 'served' if offer.served_at else 'waiting' }}">
+          {% if offer.served_at %}
+            {{ 'Response prepared' if en else 'Abruf beantwortet' }} ·
+            <time datetime="{{ offer.served_at }}">{{ offer.served_at[:10] }} {{ offer.served_at[11:19] }} UTC</time>
+          {% else %}
+            {{ 'No retrieval response recorded yet' if en else 'Noch keine Abrufantwort erfasst' }}
+          {% endif %}
+        </div>
+        {% endif %}
         <form method="post" action="{{ url_for('library.book_scan_publications') }}" class="d-inline">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="action" value="revoke">

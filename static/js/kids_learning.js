@@ -280,11 +280,15 @@
     return [];
   }
   function buildMixedRound(level) {
-    return shuffle(['math','german','english','world']).slice(0,3).map(subject => shuffle(buildSubjectRound(subject,level))[0]);
+    const available = ['math','german','english','world']
+      .map(subject => shuffle(buildSubjectRound(subject,level))[0])
+      .filter(item => item && String(item.q || '').trim() && item.c?.length);
+    return shuffle(available).slice(0,3);
   }
   // Read-aloud voice is the single server-side Piper voice (see KidsPiperVoice):
   // no per-device browser voice selection anymore.
   function start(subject) {
+    stopAudio();
     selectedSubject = subject;
     searchModes.hidden = true;
     searchGame.hidden = true;
@@ -309,6 +313,7 @@
     showQuestion();
   }
   function showSearchModes() {
+    stopAudio();
     selectedSubject = 'search';
     setup.hidden = true;
     game.hidden = true;
@@ -760,6 +765,7 @@
     return true;
   }
   function finishSearch() {
+    stopAudio();
     searchGame.hidden = true;
     result.hidden = false;
     root.querySelector('[data-result-title]').textContent = text('Toll gesucht! 🎉', 'Great searching! 🎉');
@@ -918,6 +924,7 @@
     if (answerLetter(event.key)) event.preventDefault();
   });
   root.querySelector('[data-next]').addEventListener('click', () => {
+    stopAudio();
     index += 1;
     if (index < questions.length) showQuestion();
     else {

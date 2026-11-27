@@ -42,6 +42,13 @@ _TABLE = """CREATE TABLE IF NOT EXISTS book_scan_share(
     offer_id TEXT PRIMARY KEY, owner_id INTEGER NOT NULL, recipient TEXT NOT NULL,
     digest TEXT NOT NULL, expires_at INTEGER NOT NULL, payload BLOB NOT NULL)"""
 
+_SERVED = """CREATE TABLE IF NOT EXISTS book_scan_served (
+    offer_id TEXT PRIMARY KEY, first_served_at INTEGER NOT NULL)"""
+_SERVED_CLEANUP = """CREATE TRIGGER IF NOT EXISTS book_scan_served_cleanup
+    AFTER DELETE ON book_scan_share FOR EACH ROW BEGIN
+        DELETE FROM book_scan_served WHERE offer_id=OLD.offer_id;
+    END"""
+
 
 def offer_id(raw: str) -> str:
     try:
@@ -125,6 +132,8 @@ class Shares:
                 os.close(fd)
         with self._open() as db, db:
             db.execute(_TABLE)
+            db.execute(_SERVED)
+            db.execute(_SERVED_CLEANUP)
             db.execute(_RATE)
             db.execute(_MAINTENANCE)
             db.execute("CREATE INDEX IF NOT EXISTS book_scan_share_expiry ON book_scan_share(expires_at)")
@@ -232,9 +241,12 @@ class Shares:
     def list_owned(self, owner: int) -> list[dict]:
         if not self.path.is_file():
             return []
+        self._ensure()
         with self._open() as db:
             rows = db.execute(
-                "SELECT offer_id,recipient,digest,expires_at FROM book_scan_share WHERE owner_id=? AND expires_at>?",
+                "SELECT share.offer_id,share.recipient,share.expires_at,served.first_served_at "
+                "FROM book_scan_share AS share LEFT JOIN book_scan_served AS served USING (offer_id) "
+                "WHERE share.owner_id=? AND share.expires_at>? ORDER BY share.expires_at DESC,share.offer_id",
                 (owner, int(time.time())),
             ).fetchall()
         return [dict(row) for row in rows]
@@ -279,6 +291,18 @@ class Shares:
         if item is None or sha256(item["payload"]).hexdigest() != digest:
             raise ScanError("offer", 404)
         return item["payload"], digest
+
+    def note_served(self, recipient: str, offer: str) -> None:
+        """Remember the first authorized response, never client-side delivery."""
+        self._ensure()
+        now = int(time.time())
+        with self._open() as db, db:
+            db.execute(
+                "INSERT INTO book_scan_served(offer_id,first_served_at) "
+                "SELECT offer_id,? FROM book_scan_share WHERE offer_id=? AND recipient=? AND expires_at>? "
+                "ON CONFLICT(offer_id) DO NOTHING",
+                (now, offer, recipient, now),
+            )
 
 
 def start_share_maintenance(root):

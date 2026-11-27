@@ -1,0 +1,34 @@
+<form method="post" action="{{ url_for('optional_setup.test_android_speech') }}" class="border-top mt-3 pt-3"
+      data-android-speech-trial
+      data-loading="{{ 'Preparing sample…' if en else 'Hörprobe wird vorbereitet…' }}"
+      data-ready="{{ 'Sample ready. Press Play to listen.' if en else 'Hörprobe bereit. Zum Anhören auf Wiedergabe drücken.' }}"
+      data-playing="{{ 'Playing the sample.' if en else 'Hörprobe läuft.' }}"
+      data-failed="{{ 'No sample available. Check the saved mode and available voice for this language.' if en else 'Keine Hörprobe verfügbar. Prüfe den gespeicherten Modus und die verfügbare Stimme für diese Sprache.' }}"
+      data-unsupported="{{ 'Playing a sample is not supported in this browser.' if en else 'Dieser Browser kann hier keine Hörprobe abspielen.' }}"
+      data-stopped="{{ 'Sample stopped.' if en else 'Hörprobe gestoppt.' }}"
+      data-ended="{{ 'Sample finished.' if en else 'Hörprobe beendet.' }}">
+  <h4 class="h6">{{ 'Try a saved voice' if en else 'Gespeicherte Stimme ausprobieren' }}</h4>
+  <p id="android-speech-trial-help" class="form-text">{{ 'The sample uses the last saved settings and a preset sentence, not your documents or email. Save any changes first.' if en else 'Die Hörprobe nutzt die zuletzt gespeicherten Einstellungen und einen Beispielsatz, keine Dokumente oder E-Mails. Speichere Änderungen zuerst.' }}</p>
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+  <div class="row g-2">
+    <div class="col-sm-6">
+      <label class="form-label" for="android-speech-trial-scope">{{ 'Area' if en else 'Bereich' }}</label>
+      <select class="form-select" id="android-speech-trial-scope" name="scope">
+        {% for name, label in areas %}<option value="{{ name }}">{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-sm-6">
+      <label class="form-label" for="android-speech-trial-language">{{ 'Language' if en else 'Sprache' }}</label>
+      <select class="form-select" id="android-speech-trial-language" name="language">
+        {% for name, label in (langs | reverse if en else langs) %}<option value="{{ name }}">{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+  <div class="mt-2 d-flex flex-wrap gap-2">
+    <button class="btn btn-outline-primary" type="submit" data-android-speech-trial-start aria-describedby="android-speech-trial-help" disabled>{{ 'Play sample' if en else 'Hörprobe abspielen' }}</button>
+    <button class="btn btn-outline-secondary" type="button" data-android-speech-trial-stop hidden>{{ 'Stop sample' if en else 'Hörprobe stoppen' }}</button>
+  </div>
+  <p class="small mt-2 mb-0" data-android-speech-trial-status role="status"></p>
+  <audio class="w-100 mt-2" controls hidden preload="none" data-android-speech-trial-audio aria-label="{{ 'Voice sample' if en else 'Stimmen-Hörprobe' }}"></audio>
+  <noscript><p class="form-text">{{ 'Enable JavaScript to play the sample here.' if en else 'Zum Abspielen der Hörprobe hier JavaScript einschalten.' }}</p></noscript>
+</form>

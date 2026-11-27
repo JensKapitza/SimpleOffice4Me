@@ -89,7 +89,7 @@ def video_player(document_id: str):
         mime=media_mimetype(str(document.get("last_path", ""))) or "video/mp4",
         thumbnail_url=thumbnail_url,
         download_url=download_url,
-        ffmpeg_available=bool(detect_preview_tools()["commands"].get("ffmpeg")),
+        ffmpeg_available=bool(detect_preview_tools(_store().root)["commands"].get("ffmpeg")),
         video_preview_frame_count=video_preview_frame_count(_store().root),
         can_manage_video=is_admin(g.user),
     )
@@ -157,7 +157,7 @@ def transcode_video(document_id: str):
     _require_video_admin()
     actor = str(g.user["username"])
     try:
-        service = PreviewService(_store().root, detect_preview_tools())
+        service = PreviewService(_store().root, detect_preview_tools(_store().root))
         suffix = Path(str(document.get("last_path", ""))).suffix.lower()
         with materialize_verified_object(
             _store().root,

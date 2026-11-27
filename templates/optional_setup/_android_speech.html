@@ -1,0 +1,94 @@
+{% set speech = android_speech | default({}) %}
+{% set voices = android_voices | default([]) %}
+{% set langs = [('de', 'German' if en else 'Deutsch'), ('en', 'English' if en else 'Englisch')] %}
+{% set areas = [('reader', 'Reader & Mail'), ('kids', 'Kids') ] %}
+{% set modes = {
+  'automatic': 'Automatic (Piper first)' if en else 'Automatisch (Piper zuerst)',
+  'android': 'Android device voice only' if en else 'Nur Android-Gerätestimme',
+  'piper': 'Piper only' if en else 'Nur Piper',
+  'disabled': 'Off' if en else 'Aus',
+} %}
+{% set voice_status = {
+  'loading': 'Checking installed offline voices…' if en else 'Installierte Offline-Stimmen werden geprüft…',
+  'ready': 'The device voice is ready.' if en else 'Die Gerätestimme ist bereit.',
+  'unavailable': 'The device voice is currently unavailable.' if en else 'Die Gerätestimme ist derzeit nicht verfügbar.',
+} %}
+{% set status = android_speech_status | default('loading') %}
+<section class="border rounded p-3 my-3" id="android-speech" aria-labelledby="android-speech-heading">
+  <h3 id="android-speech-heading" class="h5">{{ 'Speech in the Android app' if en else 'Sprachausgabe in der Android-App' }}</h3>
+  <p>{{ 'When you use the device voice, Android gives the selected text to its configured speech engine. Use an engine you trust. SimpleOffice selects only installed voices marked for offline use and does not download Android voice packages.' if en else 'Bei der Gerätestimme erhält die in Android eingestellte Sprachausgabe den ausgewählten Text. Nutze eine Engine, der du vertraust. SimpleOffice wählt nur bereits installierte, als offline gekennzeichnete Stimmen und lädt keine Android-Stimmpakete herunter.' }}</p>
+  <p class="small">{{ voice_status.get(status, voice_status['unavailable']) }}</p>
+  {% if manage %}
+    <p id="android-speech-fallback-help" class="small">{{ 'Automatic uses Piper when its engine and the selected voice are available. Only in Automatic mode can you allow the Android device voice to step in if Piper is unavailable.' if en else 'Automatisch nutzt Piper, wenn die Engine und die ausgewählte Stimme verfügbar sind. Nur im Modus Automatisch kannst du erlauben, dass bei fehlendem Piper die Android-Gerätestimme einspringt.' }}</p>
+    <form method="post" action="{{ url_for('optional_setup.set_android_speech') }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="save">
+      <div class="row g-3">
+        {% for name, label in areas %}
+        <div class="col-md-6">
+          <label class="form-label" for="android-speech-{{ name }}">{{ label }}</label>
+          <select class="form-select" id="android-speech-{{ name }}" name="{{ name }}" aria-describedby="android-speech-fallback-help">
+            {% for value, title in modes.items() %}
+            <option value="{{ value }}"{% if speech.get(name, 'automatic') == value %} selected{% endif %}>{{ title }}</option>
+            {% endfor %}
+          </select>
+          <div class="form-check mt-2">
+            <input class="form-check-input" type="checkbox" id="android-speech-{{ name }}-fallback" name="{{ name }}_fallback" value="1" aria-describedby="android-speech-fallback-help"{% if speech.get(name ~ '_fallback', false) %} checked{% endif %}>
+            <label class="form-check-label" for="android-speech-{{ name }}-fallback">{{ 'Allow Android as a fallback for ' if en else 'Android als Ersatz erlauben für ' }}{{ label }}</label>
+          </div>
+        </div>
+        {% endfor %}
+        {% for language, label in langs %}
+        {% set field = 'voice_' ~ language %}
+        {% set selected = speech.get(field, '') %}
+        {% set choices = voices | selectattr('language', 'equalto', language) | list %}
+        {% set missing_selected = selected and selected not in (choices | map(attribute='id') | list) %}
+        <div class="col-md-6">
+          <label class="form-label" for="android-speech-{{ field }}">{{ ('Android voice: ' if en else 'Android-Stimme: ') ~ label }}</label>
+          <select class="form-select" id="android-speech-{{ field }}" name="{{ field }}" aria-describedby="android-speech-{{ field }}-help">
+            <option value=""{% if not selected %} selected{% endif %}>{{ 'Choose the best available installed voice' if en else 'Beste verfügbare installierte Stimme wählen' }}</option>
+            {% if missing_selected %}
+            <option value="{{ selected }}" selected>{{ 'Previously selected voice (not currently listed)' if en else 'Zuvor gewählte Stimme (derzeit nicht in der Liste)' }}</option>
+            {% endif %}
+            {% for voice in choices %}
+            <option value="{{ voice.id }}"{% if voice.id == selected %} selected{% endif %}>{{ voice.label }}</option>
+            {% endfor %}
+          </select>
+          <p class="form-text mb-0" id="android-speech-{{ field }}-help">
+            {% if missing_selected or not choices %}
+            {{ 'Check the offline voices for this language in Android speech settings, then refresh this page.' if en else 'Prüfe in den Android-Sprachausgabe-Einstellungen die Offline-Stimmen für diese Sprache und lade dann diese Seite neu.' }}
+            {% else %}
+            {{ 'Only affects the Android device voice.' if en else 'Gilt nur für die Android-Gerätestimme.' }}
+            {% endif %}
+          </p>
+        </div>
+        {% endfor %}
+        <p class="col-12 form-text mb-0" id="android-speech-tuning-help">{{ 'Speed and pitch apply only to the Android device voice. 1 is the default.' if en else 'Tempo und Tonhöhe gelten nur für die Android-Gerätestimme. 1 ist der Standard.' }}</p>
+        {% for name, label in [('rate', 'Speed' if en else 'Tempo'), ('pitch', 'Pitch' if en else 'Tonhöhe')] %}
+        <div class="col-sm-6">
+          <label class="form-label" for="android-speech-{{ name }}">{{ label }}</label>
+          <input class="form-control" type="number" name="{{ name }}" id="android-speech-{{ name }}" value="{{ speech.get(name, 1) }}" min="0.5" max="2.0" step="any" required aria-describedby="android-speech-tuning-help">
+        </div>
+        {% endfor %}
+      </div>
+      <button type="submit" class="btn btn-primary mt-3">{{ 'Save Android speech settings' if en else 'Android-Sprachausgabe speichern' }}</button>
+    </form>
+    <div class="mt-3">
+      <button class="btn btn-outline-secondary" type="button" data-android-offline-speech-settings hidden>{{ 'Open Android speech settings' if en else 'Android-Sprachausgabe-Einstellungen öffnen' }}</button>
+      <p class="small mb-0" data-android-offline-speech-settings-status role="status"></p>
+      <form method="post" action="{{ url_for('optional_setup.set_android_speech') }}" class="mt-2">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" name="action" value="refresh" class="btn btn-sm btn-outline-secondary">
+          {{ 'Check installed voices again' if en else 'Installierte Stimmen neu prüfen' }}
+        </button>
+      </form>
+    </div>
+    {% include 'optional_setup/_android_speech_trial.html' %}
+  {% else %}
+    <dl class="mb-0">
+      {% for name, label in areas %}
+      <dt>{{ label }}</dt><dd>{{ modes.get(speech.get(name, 'automatic'), modes['automatic']) }}</dd>
+      {% endfor %}
+    </dl>
+  {% endif %}
+</section>

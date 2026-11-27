@@ -52,3 +52,72 @@ export function compareSelection(objects, operation, tokens) {
     outside: [...chosen].filter((id) => !result.has(id)),
   };
 }
+
+export const SET_OPERATIONS = Object.freeze(['and', 'or', 'not', 'difference']);
+export const SET_MAX_ATTEMPTS = 5;
+
+export function nextSetOperation(operation) {
+  const index = SET_OPERATIONS.indexOf(operation);
+  if (index < 0) throw new RangeError('Unknown set operation');
+  return SET_OPERATIONS[(index + 1) % SET_OPERATIONS.length];
+}
+
+export class SetChallenge {
+  constructor(objects, operation = SET_OPERATIONS[0], maxAttempts = SET_MAX_ATTEMPTS) {
+    if (!Array.isArray(objects) || !objects.length || !objects.every((item) => item &&
+      typeof item.id === 'string' && item.id && typeof item.color === 'string' && typeof item.shape === 'string') ||
+      new Set(objects.map((item) => item?.id)).size !== objects.length) {
+      throw new TypeError('A set challenge needs identified tiles');
+    }
+    if (!SET_OPERATIONS.includes(operation)) throw new RangeError('Unknown set operation');
+    if (!Number.isInteger(maxAttempts) || maxAttempts < 1) throw new RangeError('Invalid attempt limit');
+    this.objects = objects.map(({id, color, shape}) => ({id, color, shape}));
+    this.operation = operation;
+    this.maxAttempts = maxAttempts;
+    this.selected = new Set();
+    this.attempts = 0;
+    this.solved = false;
+  }
+
+  get canReveal() { return this.attempts >= this.maxAttempts && !this.solved; }
+
+  toggle(id) {
+    if (this.solved || this.attempts >= this.maxAttempts || !this.objects.some((item) => item.id === id)) return false;
+    if (this.selected.has(id)) this.selected.delete(id);
+    else this.selected.add(id);
+    return true;
+  }
+
+  check() {
+    if (this.solved || this.attempts >= this.maxAttempts) return {result: 'locked', attempts: this.attempts};
+    const checked = compareSelection(this.objects, this.operation, [...this.selected]);
+    if (!checked.missing.length && !checked.outside.length) {
+      this.solved = true;
+      return {...checked, result: 'correct', attempts: this.attempts};
+    }
+    this.attempts += 1;
+    return {...checked, result: this.canReveal ? 'limit' : 'wrong', attempts: this.attempts};
+  }
+
+  reveal() {
+    if (!this.canReveal) return false;
+    this.solved = true;
+    return true;
+  }
+
+  setOperation(operation) {
+    if (!SET_OPERATIONS.includes(operation)) throw new RangeError('Unknown set operation');
+    this.operation = operation;
+    this.reset();
+  }
+
+  next() {
+    this.setOperation(nextSetOperation(this.operation));
+  }
+
+  reset() {
+    this.selected.clear();
+    this.attempts = 0;
+    this.solved = false;
+  }
+}
