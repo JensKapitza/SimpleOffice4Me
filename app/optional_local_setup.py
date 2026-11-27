@@ -72,6 +72,11 @@ def hand_override(config) -> str:
                or os.environ.get("SIMPLEOFFICE_KIDS_HAND_GAME_ASSET_DIR", "")).strip()
 
 
+def bundled_android_runtime() -> bool:
+    """Match the environment set by the APK bootstrap, not a client user-agent."""
+    return os.environ.get("SIMPLEOFFICE_ANDROID") == "1"
+
+
 def _job_file(root: Path) -> Path:
     return root / CONTROL_DIR / "optional-setup-jobs.json"
 
@@ -279,6 +284,9 @@ def queue(root: str | Path, feature: str, *, manual_hand_directory: str = "") ->
                 or (feature == FFMPEG_RUNTIME and all(resolve_command(name, root)
                                                        for name in ("ffmpeg", "ffprobe", "ffplay")))):
             return "ready"
+        if feature in {VOICE_PACKAGE, ENGLISH_VOICE_PACKAGE} and bundled_android_runtime() \
+                and not resolve_command("piper", root):
+            return "unsupported"
         required = {
             VOICE_PACKAGE: _VOICE_INSTALL_SPACE,
             "kids-hand": _HAND_INSTALL_SPACE,
@@ -411,7 +419,9 @@ def component_inventory(root: str | Path, *, manual_hand_directory: str = "") ->
     root = Path(root).resolve()
     system = platform.system()
     machine = platform.machine().casefold()
-    if "PREFIX" in os.environ and "com.termux" in os.environ.get("PREFIX", ""):
+    if bundled_android_runtime():
+        runtime = "android-apk"
+    elif "PREFIX" in os.environ and "com.termux" in os.environ.get("PREFIX", ""):
         runtime = "termux"
     elif "ANDROID_ROOT" in os.environ or hasattr(sys, "getandroidapilevel"):
         runtime = "android-apk"
@@ -427,6 +437,7 @@ def component_inventory(root: str | Path, *, manual_hand_directory: str = "") ->
         architecture = "apple-silicon"
 
     piper = resolve_command("piper", root)
+    voice_download_supported = not bundled_android_runtime() or bool(piper)
     ffmpeg = resolve_command("ffmpeg", root)
     ffprobe = resolve_command("ffprobe", root)
     ffplay = resolve_command("ffplay", root)
@@ -473,9 +484,9 @@ def component_inventory(root: str | Path, *, manual_hand_directory: str = "") ->
          "available-here" if optional_piper_runtime.install_supported() else "not-installable-here"},
         {"id": "german-voice", "status": str(readiness_state["reader_default"]), "managed": False},
         {"id": "english-voice", "status": str(readiness_state["english_voice_package"]), "managed": True,
-         "install_feature": ENGLISH_VOICE_PACKAGE,
-         "download_bytes": sum(item.size for item in english_voice_assets.asset_manifest()),
-         "required_bytes": _ENGLISH_VOICE_INSTALL_SPACE,
+         "install_feature": ENGLISH_VOICE_PACKAGE if voice_download_supported else None,
+         "download_bytes": sum(item.size for item in english_voice_assets.asset_manifest()) if voice_download_supported else 0,
+         "required_bytes": _ENGLISH_VOICE_INSTALL_SPACE if voice_download_supported else 0,
          "detail": str(readiness_state["reader_english"])},
         {"id": "ffmpeg", "status": (ffmpeg_job if ffmpeg_job in _ACTIVE or ffmpeg_job == "cancelled" else
          "installed" if ffmpeg and ffprobe and ffplay else "failed" if ffmpeg_job == "failed" else
@@ -494,8 +505,9 @@ def component_inventory(root: str | Path, *, manual_hand_directory: str = "") ->
          "artifact": optional_ffmpeg_runtime.artifact(),
          "detail": "ffplay-available" if ffplay else "ffplay-missing"},
         {"id": "thorsten-scratch", "status": str(readiness_state["voice_package"]), "managed": True,
-         "install_feature": VOICE_PACKAGE, "download_bytes": sum(item.size for item in kids_piper_assets.asset_manifest()),
-         "required_bytes": _VOICE_INSTALL_SPACE},
+         "install_feature": VOICE_PACKAGE if voice_download_supported else None,
+         "download_bytes": sum(item.size for item in kids_piper_assets.asset_manifest()) if voice_download_supported else 0,
+         "required_bytes": _VOICE_INSTALL_SPACE if voice_download_supported else 0},
         {"id": "mediapipe-hand", "status": str(readiness_state["kids_hand"]), "managed": True,
          "install_feature": "kids-hand",
          "download_bytes": optional_hand_game_install.RUNTIME_MAX_BYTES + kids_hand_assets.ASSETS[
@@ -508,6 +520,8 @@ def component_inventory(root: str | Path, *, manual_hand_directory: str = "") ->
         {"id": "osm-data", "status": "separate-workflow", "managed": False},
     ]
     return {"runtime": runtime, "architecture": architecture, "components": components,
-            "supported_install_features": [VOICE_PACKAGE, "kids-hand", ENGLISH_VOICE_PACKAGE]
+            "voice_download_supported": voice_download_supported,
+            "supported_install_features": ([VOICE_PACKAGE, "kids-hand", ENGLISH_VOICE_PACKAGE]
+                                           if voice_download_supported else ["kids-hand"])
             + ([PIPER_ENGINE] if optional_piper_runtime.install_supported() else [])
             + ([FFMPEG_RUNTIME] if optional_ffmpeg_runtime.install_supported() else [])}

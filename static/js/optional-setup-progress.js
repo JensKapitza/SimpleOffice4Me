@@ -29,9 +29,13 @@
   const refresh = async () => {
     if (stopped || Date.now() > deadline) return;
     if (!document.hidden) {
+      let timeout;
       try {
+        // Older Android WebViews have AbortController but not AbortSignal.timeout.
+        const controller = new AbortController();
+        timeout = window.setTimeout(() => controller.abort(), 3500);
         const response = await fetch(page.dataset.progressDetails, {
-          cache:"no-store", credentials:"same-origin", redirect:"error", signal:AbortSignal.timeout(3500),
+          cache:"no-store", credentials:"same-origin", redirect:"error", signal:controller.signal,
         });
         if (response.ok) {
           const details = await response.json();
@@ -46,7 +50,12 @@
             if (!container || !bar || !fill || !message) continue;
             if (active.has(job.state)) {
               container.hidden = false;
-              if (job.phase === "prepare" || job.phase === "install" || job.phase === "check") {
+              if (job.state === "queued") {
+                fill.style.width = "100%";
+                fill.classList.add("progress-bar-striped", "progress-bar-animated");
+                bar.removeAttribute("aria-valuenow");
+                message.textContent = english ? "Waiting for the download to start…" : "Wartet auf den Downloadstart …";
+              } else if (job.phase === "prepare" || job.phase === "install" || job.phase === "check") {
                 fill.style.width = "100%";
                 fill.classList.add("progress-bar-striped", "progress-bar-animated");
                 bar.removeAttribute("aria-valuenow");
@@ -86,6 +95,8 @@
         }
       } catch (_error) {
         // Keep the last measured progress and manual refresh link on a poor connection.
+      } finally {
+        if (timeout !== undefined) window.clearTimeout(timeout);
       }
     }
     if (!stopped) window.setTimeout(refresh, 1500);

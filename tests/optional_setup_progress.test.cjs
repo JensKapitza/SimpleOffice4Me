@@ -5,7 +5,7 @@ const vm = require("node:vm");
 const code = fs.readFileSync("static/js/optional-setup-progress.js", "utf8");
 
 function setup(initial, returned, feature = "kids-hand", hidden = false) {
-  const events = new Map(), delays = [], fetched = [];
+  const events = new Map(), delays = [], fetched = [], deadlines = new Set();
   let reloaded = 0;
   const badge = {dataset:{optionalStatus:initial}};
   const classes = new Set();
@@ -33,14 +33,19 @@ function setup(initial, returned, feature = "kids-hand", hidden = false) {
   };
   const window = {
     addEventListener:(name, listener) => events.set(name, listener),
-    setTimeout:(callback) => delays.push(callback),
+    setTimeout:(callback, ms) => {
+      if (ms === 3500) deadlines.add(callback);
+      else delays.push(callback);
+      return callback;
+    },
+    clearTimeout:(callback) => deadlines.delete(callback),
     location:{reload:() => {reloaded += 1;}},
   };
-  vm.runInNewContext(code, {window, document, AbortSignal, fetch:async (path, options) => {
+  vm.runInNewContext(code, {window, document, AbortController, fetch:async (path, options) => {
     fetched.push([path, options]);
     return {ok:true, json:async () => ({[feature]:returned})};
   }});
-  return {document, events, delays, fetched, barAttributes, fill, classes, container, message, reloaded:() => reloaded};
+  return {document, events, delays, deadlines, fetched, barAttributes, fill, classes, container, message, reloaded:() => reloaded};
 }
 
 test("no polling when a fresh or ready page has no queued job", () => {
@@ -92,6 +97,15 @@ test("English voice installation has independent progress and terminal refresh",
   assert.equal(fixture.reloaded(), 0);
   assert.equal(fixture.container.hidden, false);
   assert.match(fixture.message.textContent, /en_US-libritts-high\.onnx · 0%/);
+});
+
+test("WebViews without AbortSignal.timeout poll queued downloads and allow cancelling", async () => {
+  const fixture = setup("queued", {state:"queued", file:"", percent:null}, "english-voice");
+  await fixture.delays.shift()();
+  assert.equal(fixture.deadlines.size, 0);
+  assert.equal(fixture.fetched[0][1].signal.aborted, false);
+  assert.equal(fixture.container.hidden, false);
+  assert.match(fixture.message.textContent, /Wartet auf den Downloadstart/);
 });
 
 test("managed Piper runtime exposes download progress and refreshes on completion", async () => {

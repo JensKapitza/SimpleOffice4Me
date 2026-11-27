@@ -5,6 +5,11 @@ on:
   pull_request:
     paths:
       - 'android/apk/**'
+      # This shared setup runs inside the APK WebView as well as on the server.
+      - 'app/optional_local_setup.py'
+      - 'app/optional_setup_routes.py'
+      - 'static/js/optional-setup-progress.js'
+      - 'templates/optional_setup/**'
       - 'licenses/MEDIAPIPE-APACHE-2.0.txt'
       - 'requirements-ci-tools.txt'
       - 'requirements-ci-android-apk.in'
