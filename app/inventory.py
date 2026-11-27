@@ -243,26 +243,24 @@ def _object_fields(form: Any, isbn: str) -> dict[str, str]:
 def _find_exact(identifier: str = "", nfc_id: str = "") -> dict[str, Any] | None:
     identifier = _single_line(identifier, 120)
     nfc_id = _single_line(nfc_id, 240)
-    queries = list(dict.fromkeys(value for value in (identifier, nfc_id) if value))
-    if not queries:
+    if not identifier and not nfc_id:
         return None
     store = _objects()
     canonical_uid = _canonical_nfc_uid(nfc_id)
-    if canonical_uid:
-        # The old browser reader stored mixed case, optional separators, and possibly
-        # a suffix containing the tag's payload. Compare the UID without rewriting data.
-        candidates = store.objects()
-    else:
-        matches: dict[str, dict[str, Any]] = {}
-        for query in queries:
-            for item in store.objects(query):
-                matches[str(item.get("object_id", ""))] = item
-        candidates = matches.values()
+    # Historical UIDs may have separators or a payload suffix, so a text
+    # search for the normalized UID cannot narrow down those candidates.
+    catalog = store.objects() if canonical_uid else None
+    if identifier:
+        candidates = catalog if catalog is not None else store.objects(identifier)
+        for item in candidates:
+            if str(item.get("identifier", "")).strip() == identifier:
+                return item
+    if not nfc_id:
+        return None
+    candidates = catalog if catalog is not None else store.objects(nfc_id)
     for item in candidates:
-        if identifier and str(item.get("identifier", "")).strip() == identifier:
-            return item
         stored_nfc = str(item.get("fields", {}).get("nfc_id", "")).strip()
-        if nfc_id and stored_nfc == nfc_id:
+        if stored_nfc == nfc_id:
             return item
         if canonical_uid and _canonical_nfc_uid(stored_nfc.split(" | ", 1)[0]) == canonical_uid:
             return item

@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from flask import Flask, url_for
 
+from app import app
 from app.inventory import (
     InventoryEnrichmentStore,
     _advance_due,
@@ -22,6 +23,7 @@ from app.inventory import (
     record_inventory_task_completion,
 )
 from app.object_store import ObjectStore
+from tests.http_api_fixture import PublicHttpTestCase
 
 
 class InventoryBookTests(unittest.TestCase):
@@ -311,6 +313,37 @@ class InventoryBookTests(unittest.TestCase):
         template = (Path(__file__).parents[1] / "templates" / "tasks" / "board.html").read_text(encoding="utf-8")
         self.assertNotIn('name="csrf_token"', template)
         self.assertIn('name="_csrf_token"', template)
+
+
+class InventoryFindRouteTests(PublicHttpTestCase):
+    def test_exact_barcode_wins_over_earlier_legacy_nfc(self):
+        store = ObjectStore(app.config["DOCUMENT_ROOT"])
+        legacy_uid = "03:60:00:29:14:52"
+        tag = store.create(
+            {"name": "Existing NFC item", "type": "object", "fields": f"nfc_id={legacy_uid}"}, "owner",
+        )
+        code = "036000291452"
+        saved = self.client.post(
+            "/inventory/items", data={"title": "New barcode item", "item_type": "object", "barcode": code},
+            headers=self._csrf_headers(self.client, "/inventory"),
+        )
+        self.assertEqual(302, saved.status_code, saved.data)
+        self.assertTrue(saved.location.startswith("/inventory/"), saved.location)
+
+        query = {"identifier": code, "nfc": code}
+        result = self.client.get("/inventory/find", query_string=query)
+        self.assertEqual(200, result.status_code)
+        self.assertEqual(saved.location, result.json["url"])
+        item = self.client.get(result.json["url"])
+        self.assertEqual(200, item.status_code)
+        self.assertIn("New barcode item", item.get_data(as_text=True))
+
+        # The NFC control sends the UID alone and still finds the original record.
+        nfc_result = self.client.get("/inventory/find", query_string={"nfc": code})
+        self.assertEqual(200, nfc_result.status_code)
+        self.assertEqual(tag["object_id"], nfc_result.json["object_id"])
+        self.assertEqual(legacy_uid, store.object(tag["object_id"])["fields"]["nfc_id"])
+        self.assertEqual(302, app.test_client().get("/inventory/find", query_string=query).status_code)
 
 
 if __name__ == "__main__":
