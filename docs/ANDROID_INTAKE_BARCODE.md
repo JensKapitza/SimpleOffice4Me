@@ -7,15 +7,22 @@ bereits vorhanden ist, und fordert weder Installation noch zusätzliche
 Berechtigungen an. Bei fehlendem Scanner oder nach Abbruch stehen Barcode-
 Eingabe und Fotoauswahl direkt daneben bereit.
 
-Der erkannte Code steht anschließend lediglich im Eingabefeld. Das Scannen
-speichert nichts und sucht nicht im Katalog. Erst **Privaten Entwurf anlegen**
-sendet die Eingabe an die App. EAN-8, EAN-13 (einschließlich ISBN-13) und UPC-A
-werden nur mit passender Prüfziffer übernommen. ISBN-10, weitere Formate oder
-ein nicht erkennbarer Code können weiterhin wie bisher manuell eingegeben
-werden, soweit die jeweilige Eingabe gültig ist. Die Fotoauswahl und die
-separaten Barcode-Aktionen für Einkauf und die bisherige Inventarseite bleiben
-unverändert. Nach Eingabeänderung, Verlassen/Neuladen der Seite oder Austausch
-des Formulars kann ein früheres Ergebnis die aktuelle Eingabe nicht ersetzen.
+Ein erkannter Code startet das Speichern als privater Entwurf, aber weder
+einen Katalogabgleich noch einen Inventareintrag. Die Kachel zeigt den
+gespeicherten Zustand erst nach Bestätigung durch die App. EAN-8, EAN-13
+(einschließlich ISBN-13) und UPC-A werden nur mit passender Prüfziffer
+übernommen. ISBN-10 und weitere gültige Codes können manuell eingegeben
+werden. Die Fotoauswahl und die separaten Barcode-Aktionen für Einkauf und
+die bisherige Inventarseite bleiben unverändert. Nach Eingabeänderung,
+Verlassen/Neuladen der Seite oder Austausch des Formulars kann ein früheres
+Scannergebnis die aktuelle Eingabe nicht ersetzen.
+
+**Regal oder Box für diesen Stapel:** Wähle vor der Erfassung einen vorhandenen
+Lagerort oder lass **Später zuordnen** ausgewählt. Die Einstellung bleibt bei
+weiteren Fotos und Barcodes im selben Tab und in derselben Anmeldung erhalten,
+wenn der Browser Tab-Speicher unterstützt. Ändern oder Zurücksetzen betrifft
+nur neue Entwürfe. Jedes erfasste Stück lässt sich weiterhin einzeln
+bearbeiten; vorhandene Exemplare werden dadurch nicht verschoben.
 
 ## Lokale Prüfung / Offline verification
 
@@ -26,7 +33,7 @@ PYTHONPATH=.:tests python -m unittest -q \
   tests.test_inventory_intake_native_contract tests.test_inventory_mixed_intake \
   tests.test_inventory_intake_matches tests.test_frontend_route_contract \
   tests.test_template_accessibility
-node --test tests/inventory_intake_native_scan.test.cjs
+node --test tests/inventory_intake_native_scan.test.cjs tests/inventory_intake_js.test.cjs
 ```
 
 The signed-in Flask page and staged-draft endpoints are exercised using local
@@ -39,7 +46,7 @@ for the offline check), use the optional authenticated browser scenario:
 
 ```sh
 SIMPLEOFFICE_INTAKE_BROWSER_REQUIRED=1 PYTHONPATH=.:tests \
-  python -m unittest -v tests.test_inventory_intake_native_browser
+  python -m unittest -v tests.test_inventory_intake_native_browser tests.test_inventory_intake_browser
 ```
 
 It defaults to installed Playwright Chromium; set

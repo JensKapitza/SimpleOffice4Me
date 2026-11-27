@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+from hashlib import sha256
 from threading import BoundedSemaphore
 
 from flask import (
@@ -23,6 +24,7 @@ from .inventory_capture import store_upload
 from .inventory_catalog import google_books_configured, lookup_availability
 from .inventory_intake_matches import match_key, matching_owned_copies
 from .inventory_intake_evidence import local_proposal, local_target, ocr_fields
+from .security_controls import csrf_token
 from .inventory_library_capture import (
     _capture_context, _capture_receipt_paths, _capture_receipts,
     _create_inventory_item, _inventory_module, _library_store, capture_locations,
@@ -30,6 +32,10 @@ from .inventory_library_capture import (
 
 
 _LOCAL_ANALYSIS = BoundedSemaphore(1)
+
+
+class IntakeLocationUnavailable(ValueError):
+    """The selected destination vanished before a draft could be saved."""
 
 
 def _actor() -> str:
@@ -64,9 +70,10 @@ def _public(entry):
     }
 
 
-def _result(entry=None, *, error="", code=200):
+def _result(entry=None, *, error="", code=200, error_kind=""):
     if request.accept_mimetypes.best == "application/json":
         reply = jsonify({"ok": not error, **({"error": error} if error else {}),
+                         **({"error_kind": error_kind} if error_kind else {}),
                          **({"draft": _public(entry)} if entry is not None else {})})
         reply.headers["Cache-Control"] = "no-store"
         return reply, code
@@ -91,11 +98,17 @@ def _update(entry_id, revision, change):
 def _manual():
     values = manual_fields({k: request.form[k] for k in FIELD_LIMITS if k in request.form})
     if values.get("location_id"):
-        _library_store().location(values["location_id"])
+        try:
+            _library_store().location(values["location_id"])
+        except ValueError as exc:
+            raise IntakeLocationUnavailable() from exc
     return values
 
 
 def _error(exc):
+    if isinstance(exc, IntakeLocationUnavailable):
+        return _result(error="Regal oder Box ist nicht mehr verfügbar. Bitte einen anderen Ort oder „Später zuordnen“ wählen.",
+                       code=400, error_kind="location_unavailable")
     if isinstance(exc, CaptureInboxIndexError):
         return _result(error="Entwürfe sind vorübergehend nicht verfügbar.", code=503)
     if isinstance(exc, CaptureInboxConflict):
@@ -140,6 +153,8 @@ def mixed_intake():
         "inventory/intake.html", drafts=drafts, locations=capture_locations() if supported else [],
         storage_supported=supported,
         capture_token=secrets.token_hex(16), local_ai_available=bool(local_target(current_app.config)),
+        # Retain the tab's choice across capture reloads, never across sign-ins.
+        batch_scope=sha256(("intake-batch:" + csrf_token()).encode("ascii")).hexdigest() if supported else "",
     ))
     reply.headers["Cache-Control"] = "no-store"
     return reply

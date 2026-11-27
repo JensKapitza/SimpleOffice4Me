@@ -12,6 +12,20 @@
   <form action="{{ url_for('inventory.capture_intake') }}" method="post" enctype="multipart/form-data" id="intake-capture" class="card card-body mb-3">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="capture_token" value="{{ capture_token }}">
+    {% if locations %}
+    <div class="mb-3">
+      <label for="intake-batch-location" class="form-label">Regal oder Box für diesen Stapel</label>
+      <select id="intake-batch-location" name="location_id" class="form-select" autocomplete="off" disabled
+              data-intake-batch-scope="{{ batch_scope }}" aria-describedby="intake-batch-help">
+        <option value="">Später zuordnen</option>
+        {% for location in locations %}
+        <option translate="no" value="{{ location.location_id }}">{{ location.name }}</option>
+        {% endfor %}
+      </select>
+      <noscript><p class="form-text">Ohne JavaScript lassen sich Lagerorte in den einzelnen Entwürfen auswählen.</p></noscript>
+      <p id="intake-batch-help" class="form-text mb-0">Gilt nur für neue Entwürfe in diesem Tab. Bereits erfasste Entwürfe bleiben unverändert.</p>
+    </div>
+    {% endif %}
     <div class="row g-2 align-items-end">
       <div class="col-sm">
         <label for="intake-barcode" class="form-label">Barcode / ISBN (alternativ zum Foto)</label>

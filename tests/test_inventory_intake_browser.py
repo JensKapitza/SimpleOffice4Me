@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from io import BytesIO
 import os
 import threading
 import unittest
@@ -11,6 +12,7 @@ try:
 except ImportError:
     sync_playwright = None
 
+from PIL import Image
 from werkzeug.serving import make_server
 
 from app import app
@@ -87,7 +89,9 @@ class InventoryIntakeBrowserTests(PublicHttpTestCase):
     @staticmethod
     @contextmanager
     def _mobile_context(playwright):
-        browser = playwright.chromium.launch(channel="chromium", headless=True)
+        configured = os.getenv("SIMPLEOFFICE_INTAKE_CHROMIUM")
+        engine = {"executable_path": configured} if configured else {"channel": "chromium"}
+        browser = playwright.chromium.launch(headless=True, **engine)
         try:
             context = browser.new_context(viewport={"width": 390, "height": 844},
                                           is_mobile=True, has_touch=True, service_workers="block")
@@ -97,6 +101,60 @@ class InventoryIntakeBrowserTests(PublicHttpTestCase):
                 context.close()
         finally:
             browser.close()
+
+    def test_mobile_mixed_batch_destination_is_optional_and_only_applies_to_future_drafts(self):
+        original = self.objects.object(self.first["object_id"])
+        with sync_playwright() as playwright, self._mobile_context(playwright) as context:
+            page = context.new_page()
+            page.route("**/*", lambda route: route.continue_()
+                       if route.request.url.startswith(self.origin + "/") else route.abort())
+            self._sign_in(page)
+            batch = page.locator("#intake-batch-location")
+            expect(batch).to_have_value("")
+            batch.select_option(self.selected)
+            first = self._scan(page, FIRST, 1)
+            expect(first.locator('select[name="location_id"]')).to_have_value(self.selected)
+            expect(batch).to_have_value(self.selected)
+
+            photo = BytesIO()
+            Image.new("RGB", (32, 32), "orange").save(photo, "PNG")
+            page.locator("#intake-photo").set_input_files({
+                "name": "synthetic-item.png", "mimeType": "image/png", "buffer": photo.getvalue(),
+            })
+            cards = page.locator("article[id^=draft-]")
+            expect(cards).to_have_count(2)
+            second = cards.nth(1)
+            expect(second.locator('select[name="location_id"]')).to_have_value(self.selected)
+            expect(second.locator("img")).to_be_visible()
+
+            # Correct one draft without affecting the selection for the next scan.
+            first.locator('select[name="location_id"]').select_option("")
+            with page.expect_navigation(wait_until="domcontentloaded"):
+                first.get_by_role("button", name="Entwurf aktualisieren").tap()
+            expect(first.locator('select[name="location_id"]')).to_have_value("")
+            expect(batch).to_have_value(self.selected)
+
+            batch.select_option(self.next_box)
+            third = self._scan(page, "036000291452", 3)
+            expect(third.locator('select[name="location_id"]')).to_have_value(self.next_box)
+            # The picker can be present before deferred scripts have restored it.
+            expect(batch).to_be_enabled()
+            expect(batch).to_have_value(self.next_box)
+            batch.select_option("")
+            expect(batch).to_have_value("")
+            fourth = self._scan(page, SECOND, 4)
+            fourth_id = fourth.get_attribute("id").removeprefix("draft-")
+            stored = CaptureInboxStore(self.root).get(fourth_id, "owner")
+            self.assertEqual("", stored["intake"]["manual"]["location_id"])
+            expect(fourth.locator('select[name="location_id"]')).to_have_value("")
+            expect(batch).to_have_value("")
+            expect(cards.nth(0).locator('select[name="location_id"]')).to_have_value("")
+            expect(cards.nth(1).locator('select[name="location_id"]')).to_have_value(self.selected)
+            expect(cards.nth(2).locator('select[name="location_id"]')).to_have_value(self.next_box)
+            self.assertEqual(original, self.objects.object(self.first["object_id"]))
+            entries = CaptureInboxStore(self.root).list_intake("owner")
+            self.assertEqual(4, len(entries))
+            self.assertTrue(all(not entry["intake"]["confirmed"] for entry in entries))
 
     def test_mobile_exact_copy_review_and_ordered_next_scan(self):
         original = self.objects.object(self.first["object_id"])
