@@ -16,6 +16,7 @@ from app import app, inventory_catalog
 from app.capture_inbox_store import CaptureInboxStore
 from app.inventory_catalog import lookup_catalog
 from app.inventory_intake_evidence import local_proposal, proposal_from_ids
+from app.library.store import LibraryStore
 from app.object_store import ObjectStore
 from tests import test_inventory_capture_persist as fixture
 from tools.smoke_book_scans import image_file
@@ -66,6 +67,38 @@ class MixedIntakeTests(unittest.TestCase):
         self.assertEqual(self.post(f'/{first["id"]}/edit', who=self.bob, revision="1", title="No").status_code, 404)
         self.assertEqual(self.post(f'/{first["id"]}/edit', csrf=False, revision="1", title="No").status_code, 403)
         self.assertEqual(ObjectStore(self.documents).objects(), [])
+
+    def test_batch_destination_validation_retry_and_session_scope(self):
+        location = LibraryStore(self.documents).create_location("Synthetic shelf", "anna")["location_id"]
+        inventory_before = ObjectStore(self.documents).objects()
+        picker = "#intake-batch-location"
+        first = self.get_page().select_one(picker)
+        self.assertEqual("", first.select_one("option")["value"])
+        self.assertIsNotNone(first.find("option", value=location))
+        scope = first["data-intake-batch-scope"]
+        self.assertEqual(scope, self.get_page().select_one(picker)["data-intake-batch-scope"])
+        self.assertNotEqual(scope, self.get_page(self.bob).select_one(picker)["data-intake-batch-scope"])
+        store = CaptureInboxStore(self.documents)
+        capture = {"capture_token": uuid.uuid4().hex, "barcode": "9780140328721"}
+        invalid = self.post(**capture, location_id=uuid.uuid4().hex)
+        self.assertEqual(400, invalid.status_code)
+        self.assertEqual("location_unavailable", invalid.json["error_kind"])
+        self.assertEqual([], store.list_intake("anna"))
+        valid = self.post(**capture, location_id=location)
+        self.assertEqual(201, valid.status_code)
+        self.assertEqual(location, valid.json["draft"]["manual"]["location_id"])
+        replay = self.post(**capture, location_id=location)
+        self.assertEqual(201, replay.status_code)
+        self.assertEqual(valid.json["draft"]["id"], replay.json["draft"]["id"])
+        photo = self.photo(location_id=location)
+        self.assertEqual(location, photo["manual"]["location_id"])
+        without = self.post(capture_token=uuid.uuid4().hex, barcode="036000291452", location_id="")
+        self.assertEqual(201, without.status_code)
+        self.assertEqual("", without.json["draft"]["manual"]["location_id"])
+        self.assertEqual([location, location, ""],
+                         [row["intake"]["manual"]["location_id"] for row in store.list_intake("anna")])
+        self.assertEqual([], store.list_intake("bob"))
+        self.assertEqual(inventory_before, ObjectStore(self.documents).objects())
 
     def test_local_ocr_result_does_not_replace_manual_or_confirm(self):
         draft = self.photo()

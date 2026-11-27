@@ -6,6 +6,7 @@
   if (!form || !input || !pending) return;
   const picture = pending.querySelector('[data-intake-pending-photo]');
   const barcode = form.querySelector('#intake-barcode');
+  const batch = document.querySelector('#intake-batch-location');
   const scan = form.querySelector('[data-intake-native-scan]');
   const code = pending.querySelector('[data-intake-pending-barcode]');
   const openSaved = pending.querySelector('[data-intake-open-saved]');
@@ -14,9 +15,27 @@
   const nativeSaveLimitMs = 8000;
   const initialSubmitLabel = submit.textContent;
   let nativeCapture = null;
+  let nativeDestinationEditable = false;
   let previewVersion = 0;
   let uploading = false;
   let saved = false;
+  const batchKey = 'simpleoffice.intake.batch-location';
+  if (batch) {
+    const scope = batch.dataset.intakeBatchScope;
+    try {
+      const choice = JSON.parse(window.sessionStorage.getItem(batchKey));
+      if (choice?.scope === scope && Array.from(batch.options).some(option => option.value === choice.location)) {
+        batch.value = choice.location;
+      }
+    } catch (_) { /* Storage can be unavailable in private or managed browsers. */ }
+    batch.addEventListener('change', () => {
+      if (nativeDestinationEditable) nativeCapture?.set('location_id', batch.value);
+      try {
+        if (batch.value) window.sessionStorage.setItem(batchKey, JSON.stringify({scope, location: batch.value}));
+        else window.sessionStorage.removeItem(batchKey);
+      } catch (_) { /* The current capture still uses the selected destination. */ }
+    });
+  }
   const showBarcode = () => {
     const value = !input.files[0] ? barcode.value.trim() : '';
     code.hidden = !value;
@@ -25,6 +44,7 @@
   const lockCapture = (locked) => {
     submit.disabled = locked;
     input.disabled = scan.disabled = barcode.readOnly = locked || Boolean(nativeCapture);
+    if (batch) batch.disabled = locked || (Boolean(nativeCapture) && !nativeDestinationEditable);
   };
   const sendCapture = async (data, bounded) => {
     const controller = bounded && typeof AbortController === 'function' ? new AbortController() : null;
@@ -112,10 +132,23 @@
     event.preventDefault();
     uploading = true;
     const data = nativeCapture || new FormData(form);
+    nativeDestinationEditable = false;
     lockCapture(true);
     try {
       const {response, parsed} = await sendCapture(data, Boolean(nativeCapture));
       if (!response.ok || !parsed.ok || !/^[0-9a-f]{32}$/.test(parsed.draft?.id)) {
+        if (response.status === 400 && parsed?.error_kind === 'location_unavailable' && batch) {
+          // The server rejected the location before writing. Retry the same capture
+          // token after correcting only the destination; unknown outcomes stay locked.
+          const option = Array.from(batch.options).find(row => row.value === data.get('location_id'));
+          if (option?.value) option.remove();
+          batch.value = '';
+          batch.dispatchEvent(new Event('change'));
+          if (nativeCapture) {
+            nativeDestinationEditable = true;
+            nativeCapture.set('location_id', '');
+          }
+        }
         status.textContent = typeof parsed?.error === 'string' ? parsed.error
           : nativeCapture ? retryNote : 'Speicherung nicht bestätigt. Bitte erneut speichern.';
         return;
