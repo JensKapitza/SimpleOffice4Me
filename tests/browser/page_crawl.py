@@ -34,6 +34,7 @@ CRAWL_SKIP_EXACT = {
     "/inventory/amazon",
     "/inventory/lookup",
     "/inventory/marketplace/search",
+    "/kids/reaktionsparcours/rooms/qr",  # Same-origin image, not a navigation target.
     "/mcp",
     "/network-boot/ipxe",
     "/resource-commander/api/range",

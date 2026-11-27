@@ -8,6 +8,11 @@ on:
   pull_request:
     paths:
       - tests/browser/manual_screenshot_smoke.py
+      - tests/browser/page_crawl.py
+      - tests/browser/route_inventory.py
+      - tests/test_browser_page_crawl.py
+      - templates/kids/_logic_shapes.html
+      - templates/optional_setup/index.html
       - tests/browser/peer_to_peer_smoke.py
       - tests/test_federation_admin_ui.py
       - tests/federation_admin_ui_fixture.py
