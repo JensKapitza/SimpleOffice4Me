@@ -169,3 +169,65 @@ class SmsArchiveRoutesTests(PublicHttpTestCase):
         self.assertEqual(413, response.status_code)
         self.assertEqual([], archive.page(query="Pasted text"))
         self.assertEqual(2, len(archive.page()))
+
+    def test_selected_sms_mail_is_private_and_does_not_send_on_preview(self):
+        from unittest.mock import patch
+        from bs4 import BeautifulSoup
+        from app.mail_client import MailStore, SmtpSubmission
+        from app.mail_webclient import MailAccountPolicy
+
+        secret = app.config["SECRET_KEY"]
+        store = MailStore(self.root, secret.encode() if isinstance(secret, str) else bytes(secret))
+        policy = MailAccountPolicy(store)
+        def account(owner, username):
+            return store.save_account(owner, {"host": "imap.example.test", "security": "tls",
+                                              "username": username}, "synthetic-secret", True)
+        primary = account("owner", "send@example.test")
+        account("owner", "readonly@example.test")
+        account("other", "other@example.test")
+        policy.set_read_only("owner", primary["id"], False)
+        foreign = {**self.first, "source": "b" * 32, "body": "Isolated synthetic foreign SMS"}
+        SmsArchive(self.root, "other").append([foreign])
+        path = self.base + "/mail-draft"
+        selection = {"selected": f"{self.source}:1"}
+        with patch.object(SmtpSubmission, "send", return_value={"recipients": 1}) as send:
+            self.assertEqual(403, self.client.post(path, data=selection).status_code)
+            missing = self.client.post(path, headers=self.csrf, data={"selected": f"{foreign['source']}:1"})
+            self.assertEqual(404, missing.status_code)
+            self.assertNotIn(foreign["body"].encode(), missing.data)
+            self.assertEqual(405, self.client.get(path).status_code)
+            response = self.client.post(path, headers=self.csrf, data=selection)
+            self.assertEqual(200, response.status_code)
+            self.assertEqual("private, no-store", response.headers["Cache-Control"])
+            self.assertEqual("no-referrer", response.headers["Referrer-Policy"])
+            self.assertNotIn(b"Other synthetic message", response.data)
+            self.assertNotIn(b"readonly@example.test", response.data)
+            self.assertNotIn(b"other@example.test", response.data)
+            self.assertIn(b"Privat &lt;b&gt;Text&lt;/b&gt;", response.data)
+            html = BeautifulSoup(response.data, "html.parser")
+            address = html.select_one("#sms-mail-to")
+            self.assertFalse(address.get("value"))
+            editor = address.find_parent("form")
+            self.assertEqual(["", primary["id"]], [opt["value"] for opt in editor.select("option")])
+            send.assert_not_called()
+            sent = self.client.post(editor["action"], headers=self.csrf, data={
+                "account": primary["id"], "recipients": "destination@example.test",
+                "subject": html.select_one("#sms-mail-subject")["value"],
+                "body": html.select_one("#sms-mail-body").get_text(),
+            })
+            self.assertEqual(302, sent.status_code)
+            self.assertEqual("destination@example.test", send.call_args.args[2])
+            self.assertIn("Privat <b>Text</b>", send.call_args.args[4])
+            self.assertEqual(2, len(SmsArchive(self.root, "owner").page()))
+
+    def test_mail_draft_without_writable_account_and_large_selection(self):
+        path = self.base + "/mail-draft"
+        small = self.client.post(path, headers=self.csrf, data={"selected": f"{self.source}:1"})
+        self.assertEqual(200, small.status_code)
+        self.assertIn(b'sms-mail-preview', small.data)
+        self.assertNotIn(b'sms-mail-to', small.data)
+        rows = [{**self.first, "provider_id": n, "body": "x" * 16000} for n in range(3, 8)]
+        SmsArchive(self.root, "owner").append(rows)
+        too_large = self.client.post(path, headers=self.csrf, data={"selected": [f"{self.source}:{n}" for n in range(3, 8)]})
+        self.assertEqual(303, too_large.status_code)
+        self.assertNotIn(b"x" * 100, too_large.data)

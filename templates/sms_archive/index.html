@@ -50,6 +50,7 @@
       </ul>
       <p class="small">{{ 'A downloaded backup contains private messages in plain text. Store it outside the app in a protected, encrypted location.' if en else 'Die heruntergeladene Sicherung enthält private Nachrichten im Klartext. Bewahre sie außerhalb der App an einem geschützten, verschlüsselten Ort auf.' }}</p>
       <button class="btn btn-primary" type="submit">{{ 'Back up selection' if en else 'Auswahl sichern' }}</button>
+      <button class="btn btn-outline-primary" type="submit" formaction="{{ url_for('sms_archive.mail_draft') }}">{{ 'Prepare email draft' if en else 'Mailentwurf vorbereiten' }}</button>
     </form>
     {% else %}
     <p class="mt-3">{{ ('No matching messages.' if query else 'No messages in the archive yet.') if en else ('Keine passenden Nachrichten.' if query else 'Noch keine Nachrichten im Archiv.') }}</p>

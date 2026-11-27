@@ -1,0 +1,42 @@
+{% extends "layout.html" %}
+{% set en = g.language == 'en' %}
+{% block title %}{{ 'SMS email draft' if en else 'SMS-Mailentwurf' }} · SimpleOffice4Me{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-lg py-4">
+  <h1 class="h2">{{ 'Email draft from the SMS archive' if en else 'Mailentwurf aus dem SMS-Archiv' }}</h1>
+  <p role="status">{{ count }} {{ 'selected messages. Nothing has been sent.' if en else 'ausgewählte Nachrichten. Es wurde nichts versendet.' }}</p>
+  <p>{{ 'Review the private text and enter the recipient yourself. Sending a copy does not replace a recoverable backup.' if en else 'Prüfe den privaten Inhalt und trage den Empfänger selbst ein. Eine Mailkopie ersetzt keine wiederherstellbare Sicherung.' }}</p>
+  {% if accounts %}
+  <form method="post" action="{{ url_for('mail_reader.send_message') }}" autocomplete="off">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <div class="row g-3 mb-3">
+      <div class="col-md-6">
+        <label for="sms-mail-account" class="form-label">{{ 'Sending account' if en else 'Versandkonto' }}</label>
+        <select id="sms-mail-account" name="account" class="form-select" required>
+          <option value="">{{ 'Select' if en else 'Bitte auswählen' }}</option>
+          {% for account in accounts %}<option value="{{ account.id }}">{{ account.label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-6">
+        <label for="sms-mail-to" class="form-label">{{ 'Recipient' if en else 'Empfänger' }}</label>
+        <input type="email" id="sms-mail-to" name="recipients" class="form-control" required maxlength="254" autocomplete="off">
+      </div>
+      <div class="col-12">
+        <label for="sms-mail-subject" class="form-label">{{ 'Subject' if en else 'Betreff' }}</label>
+        <input id="sms-mail-subject" name="subject" value="{{ subject }}" class="form-control" required maxlength="998">
+      </div>
+    </div>
+    <label for="sms-mail-body" class="form-label">{{ 'Review and edit message' if en else 'Nachricht prüfen und bearbeiten' }}</label>
+    <textarea id="sms-mail-body" name="body" rows="12" maxlength="65536" class="form-control mb-3" dir="auto">{{ body }}</textarea>
+    <button type="submit" class="btn btn-primary">{{ 'Send email' if en else 'Mail senden' }}</button>
+    <a class="btn btn-outline-secondary" href="{{ url_for('sms_archive.index') }}">{{ 'Discard draft' if en else 'Entwurf verwerfen' }}</a>
+  </form>
+  {% else %}
+    <p class="alert alert-info">{{ 'No writable mail account with composing enabled. You can review the copy, but cannot send it here.' if en else 'Kein beschreibbares Mailkonto mit aktiviertem Editor. Du kannst die Kopie prüfen, aber hier nicht versenden.' }}</p>
+    <label for="sms-mail-preview" class="form-label">{{ 'Selected messages' if en else 'Ausgewählte Nachrichten' }}</label>
+    <textarea id="sms-mail-preview" class="form-control mb-3" readonly rows="12" dir="auto">{{ body }}</textarea>
+    <a class="btn btn-outline-secondary" href="{{ url_for('sms_archive.index') }}">{{ 'Back to the archive' if en else 'Zurück zum Archiv' }}</a>
+  {% endif %}
+</main>
+{% endblock %}

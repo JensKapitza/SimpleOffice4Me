@@ -67,9 +67,14 @@ der vorgesehene Exportweg. Lege diese Datei nicht in einem freigegebenen Ordner 
   aber weder Authentifizierung noch Verschlüsselung. Backups enthalten
   private SMS im Klartext und gehören in einen zugriffsgeschützten,
   verschlüsselten externen Speicher.
-- Mailversand ist nicht enthalten. Eine spätere Übergabe an den Mail-Editor
-  muss ausgewählte Nachrichten und Zieladresse vorher sichtbar machen; der
-  Versand gilt nie als Voraussetzung oder Nachweis für eine sichere Löschung.
+- **Mailentwurf vorbereiten:** Markiere archivierte SMS und öffne die lokale
+  Vorschau. Sie enthält nur die Auswahl, inklusive Originalzeit in UTC,
+  Richtung und Rufnummer. Es wird noch nichts versendet oder als neuer
+  Entwurf auf einem Mailserver gespeichert. Wähle ein beschreibbares eigenes
+  Versandkonto, gib den Empfänger bewusst ein und prüfe den editierbaren Text.
+  Erst **Mail senden** nutzt den normalen SimpleOffice-Mailversand. Bei mehr
+  als 64 KiB wähle einen kleineren Teil. Der Originaleintrag bleibt unverändert.
+  Eine Mailkopie ersetzt keine überprüfbar wiederherstellbare Sicherung.
 - Geräte-Löschung ist nicht enthalten. Eine spätere separate, ausdrücklich
   bestätigte Aktion darf nur nach unabhängig überprüfter Wiederherstellbarkeit
   und einem erneuten Abgleich der unveränderten Provider-Zeile angeboten

@@ -15,6 +15,7 @@ from .sms_archive_store import (
 
 bp = Blueprint("sms_archive", __name__, url_prefix="/communication/sms")
 PAGE_SIZE = 25
+MAX_MAIL_DRAFT_BYTES = 64 * 1024
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 _SELECTION = re.compile(r"([a-f0-9]{32}):([1-9][0-9]{0,18})")
 
@@ -132,13 +133,12 @@ def add_manual():
     return redirect(url_for("sms_archive.index"), code=303)
 
 
-@bp.post("/export")
-@login_required
-def export():
+def _selection():
     keys = request.form.getlist("selected")
-    if not 1 <= len(keys) <= MAX_RECORDS:
-        flash(_language("Wähle mindestens eine Nachricht aus.", "Select at least one message."))
-        return redirect(url_for("sms_archive.index"), code=303)
+    if not keys:
+        return []
+    if len(keys) > MAX_RECORDS:
+        abort(400)
     selected = []
     for key in keys:
         match = _SELECTION.fullmatch(key)
@@ -148,6 +148,20 @@ def export():
         if int(provider_id) >= (1 << 63):
             abort(400)
         selected.append((source, int(provider_id)))
+    return selected
+
+
+def _empty_selection():
+    flash(_language("Wähle mindestens eine Nachricht aus.", "Select at least one message."))
+    return redirect(url_for("sms_archive.index"), code=303)
+
+
+@bp.post("/export")
+@login_required
+def export():
+    selected = _selection()
+    if not selected:
+        return _empty_selection()
     try:
         backup = _archive().export(selected)
     except (ArchiveIntegrityError, OSError, sqlite3.Error) as exc:
@@ -157,6 +171,55 @@ def export():
         abort(404)
     return Response(backup, mimetype="application/json",
                     headers={"Content-Disposition": 'attachment; filename="simpleoffice-sms-backup.json"'})
+
+
+def _draft_body(records):
+    chunks = []
+    for item in sorted(records, key=lambda row: row["date_ms"]):
+        stamp = (_EPOCH + timedelta(milliseconds=item["date_ms"])).isoformat(timespec="seconds")
+        direction = (_language("Empfangen", "Received") if item["direction"] == "inbox"
+                     else _language("Gesendet", "Sent"))
+        address = " ".join(item["address"].split())
+        chunks.append(f"{stamp} · {direction} · {address}\n{item['body']}")
+    return "\n\n".join(chunks)
+
+
+def _writable_mail_accounts():
+    from .mail_reader_routes import _store as mail_store
+    from .mail_webclient import MailAccountPolicy
+
+    store = mail_store()
+    actor = str(g.user["username"])
+    policy = MailAccountPolicy(store)
+    return [{"id": row["id"], "label": row.get("smtp_from") or row["username"]}
+            for row in store.accounts(actor)
+            if row["ui_features"]["compose"] and not policy.read_only(actor, row["id"])]
+
+
+@bp.post("/mail-draft")
+@login_required
+def mail_draft():
+    """Open a one-time local mail editor. No SMTP or IMAP access here."""
+    selected = _selection()
+    if not selected:
+        return _empty_selection()
+    try:
+        records = _archive().selected(selected)
+        body = _draft_body(records)
+        if len(body.encode("utf-8")) > MAX_MAIL_DRAFT_BYTES:
+            flash(_language("Wähle weniger SMS für einen Mailentwurf (maximal 64 KiB).",
+                            "Select fewer messages for one mail draft (64 KiB maximum)."))
+            return redirect(url_for("sms_archive.index"), code=303)
+        accounts = _writable_mail_accounts()
+    except (ArchiveIntegrityError, OSError, sqlite3.Error) as exc:
+        current_app.logger.warning("SMS mail draft could not be created: %s", type(exc).__name__)
+        abort(503)
+    except ValueError:
+        abort(404)
+    return render_template(
+        "sms_archive/mail_draft.html", accounts=accounts, body=body, count=len(records),
+        subject=_language("Auswahl aus meinem SMS-Archiv", "Selection from my SMS archive"),
+    )
 
 
 @bp.post("/restore")

@@ -209,8 +209,8 @@ class SmsArchive:
             )
             return [self._checked(row) for row in rows]
 
-    def export(self, keys) -> bytes:
-        """Produce a verified, versioned recovery file for an explicitly selected batch."""
+    def selected(self, keys) -> list[dict]:
+        """Load and check only an explicitly selected batch belonging to this account."""
         if type(keys) not in (list, tuple) or not 1 <= len(keys) <= MAX_RECORDS:
             raise ValueError("Select 1 to 50 archived SMS messages")
         selected = []
@@ -226,7 +226,11 @@ class SmsArchive:
                 if row is None:
                     raise ValueError("A selected message is not in this archive")
                 records.append(self._checked(row))
-        payload = {"version": _VERSION, "owner": self.owner, "records": records}
+        return records
+
+    def export(self, keys) -> bytes:
+        """Produce a verified, versioned recovery file for an explicitly selected batch."""
+        payload = {"version": _VERSION, "owner": self.owner, "records": self.selected(keys)}
         return _canonical({"payload": payload, "sha256": _digest(_canonical(payload))})
 
     def restore(self, backup: bytes) -> int:
