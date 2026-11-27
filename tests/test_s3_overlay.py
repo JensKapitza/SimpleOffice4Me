@@ -124,6 +124,33 @@ class S3OverlayTests(unittest.TestCase):
         self.assertEqual("sandbox", ranged.headers["Content-Security-Policy"])
         ranged.close()
 
+    def test_private_sms_archive_is_not_indexed_or_projected_by_s3(self):
+        from app.sms_archive_store import SmsArchive
+
+        path = "/s3/simpleoffice?list-type=2"
+        ordinary = f"documents/{self.document['document_id']}/original/readme.txt".encode()
+        before = self.request("GET", path)
+        self.assertEqual(200, before.status_code)
+        keys = set(re.findall(rb"<Key>([^<]+)</Key>", before.data))
+        self.assertIn(ordinary, keys)
+
+        root = self.root / "documents"
+        archive = SmsArchive(root, "s3-user")
+        sms = {
+            "source": "a" * 32, "provider_id": 7, "date_ms": 1750000001000,
+            "direction": "inbox", "address": "synthetic sender", "body": "Synthetic SMS privacy fixture",
+        }
+        self.assertEqual(1, archive.append([sms]))
+        self.assertEqual([sms], archive.page())
+        self.assertTrue((root / ".simpleoffice-meta" / "sms-archive.sqlite3").is_file())
+        DocumentStore(root).scan()
+
+        after = self.request("GET", path)
+        self.assertEqual(200, after.status_code)
+        self.assertEqual(keys, set(re.findall(rb"<Key>([^<]+)</Key>", after.data)))
+        self.assertNotIn(b"sms-archive", after.data)
+        self.assertNotIn(sms["body"].encode(), after.data)
+
     def test_book_scan_leases_stay_local_and_are_not_s3_objects(self):
         from app.library.book_scan_pdf import ScanError
         from app.library.book_scan_shares import Shares

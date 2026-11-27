@@ -18,7 +18,10 @@ Handys und keinen Import beliebiger Android-Backups. Suchbegriffe werden
 per Formular gesendet statt in URL oder Serverprotokoll geschrieben.
 Sitzung, Funktionsrecht und CSRF werden nach dem üblichen Verfahren geprüft.
 Die Auswahl und die Sicherungsdatei können den Archiveigentümer nicht setzen.
-Der Browser erhält für Seiten und Backups `private, no-store`.
+Der Browser erhält für Seiten und Backups `private, no-store`. Die SQLite-
+Ablage bleibt lokal; sie ist weder ein DMS-Dokument noch ein Objekt für die
+allgemeine S3-Schnittstelle. Der bewusste Download aus dem eigenen Konto ist
+der vorgesehene Exportweg. Lege diese Datei nicht in einem freigegebenen Ordner ab.
 
 - Der Kern speichert im konfigurierten Dokumentstamm unter
   `.simpleoffice-meta/sms-archive.sqlite3`. Für ein von der APK-Deinstallation
