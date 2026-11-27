@@ -10,7 +10,7 @@
     <h1 class="h2">{{ 'Set up local extras' if en else 'Lokale Extras einrichten' }}</h1>
     <p>{{ 'All steps are optional. Documents, Mail and Kids work without these extras. Nothing is downloaded or played from this page without an explicit administrator action.' if en else 'Alle Schritte sind optional. Dokumente, Mail und Kids funktionieren auch ohne diese Extras. Diese Seite lädt nichts automatisch herunter und spielt nichts ab.' }}</p>
     {% if android_speech_available and not inventory.voice_download_supported %}
-    <p class="alert alert-info">{{ 'For offline read-aloud on this device, use the Android device voice. You do not need to download Piper or a Piper model.' if en else 'Nutze zum Offline-Vorlesen die Android-Gerätestimme. Dafür musst du weder Piper noch ein Piper-Modell herunterladen.' }}
+    <p class="alert alert-info" role="status" aria-live="polite">{{ 'For offline read-aloud on this device, use the Android device voice. You do not need to download Piper or a Piper model.' if en else 'Nutze zum Offline-Vorlesen die Android-Gerätestimme. Dafür musst du weder Piper noch ein Piper-Modell herunterladen.' }}
       <a class="alert-link" href="#android-speech">{{ 'Set up or test the device voice' if en else 'Gerätestimme einstellen oder testen' }}</a>
     </p>
     {% endif %}
