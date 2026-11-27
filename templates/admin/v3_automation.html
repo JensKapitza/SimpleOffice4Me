@@ -12,18 +12,27 @@
   <section class="card mb-4" aria-labelledby="copy-notices-heading">
     <div class="card-body">
       <h2 class="h5" id="copy-notices-heading">{{ 'Local copy notifications' if g.language == 'en' else 'Lokale Kopiermeldungen' }}</h2>
-      <p>{{ 'Optional: Show a notification here after your document is copied in the browser.' if g.language == 'en' else 'Optional: Nach einer eigenen Dokumentkopie im Browser erscheint hier eine Meldung.' }}</p>
-      {% if copy_notice_preset_active %}
-      <p class="small">{{ 'Active. You can deactivate this rule below.' if g.language == 'en' else 'Aktiv. Die Regel lässt sich unten deaktivieren.' }}</p>
-      {% else %}
-      <form method="post" action="{{ url_for('v3_automation.create_copy_notice') }}" class="mb-3">
-        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-        <button class="btn btn-outline-primary" type="submit">{{ 'Enable copy notifications' if g.language == 'en' else 'Kopiermeldungen aktivieren' }}</button>
-      </form>
-      {% endif %}
+      <p>{{ 'Select which completed copies to show in this account.' if g.language == 'en' else 'Wähle aus, welche abgeschlossenen Kopien in diesem Konto angezeigt werden sollen.' }}</p>
+      {% for source, name_en, name_de in [('browser', 'Browser copies', 'Browser-Kopien'), ('job', 'Scheduled copy jobs', 'Geplante Kopierjobs')] %}
+      <div class="mb-3">
+        <h3 class="h6">{{ name_en if g.language == 'en' else name_de }}</h3>
+        {% if source == 'job' %}
+          <p class="small mb-1">{{ 'The operator must select this account in the job setup.' if g.language == 'en' else 'Beim Einrichten des Jobs muss der Betreiber dieses Konto als Empfänger angeben.' }}</p>
+        {% endif %}
+        {% if copy_notice_active[source] %}
+          <p class="small">{{ 'Active. You can deactivate this rule below.' if g.language == 'en' else 'Aktiv. Die Regel lässt sich unten deaktivieren.' }}</p>
+        {% else %}
+          <form method="post" action="{{ url_for('v3_automation.create_copy_notice') }}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="source" value="{{ source }}">
+            <button class="btn btn-outline-primary" type="submit">{{ ('Enable ' ~ name_en) if g.language == 'en' else (name_de ~ ' aktivieren') }}</button>
+          </form>
+        {% endif %}
+      </div>
+      {% endfor %}
       <ul class="mb-0">
         {% for notice in copy_notices %}
-          <li>{{ 'Document copied' if g.language == 'en' else 'Dokument kopiert' }} · <time datetime="{{ notice.occurred_at }}">{{ notice.occurred_at }}</time></li>
+          <li>{% if notice.event_type == copy_job_notice_type %}{{ 'Copy job completed' if g.language == 'en' else 'Kopierjob abgeschlossen' }}{% else %}{{ 'Document copied' if g.language == 'en' else 'Dokument kopiert' }}{% endif %} · <time datetime="{{ notice.occurred_at }}">{{ notice.occurred_at }}</time></li>
         {% else %}
           <li>{{ 'No notifications yet.' if g.language == 'en' else 'Noch keine Meldungen.' }}</li>
         {% endfor %}

@@ -12,7 +12,10 @@ from .access_control import has_feature
 from .auth import login_required
 from .v3_automation import AutomationEngine, AutomationStore, default_action_registry
 from .v3_capabilities import enabled
-from .v3_copy_notices import PRESET, enable_copy_notice_preset, is_local_copy_notice_rule, recent_copy_notices
+from .v3_copy_notices import (
+    COPY_EVENT, JOB_EVENT_NAME, JOB_NOTICE, PRESET, enable_copy_notice_preset,
+    is_local_copy_notice_rule, recent_copy_notices,
+)
 
 
 bp = Blueprint("v3_automation", __name__, url_prefix="/automation-v3")
@@ -84,9 +87,12 @@ def _render_index(actor: str, *, preview=None):
         logs=store.logs(actor, limit=50),
         preview=preview,
         copy_notices_enabled=enabled("v3.activity"),
-        copy_notice_preset_active=any(
-            rule.enabled and rule.scope == PRESET and is_local_copy_notice_rule(rule) for rule in rules
-        ),
+        copy_notice_active={
+            source: any(rule.enabled and rule.scope == PRESET and is_local_copy_notice_rule(rule, event)
+                        for rule in rules)
+            for source, event in (("browser", COPY_EVENT), ("job", JOB_EVENT_NAME))
+        },
+        copy_job_notice_type=JOB_NOTICE,
         copy_notices=recent_copy_notices(current_app.config["DOCUMENT_ROOT"], actor),
         manual_check_rule_ids=manual_check_rule_ids,
     )
@@ -108,8 +114,16 @@ def create_copy_notice():
         abort(404)
     actor = str(g.user["username"])
     language = getattr(g, "language", "")
+    source = request.form.get("source", "browser")
+    item = {
+        "browser": (COPY_EVENT, "Document copied", "Dokument kopiert"),
+        "job": (JOB_EVENT_NAME, "Copy job completed", "Kopierjob abgeschlossen"),
+    }.get(source)
+    if item is None:
+        abort(400)
+    event, name_en, name_de = item
     try:
-        enable_copy_notice_preset(_store(), actor, "Document copied" if language == "en" else "Dokument kopiert")
+        enable_copy_notice_preset(_store(), actor, name_en if language == "en" else name_de, event)
         flash("Local copy notifications enabled." if language == "en" else "Lokale Kopiermeldungen aktiviert.")
     except (OSError, sqlite3.Error) as exc:
         current_app.logger.warning("Could not save copy notification preset: %s", type(exc).__name__)

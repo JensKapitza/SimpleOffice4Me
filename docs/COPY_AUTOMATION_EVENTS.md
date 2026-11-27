@@ -2,7 +2,8 @@
 
 Wenn `v3.activity` aktiviert ist, schreibt SimpleOffice ein Ereignis in die
 bestehende Aktivitätsdatenbank im Dokumentstamm. Eine Browser-Kopie kann zusätzlich
-eine optionale Meldung für das eigene Konto erzeugen. Der Kopiervorgang wartet
+eine optionale Meldung für das eigene Konto erzeugen; ein vollständig erfolgreicher
+geplanter Lauf kann ein ausdrücklich benanntes Konto informieren. Der Kopiervorgang wartet
 nicht auf eine Gerätezustellung.
 
 | Ereignis | Quelle | Wann es aufgezeichnet wird |
@@ -33,9 +34,17 @@ behauptet.
 
 ## Lokale Kopiermeldung
 
-Sind `v3.activity` und `v3.automation` aktiv, lässt sich die Regel in **Automation 3.0 → Lokale Kopiermeldungen** mit einem Klick einschalten und in der Regelliste wieder abschalten. Nur erfolgreich abgeschlossene eigene Browser-Kopien erscheinen dort als »Dokument kopiert« mit Uhrzeit. Eine Meldung enthält weder Dateinamen noch Inhalt. Bei erneuter Verarbeitung derselben bestätigten Kopie bleibt der ursprüngliche Ereigniszeitpunkt erhalten; es erscheint keine zweite identische Meldung.
+Sind `v3.activity` und `v3.automation` aktiv, lassen sich **Browser-Kopien** und **Geplante Kopierjobs** in **Automation 3.0 → Lokale Kopiermeldungen** getrennt einschalten und in der Regelliste wieder abschalten. Die Meldungen enthalten keinen Dateinamen oder Inhalt. Bei der Wiederholung desselben bestätigten Laufs bleibt der ursprüngliche Auslösezeitpunkt erhalten, und jedes berechtigte Konto erhält höchstens eine Meldung pro Ereignis.
 
-Die Aktion `app.copy_notice` akzeptiert keine Parameter oder Zielgeräte. Der Einstieg führt keine anderen oder gemischten Aktionen aus. Sofortige Ablauffristen können geprüft werden, verzögerte Aktionen und Zeitfenster werden hier nicht eingeplant. Die Anzeige gilt für das angemeldete Konto und lädt beim Seitenaufruf die letzten zehn Meldungen. Noch kein Live-Push, Ton, geplanter Kopierjob als Meldung oder föderiertes Ziel.
+Für geplante Kopierjobs gibt der Betreiber das genaue, aktive lokale Empfängerkonto an. Beispiel für einen einzelnen, eindeutig benannten Lauf:
+
+```sh
+flask --app app run-replications --run-id spiegelung-2026-11-27T1800Z --notify-account mein-konto
+```
+
+Der Job läuft standardmäßig als Audit-Akteur `system`. Ein `--actor` ist keine Empfängerfreigabe und eine Anmeldung im Browser legt keinen Job-Empfänger fest. Ohne `--notify-account` bleiben Kopierjobs unverändert und versenden keine Meldung. Ein unbekanntes oder gesperrtes Konto fällt vor dem Kopieren auf; zusätzlich wird die Kontofreigabe beim Zustellen geprüft. Auch bei gültigem Ziel muss das Konto die Job-Meldungen selbst aktiviert haben. Teilläufe, Läufe ohne Änderungen und einzeln aus der Oberfläche gestartete Spiegelungsregeln lösen die Job-Meldung nicht aus. Die optionale Meldung wird nach der bestätigten Kopie verarbeitet; sie ist keine atomare Zustellgarantie bei Prozessabbruch.
+
+Die Aktion `app.copy_notice` akzeptiert keine Parameter oder Zielgeräte. Der Einstieg führt keine anderen oder gemischten Aktionen aus. Sofortige Ablauffristen können geprüft werden, verzögerte Aktionen und Zeitfenster werden hier nicht eingeplant. Beim Seitenaufruf erscheinen die letzten zehn Meldungen dieses Kontos. Kein Live-Push, Ton oder föderiertes Ziel.
 
 ## Nächster Anschluss
 
