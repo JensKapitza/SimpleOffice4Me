@@ -1076,3 +1076,12 @@ Bei 90 % privaten Treffern gibt es insgesamt nur zwei sichtbare Seiten. Die dire
 | Implementierung | PR #1347: `/rooms/qr`-Route (Login + lokales HTTPS + Code-Format), Invite-QR mit Aufräumen, `?code=`-Prefill (validiert, Best-Effort). #1341 war bereits gemergt. |
 | Tests und Soll-Ist-Vergleich | Route prüft 200/400/302/403; Harness prüft QR/Prefill. Lokal 5/5 Node, 8/8 Flask, Ruff, Compile und Node-Check bestanden. Nach Rebase sind GitHub-Checks für #1347 noch in Bearbeitung. |
 | Review und Abschluss | #1340 gemergt; #1343/#1344/#1346/#1347 warten auf die neu gestartete CI. #1305-Rest: Ordered-in-Rooms und Hardware-Praxistest. |
+
+## 27. November 2026 · Issue #1355-Lauf: #1356-Merge nach Race-Fix-Verifikation
+
+| Phase | Arbeit und Nachweis |
+|---|---|
+| Analyse | Live-Abfrage: #1348 (Doku) + #1356 (Stapel-Zielwahl). Zwei parallele Subagent-Reviews (read-only): #1348 merge-bereit; #1356 mit rotem Chromium-Batch-Test (4. Entwurf mit Stapel-UUID statt Leerwert). |
+| Implementierung | #1348 parallel gemergt (kein Eingriff). #1356 auf Main rebased; Race-Ursache (Restore vs. Edit) vom Autor mit disabled-until-restored behoben — Fix geprüft und übernommen, kein eigener Code nötig. |
+| Tests und Soll-Ist-Vergleich | Soll: grüne Pflichtchecks + CLEAN. Ist gemessen: #1356-CI 38 grün/0 rot/0 offen; Merge `fdafa3a2`. Teilfortschritt in #1293 (Etappe 2 offen), Laufbericht in #1355 kommentiert. |
+| Review und Abschluss | Keine offenen Blocker aus diesem Lauf. Zweite unabhängige Sicht: Subagent-Befunde durch Hauptagent an Code und CI verifiziert. |
