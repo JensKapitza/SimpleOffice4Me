@@ -46,13 +46,32 @@ public final class ManagedContactsProviderAcceptance extends Instrumentation {
             result.putString("simpleoffice_calendar_provider", "pass");
             finish(Activity.RESULT_OK, result);
         } catch (Exception | AssertionError failure) {
-            String reason = failure instanceof AssertionError
-                    ? failure.getMessage() : failure.getClass().getSimpleName();
-            result.putAll(report("Android provider acceptance failed: " + reason));
+            String stage = result.containsKey("simpleoffice_contacts_provider") ? "calendar" : "contacts";
+            result.putAll(report("Android " + stage + " provider acceptance failed: " + describe(failure)));
             finish(Activity.RESULT_CANCELED, result);
         } finally {
             AndroidManagedSyncAccount.clear();
         }
+    }
+
+    private static String describe(Throwable failure) {
+        // Never dump provider arguments, account identifiers, or arbitrary exception text.
+        if (failure instanceof AssertionError) return failure.getMessage();
+        StringBuilder reason = new StringBuilder(failure.getClass().getSimpleName());
+        if (failure.getMessage() != null) {
+            java.util.regex.Matcher count = java.util.regex.Pattern
+                    .compile("Expected [0-9]+ rows but actual [0-9]+")
+                    .matcher(failure.getMessage());
+            if (count.find()) reason.append(": ").append(count.group());
+        }
+        int frames = 0;
+        for (StackTraceElement frame : failure.getStackTrace()) {
+            if (!frame.getClassName().startsWith("de.simpleoffice4me.android.")) continue;
+            reason.append(" | ").append(frame.getFileName()).append(':').append(frame.getLineNumber())
+                    .append(' ').append(frame.getMethodName());
+            if (++frames == 4) break;
+        }
+        return reason.toString();
     }
 
     private void verify(Context context) throws Exception {
