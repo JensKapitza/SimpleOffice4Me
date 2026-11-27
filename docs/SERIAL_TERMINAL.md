@@ -77,3 +77,66 @@ Netzwerk noch USB-Anschlüsse automatisch ab.
   importierte Dateien anhand einer stabilen Identität erkennen. Kein
   unbeschränkter Zugriff auf lokale Verzeichnisse und kein voll privilegierter
   Container. Direktes Auslösen des Scanners ist in diesem Stand nicht enthalten.
+
+## Drei Geräte: zwei Sensoren und ein Gateway
+
+**Erster Aufbau:** `Pico W A → Gateway ← Pico W B`; das Gateway liefert beide
+Werte über eine gemeinsame Adresse an SimpleOffice. Zum Start reichen drei
+WLAN-fähige Boards mit MicroPython (Pico W/Pico 2 W, optional ESP32 mit passendem
+MicroPython). Der Pico ohne W braucht eine andere Anbindung. Für den Anfang ist
+kein zusätzlicher Sensor nötig: `demo` liefert bekannte Testwerte, ein RP2040
+kann optional die ungefähre Chiptemperatur liefern (nicht Raumtemperatur).
+Für ein echtes I²C-/SPI-/GPIO-Modul wird nur die Messfunktion im Knotenskript
+ausgetauscht.
+
+1. Im Router drei feste DHCP-Zuordnungen setzen, zum Beispiel
+   `.31` für Knoten A, `.32` für B und `.30` für das Gateway. Den Gerätenetz-
+   Zugang nur im eigenen isolierten Sensor-LAN nutzen. Die Standard-Ports sind
+   `8080`. Keine öffentliche Freigabe, kein Port-Forwarding.
+2. Aus `examples/serial/pico_gateway/node_settings.example.py` für jedes Gerät
+   eine eigene, **nicht eingecheckte** Datei `node_settings.py` erstellen. Auf
+   A und B: `ROLE = "node"`, jeweils `NODE_ID = "room_a"` bzw. `"room_b"`,
+   `ALLOW_FROM_IP` auf das Gateway setzen und unterschiedliche `DEMO_VALUE`
+   eintragen. Auf dem Gateway: `ROLE = "gateway"`, `SOURCES` mit den beiden
+   Knotenadressen und `ALLOW_FROM_IP` mit der tatsächlichen LAN-Quell-IP von
+   SimpleOffice setzen. WLAN-Name und Passwort nur in die privaten Kopien.
+3. Bei installiertem MicroPython für jedes Board den richtigen USB-Port
+   einsetzen und den Port im Terminal zuvor schließen. Bestehende Startdatei
+   sichern. Dann die drei Dateien lokal übertragen:
+
+   ```sh
+   mpremote connect PORT fs cp examples/serial/pico_gateway/sensor_link.py :sensor_link.py
+   mpremote connect PORT fs cp PFAD_ZUR_PRIVATEN/node_settings.py :node_settings.py
+   mpremote connect PORT fs cp examples/serial/pico_gateway/main.py :main.py
+   mpremote connect PORT reset
+   ```
+
+4. Vom SimpleOffice-Rechner aus `curl http://GATEWAY_IP:8080/status` prüfen.
+   Unter **Datenlogger → Worker-Einstellungen** nur die Gateway-IP zusätzlich
+   freigeben und den vorhandenen Datenlogger-Worker aktiv halten. Zwei
+   Messkanäle anlegen, jeweils die Quelle **HTTP/JSON-Sensor** mit derselben
+   URL und den Pfaden **nodes.room_a.value** und **nodes.room_b.value**
+   konfigurieren, zunächst im 60-Sekunden-Takt. SimpleOffice fragt nur das
+   Gateway ab. Die Knoten schicken ihren Wert auf dessen Anfrage.
+5. Knoten A ausschalten: A meldet `online:false` und enthält keinen Messwert.
+   B bleibt abrufbar. Nach Wiedereinschalten unter derselben IP sollte A wieder
+   sichtbar sein. Der Datenlogger sammelt Stichproben, keinen lückenlosen
+   Messverlauf auf dem Board.
+
+**Andere Anschlüsse:** Ein Raspberry Pi mit vorkonfiguriertem Ethernet kann
+mit denselben drei Dateien und `BIND_IP` als Gateway laufen
+(`python3 main.py` im Projektordner neben der privaten Konfiguration). Für
+ein Board ohne WLAN ist USB-seriell mit `sensor_demo.py` und der manuellen
+Messwertübernahme im Terminal der vorhandene Einstieg. Ein Ethernet-Modul direkt
+am Pico und automatische USB-Erfassung sind noch keine getesteten Betriebsarten.
+
+**Sicherheit und Föderation:** Die Beispielsoftware ist HTTP ohne
+Verschlüsselung oder kryptografischen Identitätsnachweis. Feste IPs und ein
+isoliertes Netz begrenzen die Reichweite, ersetzen aber keine Authentifizierung.
+Die Beispielhardware daher nicht in öffentliche oder gemeinsam genutzte Netze
+stellen und keine sensitiven Daten darüber übertragen. Zwei Knoten hinter
+einem Gateway bilden die erste Kaskade. Zwischen mehreren SimpleOffice-Instanzen
+werden Messkanäle in diesem Stand nicht automatisch repliziert. Wenn Standorte
+verbunden werden, nur explizit freigegebene Messkanäle zwischen gekoppelten
+Instanzen oder über einen bereits gesicherten privaten Netzweg verbinden; keine
+Sensor-HTTP-Ports ins Internet freigeben.
