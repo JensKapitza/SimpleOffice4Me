@@ -6,6 +6,7 @@ import java.util.List;
 
 /** Captures the exact calendar ids and visible labels approved in the Android sync dialog. */
 final class AndroidManagedCalendarSelection {
+    static final int MAX_JSON_CHARS = 8192;
     record Item(String id, String name) {}
 
     private AndroidManagedCalendarSelection() {}

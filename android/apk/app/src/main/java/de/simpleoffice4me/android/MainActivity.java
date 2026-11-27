@@ -1070,7 +1070,8 @@ public class MainActivity extends Activity {
             if (!bridgeAllowed(token) || !deviceSourcePageReady
                     || !AndroidDeviceSourcePreview.isPage(currentWebViewUrl)) return "blocked";
             if (!("contacts".equals(source) || "calendar".equals(source))
-                    || !AndroidDeviceSourcePreview.isCsrf(csrf) || selected == null || selected.length() > 4096) {
+                    || !AndroidDeviceSourcePreview.isCsrf(csrf) || selected == null
+                    || selected.length() > AndroidManagedCalendarSelection.MAX_JSON_CHARS) {
                 return "invalid";
             }
             mainHandler.post(() -> {

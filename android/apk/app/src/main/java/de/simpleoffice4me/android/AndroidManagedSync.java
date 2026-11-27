@@ -54,7 +54,7 @@ final class AndroidManagedSync {
     void open(String source, String csrf, String userAgent, String calendarIds) {
         if (!resumed || closed || !currentPage.getAsBoolean() || busy || pending != null || confirmation != null) return;
         try {
-            if (calendarIds == null || calendarIds.length() > 8192)
+            if (calendarIds == null || calendarIds.length() > AndroidManagedCalendarSelection.MAX_JSON_CHARS)
                 throw new IllegalArgumentException("Calendar selection is too large");
             JSONArray submitted = new JSONArray(calendarIds);
             if (submitted.length() > 8 || ("contacts".equals(source) ? submitted.length() != 0 : submitted.length() == 0)) {
