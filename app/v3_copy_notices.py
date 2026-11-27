@@ -19,6 +19,7 @@ from .v3_capabilities import enabled
 from .v3_automation_timing import received_window_status, timing_envelope, utc_instant
 from .v3_jobs import JobStore, PermanentJobError, RetryableJobError
 from .workflow_peer_notices import PEER_NOTICE
+from .workflow_peer_notice_jobs import dispatch as dispatch_peer_notice
 
 
 ACTION = "app.copy_notice"
@@ -34,6 +35,7 @@ LOG = logging.getLogger(__name__)
 def dispatch_copy_notice(root, event: DomainEvent) -> None:
     if event.event_type == COPY_EVENT and event.source == "browser.document_copy":
         _dispatch(root, event, event.actor)
+        dispatch_peer_notice(root, event, event.actor)
 
 
 def dispatch_replication_notice(root, event_id: str, actor: str, recipient: str) -> None:
@@ -42,6 +44,7 @@ def dispatch_replication_notice(root, event_id: str, actor: str, recipient: str)
         event = ActivityStore(root).find_for_actor(event_id, actor)
         if event and event.event_type == JOB_EVENT_NAME and event.source == "replication.batch":
             _dispatch(root, event, recipient)
+            dispatch_peer_notice(root, event, recipient)
     except (OSError, sqlite3.Error, ValueError) as exc:
         LOG.warning("replication notice could not be processed: %s", type(exc).__name__)
 

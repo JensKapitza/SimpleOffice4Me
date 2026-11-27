@@ -15,7 +15,7 @@ from app.workflow_peer_notices import PATH, PEER_NOTICE
 from tests.http_api_fixture import PublicHttpTestCase
 
 
-class WorkflowPeerNoticeTests(PublicHttpTestCase):
+class _WorkflowPeerNoticeFixture(PublicHttpTestCase):
     def setUp(self):
         super().setUp()
         self.root = Path(app.config["DOCUMENT_ROOT"])
@@ -55,6 +55,8 @@ class WorkflowPeerNoticeTests(PublicHttpTestCase):
     def _notice_rows(self):
         return ActivityStore(self.root).list(event_type=PEER_NOTICE)
 
+
+class WorkflowPeerNoticeTests(_WorkflowPeerNoticeFixture):
     def test_only_owner_can_grant_fixed_notice_and_replay_is_idempotent(self):
         grant = self._grant()
         self.assertEqual(403, self.client.post(PATH, json={"destination": grant}).status_code)
@@ -103,3 +105,73 @@ class WorkflowPeerNoticeTests(PublicHttpTestCase):
         self.assertIn(picked, result.output)
         self.assertNotIn(other, result.output)
         self.assertNotIn("synthetic-owner-copy", result.output)
+
+
+class WorkflowPeerNoticeRuleTests(_WorkflowPeerNoticeFixture):
+    def setUp(self):
+        super().setUp()
+        flags = {"v3.activity": True, "v3.automation": True, "v3.federation": True, "v3.jobs": True}
+        SettingsStore(self.root).save({"v3": flags}, "owner")
+        with app.app_context():
+            FederationStore(self.root).save_peer(
+                "peer-a", "test peer", "https://example.invalid", self.key,
+                policy={"data_classes": {"workflow_notices": {"send": True}}},
+            )
+        self.form = {"peer": "peer-a", "destination": "b" * 32, "source": "browser",
+                     "delay": "0", "deadline": "120", "zone": "Europe/Berlin"}
+
+    def _create(self):
+        path = "/automation-v3/peer-copy-rule"
+        self.assertEqual(403, self.client.post(path, data=self.form).status_code)
+        self.assertEqual(303, self.client.post(path, headers=self.csrf, data=self.form).status_code)
+
+    def _queue(self):
+        from app.document_copy_events import capture_copy_completed
+        from app.v3_jobs import JobStore
+        from app.workflow_peer_notice_jobs import KIND
+        with app.app_context():
+            for _ in range(2):
+                capture_copy_completed(self.root, "owner", "synthetic-copy")
+        job, = JobStore(self.root).list(kind=KIND)
+        return job
+
+    def test_http_preset_is_idempotent_and_retries_keep_the_original_window(self):
+        from unittest.mock import patch
+        from app.v3_automation import AutomationStore
+        from app.v3_automation_timing import utc_instant
+        from app.v3_jobs import RetryableJobError
+        from app.workflow_peer_notice_jobs import job_handler
+
+        self._create()
+        self._create()
+        self.assertEqual(1, len(AutomationStore(self.root).list("owner")))
+        job = self._queue()
+        window = job.payload["window"]
+        self.assertEqual("Europe/Berlin", window["origin_timezone"])
+        self.assertEqual(120, (utc_instant(window["expires_at"]) - utc_instant(window["requested_at"])).seconds)
+        with patch("app.workflow_peer_notice_jobs.send_notice", side_effect=[ConnectionError, "delivered"]) as send:
+            with self.assertRaisesRegex(RetryableJobError, "peer_unreachable"):
+                job_handler(self.root)(job)
+            job_handler(self.root)(job)
+            self.assertEqual([window, window], [call.kwargs["window"] for call in send.call_args_list])
+        states = {row["status"] for row in AutomationStore(self.root).logs("owner")}
+        self.assertEqual({"peer_queued", "peer_unreachable", "delivered"}, states)
+
+    def test_expired_window_and_changed_rule_do_not_contact_peer(self):
+        from unittest.mock import patch
+        from app.v3_automation import AutomationStore
+        from app.v3_automation_timing import utc_instant
+        from app.v3_jobs import PermanentJobError
+        from app.workflow_peer_notice_jobs import job_handler
+
+        self._create()
+        job = self._queue()
+        store = AutomationStore(self.root)
+        with patch("app.workflow_peer_notice_jobs.send_notice") as send:
+            with patch("app.workflow_peer_notice_jobs._now", return_value=utc_instant(job.payload["window"]["expires_at"])):
+                job_handler(self.root)(job)
+            self.assertIn("window_missed", {row["status"] for row in store.logs("owner")})
+            store.update(job.payload["rule_id"], "owner", {"enabled": False})
+            with self.assertRaisesRegex(PermanentJobError, "rule has changed"):
+                job_handler(self.root)(job)
+            send.assert_not_called()

@@ -377,7 +377,10 @@ def default_handlers(
     handlers = {"documents.reindex": document_reindex_handler(root)}
     from .v3_copy_notices import NOTICE_JOB_KIND, copy_notice_job_handler
 
+    from .workflow_peer_notice_jobs import KIND as PEER_NOTICE_JOB_KIND, job_handler as peer_notice_job_handler
+
     handlers[NOTICE_JOB_KIND] = copy_notice_job_handler(root)
+    handlers[PEER_NOTICE_JOB_KIND] = peer_notice_job_handler(root)
     if worker_id:
         from .smart_folder_batch_jobs import batch_handler
 

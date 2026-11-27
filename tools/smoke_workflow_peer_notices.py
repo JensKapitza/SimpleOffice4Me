@@ -7,6 +7,7 @@ import secrets
 import ssl
 import subprocess
 import sys
+import time
 from tempfile import TemporaryDirectory
 from urllib.error import HTTPError
 
@@ -27,7 +28,7 @@ def _cli(root, tls, arguments):
 def _enable(browser, counterpart, *, direction):
     endpoint = "/admin/v3/capabilities"
     browser.page(endpoint, fields={"_csrf_token": browser.csrf(endpoint),
-                                   "v3.activity": "1", "v3.automation": "1", "v3.federation": "1"})
+                                   "v3.activity": "1", "v3.automation": "1", "v3.federation": "1", "v3.jobs": "1"})
     trust = fixture.DISCOVERY + "/trust/" + counterpart
     browser.page(trust, fields={"_csrf_token": browser.csrf(fixture.DISCOVERY),
                                "trust_level": "NORMAL", "verification": "VERIFIED_ADMIN"})
@@ -42,14 +43,12 @@ def _set_policy(browser, peer, remote, policy):
     })
 
 
-def _produce_copy(root, tls, speaker):
+def _prepare_copy(root, tls, speaker):
     code = """
 import os
 from pathlib import Path
 from app import app
 from app.replication_store import ReplicationStore
-from app.v3_activity import ActivityStore
-from app.document_copy_events import JOB_EVENT_NAME
 document = Path(os.environ["SIMPLEOFFICE_DOCUMENT_ROOT"])
 actor = %r
 with app.app_context():
@@ -60,14 +59,27 @@ with app.app_context():
     destination.mkdir()
     target = store.add_target({"label": "Backup", "path": str(destination)}, actor)
     store.add_rule({"label": "Notes", "target_id": target["target_id"], "categories": ["notes"]}, actor)
-    outcome = store.run_all(actor, run_id="synthetic-workflow-run")
-    assert sum(item["copied"] for item in outcome["completed"]) == 1 and not outcome["errors"]
-    event, = ActivityStore(document).list(actor=actor, event_type=JOB_EVENT_NAME)
-    print("COPY-EVENT", event.event_id)
 """ % speaker
     result = _cli(root, tls, ["-c", code])
-    result.check_returncode()
-    return next(line.split()[1] for line in result.stdout.splitlines() if line.startswith("COPY-EVENT "))
+    assert result.returncode == 0, result.stderr
+
+
+def _copy(root, tls, speaker, run_id):
+    (root / "documents" / ".simpleoffice-meta" / "notes.json").write_text(run_id, encoding="utf8")
+    args = ["-m", "flask", "--app", "app", "run-replications", "--actor", speaker,
+            "--notify-account", speaker, "--run-id", run_id]
+    result = _cli(root, tls, args)
+    assert result.returncode == 0, result.stderr
+    outcome = json.loads(result.stdout.splitlines()[-1])
+    assert sum(item["copied"] for item in outcome["completed"]) == 1 and not outcome["errors"]
+    listed = _cli(root, tls, ["-m", "flask", "--app", "app", "list-workflow-copy-events", "--actor", speaker])
+    listed.check_returncode()
+    return listed.stdout.splitlines()[0].split()[0]
+
+
+def _work(root, tls):
+    result = _cli(root, tls, ["-m", "tools.v3_job_worker", "--root", str(root / "documents"), "--once"])
+    assert result.returncode == 0, result.stderr
 
 
 def main():
@@ -82,7 +94,11 @@ def main():
             fixture.initialize(root / name)
         bearer = secrets.token_urlsafe(32)
         src, _ = stack.enter_context(fixture.instance(root / a, a, tls, context, secrets.token_urlsafe(24), bearer))
-        dst, _ = stack.enter_context(fixture.instance(root / b, b, tls, context, secrets.token_urlsafe(24), bearer))
+        destination_server = stack.enter_context(ExitStack())
+        destination_password = secrets.token_urlsafe(24)
+        dst, destination_port = destination_server.enter_context(
+            fixture.instance(root / b, b, tls, context, destination_password, bearer),
+        )
         pairing = secrets.token_urlsafe(32)
         fixture.configure_pair(src, dst, a, b, pairing)
         fixture.configure_pair(dst, src, b, a, pairing)
@@ -99,22 +115,43 @@ def main():
         page = dst.page(consent, fields={"operation": "grant", "peer": a,
                                         "_csrf_token": dst.csrf("/automation-v3")})
         grant = page.select_one('input[name=grant]')["value"]
-        event_id = _produce_copy(root / a, tls, a)
+        create = "/automation-v3/peer-copy-rule"
+        form = src.page("/automation-v3").select_one(f'form[action="{create}"]')
+        assert form
+        src.submit(form, {"peer": b, "destination": grant, "source": "job", "delay": "0",
+                          "deadline": "120", "zone": "Europe/Berlin"})
+        _prepare_copy(root / a, tls, a)
+        event_id = _copy(root / a, tls, a, "synthetic-workflow-run")
+        assert not json.loads(dst.request("/automation-v3/copy-notices"))["notices"]
+        _work(root / a, tls)
+        assert src.page("/automation-v3").select_one('[data-run-state="delivered"]')
         args = ["-m", "flask", "--app", "app", "send-workflow-copy-notice",
                 "--peer", b, "--destination", grant, "--actor", a, "--event-id", event_id]
-        for expected in ("delivered", "duplicate"):
-            result = _cli(root / a, tls, args)
-            result.check_returncode()
-            assert result.stdout.splitlines()[-1] == expected
+        result = _cli(root / a, tls, args)
+        result.check_returncode()
+        assert result.stdout.splitlines()[-1] == "duplicate"
         target = json.loads(dst.request("/automation-v3/copy-notices"))["notices"]
         assert len(target) == 1 and target[0]["kind"] == "peer"
         assert set(target[0]) == {"id", "kind", "at"}
         assert not json.loads(src.request("/automation-v3/copy-notices"))["notices"]
+        destination_server.close()
+        _copy(root / a, tls, a, "synthetic-workflow-run-reconnect")
+        _work(root / a, tls)
+        assert src.page("/automation-v3").select_one('[data-run-state="peer_unreachable"]')
+        dst, _ = destination_server.enter_context(
+            fixture.instance(root / b, b, tls, context, destination_password, bearer, port=destination_port),
+        )
+        time.sleep(5.1)  # Initial durable retry backoff, with the real worker restarted below.
+        _work(root / a, tls)
+        target = json.loads(dst.request("/automation-v3/copy-notices"))["notices"]
+        assert len(target) == 2 and len({row["id"] for row in target}) == 2
+        _copy(root / a, tls, a, "synthetic-workflow-run-revoked")
         dst.page(consent, fields={"operation": "revoke", "grant": grant, "_csrf_token": dst.csrf("/automation-v3")})
-        denied = _cli(root / a, tls, args)
-        assert denied.returncode != 0 and denied.stdout.splitlines()[-1] == "denied"
+        _work(root / a, tls)
+        assert src.page("/automation-v3").select_one('[data-run-state="denied"]')
         assert json.loads(dst.request("/automation-v3/copy-notices"))["notices"] == target
-        print("PASS: paired HTTPS instances, real copied file, one private remote notice, duplicate and revoke verified")
+        print("PASS: real copy triggers durable peer job; paired HTTPS delivery, replay, offline recovery, and revoke verified")
+
 
 
 if __name__ == "__main__":

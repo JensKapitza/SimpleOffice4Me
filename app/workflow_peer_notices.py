@@ -199,7 +199,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def send_notice(root, peer_id, destination, event):
+def send_notice(root, peer_id, destination, event, *, window=None):
     if not feature_on(root) or not DEST.fullmatch(destination):
         raise PermissionError("workflow notices or destination not available")
     if SOURCES.get(event.event_type) != event.source:
@@ -212,9 +212,15 @@ def send_notice(root, peer_id, destination, event):
     token = FederationStore(root).peer_token(peer["peer_id"])
     if not token:
         raise PermissionError("peer credential missing")
-    window = timing_envelope({"within_seconds": 600}, event.occurred_at)
-    if received_window_status(window, datetime.now(timezone.utc)) != "ready":
-        return "window_missed"
+    if window is None:
+        window = timing_envelope({"within_seconds": 600}, event.occurred_at)
+    status = received_window_status(window, _now())
+    if (utc_instant(window["requested_at"]) != utc_instant(event.occurred_at)
+            or not window["expires_at"]
+            or utc_instant(window["expires_at"]) - utc_instant(event.occurred_at) > timedelta(minutes=15)):
+        raise ValueError("workflow notice needs the original event and a short, finite deadline")
+    if status != "ready":
+        return status
     key = hashlib.sha256(f"copy\0{event.event_id}".encode()).hexdigest()
     payload = {"destination": destination, "id": key, "kind": "job" if event.event_type == JOB_EVENT_NAME else "browser",
                "window": window}

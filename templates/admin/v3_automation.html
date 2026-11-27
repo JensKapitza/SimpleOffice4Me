@@ -87,6 +87,33 @@
       <button type="submit" class="btn btn-sm btn-outline-secondary">{{ 'Revoke' if g.language == 'en' else 'Widerrufen' }}</button>
     </form>
     {% endfor %}
+    {% if peer_notice_options.send %}
+    <form method="post" action="{{ url_for('v3_automation.create_peer_copy_rule') }}" class="mt-3 border-top pt-3">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <h3 class="h6">{{ 'Send automatic copy notices' if g.language == 'en' else 'Automatische Kopiermeldungen senden' }}</h3>
+      <p class="small">{{ 'Use the destination ID shared with you by the receiving account. The background worker must be running.' if g.language == 'en' else 'Nutze die Zielkennung, die dir das empfangende Konto gegeben hat. Der Hintergrunddienst muss laufen.' }}</p>
+      <div class="row g-2">
+        <div class="col-md-4"><label for="copy-send-peer" class="form-label">{{ 'Target instance' if g.language == 'en' else 'Zielinstanz' }}</label>
+          <select id="copy-send-peer" name="peer" class="form-select" required>
+            {% for item in peer_notice_options.send %}<option value="{{ item.peer_id }}">{{ item.label }}</option>{% endfor %}
+          </select></div>
+        <div class="col-md-4"><label for="copy-send-destination" class="form-label">{{ 'Destination ID' if g.language == 'en' else 'Zielkennung' }}</label>
+          <input id="copy-send-destination" name="destination" class="form-control" required pattern="[0-9a-f]{32}" minlength="32" maxlength="32" autocomplete="off" spellcheck="false"></div>
+        <div class="col-md-4"><label for="copy-send-source" class="form-label">{{ 'Trigger' if g.language == 'en' else 'Auslöser' }}</label>
+          <select id="copy-send-source" name="source" class="form-select">
+            <option value="browser">{{ 'Document copied' if g.language == 'en' else 'Dokument kopiert' }}</option>
+            <option value="job">{{ 'Copy job completed' if g.language == 'en' else 'Kopierjob abgeschlossen' }}</option>
+          </select></div>
+        <div class="col-md-4"><label for="copy-send-delay" class="form-label">{{ 'Wait after copy' if g.language == 'en' else 'Wartezeit nach Kopie' }}</label>
+          <select id="copy-send-delay" name="delay" class="form-select">{% for s in peer_notice_options.delays %}<option value="{{ s }}">{{ s }} s</option>{% endfor %}</select></div>
+        <div class="col-md-4"><label for="copy-send-deadline" class="form-label">{{ 'Deadline from copy' if g.language == 'en' else 'Frist ab Kopie' }}</label>
+          <select id="copy-send-deadline" name="deadline" class="form-select">{% for s in peer_notice_options.deadlines %}<option value="{{ s }}"{% if s == 120 %} selected{% endif %}>{{ s }} s</option>{% endfor %}</select></div>
+        <div class="col-md-4"><label for="copy-send-zone" class="form-label">{{ 'Sender time zone' if g.language == 'en' else 'Absenderzeitzone' }}</label>
+          <input id="copy-send-zone" name="zone" class="form-control" required value="UTC" maxlength="80" placeholder="Europe/Berlin"></div>
+      </div>
+      <button type="submit" class="btn btn-outline-primary mt-2">{{ 'Save sending rule' if g.language == 'en' else 'Senderegel speichern' }}</button>
+    </form>
+    {% endif %}
   </section>
   {% endif %}
   <div class="row g-4">
@@ -143,10 +170,20 @@
       </div>
       {% endif %}
       <div class="card"><div class="card-header"><strong>{{ 'Recent runs' if g.language == 'en' else 'Letzte Ausführungen' }}</strong></div>
-        <div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th scope="col">{{ 'Time' if g.language == 'en' else 'Zeit' }}</th><th scope="col">Status</th><th scope="col">{{ 'Rule' if g.language == 'en' else 'Regel' }}</th></tr></thead><tbody>{% for row in logs %}<tr><td>{{ row.created_at }}</td><td>
+        <div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th scope="col">{{ 'Time' if g.language == 'en' else 'Zeit' }}</th><th scope="col">Status</th><th scope="col">{{ 'Rule' if g.language == 'en' else 'Regel' }}</th></tr></thead><tbody>{% for row in logs %}<tr><td>{{ row.created_at }}</td><td data-run-state="{{ row.status }}">
           {% set timing_labels = {'schedule_unavailable': ('Background job unavailable' if g.language == 'en' else 'Hintergrundjob nicht verfügbar'), 'window_missed': ('Time window missed' if g.language == 'en' else 'Zeitfenster verpasst'), 'waiting_for_window': ('Waiting for time window' if g.language == 'en' else 'Wartet auf Zeitfenster'), 'executed': ('Executed' if g.language == 'en' else 'Ausgeführt')} %}
-          {{ timing_labels.get(row.status, row.status) }}
-          {% if row.action_states %}<ul class="small mb-0">{% for item in row.action_states %}<li>{{ item.type }}: {{ timing_labels.get(item.state, item.state) }}{% if item.expires_at %} · <time datetime="{{ item.expires_at }}">{{ item.expires_at_local or item.expires_at }}</time> ({{ item.origin_timezone }}){% endif %}</li>{% endfor %}</ul>{% endif %}
+          {% set peer_labels = {
+            'peer_queued': ('Queued for delivery' if g.language == 'en' else 'Zur Zustellung vorgemerkt'),
+            'delivered': ('Available in the target account' if g.language == 'en' else 'Im Zielkonto bereitgestellt'),
+            'duplicate': ('Already received' if g.language == 'en' else 'Bereits empfangen'),
+            'peer_unreachable': ('Target unreachable; retries within the deadline' if g.language == 'en' else 'Ziel nicht erreichbar; erneuter Versuch nur innerhalb der Frist'),
+            'recipient_busy': ('Target busy' if g.language == 'en' else 'Ziel ausgelastet'),
+            'peer_invalid': ('Invalid target settings or response' if g.language == 'en' else 'Zieleinstellung oder Antwort ungültig'),
+            'peer_queue_unavailable': ('Could not queue peer notice' if g.language == 'en' else 'Föderierte Meldung konnte nicht eingeplant werden'),
+            'denied': ('Target not authorized' if g.language == 'en' else 'Ziel nicht freigegeben')
+          } if row.action_states and row.action_states[0].type == 'app.peer_copy_notice' else {} %}
+          {{ peer_labels.get(row.status, timing_labels.get(row.status, row.status)) }}
+          {% if row.action_states %}<ul class="small mb-0">{% for item in row.action_states %}<li>{{ item.type }}: {{ peer_labels.get(item.state, timing_labels.get(item.state, item.state)) }}{% if item.expires_at %} · <time datetime="{{ item.expires_at }}">{{ item.expires_at_local or item.expires_at }}</time> ({{ item.origin_timezone }}){% endif %}</li>{% endfor %}</ul>{% endif %}
         </td><td><code>{{ row.rule_id }}</code></td></tr>{% else %}<tr><td colspan="3" class="text-secondary">{{ 'No runs.' if g.language == 'en' else 'Keine Ausführungen.' }}</td></tr>{% endfor %}</tbody></table></div>
       </div>
     </section>

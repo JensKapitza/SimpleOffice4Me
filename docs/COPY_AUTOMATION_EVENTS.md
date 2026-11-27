@@ -113,9 +113,28 @@ und früheste Zeit vor dem Schreiben. Eine Wiederholung erzeugt keine
 zweite Meldung. Das Resultat `delivered` bedeutet, dass die Anzeige im
 Empfängerkonto bereitsteht, nicht dass das Endgerät sie gesehen hat.
 
-Noch kein automatisches Senden dieser Meldung durch eine Regel, kein
-Hintergrund-Push, kein Ton und keine Fernsteuerung. Der reproduzierbare
-Positivpfad mit echten isolierten HTTPS-Instanzen lautet:
+Auf der Senderseite mit `v3.jobs` in demselben Bereich **Automatische
+Kopiermeldungen senden** öffnen. Zielinstanz und Zielkennung wählen, als
+Auslöser „Dokument kopiert“ oder „Kopierjob abgeschlossen“ setzen und
+Absenderzeitzone (z. B. `Europe/Berlin`) angeben. Die Frist beträgt wahlweise
+10, 120 oder 600 Sekunden **ab Kopie**; bei längeren Fristen sind 30 Sekunden
+Wartezeit möglich. Kopierjobs benötigen weiterhin den expliziten
+`--notify-account` beim geplanten Aufruf. Der Hintergrunddienst von oben
+muss auf der Senderseite laufen. Das erneute Speichern derselben Kombination
+aus Auslöser, Peer und Zielkennung aktualisiert die vorhandene Regel.
+
+Das Kopieren selbst wartet nicht auf Netzwerk oder Empfänger. Ein
+Hintergrundauftrag speichert die ursprüngliche UTC-Zeit, IANA-Absenderzone
+und absoluten Grenzen. Neustart, kurze Ausfälle und erneute Versuche ändern
+diese Zeiten nicht. Regelversion, Kontorechte, Vertrauen und Empfangsfreigabe
+werden erneut geprüft. „Letzte Ausführungen“ unterscheidet vorgemerkt, nicht
+erreichbar, bereitgestellt, Zeitfenster verpasst und abgelehnt. „Bereitgestellt“
+bedeutet einen Eintrag im Zielkonto, keinen Zustellnachweis des Geräts. Kein
+Hintergrund-Push, Ton, harte Echtzeit oder Fernsteuerung.
+
+Der reproduzierbare Test mit zwei gewöhnlichen, isolierten HTTPS-Instanzen
+nutzt echtes Pairing, Webformular, Kopierjob, mehrfach neu gestarteten
+Worker und Zielserver sowie den Widerruf:
 
 ```sh
 python -m pip install -e '.[test]'
@@ -132,7 +151,7 @@ und den Cursor sowie Quittungen pro Aktion dauerhaft speichern. Regelrecht
 und Zielzustimmung müssen vor jeder echten Aktion erneut geprüft werden;
 Ziel-IDs nur aus lokal bekannten oder ausdrücklich freigegebenen gekoppelten
 Clients. Ein Test zeigt geordnete Auswertung als Dry-Run ohne Zustellung.
-Ein produktiver Worker für föderierte Aktionen, Gerätesignale im Hintergrund sowie Adapter für Lampen und
+Ein generischer Worker für weitere föderierte Aktionen, Gerätesignale im Hintergrund sowie Adapter für Lampen und
 Aktionen am Betriebssystem fehlen in diesem Stand. Kein generischer Skript-
 oder HTTP-Aufruf, keine Umgehung der Nicht-stören-Einstellung. Explizites
 Ein-/Ausschalten ist besser wiederholbar als Umschalten; befristete Aktionen

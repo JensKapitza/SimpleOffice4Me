@@ -14,6 +14,7 @@ from .v3_automation import AutomationEngine, AutomationStore, default_action_reg
 from .v3_capabilities import enabled
 from .workflow_peer_notices import DEST, PEER_NOTICE, PeerNoticeGrants, feature_on, permitted_peer
 from .federation_store import FederationStore
+from . import workflow_peer_notice_jobs as peer_jobs
 from .v3_copy_notices import (
     COPY_EVENT, JOB_EVENT_NAME, JOB_NOTICE, PRESET, TIMER_PRESETS, enable_copy_notice_preset,
     is_local_copy_notice_rule, recent_copy_notices,
@@ -93,14 +94,17 @@ def _peer_notice_options():
     root = current_app.config["DOCUMENT_ROOT"]
     if not feature_on(root) or not has_feature(g.user, "sync"):
         return None
-    peers = []
+    peers = {"receive": [], "send": []}
     for row in FederationStore(root).list_peers():
-        try:
-            peer = permitted_peer(root, row["peer_id"], "receive")
-            peers.append({"peer_id": peer["peer_id"], "label": peer["label"]})
-        except (ValueError, PermissionError):
-            continue
-    return {"peers": peers, "grants": PeerNoticeGrants(root).for_account(g.user)}
+        for direction, items in peers.items():
+            try:
+                peer = permitted_peer(root, row["peer_id"], direction)
+                items.append({"peer_id": peer["peer_id"], "label": peer["label"]})
+            except (ValueError, PermissionError):
+                continue
+    return {"peers": peers["receive"], "send": peers["send"] if peer_jobs.available(root) else [],
+            "grants": PeerNoticeGrants(root).for_account(g.user),
+            "delays": peer_jobs.DELAYS, "deadlines": peer_jobs.DEADLINES}
 
 
 def _render_index(actor: str, *, preview=None):
@@ -183,6 +187,41 @@ def peer_notices_consent():
         grants.revoke(grant, g.user)
     else:
         abort(400)
+    return redirect(url_for("v3_automation.index"), code=303)
+
+
+@bp.post("/peer-copy-rule")
+@login_required
+def create_peer_copy_rule():
+    root = current_app.config["DOCUMENT_ROOT"]
+    if not peer_jobs.available(root):
+        abort(404)
+    if not has_feature(g.user, "sync"):
+        abort(403)
+    source = request.form.get("source")
+    event_type = {"browser": COPY_EVENT, "job": JOB_EVENT_NAME}.get(source)
+    language = getattr(g, "language", "")
+    kind = (("Copy job" if source == "job" else "Document copy") if language == "en"
+            else ("Kopierjob" if source == "job" else "Dokumentkopie"))
+    try:
+        peer = permitted_peer(root, request.form.get("peer", ""), "send")
+        delay, deadline = request.form.get("delay", ""), request.form.get("deadline", "")
+        if delay not in set(map(str, peer_jobs.DELAYS)) or deadline not in set(map(str, peer_jobs.DEADLINES)):
+            raise ValueError("invalid time window")
+        peer_jobs.save_rule(
+            root, str(g.user["username"]), peer["peer_id"], request.form.get("destination", ""), event_type,
+            delay=int(delay), deadline=int(deadline), zone=request.form.get("zone", ""),
+            name=f"{kind} → {peer['label']}",
+        )
+    except PermissionError:
+        abort(403)
+    except ValueError:
+        flash("Invalid copy notification settings." if language == "en" else "Ungültige Einstellungen für Kopiermeldungen.")
+    except (OSError, sqlite3.Error) as exc:
+        current_app.logger.warning("Could not save peer copy rule: %s", type(exc).__name__)
+        abort(503)
+    else:
+        flash("Peer copy notifications enabled." if language == "en" else "Kopiermeldungen an die Instanz aktiviert.")
     return redirect(url_for("v3_automation.index"), code=303)
 
 
