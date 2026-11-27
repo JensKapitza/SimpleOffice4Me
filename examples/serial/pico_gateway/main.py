@@ -46,7 +46,7 @@ def main():
     if cfg.ROLE == "node":
         handler = sensor_handler(cfg.NODE_ID, measuring_function())
     elif cfg.ROLE == "gateway":
-        handler = gateway_handler(cfg.SOURCES)
+        handler = gateway_handler(cfg.SOURCES, getattr(cfg, "GATEWAY_CACHE_MS", 1000))
     else:
         raise ValueError("Set ROLE to node or gateway")
     ip = lan_ip()

@@ -9,3 +9,5 @@ WIFI_SSID = ""
 WIFI_PASSWORD = ""
 ALLOW_FROM_IP = "192.168.1.30"  # on nodes: gateway IP; on gateway: SimpleOffice IP
 SOURCES = (("room_a", "192.168.1.31", 8080), ("room_b", "192.168.1.32", 8080))
+
+GATEWAY_CACHE_MS = 1000  # share a short poll across measurement and availability channels

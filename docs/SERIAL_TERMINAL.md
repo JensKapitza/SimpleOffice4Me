@@ -118,10 +118,16 @@ ausgetauscht.
    URL und den Pfaden **nodes.room_a.value** und **nodes.room_b.value**
    konfigurieren, zunächst im 60-Sekunden-Takt. SimpleOffice fragt nur das
    Gateway ab. Die Knoten schicken ihren Wert auf dessen Anfrage.
-5. Knoten A ausschalten: A meldet `online:false` und enthält keinen Messwert.
-   B bleibt abrufbar. Nach Wiedereinschalten unter derselben IP sollte A wieder
-   sichtbar sein. Der Datenlogger sammelt Stichproben, keinen lückenlosen
-   Messverlauf auf dem Board.
+5. Für einen separaten Verfügbarkeitsverlauf nutze zusätzlich
+   **nodes.room_a.available** und **nodes.room_b.available** als eigene
+   HTTP/JSON-Kanäle. Der Wert ist `1` für eine gültige Antwort und `0`,
+   wenn das Gateway den Knoten nicht abfragen kann. Bei ausgeschaltetem
+   Knoten A fehlt dessen Messwert; B bleibt abrufbar. Ein Ausfall des Gateways
+   selbst erzeugt einen Abfragefehler, keine erfundene `0` für jeden Knoten.
+   Nach Wiederanlauf läuft der Verlauf weiter. Das Gateway verwendet für
+   nahe beieinander liegende Abfragen standardmäßig höchstens eine Sekunde lang dieselbe
+   Stichprobe (`GATEWAY_CACHE_MS`, `0` schaltet die Wiederverwendung ab).
+   Der Datenlogger sammelt Stichproben, keinen lückenlosen Messverlauf.
 
 **Andere Anschlüsse:** Ein Raspberry Pi mit vorkonfiguriertem Ethernet kann
 mit denselben drei Dateien und `BIND_IP` als Gateway laufen

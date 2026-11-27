@@ -124,7 +124,9 @@ def sensor_handler(name, measure):
     return handler
 
 
-def gateway_handler(sources):
+def gateway_handler(sources, cache_ms=1000):
+    if type(cache_ms) is not int or not 0 <= cache_ms <= 5000:
+        raise ValueError("Configure a gateway cache of 0 to 5000 milliseconds")
     if not 1 <= len(sources) <= 2:
         raise ValueError("Configure one or two sensors")
     nodes = []
@@ -135,16 +137,26 @@ def gateway_handler(sources):
     if len({name for name, _ in nodes}) != len(nodes):
         raise ValueError("Sensor IDs must be unique")
 
+    cached_at = None
+    cached = None
+
     def handler(path):
+        nonlocal cached, cached_at
         if path != b"/status":
             return 404, {}
+        if cached_at is not None and 0 <= elapsed_ms(cached_at) < cache_ms:
+            return 200, cached
         result = {}
         for name, address in nodes:
             try:
-                result[name] = {"online": True, "value": read_sensor(address, name)}
+                value = read_sensor(address, name)
             except (ValueError, OSError):
-                result[name] = {"online": False}
-        return 200, {"nodes": result}
+                result[name] = {"online": False, "available": 0}
+            else:
+                result[name] = {"online": True, "available": 1, "value": value}
+        cached = {"nodes": result}
+        cached_at = now_ms()
+        return 200, cached
 
     return handler
 

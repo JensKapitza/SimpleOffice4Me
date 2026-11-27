@@ -54,12 +54,21 @@
   {% endif %}
   <details class="mb-4">
     <summary>Zwei WLAN-Sensoren über ein Gateway verbinden</summary>
-    <p>Zwei Pico-W-Knoten liefern Messwerte an einen dritten Pico W. SimpleOffice liest das Gateway über zwei HTTP/JSON-Kanäle aus.</p>
+    <p>Zwei Pico-W-Knoten liefern Messwerte an einen dritten Pico W. SimpleOffice liest Werte und auf Wunsch die Erreichbarkeit über dieselbe Gateway-URL aus.</p>
     <ol>
       <li>Die Sensorbeispiele aus <code>examples/serial/pico_gateway</code> auf die drei Boards übertragen.</li>
       <li>In den Worker-Einstellungen nur die IP des Gateways zulassen.</li>
       <li>Dieselbe Gateway-URL mit <code>/status</code> in beiden Quellen eintragen. Für Kanal A den Pfad <code>nodes.room_a.value</code>, für B <code>nodes.room_b.value</code> verwenden.</li>
+      <li>Für den Verfügbarkeitsverlauf die optionalen Pfade als eigene Kanäle eintragen. <code>1</code> bedeutet erreichbar, <code>0</code> nicht erreichbar. Der eigentliche Messwert fehlt bei einem Ausfall.</li>
     </ol>
+    <div class="table-responsive"><table class="table table-sm">
+      <caption>JSON-Pfade für Messwerte und Verfügbarkeit</caption>
+      <thead><tr><th scope="col">Knoten</th><th scope="col">Messwert</th><th scope="col">Verfügbarkeit</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">A</th><td><code>nodes.room_a.value</code></td><td><code>nodes.room_a.available</code></td></tr>
+        <tr><th scope="row">B</th><td><code>nodes.room_b.value</code></td><td><code>nodes.room_b.available</code></td></tr>
+      </tbody>
+    </table></div>
   </details>
   <section aria-labelledby="local-print-scan">
     <h2 id="local-print-scan" class="h5">Drucker und Dokumentenscanner</h2>
