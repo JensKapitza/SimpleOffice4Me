@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.object_vision import analyze_ocr, ocr_availability
@@ -12,7 +11,7 @@ class OcrHintTests(unittest.TestCase):
     def test_missing_rapidocr_names_pip_extra(self):
         with patch("app.object_vision._RAPID_OCR_ENGINE", None), patch(
             "app.object_vision.find_spec", return_value=None,
-        ):
+        ), patch("app.optional_ocr_runtime.managed_python", return_value=None):
             result = analyze_ocr(Path("unused.jpg"), fallback_tesseract=False)
         self.assertEqual("rapidocr", result["engine"])
         self.assertEqual("unavailable", result["status"])
@@ -40,25 +39,30 @@ class OcrHintTests(unittest.TestCase):
         self.assertIn("PATH", result["error"])
 
     def test_availability_reports_both_backends(self):
-        spec = SimpleNamespace(submodule_search_locations=["/x"])
         with (
-            patch("app.object_vision.find_spec", return_value=spec),
+            patch("app.optional_ocr_runtime.host_available", return_value=True),
+            patch("app.optional_ocr_runtime.managed_python") as managed_python,
             patch("app.object_vision.shutil.which", return_value="/usr/bin/tesseract"),
         ):
             self.assertEqual(
                 {"rapidocr": True, "tesseract": True}, ocr_availability()
             )
+            managed_python.assert_not_called()
+
+    def test_availability_reports_managed_ocr_without_host_models(self):
         with (
-            patch("app.object_vision.find_spec", return_value=None),
+            patch("app.optional_ocr_runtime.host_available", return_value=False),
+            patch("app.optional_ocr_runtime.managed_python", return_value=Path("/private/ocr/bin/python")),
             patch("app.object_vision.shutil.which", return_value=None),
         ):
             self.assertEqual(
-                {"rapidocr": False, "tesseract": False}, ocr_availability()
+                {"rapidocr": True, "tesseract": False}, ocr_availability()
             )
 
     def test_availability_tolerates_broken_spec(self):
         with (
-            patch("app.object_vision.find_spec", side_effect=ValueError("bad")),
+            patch("app.optional_ocr_runtime.importlib.util.find_spec", side_effect=ValueError("bad")),
+            patch("app.optional_ocr_runtime.managed_python", return_value=None),
             patch("app.object_vision.shutil.which", return_value=None),
         ):
             self.assertEqual(

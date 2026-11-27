@@ -19,7 +19,7 @@ from bs4 import BeautifulSoup
 from app import (
     app, english_voice_assets as english, kids_hand_assets, kids_piper_assets as piper,
     optional_local_setup as optional, optional_piper_runtime as piper_runtime,
-    optional_ffmpeg_runtime as ffmpeg_runtime,
+    optional_ffmpeg_runtime as ffmpeg_runtime, optional_ocr_runtime as ocr_runtime,
 )
 from app import optional_hand_game_install as hand
 from app.document_store import DocumentStore
@@ -74,6 +74,7 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
             patch("app.audio_output_engine.render_tts", side_effect=AssertionError("no audio engine in tests")),
             patch("app.private_read_aloud.private_audio_response", side_effect=AssertionError("no Reader runtime in setup")),
             patch.object(optional, "hand_override", return_value=""),
+            patch.object(ocr_runtime, "host_available", return_value=False),
         ):
             guarded.start()
             self.addCleanup(guarded.stop)
@@ -92,6 +93,7 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
                 patch.object(optional, "resolve_command", return_value=None), \
                 patch.object(piper_runtime, "install_supported", return_value=False), \
                 patch.object(ffmpeg_runtime, "install_supported", return_value=False), \
+                patch.object(ocr_runtime, "install_supported", return_value=False), \
                 patch.object(optional._WORKERS, "submit") as submit:
             inventory = optional.component_inventory(self.root)
             self.assertEqual("android-apk", inventory["runtime"])
@@ -137,7 +139,8 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
 
     def test_fresh_dashboard_tour_permissions_and_skip_are_local_and_nonblocking(self):
         with patch.object(optional, "resolve_command", return_value=None), \
-                patch.object(ffmpeg_runtime, "install_supported", return_value=True):
+                patch.object(ffmpeg_runtime, "install_supported", return_value=True), \
+                patch.object(ocr_runtime, "install_supported", return_value=True):
             self.assertEqual(app.test_client().get(SETUP).status_code, 302)
             dashboard = document(self.client.get(DASHBOARD))
             self.assertTrue(dashboard.select_one(f'#optional-setup-dashboard a[href="{SETUP}"]'))
@@ -154,6 +157,11 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
             self.assertIn("LGPL-3.0-or-later", ffmpeg_card.get_text(" "))
             self.assertIn(ffmpeg_runtime._ARCHIVE_SHA256, ffmpeg_card.get_text(" "))
             self.assertIsNotNone(ffmpeg_card.select_one('button[value="ffmpeg-runtime"]'))
+            ocr_card = document(page).select_one("#ocr-runtime")
+            self.assertIsNotNone(ocr_card)
+            self.assertIn("Apache-2.0", ocr_card.get_text(" "))
+            self.assertIn(ocr_runtime.manifest()[0].digest, ocr_card.get_text(" "))
+            self.assertIsNotNone(ocr_card.select_one('button[value="ocr-runtime"]'))
             self.assertEqual("missing", self.status("kids-hand"))
             self.assertIn(b"CC0 1.0", page.data)
             self.assertIn(b"Apache-2.0", page.data)
@@ -656,6 +664,8 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
             expected_features.add("piper-engine")
         if ffmpeg_runtime.install_supported():
             expected_features.add("ffmpeg-runtime")
+        if ocr_runtime.install_supported():
+            expected_features.add("ocr-runtime")
         self.assertEqual(expected_features, set(inventory["supported_install_features"]))
         page = document(self.client.get(SETUP))
         component_status = page.select_one("#component-manager .row[aria-label]")
@@ -676,7 +686,8 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
         self.assertTrue(any(message in follow_up.get_text(" ", strip=True) for message in (
             "Finger Magic: queued", "Fingerzauber: vorgemerkt",
         )))
-        expected_queued = (["ffmpeg-runtime"] if ffmpeg_runtime.install_supported() else []) + ["kids-hand"]
+        expected_queued = (["ffmpeg-runtime"] if ffmpeg_runtime.install_supported() else [])
+        expected_queued += (["ocr-runtime"] if ocr_runtime.install_supported() else []) + ["kids-hand"]
         self.assertEqual(expected_queued,
                          [call.args[1] for call in queue.call_args_list])
 
@@ -707,7 +718,8 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
                 self.assertEqual("configured", optional.readiness(self.root)["reader_english"])
                 expected_basics = (
                     ["piper-engine"] if piper_path is None and piper_runtime.install_supported() else []
-                ) + (["ffmpeg-runtime"] if piper_path is None and ffmpeg_runtime.install_supported() else []) + ["kids-hand"]
+                ) + (["ffmpeg-runtime"] if piper_path is None and ffmpeg_runtime.install_supported() else []) + \
+                    (["ocr-runtime"] if ocr_runtime.install_supported() else []) + ["kids-hand"]
                 self.assertEqual(303, submit(page.select_one('form[action$="/install-all"]')).status_code)
                 self.assertEqual(expected_basics,
                                  [call.args[1] for call in queue.call_args_list])
@@ -724,6 +736,28 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
             self.assertEqual("unsupported", optional.queue(self.root, "piper-engine"))
         self.assertFalse(optional._job_file(self.root).exists())
         submit.assert_not_called()
+
+    def test_ocr_queue_refuses_unsupported_platform_and_preserves_host_install(self):
+        with patch.object(ocr_runtime, "host_available", return_value=False), \
+                patch.object(ocr_runtime, "install_supported", return_value=False), \
+                patch.object(optional._WORKERS, "submit") as submit:
+            self.assertEqual("unsupported", optional.queue(self.root, "ocr-runtime"))
+        self.assertFalse(optional._job_file(self.root).exists())
+        submit.assert_not_called()
+        with patch.object(ocr_runtime, "host_available", return_value=True), \
+                patch.object(ocr_runtime, "install_supported", return_value=False):
+            self.assertEqual("ready", optional.queue(self.root, "ocr-runtime"))
+
+    def test_ocr_inventory_offers_managed_runtime_when_host_models_are_missing(self):
+        with patch.object(optional, "resolve_command", return_value=None), \
+                patch.object(optional.importlib.util, "find_spec", return_value=object()), \
+                patch.object(ocr_runtime, "host_available", return_value=False), \
+                patch.object(ocr_runtime, "ready", return_value=False), \
+                patch.object(ocr_runtime, "install_supported", return_value=True):
+            item = next(row for row in optional.component_inventory(self.root)["components"]
+                        if row["id"] == "rapidocr-onnx")
+        self.assertEqual("partial", item["status"])
+        self.assertEqual(optional.OCR_RUNTIME, item["install_feature"])
 
     def test_piper_inventory_distinguishes_unsupported_and_cancelled_states(self):
         with patch.object(optional, "resolve_command", return_value=None), patch.object(
