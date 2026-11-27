@@ -11,8 +11,6 @@ import android.provider.CalendarContract;
 import android.provider.CalendarContract.Calendars;
 import android.provider.CalendarContract.Events;
 
-import org.json.JSONArray;
-
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -31,8 +29,7 @@ final class AndroidManagedCalendar {
      * Call on a worker after granting the calendar permissions. Validates the entire page
      * before writing, and sends one non-yielding transaction to CalendarProvider.
      */
-    static synchronized int sync(Context context, JSONArray rows) throws Exception {
-        List<AndroidManagedCalendarRows.Event> events = AndroidManagedCalendarRows.parse(rows);
+    static synchronized int sync(Context context, List<AndroidManagedCalendarRows.Event> events) throws Exception {
         if (events.isEmpty()) return 0;
 
         Account account = AndroidManagedSyncAccount.require(context);

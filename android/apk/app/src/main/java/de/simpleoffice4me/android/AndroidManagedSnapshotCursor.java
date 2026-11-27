@@ -4,7 +4,7 @@ import java.io.IOException;
 import java.util.regex.Pattern;
 
 /** Validate the whole read-only pagination contract before any Android write. */
-final class AndroidManagedContactCursor {
+final class AndroidManagedSnapshotCursor {
     static final int PAGE_SIZE = 25;
     static final int MAX_ROWS = 1000;
     private static final Pattern HEX = Pattern.compile("[a-f0-9]{64}");
@@ -23,7 +23,7 @@ final class AndroidManagedContactCursor {
                 || size < 0 || size > PAGE_SIZE || offset + size > MAX_ROWS
                 || (offset > 0 && size == 0)
                 || (next != null && (size != PAGE_SIZE || next != offset + size || next >= MAX_ROWS))) {
-            throw new IOException("Inconsistent contact export page");
+            throw new IOException("Inconsistent managed export page");
         }
         principal = receivedPrincipal;
         revision = receivedRevision;

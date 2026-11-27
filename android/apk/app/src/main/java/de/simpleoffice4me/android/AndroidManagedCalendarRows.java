@@ -75,6 +75,36 @@ final class AndroidManagedCalendarRows {
         return events;
     }
 
+    static List<List<Event>> prepare(List<JSONArray> pages) throws JSONException {
+        List<List<Event>> validated = new ArrayList<>();
+        for (JSONArray page : pages) validated.add(parse(page));
+        validateSnapshot(validated);
+        return validated;
+    }
+
+    static void validateSnapshot(List<List<Event>> pages) {
+        Map<Key, Event> seen = new HashMap<>();
+        Map<String, String> names = new HashMap<>();
+        Map<String, String> zones = new HashMap<>();
+        for (List<Event> events : pages) {
+            for (Event event : events) {
+                String previousName = names.putIfAbsent(event.calendarId(), event.calendarName());
+                String previousZone = zones.putIfAbsent(event.calendarId(), event.calendarZone());
+                if ((previousName != null && !previousName.equals(event.calendarName()))
+                        || (previousZone != null && !previousZone.equals(event.calendarZone()))
+                        || seen.putIfAbsent(event.key(), event) != null) {
+                    throw new IllegalArgumentException("Conflicting managed calendar snapshot");
+                }
+                if (event.originalId().isEmpty()) continue;
+                Event master = seen.get(event.originalKey());
+                if (master == null || !master.repeats()
+                        || (master.allDay() && !midnight(event.originalStart()))) {
+                    throw new IllegalArgumentException("Invalid ordering of calendar exceptions");
+                }
+            }
+        }
+    }
+
     private static Event event(JSONObject row) {
         String id = id(row, "id", true);
         String calendarId = id(row, "calendar_id", true);

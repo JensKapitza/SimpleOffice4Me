@@ -31,12 +31,7 @@ def conflicting_birthdays(item, visible):
     if not normal_birthday(source_date):
         return []
 
-    def tokens(f):
-        email = str(f.get("email", "")).strip().casefold()
-        phone = re.sub(r"[^0-9]", "", str(f.get("phone", "")))
-        return email if "@" in email else "", phone if len(phone) >= 7 else ""
-
-    email, phone = tokens(fields)
+    email, phone = _tokens(fields)
     if not (email or phone):
         return []
     result = []
@@ -44,7 +39,34 @@ def conflicting_birthdays(item, visible):
         if other["contact_id"] == item["contact_id"]:
             continue
         f = other.get("fields", {})
-        peer_mail, peer_phone = tokens(f)
+        peer_mail, peer_phone = _tokens(f)
         if ((email and email == peer_mail) or (phone and phone == peer_phone)) and birthday_conflict(source_date, f.get("birthday")):
             result.append(other)
     return result
+
+
+def _tokens(fields):
+    email = str(fields.get("email", "")).strip().casefold()
+    phone = re.sub(r"[^0-9]", "", str(fields.get("phone", "")))
+    return email if "@" in email else "", phone if len(phone) >= 7 else ""
+
+
+def birthday_warning_ids(visible):
+    """Compute the same review hints in bounded linear passes for a large export."""
+    groups = {}
+    contacts = []
+    for item in visible:
+        fields = item["fields"]
+        value = normal_birthday(fields.get("birthday"))
+        if not value:
+            continue
+        keys = [(i, token) for i, token in enumerate(_tokens(fields)) if token]
+        known = not value.startswith("--")
+        contacts.append((item["contact_id"], keys, known))
+        for key in keys:
+            days, dated = groups.setdefault(key, (set(), set()))
+            days.add(value[-5:])
+            if known:
+                dated.add(value)
+    return {contact_id for contact_id, keys, known in contacts
+            if any(len(groups[key][0]) > 1 or (known and len(groups[key][1]) > 1) for key in keys)}

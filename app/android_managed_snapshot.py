@@ -8,15 +8,18 @@ from zoneinfo import ZoneInfo
 
 from flask import current_app
 from .calendar_collections import CalendarCollections
-from .contact_birthdays import conflicting_birthdays, normal_birthday
+from .contact_birthdays import birthday_warning_ids, normal_birthday
 from .contact_store import ContactStore
 
 MAX_ROWS = 100
 CONTACT_PAGE_SIZE = 25
 MAX_CONTACT_ROWS = 1000
+CALENDAR_PAGE_SIZE = 25
+MAX_CALENDAR_ROWS = 1000
 BIRTHDAYS = "simpleoffice:birthdays"
 _ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 _CONTACT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._~-]{0,127}")
+_EVENT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:@+~-]{0,159}")
 
 
 def principal_id(user):
@@ -111,16 +114,16 @@ def event_rows(calendar, event):
                "cancelled": item.get("status") == "cancelled"}
 
 
-def _birthday_rows(root, actor):
-    projected = contact_rows(root, actor)
-    visible = [{"contact_id": row["id"], "fields": row} for row in projected]
-    for row, contact in zip(projected, visible):
+def _birthday_rows(root, actor, contact_limit):
+    projected = contact_rows(root, actor, limit=contact_limit)
+    warnings = birthday_warning_ids([{"contact_id": row["id"], "fields": row} for row in projected])
+    for row in projected:
         birthday = row["birthday"]
         if not birthday:
             continue
         # 2000 anchors yearly recurrence (including Feb 29) but is not a birth year.
         base = "2000-" + birthday[-5:]
-        warning = bool(conflicting_birthdays(contact, visible))
+        warning = row["id"] in warnings
         title = ("! Geburtstag prüfen: " if warning else "Geburtstag: ") + row["name"]
         yield from event_rows({"calendar_id": BIRTHDAYS, "name": "Geburtstage", "timezone": "UTC"},
                              {"event_id": sha256(("birthday|" + row["id"]).encode()).hexdigest(),
@@ -128,7 +131,7 @@ def _birthday_rows(root, actor):
                               "recurrence": {"rrule": "FREQ=YEARLY"}})
 
 
-def calendar_rows(root, actor, selected, birthdays_allowed):
+def calendar_rows(root, actor, selected, birthdays_allowed, *, limit=MAX_ROWS):
     if (not 1 <= len(selected) <= 8 or any(i != BIRTHDAYS and not _ID.fullmatch(i) for i in selected)
             or len(set(selected)) != len(selected) or (BIRTHDAYS in selected and not birthdays_allowed)):
         raise ValueError("invalid calendar selection")
@@ -136,13 +139,36 @@ def calendar_rows(root, actor, selected, birthdays_allowed):
     rows = []
     for calendar_id in selected:
         if calendar_id == BIRTHDAYS:
-            rows.extend(_birthday_rows(root, actor))
+            rows.extend(_birthday_rows(root, actor, limit))
         else:
             calendar = store.get(calendar_id, actor)
             for event in store.resource_events(calendar_id, actor):
                 rows.extend(event_rows(calendar, event))
-                if len(rows) > MAX_ROWS:
+                if len(rows) > limit:
                     raise OverflowError("too many event rows")
-        if len(rows) > MAX_ROWS:
+        if len(rows) > limit:
             raise OverflowError("too many event rows")
     return rows
+
+
+def calendar_page(root, actor, principal, selected, birthdays_allowed, offset, revision):
+    """Bind pages to account, ordered calendar choices and a complete stable snapshot."""
+    if (type(offset) is not int or not 0 <= offset < MAX_CALENDAR_ROWS
+            or offset % CALENDAR_PAGE_SIZE or type(revision) is not str
+            or (offset == 0 and revision) or (offset and not re.fullmatch(r"[a-f0-9]{64}", revision))):
+        raise ValueError("invalid calendar snapshot pagination")
+    rows = calendar_rows(root, actor, selected, birthdays_allowed, limit=MAX_CALENDAR_ROWS)
+    # Authoritative masters precede their exceptions, including across page boundaries.
+    rows.sort(key=lambda row: (row["calendar_id"], bool(row.get("original_id")), row["id"]))
+    if any(not _EVENT_ID.fullmatch(row["id"]) for row in rows) or len({
+        (row["calendar_id"], row["id"]) for row in rows
+    }) != len(rows):
+        raise ValueError("ambiguous calendar event identity")
+    encoded = json.dumps(["calendar-v1", selected, rows], sort_keys=True, ensure_ascii=False,
+                         separators=(",", ":")).encode()
+    tag = hmac.digest(bytes.fromhex(principal), encoded, "sha256").hex()
+    if offset and (not hmac.compare_digest(revision, tag) or offset >= len(rows)):
+        raise SnapshotChanged("calendar snapshot changed")
+    end = offset + CALENDAR_PAGE_SIZE
+    return {"principal": principal, "rows": rows[offset:end],
+            "revision": tag, "next_offset": end if end < len(rows) else None}

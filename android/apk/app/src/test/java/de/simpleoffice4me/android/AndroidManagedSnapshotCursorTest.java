@@ -6,12 +6,12 @@ import java.io.IOException;
 
 import static org.junit.Assert.*;
 
-public class AndroidManagedContactCursorTest {
+public class AndroidManagedSnapshotCursorTest {
     private static final String OWNER = "a".repeat(64);
     private static final String REV = "b".repeat(64);
 
     @Test public void acceptsAFullThousandRowsWithoutOffsetReplay() throws IOException {
-        AndroidManagedContactCursor cursor = new AndroidManagedContactCursor();
+        AndroidManagedSnapshotCursor cursor = new AndroidManagedSnapshotCursor();
         assertEquals("", cursor.revision());
         for (int page = 0; page < 40; page++) {
             assertEquals(page * 25, cursor.offset());
@@ -22,7 +22,7 @@ public class AndroidManagedContactCursorTest {
     }
 
     @Test public void rejectsChangedRevisionDifferentAccountAndSkippedOffsets() throws IOException {
-        AndroidManagedContactCursor cursor = new AndroidManagedContactCursor();
+        AndroidManagedSnapshotCursor cursor = new AndroidManagedSnapshotCursor();
         assertFalse(cursor.accept(OWNER, REV, 25, 25));
         assertThrows(IOException.class, () -> cursor.accept(OWNER, "c".repeat(64), 25, 50));
         assertThrows(IOException.class, () -> cursor.accept("c".repeat(64), REV, 25, 50));
@@ -32,7 +32,7 @@ public class AndroidManagedContactCursorTest {
     }
 
     @Test public void acceptsAnEmptyExportWithoutInventingAContinuation() throws IOException {
-        AndroidManagedContactCursor cursor = new AndroidManagedContactCursor();
+        AndroidManagedSnapshotCursor cursor = new AndroidManagedSnapshotCursor();
         assertThrows(IOException.class, () -> cursor.accept(OWNER, REV, 0, 25));
         assertTrue(cursor.accept(OWNER, REV, 0, null));
     }

@@ -36,11 +36,18 @@ gestartet werden. Ein Abbruch nach Beginn der Android-Schreibvorgänge kann
 bereits übernommene Kontakte hinterlassen; ein erneuter Abgleich verwendet
 deren stabile IDs. Andere Konten werden nicht bearbeitet.
 
+Die ausgewählten Kalender (einschließlich Geburtstage) werden ebenfalls in
+Seiten zu 25 geladen, insgesamt bis zu 1.000 Termine und Serienausnahmen pro
+Abgleich. Die Revision umfasst die Kalenderwahl und Nutzdaten. Geänderte Daten
+oder Rechte beim Laden beenden die Übernahme vor Android-Schreibvorgängen.
+Serien werden vor ihren Ausnahmen vollständig geprüft und dann in kleinen
+Android-Transaktionen übernommen. Bei Abbruch nach Beginn können fertige
+Transaktionen stehen bleiben; „Abgleichen“ setzt mit denselben IDs erneut an.
+Prüfe bei mehr als 1.000 Zeilen weniger Kalender pro Abgleich.
+
 Noch nicht abgedeckt: automatischer Hintergrundabgleich und Entfernen nicht
-mehr gelieferter Kontakte, Termine oder Serienausnahmen. Kalender inklusive
-Geburtstagskalender bleiben in diesem Schritt bei der bestehenden 100er-Grenze.
-Unvollständige oder zu große Antworten führen nicht zu automatischen
-Löschungen. Kein Rückschreiben
+mehr gelieferter Kontakte, Termine oder Serienausnahmen. Unvollständige oder
+zu große Antworten führen nicht zu automatischen Löschungen. Kein Rückschreiben
 und keine Änderungen an fremden Android-Konten. Die Geräteabnahme ist erst
 erfolgreich, wenn die normalen Kontakt- und Kalender-Apps die Daten anzeigen,
 nicht bereits wenn serverseitige Tests grün sind.

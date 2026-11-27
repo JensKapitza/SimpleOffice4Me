@@ -142,3 +142,69 @@ class AndroidManagedSnapshotTests(fixture.AndroidDeviceSourceTests):
         result = self._contact_page(refreshed["next_offset"], refreshed["revision"])
         self.assertEqual(200, result.status_code)
         self.assertEqual(2, len(result.get_json()["rows"]))
+
+    def _calendar_page(self, selected, offset=0, revision="", *, csrf=True):
+        headers = {**APK, **self._csrf_headers_apk()} if csrf else APK
+        return self.mobile.post(
+            PAGE + "managed/calendar", base_url=ORIGIN, headers=headers,
+            json={"calendar_ids": selected, "offset": offset, "revision": revision},
+        )
+
+    def test_paged_calendar_preserves_series_and_rejects_changed_selection_or_content(self):
+        store = CalendarCollections(app.config["DOCUMENT_ROOT"])
+        store.create("Second", "owner", calendar_id="secondary")
+        hidden = store.create("Hidden", "other", calendar_id="hidden")
+        store.put_event("default", "series.ics", _parse_ics(ICS), "owner")
+        for n in range(129):
+            store.put_event("default", f"event{n}.ics", {"uid": f"synthetic-{n}", "title": f"Synthetic {n}", "start": "2026-12-24"}, "owner")
+        self.assertEqual("hidden", hidden["calendar_id"])
+        self.assertEqual(422, self._calendar_page(["hidden"]).status_code)
+        self.assertEqual(413, self.snapshot("calendar", ["default"]).status_code)
+        offset, revision, rows = 0, "", []
+        while offset is not None:
+            result = self._calendar_page(["default"], offset, revision)
+            self.assertEqual(200, result.status_code, result.data[:200])
+            self.assertEqual("private, no-store", result.headers["Cache-Control"])
+            page = result.get_json()
+            offset, revision = page["next_offset"], page["revision"]
+            rows.extend(page["rows"])
+        self.assertEqual(131, len(rows))
+        self.assertNotIn("original_id", rows[-2])
+        self.assertEqual("Verschoben", rows[-1]["title"])
+        self.assertTrue(any(row["id"] == rows[-1]["original_id"] for row in rows[:-1]))
+        self.assertEqual(403, self._calendar_page(["default"], 25, revision, csrf=False).status_code)
+        self.assertEqual(409, self._calendar_page(["default", "secondary"], 25, revision).status_code)
+        store.put_event("default", "later.ics", {"uid": "late-fixture", "title": "Updated snapshot", "start": "2026-12-25"}, "owner")
+        self.assertEqual(409, self._calendar_page(["default"], 25, revision).status_code)
+
+    def test_bulk_birthday_warning_matches_per_contact_hint(self):
+        from app.contact_birthdays import birthday_warning_ids
+        visible = [
+            {"contact_id": name, "fields": {"email": address, "birthday": when, "phone": phone}}
+            for name, address, when, phone in (
+                ("first", "a@example.test", "1980-02-01", ""),
+                ("next", "a@example.test", "1981-02-01", ""),
+                ("partial", "a@example.test", "--02-01", ""),
+                ("conflicting-phone", "b@example.test", "--02-02", "12345678"),
+                ("other-phone", "c@example.test", "--02-01", "12345678"),
+                ("unrelated", "", "1980-02-01", ""),
+            )
+        ]
+        self.assertEqual({"first", "next", "conflicting-phone", "other-phone"}, birthday_warning_ids(visible))
+        self.assertEqual({c["contact_id"] for c in visible if conflicting_birthdays(c, visible)},
+                         birthday_warning_ids(visible))
+
+    def test_paged_birthdays_are_not_truncated_at_the_old_contact_limit(self):
+        store = ContactStore(app.config["DOCUMENT_ROOT"])
+        selection = ["simpleoffice:birthdays"]
+        for n in range(101):
+            store.upsert({"display_name": f"Birthday {n}", "birthday": "--02-29"}, "owner", f"birthday-{n:03}")
+        first = self._calendar_page(selection)
+        self.assertEqual(200, first.status_code)
+        revision = first.get_json()["revision"]
+        last = self._calendar_page(selection, 100, revision)
+        self.assertEqual(200, last.status_code)
+        row, = last.get_json()["rows"]
+        self.assertEqual("FREQ=YEARLY", row["rrule"])
+        self.assertEqual("2000-02-29", datetime.fromtimestamp(row["start_ms"] / 1000, timezone.utc).date().isoformat())
+        self.assertIsNone(last.get_json()["next_offset"])

@@ -5,7 +5,7 @@ from flask import Blueprint, abort, current_app, g, jsonify, make_response, rend
 from .access_control import has_feature
 from .auth import login_required
 from .calendar_collections import CalendarCollections
-from .android_managed_snapshot import BIRTHDAYS, SnapshotChanged, calendar_rows, contact_page, contact_rows, principal_id
+from .android_managed_snapshot import BIRTHDAYS, SnapshotChanged, calendar_page, calendar_rows, contact_page, contact_rows, principal_id
 from .google_drive_admin import ANDROID_USER_AGENT_TOKEN
 
 bp = Blueprint("android_device_sources", __name__, url_prefix="/android/device-sources")
@@ -81,7 +81,7 @@ def managed_snapshot(source):
     data = request.get_json(silent=True)
     if type(data) is not dict or type(data.get("calendar_ids")) is not list:
         abort(400)
-    paged = source == "contacts" and set(data) == {"calendar_ids", "offset", "revision"}
+    paged = set(data) == {"calendar_ids", "offset", "revision"}
     if not paged and set(data) != {"calendar_ids"}:
         abort(400)
     selected = data["calendar_ids"]
@@ -91,8 +91,11 @@ def managed_snapshot(source):
     actor = str(g.user["username"])
     principal = principal_id(g.user)
     try:
-        if paged:
+        if paged and source == "contacts":
             result = contact_page(root, actor, principal, data["offset"], data["revision"])
+        elif paged:
+            result = calendar_page(root, actor, principal, selected, has_feature(g.user, "contacts"),
+                                   data["offset"], data["revision"])
         else:
             rows = (contact_rows(root, actor) if source == "contacts" else
                     calendar_rows(root, actor, selected, has_feature(g.user, "contacts")))

@@ -15,6 +15,8 @@ import java.net.HttpURLConnection;
 import java.net.Proxy;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.BooleanSupplier;
@@ -35,6 +37,7 @@ final class AndroidManagedSync {
 
     private record Request(String source, String csrf, String userAgent, String cookie,
                            JSONArray calendarIds, long generation) {}
+    private record Snapshot(String principal, List<JSONArray> pages) {}
 
     AndroidManagedSync(Activity activity, BooleanSupplier currentPage) {
         this.activity = activity;
@@ -121,26 +124,18 @@ final class AndroidManagedSync {
             String text;
             try {
                 boolean contacts = "contacts".equals(request.source);
-                JSONObject snapshot = contacts ? fetchAllContacts(request) : fetch(request, -1, "");
-                JSONArray rows = snapshot.getJSONArray("rows");
-                if ((!contacts && rows.length() > 100) || !canContinue(request))
-                    throw new IOException("Sync cancelled or too large");
-                int count;
-                if (rows.length() == 0) count = 0;
-                else {
-                    AndroidManagedSyncAccount.bind(snapshot.getString("principal"));
-                    count = contacts
-                            ? AndroidManagedContacts.sync(activity, rows, () -> canContinue(request))
-                            : AndroidManagedCalendar.sync(activity, rows);
-                }
+                Snapshot snapshot = fetchAll(request);
+                if (!canContinue(request)) throw new IOException("Sync cancelled");
+                AndroidManagedSyncAccount.bind(snapshot.principal());
+                int count = contacts ? syncContacts(request, snapshot.pages()) : syncCalendar(request, snapshot.pages());
                 text = count + " Einträge geprüft oder übernommen. Bestehende Einträge anderer Android-Konten bleiben unberührt.";
             } catch (SnapshotChanged changed) {
-                text = "Die Kontakte haben sich beim Laden geändert. Bitte starte den Abgleich erneut. "
+                text = "Die Auswahl hat sich beim Laden geändert. Bitte starte den Abgleich erneut. "
                         + "Diese Übertragung hat noch nichts auf Android geschrieben.";
             } catch (SnapshotTooLarge tooLarge) {
                 text = "contacts".equals(request.source)
                         ? "Dieses Adressbuch enthält mehr als 1.000 übertragbare Kontakte."
-                        : "Die Auswahl enthält mehr als 100 Termine oder Serienausnahmen. Wähle weniger Kalender.";
+                        : "Die Auswahl enthält mehr als 1.000 Termine oder Serienausnahmen. Wähle weniger Kalender.";
             } catch (Exception failure) {
                 text = "Abgleich nicht vollständig. Prüfe Anmeldung, Android-Berechtigungen und Auswahl. Erneutes Abgleichen ist möglich.";
             } finally {
@@ -158,20 +153,38 @@ final class AndroidManagedSync {
         return !Thread.currentThread().isInterrupted() && valid(request) && permitted(request.source);
     }
 
-    private JSONObject fetchAllContacts(Request request) throws Exception {
-        AndroidManagedContactCursor cursor = new AndroidManagedContactCursor();
+    private int syncContacts(Request request, List<JSONArray> pages) throws Exception {
         JSONArray combined = new JSONArray();
-        for (int pageIndex = 0; pageIndex < AndroidManagedContactCursor.MAX_ROWS / AndroidManagedContactCursor.PAGE_SIZE; pageIndex++) {
+        for (JSONArray rows : pages) {
+            for (int i = 0; i < rows.length(); i++) combined.put(rows.getJSONObject(i));
+        }
+        return combined.length() == 0 ? 0 : AndroidManagedContacts.sync(activity, combined, () -> canContinue(request));
+    }
+
+    private int syncCalendar(Request request, List<JSONArray> pages) throws Exception {
+        List<List<AndroidManagedCalendarRows.Event>> batches = AndroidManagedCalendarRows.prepare(pages);
+        int count = 0;
+        for (List<AndroidManagedCalendarRows.Event> batch : batches) {
+            if (!canContinue(request)) throw new IOException("Sync cancelled");
+            count += AndroidManagedCalendar.sync(activity, batch);
+        }
+        return count;
+    }
+
+    private Snapshot fetchAll(Request request) throws Exception {
+        AndroidManagedSnapshotCursor cursor = new AndroidManagedSnapshotCursor();
+        List<JSONArray> pages = new ArrayList<>();
+        for (int pageIndex = 0; pageIndex < AndroidManagedSnapshotCursor.MAX_ROWS / AndroidManagedSnapshotCursor.PAGE_SIZE; pageIndex++) {
             if (!canContinue(request)) throw new IOException("Sync cancelled");
             JSONObject page = fetch(request, cursor.offset(), cursor.revision());
             JSONArray rows = page.getJSONArray("rows");
             Object nextValue = page.get("next_offset");
             Integer next = nextValue == JSONObject.NULL ? null : (Integer) nextValue;
             boolean done = cursor.accept(page.getString("principal"), page.getString("revision"), rows.length(), next);
-            for (int i = 0; i < rows.length(); i++) combined.put(rows.getJSONObject(i));
-            if (done) return new JSONObject().put("principal", cursor.principal()).put("rows", combined);
+            pages.add(rows);
+            if (done) return new Snapshot(cursor.principal(), pages);
         }
-        throw new IOException("Contact export did not end");
+        throw new IOException("Managed export did not end");
     }
 
     private static final class SnapshotChanged extends IOException {}
@@ -181,8 +194,8 @@ final class AndroidManagedSync {
         URL endpoint = new URL(AndroidDeviceSourcePreview.PAGE + "managed/" + request.source);
         HttpURLConnection connection = (HttpURLConnection) endpoint.openConnection(Proxy.NO_PROXY);
         try {
-            JSONObject payload = new JSONObject().put("calendar_ids", request.calendarIds);
-            if (offset >= 0) payload.put("offset", offset).put("revision", revision);
+            JSONObject payload = new JSONObject().put("calendar_ids", request.calendarIds)
+                    .put("offset", offset).put("revision", revision);
             byte[] body = payload.toString().getBytes(StandardCharsets.UTF_8);
             connection.setRequestMethod("POST");
             connection.setDoOutput(true);
@@ -197,7 +210,7 @@ final class AndroidManagedSync {
             connection.setRequestProperty("X-CSRF-Token", request.csrf);
             try (java.io.OutputStream output = connection.getOutputStream()) { output.write(body); }
             int status = connection.getResponseCode();
-            if (status == 409 && offset >= 0) throw new SnapshotChanged();
+            if (status == 409) throw new SnapshotChanged();
             if (status == 413) throw new SnapshotTooLarge();
             if (status != 200) throw new IOException("Snapshot unavailable");
             try (InputStream input = connection.getInputStream(); ByteArrayOutputStream bytes = new ByteArrayOutputStream()) {

@@ -56,7 +56,7 @@ final class AndroidManagedContacts {
                 || context.checkSelfPermission(Manifest.permission.WRITE_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
             throw new SecurityException("Android contacts permission is required");
         }
-        if (rows.length() > AndroidManagedContactCursor.MAX_ROWS) {
+        if (rows.length() > AndroidManagedSnapshotCursor.MAX_ROWS) {
             throw new IllegalArgumentException("Too many contacts in one export");
         }
 
