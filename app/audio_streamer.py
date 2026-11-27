@@ -95,8 +95,9 @@ def _rtp_target(host: str, port: int) -> str:
     return f"rtp://{formatted_host}:{port}?pkt_size=1200"
 
 
-def sender_command(*, source: str, backend: str, destinations: list[tuple[str, int]], bitrate_kbps: int = 64) -> list[str]:
-    ffmpeg = resolve_command("ffmpeg")
+def sender_command(*, source: str, backend: str, destinations: list[tuple[str, int]], bitrate_kbps: int = 64,
+                   document_root: str | Path | None = None) -> list[str]:
+    ffmpeg = resolve_command("ffmpeg", document_root)
     if not ffmpeg:
         raise RuntimeError("ffmpeg ist nicht installiert")
     backend = str(backend or "pulse").strip().lower()
@@ -136,8 +137,9 @@ def receiver_sdp(port: int) -> str:
     )
 
 
-def decoder_command(sdp_path: str | Path, bind: str = "127.0.0.1") -> list[str]:
-    ffmpeg = resolve_command("ffmpeg")
+def decoder_command(sdp_path: str | Path, bind: str = "127.0.0.1",
+                    document_root: str | Path | None = None) -> list[str]:
+    ffmpeg = resolve_command("ffmpeg", document_root)
     if not ffmpeg:
         raise RuntimeError("ffmpeg ist nicht installiert")
     return [
@@ -158,23 +160,23 @@ def paplay_command(device: str = "") -> list[str]:
     return command + ["--raw", "--rate=48000", "--channels=2", "--format=s16le"]
 
 
-def receiver_playback_command(device: str = "") -> list[str]:
+def receiver_playback_command(device: str = "", document_root: str | Path | None = None) -> list[str]:
     """Use the existing PCM fanout; Windows supports the system output only."""
     if platform.system() != "Windows":
         return paplay_command(device)
     if device not in {"", "default"}:
         raise ValueError("Windows-Receiver unterstützt nur den Systemstandard-Ausgang")
-    ffplay = resolve_command("ffplay")
+    ffplay = resolve_command("ffplay", document_root)
     if not ffplay:
         raise RuntimeError("FFplay fehlt; Windows-Wiedergabe ist nicht verfügbar")
     return [ffplay, "-nodisp", "-autoexit", "-loglevel", "error", "-f", "s16le",
             "-ar", "48000", "-ch_layout", "stereo", "-i", "pipe:0"]
 
 
-def _receiver_preflight(clean):
-    decoder_command(Path("stream.sdp"), clean["bind"] or auto_sip_bind_host())
+def _receiver_preflight(clean, document_root=None):
+    decoder_command(Path("stream.sdp"), clean["bind"] or auto_sip_bind_host(), document_root)
     for device in clean["speaker_devices"]:
-        receiver_playback_command(device)
+        receiver_playback_command(device, document_root)
     if clean["virtual_microphone"] and platform.system() == "Windows":
         raise ValueError("Virtuelle Mikrofone sind unter Windows nicht unterstützt")
     if clean["virtual_microphone"]:
@@ -227,10 +229,12 @@ class SenderSession:
 
 
 class ReceiverSession:
-    def __init__(self, port: int, outputs: list[str], virtual_sink: str = "", bind: str = ""):
+    def __init__(self, port: int, outputs: list[str], virtual_sink: str = "", bind: str = "",
+                 document_root: str | Path | None = None):
         self.port = _port(port)
         self.outputs = outputs
         self.virtual_sink = virtual_sink
+        self.document_root = document_root
         self.bind = bind or auto_sip_bind_host()
         address = ipaddress.ip_address(self.bind)
         if address.version != 4 or address.is_unspecified or address.is_multicast:
@@ -255,7 +259,7 @@ class ReceiverSession:
             if not devices:
                 raise ValueError("Mindestens Lautsprecher oder virtuelles Mikrofon aktivieren")
             self.decoder = subprocess.Popen(
-                decoder_command(self.sdp_path, self.bind),
+                decoder_command(self.sdp_path, self.bind, self.document_root),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
             )
@@ -263,7 +267,7 @@ class ReceiverSession:
             for device in devices:
                 self.players.append(
                     subprocess.Popen(
-                        receiver_playback_command(device),
+                        receiver_playback_command(device, self.document_root),
                         stdin=subprocess.PIPE,
                         stderr=subprocess.DEVNULL,
                     )
@@ -393,6 +397,10 @@ class LiveAudioManager:
         self.retry_limits = {"sender": 3, "receiver": 3}
         self.monitor_stop = threading.Event()
         self.monitor_thread = None
+        self.document_root: str | Path | None = None
+
+    def set_document_root(self, document_root: str | Path) -> None:
+        self.document_root = Path(document_root).expanduser().resolve()
 
     def _ensure_monitor(self):
         with _SESSION_LOCK:
@@ -429,12 +437,20 @@ class LiveAudioManager:
             raise ValueError("Mindestens einen Ausgang oder virtuelles Mikrofon wählen")
         arguments = {key: item for key, item in value.items() if key not in {"enabled", "autostart", "retry_limit"}}
         try:
+            try:
+                from flask import current_app
+                configured_root = current_app.config.get("DOCUMENT_ROOT")
+                if configured_root:
+                    self.set_document_root(configured_root)
+            except (ImportError, RuntimeError, OSError, ValueError):
+                pass
             # Reject unsupported options/missing tools before persisting or stopping.
             if service == "sender":
                 sender_command(source=value["source"], backend=value["backend"],
-                               destinations=normalize_destinations(value["destinations"]), bitrate_kbps=value["bitrate_kbps"])
+                               destinations=normalize_destinations(value["destinations"]),
+                               bitrate_kbps=value["bitrate_kbps"], document_root=self.document_root)
             else:
-                _receiver_preflight(value)
+                _receiver_preflight(value, self.document_root)
             settings(service, value)
             self.retry_limits[service] = value["retry_limit"]
             return getattr(self, "start_" + service)(**arguments, _restart=restart)
@@ -459,7 +475,8 @@ class LiveAudioManager:
             if not _restart and self.requested["sender"] == request and self.sender and self.sender.process.poll() is None:
                 return self.status()["sender"]
             # Build and validate before stopping a healthy stream.
-            command = sender_command(source=clean["source"], backend=clean["backend"], destinations=targets, bitrate_kbps=clean["bitrate_kbps"])
+            command = sender_command(source=clean["source"], backend=clean["backend"], destinations=targets,
+                                     bitrate_kbps=clean["bitrate_kbps"], document_root=self.document_root)
             self.stop_sender(_clear=False)
             self.requested["sender"] = request
             state = self.states["sender"]
@@ -500,7 +517,7 @@ class LiveAudioManager:
         with _SESSION_LOCK:
             if not _restart and self.requested["receiver"] == request and self._receiver_alive():
                 return self.status()["receiver"]
-            _receiver_preflight(clean)
+            _receiver_preflight(clean, self.document_root)
             self.stop_receiver(_clear=False)
             self.requested["receiver"] = request
             state = self.states["receiver"]
@@ -509,7 +526,8 @@ class LiveAudioManager:
             state.state = "starting"
             try:
                 session = ReceiverSession(clean["port"], clean["speaker_devices"],
-                    clean["virtual_sink"] if clean["virtual_microphone"] else "", clean["bind"])
+                    clean["virtual_sink"] if clean["virtual_microphone"] else "", clean["bind"],
+                    self.document_root)
                 session.start()
                 self.receiver = session
                 state.running()

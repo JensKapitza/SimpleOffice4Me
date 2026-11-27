@@ -37,6 +37,18 @@ Dateien, angelegte Jobs oder die Anzeige anderer Konten.
   Plattform mit Finger-Magic-Basisdaten einrichten; Stimmen bleiben separat.
   Andere Linux-Python-Versionen, Linux-ARM, Windows, macOS, Termux und APK sind
   für diese Piper-Laufzeit noch nicht freigegeben.
+- **FFmpeg, FFprobe und FFplay:** Unter Linux x86_64 mit glibc ab 2.28 kann
+  die Administration die verwaltete Laufzeit mit einem Klick installieren.
+  Das Release-Archiv `autobuild-2026-11-26-12-56` ist 50.357.160 Bytes groß und
+  mit SHA-256 `b818772f340f8467d2e0a240be3388e93a1746f2b1c6553423dfc5186c2acd63`
+  festgelegt. Es ist ein LGPL-Shared-Build; Lizenzdatei und Bibliotheken bleiben
+  im privaten Laufzeitverzeichnis. Der Download wird vor der Extraktion geprüft.
+  Danach erzeugt FFmpeg eine Test-WAV und FFprobe bestätigt Audio-Codec und
+  Laufzeit; FFplay wird ebenfalls auf Start geprüft. Systeminstallationen haben
+  Vorrang, vorhandene Dateien werden nicht ersetzt. Andere Betriebssysteme und
+  Architekturen sind für diesen Installer nicht freigegeben. Ein erfolgreicher
+  Test belegt keine Audio-Hardware oder tatsächliche Wiedergabe. Lizenz- und
+  Buildverweise stehen zusätzlich im Expertenbereich der Komponentenkarte.
 - **Stimmdateien:** Unter **Reader & Mail** kann die Administration das
   deutsche, experimentelle Thorsten-Scratch-Paket (Erwachsenenstimme)
   separat und einmalig laden. Das geht auch, wenn bereits eigene Stimmen
@@ -97,6 +109,14 @@ independent of Kids and can be reverted. The pinned files can be downloaded
   into persistent private app data. This downloads no voice model and changes no
   voice selection. Other operating systems, architectures, Python versions,
   Termux and the APK are not enabled for this installer.
+- **FFmpeg / FFprobe / FFplay:** On Linux x86_64 with glibc 2.28 or later an
+  administrator can install the pinned LGPL shared runtime. The 50,357,160-byte
+  release archive is SHA-256 pinned to
+  `b818772f340f8467d2e0a240be3388e93a1746f2b1c6553423dfc5186c2acd63`.
+  FFmpeg must create a test WAV and FFprobe must read its audio stream and
+  duration before the private runtime is enabled. FFplay receives a version
+  check, but actual audio hardware is not tested. Host installations take
+  priority; other platforms are not advertised as installable.
 An optional US English LibriTTS high model is also available as a separately
 verified 130 MiB download. It is selected only by an administrator, only when
 Piper is present, and never replaces an already configured English voice.
@@ -106,15 +126,15 @@ Piper is present, and never replaces an already configured English voice.
 ```sh
 python -m pip install -e '.[test]'
 PYTHONPATH=.:tests python -m unittest -q tests.test_optional_local_setup \
-  tests.test_optional_piper_runtime tests.test_first_run_setup tests.test_kids_piper_assets tests.test_kids_hand_game \
+  tests.test_optional_piper_runtime tests.test_optional_ffmpeg_runtime tests.test_first_run_setup tests.test_kids_piper_assets tests.test_kids_hand_game \
   tests.test_template_accessibility tests.test_frontend_route_contract
 node --test tests/optional_setup_progress.test.cjs tests/kids_hand_game.test.mjs
 ```
 
-These tests exercise signed-in setup routes, queue, retry, and the selected
-voice reaching Reader/Mail/Kids through bounded test doubles. They do not
-download real models, execute Piper or MediaPipe, use a physical camera, or
-prove Android/browser playback.
+These tests exercise signed-in setup routes, queue, retry, verified archive
+extraction, managed executable and library integrity, audio-service runtime
+resolution, and the selected voice reaching Reader/Mail/Kids through bounded
+test doubles. They do not download real models or use a physical camera.
 
 Der reale Linux-Smoke wurde auf CPython 3.12.14, Linux x86_64 und glibc ≥2.28
 ausgeführt: alle sieben Wheels wurden über den Installer geladen und geprüft,
@@ -122,6 +142,15 @@ ausgeführt: alle sieben Wheels wurden über den Installer geladen und geprüft,
 vorhandenen Thorsten-Scratch-Modell eine mono-16-bit-WAV-Datei mit 22.05 kHz.
 Ein neuer Prozess löste die persistent gespeicherte Engine wieder auf. Dieses
 Ergebnis ergänzt die Offline-Tests und ist kein Geräte- oder Plattformnachweis.
+
+Zusätzlicher realer FFmpeg-Installer-Smoke am 2026-11-27 auf Linux x86_64/glibc:
+Der Installer lud das gepinnte 50.357.160-Byte-Archiv, prüfte dessen SHA-256,
+extrahierte die LGPL-Shared-Laufzeit in ein temporäres Dokumentverzeichnis und
+aktivierte FFmpeg, FFprobe sowie FFplay über das Komponentenmanifest. FFmpeg
+erzeugte dort eine 22.128-Byte-WAV-Datei; FFprobe bestätigte `pcm_s16le`,
+44.100 Hz und 0,25 Sekunden. FFplay und alle drei verwalteten Pfade starteten.
+Das prüft den echten lokalen Linux-Laufzeitpfad, keine Audiogeräte, ARM64 oder
+andere Betriebssysteme.
 
 Android APK uses Chaquopy's Android ARM64 Python ABI; the
 installer's manylinux wheels are not compatible with that ABI. The APK has no

@@ -15,6 +15,7 @@ from flask import current_app
 
 from .host_automation import HostAutomationStore, recommended_idle_rule
 from .host_services import host_services_snapshot
+from .component_runtime import resolve_command
 from .system_identity import application_version, system_info
 from .v3_capabilities import snapshot as v3_capability_snapshot
 from .system_management import (
@@ -62,7 +63,8 @@ def _safe_line(value: str) -> str:
 def _tool_version(label_de: str, label_en: str, command: tuple[str, ...]) -> dict[str, str]:
     if os.name == "nt" and command[0] == "convert":
         return {"label_de": label_de, "label_en": label_en, "command": command[0], "status": "missing", "version": ""}
-    executable = shutil.which(command[0])
+    executable = (resolve_command(command[0]) if command[0] in {"ffmpeg", "ffprobe", "ffplay", "piper"}
+                  else shutil.which(command[0]))
     if executable is None:
         return {"label_de": label_de, "label_en": label_en, "command": command[0], "status": "missing", "version": ""}
     safe_environment = {"PATH": os.environ.get("PATH", ""), "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "NO_COLOR": "1"}

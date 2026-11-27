@@ -16,9 +16,10 @@ from uuid import uuid4
 
 from . import (
     english_voice_assets, kids_hand_assets, kids_piper_assets, optional_hand_game_install, optional_piper_runtime,
+    optional_ffmpeg_runtime,
 )
 from .document_store_core import CONTROL_DIR, atomic_json_write
-from .component_runtime import resolve_command
+from .component_runtime import managed_command, resolve_command
 from .file_lock import exclusive_file_lock
 from .media_settings import PIPER_READER_THORSTEN
 from .settings_store import SettingsStore
@@ -26,7 +27,8 @@ from .settings_store import SettingsStore
 VOICE_PACKAGE = "voice-package"
 ENGLISH_VOICE_PACKAGE = "english-voice"
 PIPER_ENGINE = "piper-engine"
-FEATURES = frozenset((VOICE_PACKAGE, "kids-hand", ENGLISH_VOICE_PACKAGE, PIPER_ENGINE))
+FFMPEG_RUNTIME = "ffmpeg-runtime"
+FEATURES = frozenset((VOICE_PACKAGE, "kids-hand", ENGLISH_VOICE_PACKAGE, PIPER_ENGINE, FFMPEG_RUNTIME))
 _ACTIVE = frozenset(("queued", "downloading"))
 _IN_PROGRESS = _ACTIVE | {"cancelling"}
 # Piper setup allows up to 300 s of wheel downloads plus venv/pip smoke checks.
@@ -45,6 +47,7 @@ _VOICE_INSTALL_SPACE = 128 * 1024 * 1024
 _ENGLISH_VOICE_INSTALL_SPACE = 160 * 1024 * 1024
 _HAND_INSTALL_SPACE = 64 * 1024 * 1024
 _PIPER_ENGINE_INSTALL_SPACE = 300 * 1024 * 1024
+_FFMPEG_INSTALL_SPACE = optional_ffmpeg_runtime.REQUIRED_SPACE
 
 
 class _PersistentCancelEvent:
@@ -227,6 +230,8 @@ def _execute(root: Path, feature: str, job_id: str) -> None:
             result = english_voice_assets.install(root, progress=progress, cancel_event=cancel_event)
         elif feature == PIPER_ENGINE:
             result = optional_piper_runtime.install(root, progress=progress, cancel_event=cancel_event)
+        elif feature == FFMPEG_RUNTIME:
+            result = optional_ffmpeg_runtime.install(root, progress=progress, cancel_event=cancel_event)
         else:
             result = "failed"
         state = "cancelled" if result == "cancelled" or cancel_event.is_set() else (
@@ -259,6 +264,8 @@ def queue(root: str | Path, feature: str, *, manual_hand_directory: str = "") ->
         return "manual"
     if feature == PIPER_ENGINE and not optional_piper_runtime.install_supported():
         return "unsupported"
+    if feature == FFMPEG_RUNTIME and not optional_ffmpeg_runtime.install_supported():
+        return "unsupported"
     with exclusive_file_lock(_job_lock(root)):
         data = _read(root)
         state = _job_state(data.get(feature))
@@ -268,13 +275,16 @@ def queue(root: str | Path, feature: str, *, manual_hand_directory: str = "") ->
                 or (feature == "kids-hand" and kids_hand_assets.ready(
                     optional_hand_game_install.asset_directory(root, "")))
                 or (feature == ENGLISH_VOICE_PACKAGE and english_voice_assets.installed_model(root))
-                or (feature == PIPER_ENGINE and resolve_command("piper", root))):
+                or (feature == PIPER_ENGINE and resolve_command("piper", root))
+                or (feature == FFMPEG_RUNTIME and all(resolve_command(name, root)
+                                                       for name in ("ffmpeg", "ffprobe", "ffplay")))):
             return "ready"
         required = {
             VOICE_PACKAGE: _VOICE_INSTALL_SPACE,
             "kids-hand": _HAND_INSTALL_SPACE,
             ENGLISH_VOICE_PACKAGE: _ENGLISH_VOICE_INSTALL_SPACE,
             PIPER_ENGINE: _PIPER_ENGINE_INSTALL_SPACE,
+            FFMPEG_RUNTIME: _FFMPEG_INSTALL_SPACE,
         }[feature]
         try:
             if shutil.disk_usage(root).free < required:
@@ -420,6 +430,9 @@ def component_inventory(root: str | Path, *, manual_hand_directory: str = "") ->
     ffmpeg = resolve_command("ffmpeg", root)
     ffprobe = resolve_command("ffprobe", root)
     ffplay = resolve_command("ffplay", root)
+    ffmpeg_managed = any(
+        managed_command(name, root) for name in ("ffmpeg", "ffprobe", "ffplay")
+    )
     try:
         # Match the import names checked by app.object_vision and pdf_conversion.
         rapidocr_present = importlib.util.find_spec("rapidocr") is not None
@@ -431,6 +444,7 @@ def component_inventory(root: str | Path, *, manual_hand_directory: str = "") ->
         onnx_present = False
     readiness_state = readiness(root, manual_hand_directory=manual_hand_directory)
     piper_job = _job_state(_read(root).get(PIPER_ENGINE))
+    ffmpeg_job = _job_state(_read(root).get(FFMPEG_RUNTIME))
     piper_from_app = False
     if piper:
         try:
@@ -463,8 +477,21 @@ def component_inventory(root: str | Path, *, manual_hand_directory: str = "") ->
          "download_bytes": sum(item.size for item in english_voice_assets.asset_manifest()),
          "required_bytes": _ENGLISH_VOICE_INSTALL_SPACE,
          "detail": str(readiness_state["reader_english"])},
-        {"id": "ffmpeg", "status": "installed" if ffmpeg and ffprobe else
-         "partial" if ffmpeg or ffprobe else "missing", "managed": False,
+        {"id": "ffmpeg", "status": (ffmpeg_job if ffmpeg_job in _ACTIVE or ffmpeg_job == "cancelled" else
+         "installed" if ffmpeg and ffprobe and ffplay else "failed" if ffmpeg_job == "failed" else
+         "partial" if ffmpeg or ffprobe or ffplay else
+         "missing" if optional_ffmpeg_runtime.install_supported() else "unsupported"),
+         "managed": ffmpeg_managed,
+         "install_feature": FFMPEG_RUNTIME if not (ffmpeg and ffprobe and ffplay)
+         and optional_ffmpeg_runtime.install_supported() else None,
+         "download_bytes": optional_ffmpeg_runtime.artifact()["size"]
+         if not (ffmpeg and ffprobe and ffplay) and optional_ffmpeg_runtime.install_supported() else 0,
+         "required_bytes": _FFMPEG_INSTALL_SPACE if not (ffmpeg and ffprobe and ffplay)
+         and optional_ffmpeg_runtime.install_supported() else 0,
+         "version": optional_ffmpeg_runtime.installed_version(root),
+         "license": optional_ffmpeg_runtime.LICENSE,
+         "license_url": optional_ffmpeg_runtime.LICENSE_URL,
+         "artifact": optional_ffmpeg_runtime.artifact(),
          "detail": "ffplay-available" if ffplay else "ffplay-missing"},
         {"id": "thorsten-scratch", "status": str(readiness_state["voice_package"]), "managed": True,
          "install_feature": VOICE_PACKAGE, "download_bytes": sum(item.size for item in kids_piper_assets.asset_manifest()),
@@ -482,4 +509,5 @@ def component_inventory(root: str | Path, *, manual_hand_directory: str = "") ->
     ]
     return {"runtime": runtime, "architecture": architecture, "components": components,
             "supported_install_features": [VOICE_PACKAGE, "kids-hand", ENGLISH_VOICE_PACKAGE]
-            + ([PIPER_ENGINE] if optional_piper_runtime.install_supported() else [])}
+            + ([PIPER_ENGINE] if optional_piper_runtime.install_supported() else [])
+            + ([FFMPEG_RUNTIME] if optional_ffmpeg_runtime.install_supported() else [])}

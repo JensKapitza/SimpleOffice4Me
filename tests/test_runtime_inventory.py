@@ -27,7 +27,8 @@ class RuntimeInventoryTest(unittest.TestCase):
 
     def test_inventory_lists_registered_modules_and_missing_tools(self):
         clear_runtime_inventory()
-        with app.app_context(), patch("app.runtime_inventory.shutil.which", return_value=None):
+        with app.app_context(), patch("app.runtime_inventory.shutil.which", return_value=None), \
+                patch("app.component_runtime.shutil.which", return_value=None):
             inventory = runtime_inventory()
         names = {row["name"] for row in inventory["modules"]}
         self.assertIn("documents", names)
