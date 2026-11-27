@@ -92,7 +92,14 @@ def exercise(root, source, target, a, b, third=None, *, progress=lambda _stage: 
 
     progress("explicit-publication")
     publication = "/library/book-scan/publications"
-    assert source.page(publication).select_one("form[data-book-publish]") is not None
+    direct_share = scan.select_one("form[data-scan-share][hidden]")
+    assert direct_share is not None and direct_share["action"] == publication
+    assert direct_share.select_one(f'select[name="peer_id"] option[value="{b}"]') is not None
+    assert direct_share.select_one('input[name="confirm"][required]') is not None
+    assert not direct_share.select_one('input[type="file"]')
+    before_sharing = source.page(publication)
+    assert before_sharing.select_one("form[data-book-publish] input[type=file]") is not None
+    assert before_sharing.select_one("form:has([name=action][value=revoke])") is None
     assert target.page(publication).select_one("form[data-book-receive]") is not None
 
     def multipart(browser, path, fields, filename, content, field):
@@ -119,7 +126,7 @@ def exercise(root, source, target, a, b, third=None, *, progress=lambda _stage: 
             raise AssertionError(f"Expected HTTP {code}")
 
     def publish(confirmed, content=data):
-        return multipart(source, publication, {"action": "publish", "peer_id": b, "confirm": confirmed},
+        return multipart(source, direct_share["action"], {"action": "publish", "peer_id": b, "confirm": confirmed},
                          "assembled.pdf", content, "pdf")
 
     expect_error(400, lambda: publish(""))
