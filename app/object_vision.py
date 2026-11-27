@@ -15,6 +15,7 @@ import selectors
 import shutil
 import subprocess
 import threading
+import time
 from importlib.util import find_spec
 from pathlib import Path
 from typing import Any
@@ -79,6 +80,54 @@ def _stop_ocr_worker() -> None:
 atexit.register(_stop_ocr_worker)
 
 
+def _exchange_ocr_worker(worker: subprocess.Popen, path: Path) -> bytes:
+    if worker.stdin is None or worker.stdout is None:
+        raise OSError("OCR worker pipe unavailable")
+    image_path = str(path)
+    if len(image_path) > 4096:
+        raise ValueError("Invalid OCR image path length")
+    request = (json.dumps({"path": image_path}, ensure_ascii=False) + "\n").encode("utf-8")
+    deadline = time.monotonic() + _OCR_WORKER_TIMEOUT
+    writer = worker.stdin.fileno()
+    reader = worker.stdout.fileno()
+    os.set_blocking(writer, False)
+    os.set_blocking(reader, False)
+
+    with selectors.DefaultSelector() as selector:
+        def wait_ready() -> None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not selector.select(remaining):
+                raise TimeoutError("OCR worker timed out")
+
+        selector.register(writer, selectors.EVENT_WRITE)
+        sent = 0
+        while sent < len(request):
+            wait_ready()
+            try:
+                sent += os.write(writer, request[sent:])
+            except BlockingIOError:
+                continue
+
+        selector.unregister(writer)
+        selector.register(reader, selectors.EVENT_READ)
+        response = bytearray()
+        while len(response) <= _OCR_WORKER_MAX_LINE:
+            wait_ready()
+            try:
+                chunk = os.read(reader, min(65536, _OCR_WORKER_MAX_LINE + 1 - len(response)))
+            except BlockingIOError:
+                continue
+            if not chunk:
+                break
+            response.extend(chunk)
+            newline = chunk.find(b"\n")
+            if newline >= 0:
+                if len(response) <= _OCR_WORKER_MAX_LINE and newline == len(chunk) - 1:
+                    return bytes(response)
+                break
+        raise ValueError("Invalid OCR worker response size or framing")
+
+
 def _managed_rapidocr(path: Path) -> dict[str, Any] | None:
     """Send local image paths to the cached, isolated OCR runtime process."""
     global _OCR_WORKER
@@ -102,7 +151,7 @@ def _managed_rapidocr(path: Path) -> dict[str, Any] | None:
             try:
                 _OCR_WORKER = subprocess.Popen(
                     [str(python), str(_WORKER)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL, text=True, encoding="utf-8", bufsize=1,
+                    stderr=subprocess.DEVNULL, bufsize=0,
                     cwd=str(_WORKER.parent.parent), env=environment, shell=False,
                 )
             except OSError:
@@ -111,18 +160,9 @@ def _managed_rapidocr(path: Path) -> dict[str, Any] | None:
                         "confidence": None, "blocks": [], "error": "RapidOCR-Laufzeit konnte nicht gestartet werden"}
         worker = _OCR_WORKER
         try:
-            if worker is None or worker.stdin is None or worker.stdout is None:
+            if worker is None:
                 raise OSError("OCR worker pipe unavailable")
-            worker.stdin.write(json.dumps({"path": str(path)}, ensure_ascii=False) + "\n")
-            worker.stdin.flush()
-            with selectors.DefaultSelector() as selector:
-                selector.register(worker.stdout, selectors.EVENT_READ)
-                if not selector.select(_OCR_WORKER_TIMEOUT):
-                    raise TimeoutError("OCR worker timed out")
-            line = worker.stdout.readline(_OCR_WORKER_MAX_LINE + 1)
-            if len(line) > _OCR_WORKER_MAX_LINE or not line.endswith("\n"):
-                raise ValueError("Invalid OCR worker response size")
-            payload = json.loads(line)
+            payload = json.loads(_exchange_ocr_worker(worker, path).decode("utf-8"))
             if (not isinstance(payload, dict) or payload.get("engine") != "rapidocr"
                     or payload.get("status") not in {"completed", "failed"}
                     or not isinstance(payload.get("text"), str)):
@@ -130,7 +170,7 @@ def _managed_rapidocr(path: Path) -> dict[str, Any] | None:
             payload["text"] = payload["text"][:MAX_OCR_TEXT]
             payload["characters"] = len(payload["text"])
             return payload
-        except (OSError, ValueError, TimeoutError, json.JSONDecodeError):
+        except (OSError, ValueError):
             _stop_ocr_worker()
             return {"engine": "rapidocr", "status": "failed", "text": "", "characters": 0,
                     "confidence": None, "blocks": [], "error": "RapidOCR-Laufzeit fehlgeschlagen oder Zeitüberschreitung"}

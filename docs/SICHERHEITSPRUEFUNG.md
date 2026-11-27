@@ -77,7 +77,20 @@ Revision `855469bc0186a9a55b706631b32ff574f2297c20` (`feat/1329-rapidocr-linux-r
 | `templates/optional_setup/index.html` · `f4c4513c075f284a9803e5255c034330fe01e529` | 27–77 | Anzeige, Expertendetails, feste Lizenzlinks und Prüfsummen sowie Installationsbutton gelesen. Werte werden escaped dargestellt; keine HTML-Ausgabe aus OCR-Eingaben. |
 | `tests/test_optional_ocr_runtime.py` · `7af9ed5548aae9a2a49742e83e4b1496874c19e3` | 1–163 | Neue Runtime-Tests vollständig gelesen: Plattformablehnung, fremde/manipulierte Installationsmarker, Wheel-Integrität und Downloadgrenzen, Abbruch, fehlender Speicher und erfolgreicher lokaler Smoke. |
 | `tests/test_optional_local_setup.py` · `7973ea4a24780d2bab1b38cdc84ccf02f7323197` | 21, 117–121, 624–625, 646–647, 678–679, 697–718 | Geprüft: read-only Inventar, Allowlist, nicht unterstützte Plattform, Hostinstallation bleibt erhalten und fehlende Systemmodelle führen zum Managed-Angebot. |
-| `tests/test_object_care.py` · `9bf89128998fa47f4eede87dc573d9204fe13aab` | 16, 67–84 | Geprüft: isolierter Worker wird für fehlende Pakete und fehlende Hostmodelle genutzt; Ergebnis enthält echte OCR-Ausgabe. |
+| `tests/test_object_care.py` · `9bf89128998fa47f4eede87dc573d9204fe13aab` | 16, 67–84 | Geprüft: Bei fehlenden Paketen und Hostmodellen ruft der Anwendungspfad den Worker auf. Die Tests prüfen dessen Aufruf mit einer simulierten Antwort. Echte Texterkennung wurde separat mit der installierten Laufzeit geprüft. |
 | `tests/test_component_manager_browser.py` · `c1c455ceff037beab932187d8335c25a5bc4df71` | 72–74 | Geprüft: OCR-Karte ist in den getesteten Mobil- und Desktopansichten auffindbar, ohne horizontalen Überlauf. |
 
 **Ergebnis und Grenzen.** In diesem Diffreview wurde kein bestätigter Sicherheitsfehler gefunden. Der Prozess läuft mit den Rechten des SimpleOffice-Prozesses; lokale Angreifer mit denselben Kontorechten liegen außerhalb dieser Schutzgrenze. Die verwaltete Runtime unterstützt ausschließlich Linux x86_64, glibc ≥2.28 und CPython 3.12. Andere Plattformen, APK und native Android-Ausführung sind damit nicht abgedeckt. Der spezialisierte Codex-Security-Scan war in dieser Sitzung nicht verfügbar; GitHub-CI ist separat auszuweisen und ersetzt dieses Review nicht. Die Review- und Testaussagen gelten nur für den oben genannten Commit und müssen nach jeder Änderung der betroffenen Blobs erneut geprüft werden.
+
+### Folgeprüfung zur OCR-Worker-Kommunikation (#1355)
+
+Der bisherige Selektor wartete nur auf die ersten lesbaren Bytes. Eine angefangene Antwort ohne Zeilenende konnte den anschließenden Leseaufruf weiter blockieren. Der Server verwendet jetzt nicht blockierende Pipes und eine gemeinsame monotone Frist für die gesamte Anfrage und die vollständige Antwort. Antwortgröße und Zeilenende werden vor dem JSON-Parsing geprüft. Bei einem Fehler beendet der Server den Worker und kann bei der nächsten Anfrage einen neuen Prozess starten.
+
+| Datei · Git-Blob | Gelesene Zeilen | Beobachtung |
+| --- | --- | --- |
+| `app/object_vision.py` · `57f1a2dce0601493bfe928e29eccc1cf2ac65ee1` | 18, 62–177 | Lokale Pfad- und Antwortgrenzen, nicht blockierende Schreib- und Leseoperationen, eine Frist für beide Pipes, Prozessbereinigung und unveränderter Ergebnisvertrag. |
+| `tests/test_optional_ocr_runtime.py` · `37dcc8d867f689b0ea495d87bc56278e63e41d2a` | 8–15, 136–137, 165–225 | Reale lokale Prozesse liefern eine aufgeteilte UTF-8-Antwort, eine stehen gebliebene Teilantwort und eine zu große Antwort. Der Installationstest prüft wiederholtes Installieren auf derselben simulierten unterstützten Plattform. |
+| `tests/test_optional_local_setup.py` · `7a2fed5e6f5db9cbcf690ee9c4c001c1fd0be79c` | 76, 101–102 | Die Tests des Installationsangebots verwenden eine feste Plattform- und Hostlage. Der gesonderte Test mit vorhandener Systeminstallation bleibt aktiv. |
+| `tests/test_object_vision_hints.py` · `e0554014a213cecf9ca8c35ce8c7a9a237d05740` | 1–74 | Verfügbarkeit mit Systeminstallation, verwalteter Laufzeit und fehlendem oder fehlerhaftem Hostpaket geprüft. |
+
+Die echte installierte RapidOCR-Laufzeit erkannte die synthetische Beschriftung „SO4ME OCR 123“ zweimal im selben Worker. Die Plattformgrenzen aus dem vorigen Review gelten weiter.

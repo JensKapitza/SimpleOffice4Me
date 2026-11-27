@@ -5,12 +5,14 @@ import hashlib
 import io
 import json
 from pathlib import Path
+import sys
 import tempfile
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app import optional_ocr_runtime as runtime
+from app import object_vision, optional_ocr_runtime as runtime
 from app.ocr_runtime_worker import _result
 
 
@@ -131,7 +133,8 @@ class OptionalOcrRuntimeTests(unittest.TestCase):
                 self.assertEqual("ready", runtime.install(root))
             self.assertTrue(runtime.ready(root))
             self.assertEqual(runtime.VERSION, runtime.installed_version(root))
-            self.assertEqual("ready", runtime.install(root), "a verified runtime must be idempotent")
+            with patch.object(runtime, "install_supported", return_value=True):
+                self.assertEqual("ready", runtime.install(root), "a verified runtime must be idempotent")
 
     def test_worker_result_bounds_text_and_confidence(self):
         fake = SimpleNamespace(txts=["  Hallo\nWelt  "], scores=[1.4], boxes=[[[1, 2], [3, 4]]])
@@ -157,6 +160,67 @@ class OptionalOcrRuntimeTests(unittest.TestCase):
         self.assertEqual("OCR 123", result["text"])
         self.assertEqual(0.99, result["confidence"])
         self.assertEqual([[1.0, 2.0], [3.0, 4.0]], result["blocks"][0]["box"])
+
+
+@unittest.skipUnless(sys.platform.startswith("linux"), "Managed OCR uses Linux pipes")
+class OcrWorkerPipeTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.worker_file = Path(temporary.name) / "worker.py"
+        self.addCleanup(object_vision._stop_ocr_worker)
+
+    def test_chunked_response_is_read_to_newline_and_worker_is_reused(self):
+        self.worker_file.write_text(
+            "import json, os, sys, time\n"
+            "for request in sys.stdin:\n"
+            "    result = {'engine': 'rapidocr', 'status': 'completed',\n"
+            "              'text': json.loads(request)['path'], 'pid': os.getpid()}\n"
+            "    line = json.dumps(result, ensure_ascii=False) + '\\n'\n"
+            "    sys.stdout.write(line[:10]); sys.stdout.flush()\n"
+            "    time.sleep(0.02)\n"
+            "    sys.stdout.write(line[10:]); sys.stdout.flush()\n",
+            encoding="utf-8",
+        )
+        with patch.object(runtime, "_WORKER", self.worker_file), \
+                patch.object(runtime, "managed_python", return_value=Path(sys.executable)):
+            first = object_vision._managed_rapidocr(Path("erstes-foto.png"))
+            second = object_vision._managed_rapidocr(Path("nächstes-foto.png"))
+        self.assertEqual("erstes-foto.png", first["text"])
+        self.assertEqual("nächstes-foto.png", second["text"])
+        self.assertEqual(first["pid"], second["pid"])
+
+    def test_partial_response_is_terminated_at_the_deadline(self):
+        self.worker_file.write_text(
+            "import sys, time\n"
+            "sys.stdin.readline()\n"
+            "sys.stdout.write('{'); sys.stdout.flush()\n"
+            "time.sleep(5)\n",
+            encoding="utf-8",
+        )
+        started = time.monotonic()
+        with patch.object(runtime, "_WORKER", self.worker_file), \
+                patch.object(runtime, "managed_python", return_value=Path(sys.executable)), \
+                patch.object(object_vision, "_OCR_WORKER_TIMEOUT", 0.5):
+            result = object_vision._managed_rapidocr(Path("local-photo.png"))
+        self.assertEqual("failed", result["status"])
+        self.assertIn("Zeitüberschreitung", result["error"])
+        self.assertLess(time.monotonic() - started, 3)
+        self.assertIsNone(object_vision._OCR_WORKER)
+
+    def test_oversized_response_is_rejected_before_json_decoding(self):
+        self.worker_file.write_text(
+            "import sys\n"
+            "sys.stdin.readline()\n"
+            "print('{\"engine\":\"rapidocr\",\"status\":\"completed\",\"text\":\"' + 'ä' * 40 + '\"}', flush=True)\n",
+            encoding="utf-8",
+        )
+        with patch.object(runtime, "_WORKER", self.worker_file), \
+                patch.object(runtime, "managed_python", return_value=Path(sys.executable)), \
+                patch.object(object_vision, "_OCR_WORKER_MAX_LINE", 120):
+            result = object_vision._managed_rapidocr(Path("local-photo.png"))
+        self.assertEqual("failed", result["status"])
+        self.assertIsNone(object_vision._OCR_WORKER)
 
 
 if __name__ == "__main__":

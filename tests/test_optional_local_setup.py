@@ -74,6 +74,7 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
             patch("app.audio_output_engine.render_tts", side_effect=AssertionError("no audio engine in tests")),
             patch("app.private_read_aloud.private_audio_response", side_effect=AssertionError("no Reader runtime in setup")),
             patch.object(optional, "hand_override", return_value=""),
+            patch.object(ocr_runtime, "host_available", return_value=False),
         ):
             guarded.start()
             self.addCleanup(guarded.stop)
@@ -137,7 +138,8 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
 
     def test_fresh_dashboard_tour_permissions_and_skip_are_local_and_nonblocking(self):
         with patch.object(optional, "resolve_command", return_value=None), \
-                patch.object(ffmpeg_runtime, "install_supported", return_value=True):
+                patch.object(ffmpeg_runtime, "install_supported", return_value=True), \
+                patch.object(ocr_runtime, "install_supported", return_value=True):
             self.assertEqual(app.test_client().get(SETUP).status_code, 302)
             dashboard = document(self.client.get(DASHBOARD))
             self.assertTrue(dashboard.select_one(f'#optional-setup-dashboard a[href="{SETUP}"]'))
