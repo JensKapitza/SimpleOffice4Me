@@ -69,3 +69,64 @@ class DocumentCopyEventTests(PublicHttpTestCase):
         self.assertNotIn(self.document["document_id"], result.headers["Location"])
         self.assertEqual((self.root / "copies" / "sensitive-name.txt").read_bytes(), b"example bytes")
         self.assertNotIn("private detail", " ".join(captured.output))
+
+    def test_activate_copy_notice_then_copy_and_read_it_as_owner_only(self):
+        from app.v3_automation import AutomationStore
+        from app.v3_copy_notices import NOTICE
+
+        SettingsStore(self.root).save({"v3": {"v3.activity": True, "v3.automation": True}}, "owner")
+        path = "/automation-v3/copy-notice"
+        self.assertEqual(self.client.post(path).status_code, 403)
+        for _ in range(2):
+            self.assertEqual(self.client.post(path, headers=self.csrf).status_code, 302)
+        rule, = AutomationStore(self.root).list("owner")
+        copied = self._copy()
+        copy_id = copied.headers["Location"].rsplit("/", 1)[1]
+        self.assertEqual(self._copy().status_code, 302)  # target collision, no second notice
+        capture_copy_completed(self.root, "owner", copy_id)
+        notice, = ActivityStore(self.root).list(event_type=NOTICE)
+        self.assertEqual(notice.actor, "owner")
+        self.assertEqual(notice.entity_id, "")
+        self.assertEqual(notice.metadata, {})
+        page = self.client.get("/automation-v3").get_data(as_text=True)
+        self.assertIn(notice.occurred_at, page)
+        notice_card = page.split('aria-labelledby="copy-notices-heading"', 1)[1].split("</section>", 1)[0]
+        self.assertNotIn("sensitive-name.txt", notice_card)
+
+        other = app.test_client()
+        self._register(self.client, "other")
+        self._login(other, "other")
+        self.assertNotIn(notice.occurred_at, other.get("/automation-v3").get_data(as_text=True))
+        self.assertIsNone(ActivityStore(self.root).find_for_actor(notice.event_id, "other"))
+
+        self.assertEqual(self.client.post(f"/automation-v3/{rule.rule_id}/toggle", headers=self.csrf).status_code, 302)
+        (self.root / "after-disabled").mkdir()
+        result = self.client.post(self.url, data={"destination_folder": "after-disabled"}, headers=self.csrf)
+        self.assertEqual(result.status_code, 302)
+        self.assertTrue((self.root / "after-disabled" / "sensitive-name.txt").is_file())
+        self.assertEqual(ActivityStore(self.root).list(event_type=NOTICE), [notice])
+
+    def test_receipt_retry_keeps_original_timestamp(self):
+        from app.v3_copy_notices import dispatch_copy_notice
+
+        self._enable_activity()
+        with patch("app.v3_copy_notices.dispatch_copy_notice", wraps=dispatch_copy_notice) as dispatch:
+            capture_copy_completed(self.root, "owner", "copy-fixed-id")
+            capture_copy_completed(self.root, "owner", "copy-fixed-id")
+        self.assertEqual(dispatch.call_count, 2)
+        self.assertEqual(dispatch.call_args_list[0].args[1], dispatch.call_args_list[1].args[1])
+
+    def test_browser_copy_does_not_dispatch_mixed_or_different_owner_actions(self):
+        from app.v3_automation import AutomationStore
+        from app.v3_copy_notices import ACTION, NOTICE
+
+        SettingsStore(self.root).save({"v3": {"v3.activity": True, "v3.automation": True}}, "owner")
+        store = AutomationStore(self.root)
+        values = {"name": "Notice", "enabled": True, "trigger": {"type": "event", "name": EVENT_NAME},
+                  "actions": [{"type": ACTION}]}
+        store.create("other", values)
+        store.create("owner", {**values, "actions": [{"type": ACTION}, {"type": "task.create"}]})
+        store.create("owner", {**values, "actions": [{"type": ACTION, "payload": {"target": "peer"}}]})
+        self.assertEqual(self._copy().status_code, 302)
+        self.assertEqual(ActivityStore(self.root).list(event_type=NOTICE), [])
+        self.assertEqual(store.logs("owner"), [])

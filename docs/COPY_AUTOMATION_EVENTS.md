@@ -1,8 +1,9 @@
 # Abgeschlossene Kopien als Automationsereignisse
 
 Wenn `v3.activity` aktiviert ist, schreibt SimpleOffice ein Ereignis in die
-bestehende Aktivitätsdatenbank im Dokumentstamm. Der Kopiervorgang löst keine
-Aktionen aus und wartet nicht auf eine Gerätezustellung.
+bestehende Aktivitätsdatenbank im Dokumentstamm. Eine Browser-Kopie kann zusätzlich
+eine optionale Meldung für das eigene Konto erzeugen. Der Kopiervorgang wartet
+nicht auf eine Gerätezustellung.
 
 | Ereignis | Quelle | Wann es aufgezeichnet wird |
 | --- | --- | --- |
@@ -29,6 +30,12 @@ einen optionalen Aufzeichnungsfehler nicht rückgängig gemacht. Geänderte
 Dateien aus einem Teillauf werden nicht zurückgerollt (bestehendes Verhalten).
 Ein Wiederholungslauf, der nichts mehr kopiert, wird nicht als neue Kopie
 behauptet.
+
+## Lokale Kopiermeldung
+
+Sind `v3.activity` und `v3.automation` aktiv, lässt sich die Regel in **Automation 3.0 → Lokale Kopiermeldungen** mit einem Klick einschalten und in der Regelliste wieder abschalten. Nur erfolgreich abgeschlossene eigene Browser-Kopien erscheinen dort als »Dokument kopiert« mit Uhrzeit. Eine Meldung enthält weder Dateinamen noch Inhalt. Bei erneuter Verarbeitung derselben bestätigten Kopie bleibt der ursprüngliche Ereigniszeitpunkt erhalten; es erscheint keine zweite identische Meldung.
+
+Die Aktion `app.copy_notice` akzeptiert keine Parameter oder Zielgeräte. Der Einstieg führt keine anderen oder gemischten Aktionen aus. Sofortige Ablauffristen können geprüft werden, verzögerte Aktionen und Zeitfenster werden hier nicht eingeplant. Die Anzeige gilt für das angemeldete Konto und lädt beim Seitenaufruf die letzten zehn Meldungen. Noch kein Live-Push, Ton, geplanter Kopierjob als Meldung oder föderiertes Ziel.
 
 ## Nächster Anschluss
 

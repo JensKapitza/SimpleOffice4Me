@@ -8,6 +8,29 @@
   {% if not enabled %}
     <div class="alert alert-secondary">{{ 'The capability' if g.language == 'en' else 'Die Capability' }} <code>v3.automation</code> {{ 'is disabled.' if g.language == 'en' else 'ist deaktiviert.' }}</div>
   {% else %}
+  {% if copy_notices_enabled %}
+  <section class="card mb-4" aria-labelledby="copy-notices-heading">
+    <div class="card-body">
+      <h2 class="h5" id="copy-notices-heading">{{ 'Local copy notifications' if g.language == 'en' else 'Lokale Kopiermeldungen' }}</h2>
+      <p>{{ 'Optional: Show a notification here after your document is copied in the browser.' if g.language == 'en' else 'Optional: Nach einer eigenen Dokumentkopie im Browser erscheint hier eine Meldung.' }}</p>
+      {% if copy_notice_preset_active %}
+      <p class="small">{{ 'Active. You can deactivate this rule below.' if g.language == 'en' else 'Aktiv. Die Regel lässt sich unten deaktivieren.' }}</p>
+      {% else %}
+      <form method="post" action="{{ url_for('v3_automation.create_copy_notice') }}" class="mb-3">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-outline-primary" type="submit">{{ 'Enable copy notifications' if g.language == 'en' else 'Kopiermeldungen aktivieren' }}</button>
+      </form>
+      {% endif %}
+      <ul class="mb-0">
+        {% for notice in copy_notices %}
+          <li>{{ 'Document copied' if g.language == 'en' else 'Dokument kopiert' }} · <time datetime="{{ notice.occurred_at }}">{{ notice.occurred_at }}</time></li>
+        {% else %}
+          <li>{{ 'No notifications yet.' if g.language == 'en' else 'Noch keine Meldungen.' }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </section>
+  {% endif %}
   <div class="row g-4">
     <section class="col-xl-5">
       <div class="card"><div class="card-header"><strong>{{ 'New rule' if g.language == 'en' else 'Neue Regel' }}</strong></div><div class="card-body">

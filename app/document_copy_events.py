@@ -33,10 +33,17 @@ def _capture(root: str | Path, actor: str, name: str, kind: str, entity_id: str,
         if not entity_id or not actor:
             raise ValueError("a verified copy identity and actor are required")
         event_id = uuid.uuid5(uuid.NAMESPACE_URL, f"simpleoffice:{name}:{source}:{operation_id}").hex
-        event = ActivityStore(root).record(
+        activity = ActivityStore(root)
+        event = activity.record(
             name, actor, entity_type=kind, entity_id=entity_id, event_id=event_id,
             correlation_id=event_id, source=source, metadata=metadata,
         )
+        if name == EVENT_NAME:
+            from .v3_copy_notices import dispatch_copy_notice
+
+            saved = activity.find_for_actor(event.event_id, actor)
+            if saved is not None:
+                dispatch_copy_notice(root, saved)
         return event.event_id
     except (OSError, sqlite3.Error, ValueError) as exc:
         # An optional receipt must not change an already verified operation result.

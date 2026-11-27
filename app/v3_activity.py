@@ -171,14 +171,24 @@ class ActivityStore:
                    ORDER BY occurred_at DESC,event_id DESC LIMIT ?""",
                 params,
             ).fetchall()
-        return [
-            DomainEvent(
-                row["event_id"],row["event_type"],row["occurred_at"],row["actor"],
-                row["entity_type"],row["entity_id"],row["correlation_id"],row["source"],
-                int(row["schema_version"]),json.loads(row["metadata_json"] or "{}"),
-            )
-            for row in rows
-        ]
+        return [self._event(row) for row in rows]
+
+    def find_for_actor(self, event_id: str, actor: str) -> DomainEvent | None:
+        if not event_id or not actor:
+            return None
+        with self._db() as db:
+            row = db.execute(
+                "SELECT * FROM activity_event WHERE event_id=? AND actor=?", (event_id, actor),
+            ).fetchone()
+        return self._event(row) if row is not None else None
+
+    @staticmethod
+    def _event(row: sqlite3.Row) -> DomainEvent:
+        return DomainEvent(
+            row["event_id"], row["event_type"], row["occurred_at"], row["actor"],
+            row["entity_type"], row["entity_id"], row["correlation_id"], row["source"],
+            int(row["schema_version"]), json.loads(row["metadata_json"] or "{}"),
+        )
 
 
 class EventBus:

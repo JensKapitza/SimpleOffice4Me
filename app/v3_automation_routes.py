@@ -5,12 +5,14 @@ import json
 import hashlib
 import re
 import secrets
+import sqlite3
 from flask import Blueprint, abort, current_app, flash, g, make_response, redirect, render_template, request, url_for
 
 from .access_control import has_feature
 from .auth import login_required
 from .v3_automation import AutomationEngine, AutomationStore, default_action_registry
 from .v3_capabilities import enabled
+from .v3_copy_notices import PRESET, enable_copy_notice_preset, is_local_copy_notice_rule, recent_copy_notices
 
 
 bp = Blueprint("v3_automation", __name__, url_prefix="/automation-v3")
@@ -81,6 +83,11 @@ def _render_index(actor: str, *, preview=None):
         rules=rules,
         logs=store.logs(actor, limit=50),
         preview=preview,
+        copy_notices_enabled=enabled("v3.activity"),
+        copy_notice_preset_active=any(
+            rule.enabled and rule.scope == PRESET and is_local_copy_notice_rule(rule) for rule in rules
+        ),
+        copy_notices=recent_copy_notices(current_app.config["DOCUMENT_ROOT"], actor),
         manual_check_rule_ids=manual_check_rule_ids,
     )
 
@@ -91,20 +98,23 @@ def index():
     actor = str(g.user["username"])
     if not enabled("v3.automation"):
         return render_template("admin/v3_automation.html", enabled=False, rules=[], logs=[])
-    store = _store()
-    rules = store.list(actor)
-    manual_check_rule_ids = (
-        {rule.rule_id for rule in rules if _task_check_rule(rule)}
-        if has_feature(g.user, "projects") else set()
-    )
-    return render_template(
-        "admin/v3_automation.html",
-        enabled=True,
-        rules=rules,
-        logs=store.logs(actor, limit=50),
-        preview=None,
-        manual_check_rule_ids=manual_check_rule_ids,
-    )
+    return _render_index(actor)
+
+
+@bp.post("/copy-notice")
+@login_required
+def create_copy_notice():
+    if not enabled("v3.automation") or not enabled("v3.activity"):
+        abort(404)
+    actor = str(g.user["username"])
+    language = getattr(g, "language", "")
+    try:
+        enable_copy_notice_preset(_store(), actor, "Document copied" if language == "en" else "Dokument kopiert")
+        flash("Local copy notifications enabled." if language == "en" else "Lokale Kopiermeldungen aktiviert.")
+    except (OSError, sqlite3.Error) as exc:
+        current_app.logger.warning("Could not save copy notification preset: %s", type(exc).__name__)
+        flash("Could not save notifications." if language == "en" else "Kopiermeldungen konnten nicht gespeichert werden.")
+    return redirect(url_for("v3_automation.index"))
 
 
 @bp.post("")
