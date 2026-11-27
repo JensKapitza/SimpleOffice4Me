@@ -8,10 +8,14 @@ set while using the same object-care code.
 """
 from __future__ import annotations
 
+import atexit
+import json
 import os
+import selectors
 import shutil
 import subprocess
 import threading
+import time
 from importlib.util import find_spec
 from pathlib import Path
 from typing import Any
@@ -24,6 +28,10 @@ MAX_OCR_TEXT = 20_000
 MAX_OCR_BLOCKS = 250
 _RAPID_OCR_ENGINE: Any | None = None
 _RAPID_OCR_LOCK = threading.RLock()
+_OCR_WORKER: subprocess.Popen | None = None
+_OCR_WORKER_LOCK = threading.RLock()
+_OCR_WORKER_TIMEOUT = 120
+_OCR_WORKER_MAX_LINE = 2 * 1024 * 1024
 
 RAPIDOCR_INSTALL_HINT = (
     "RapidOCR ist nicht installiert. Installation im Projektordner "
@@ -39,14 +47,133 @@ TESSERACT_INSTALL_HINT = (
 
 def ocr_availability() -> dict[str, bool]:
     """Report local OCR backend availability without running inference."""
-    try:
-        spec = find_spec("rapidocr")
-    except (ImportError, ValueError):
-        spec = None
+    from .optional_ocr_runtime import host_available
+
+    available = host_available()
+    if not available:
+        from .optional_ocr_runtime import managed_python
+        available = managed_python() is not None
     return {
-        "rapidocr": spec is not None and bool(spec.submodule_search_locations),
+        "rapidocr": available,
         "tesseract": shutil.which("tesseract") is not None,
     }
+
+
+def _stop_ocr_worker() -> None:
+    global _OCR_WORKER
+    with _OCR_WORKER_LOCK:
+        worker, _OCR_WORKER = _OCR_WORKER, None
+        if worker is None:
+            return
+        if worker.poll() is None:
+            worker.terminate()
+            try:
+                worker.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                worker.kill()
+                worker.wait(timeout=2)
+        for stream in (worker.stdin, worker.stdout):
+            if stream is not None:
+                stream.close()
+
+
+atexit.register(_stop_ocr_worker)
+
+
+def _exchange_ocr_worker(worker: subprocess.Popen, path: Path) -> bytes:
+    if worker.stdin is None or worker.stdout is None:
+        raise OSError("OCR worker pipe unavailable")
+    image_path = str(path)
+    if len(image_path) > 4096:
+        raise ValueError("Invalid OCR image path length")
+    request = (json.dumps({"path": image_path}, ensure_ascii=False) + "\n").encode("utf-8")
+    deadline = time.monotonic() + _OCR_WORKER_TIMEOUT
+    writer = worker.stdin.fileno()
+    reader = worker.stdout.fileno()
+    os.set_blocking(writer, False)
+    os.set_blocking(reader, False)
+
+    with selectors.DefaultSelector() as selector:
+        def wait_ready() -> None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not selector.select(remaining):
+                raise TimeoutError("OCR worker timed out")
+
+        selector.register(writer, selectors.EVENT_WRITE)
+        sent = 0
+        while sent < len(request):
+            wait_ready()
+            try:
+                sent += os.write(writer, request[sent:])
+            except BlockingIOError:
+                continue
+
+        selector.unregister(writer)
+        selector.register(reader, selectors.EVENT_READ)
+        response = bytearray()
+        while len(response) <= _OCR_WORKER_MAX_LINE:
+            wait_ready()
+            try:
+                chunk = os.read(reader, min(65536, _OCR_WORKER_MAX_LINE + 1 - len(response)))
+            except BlockingIOError:
+                continue
+            if not chunk:
+                break
+            response.extend(chunk)
+            newline = chunk.find(b"\n")
+            if newline >= 0:
+                if len(response) <= _OCR_WORKER_MAX_LINE and newline == len(chunk) - 1:
+                    return bytes(response)
+                break
+        raise ValueError("Invalid OCR worker response size or framing")
+
+
+def _managed_rapidocr(path: Path) -> dict[str, Any] | None:
+    """Send local image paths to the cached, isolated OCR runtime process."""
+    global _OCR_WORKER
+    from .optional_ocr_runtime import _WORKER, managed_python
+
+    python = managed_python()
+    if python is None:
+        return None
+    with _OCR_WORKER_LOCK:
+        if _OCR_WORKER is not None and _OCR_WORKER.poll() is not None:
+            _stop_ocr_worker()
+        if _OCR_WORKER is None:
+            environment = {
+                "PATH": os.environ.get("PATH", ""),
+                "LANG": "C.UTF-8",
+                "LC_ALL": "C.UTF-8",
+                "ORT_DISABLE_TELEMETRY": "1",
+                "PYTHONNOUSERSITE": "1",
+                "PYTHONDONTWRITEBYTECODE": "1",
+            }
+            try:
+                _OCR_WORKER = subprocess.Popen(
+                    [str(python), str(_WORKER)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL, bufsize=0,
+                    cwd=str(_WORKER.parent.parent), env=environment, shell=False,
+                )
+            except OSError:
+                _OCR_WORKER = None
+                return {"engine": "rapidocr", "status": "failed", "text": "", "characters": 0,
+                        "confidence": None, "blocks": [], "error": "RapidOCR-Laufzeit konnte nicht gestartet werden"}
+        worker = _OCR_WORKER
+        try:
+            if worker is None:
+                raise OSError("OCR worker pipe unavailable")
+            payload = json.loads(_exchange_ocr_worker(worker, path).decode("utf-8"))
+            if (not isinstance(payload, dict) or payload.get("engine") != "rapidocr"
+                    or payload.get("status") not in {"completed", "failed"}
+                    or not isinstance(payload.get("text"), str)):
+                raise ValueError("Invalid OCR worker response")
+            payload["text"] = payload["text"][:MAX_OCR_TEXT]
+            payload["characters"] = len(payload["text"])
+            return payload
+        except (OSError, ValueError):
+            _stop_ocr_worker()
+            return {"engine": "rapidocr", "status": "failed", "text": "", "characters": 0,
+                    "confidence": None, "blocks": [], "error": "RapidOCR-Laufzeit fehlgeschlagen oder Zeitüberschreitung"}
 
 
 def _line(value: Any, limit: int = 500) -> str:
@@ -173,7 +300,15 @@ def _run_rapidocr(path: Path) -> dict[str, Any]:
     try:
         engine = _rapidocr_engine()
     except (ImportError, ModuleNotFoundError) as exc:
+        managed_result = _managed_rapidocr(path)
+        if managed_result is not None:
+            return managed_result
         return _rapidocr_failure(exc, unavailable=True)
+    except FileNotFoundError as exc:
+        managed_result = _managed_rapidocr(path)
+        if managed_result is not None:
+            return managed_result
+        return _rapidocr_failure(exc)
     except Exception as exc:
         # A missing or unusable local model must not bypass the Tesseract
         # fallback and break the whole object-photo workflow.
