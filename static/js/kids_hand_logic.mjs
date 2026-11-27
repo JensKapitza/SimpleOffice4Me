@@ -93,6 +93,27 @@ export class HoldFilter {
   }
 }
 
+export class PracticeSession {
+  constructor(order = Object.keys(POSES)) {
+    if (!Array.isArray(order) || !order.length || order.some((name) => !POSES[name])) {
+      throw new TypeError('Practice order must contain known hand signs');
+    }
+    this.order = [...order];
+    this.index = 0;
+  }
+
+  get target() { return this.order[this.index]; }
+
+  update(gesture) {
+    if (!gesture || !POSES[gesture]) return null;
+    if (gesture !== this.target) return 'wrong';
+    this.index = (this.index + 1) % this.order.length;
+    return 'correct';
+  }
+
+  next() { this.index = (this.index + 1) % this.order.length; }
+}
+
 export class Duel {
   constructor(order = DUEL_ORDER, duration = ROUND_MS) {
     this.order = [...order];

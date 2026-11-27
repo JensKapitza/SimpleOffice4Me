@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {Duel, HoldFilter, POSES, readResult, classifyHand} from '../static/js/kids_hand_logic.mjs';
+import {Duel, HoldFilter, POSES, PracticeSession, readResult, classifyHand} from '../static/js/kids_hand_logic.mjs';
 import {cameraController} from '../static/js/kids_hand_camera.mjs';
 
 const p = (x, y, z = 0) => ({x, y, z});
@@ -58,6 +58,32 @@ test('stable frames, repeated signs and deliberate release: wrong/uncertain/mult
   assert.equal(g.observe(seen('spark'), 810), null);
   assert.equal(g.observe(seen('spark'), 800), null, 'backward frame ignored');
   assert.equal(g.observe(seen('spark'), 1020), 'spark');
+});
+
+test('a stable matching practice sign advances the target; wrong signs do not, manual skip still works', () => {
+  const practice = new PracticeSession(['crystal', 'star', 'shield']);
+  assert.equal(practice.target, 'crystal');
+  assert.equal(practice.update('spark'), 'wrong');
+  assert.equal(practice.target, 'crystal');
+  assert.equal(practice.update(null), null);
+  assert.equal(practice.target, 'crystal');
+
+  const hold = new HoldFilter();
+  let matched = null;
+  for (const time of [0, 67, 135, 201]) {
+    const gesture = hold.observe(seen('crystal'), time);
+    if (gesture) matched = practice.update(gesture);
+  }
+  assert.equal(matched, 'correct');
+  assert.equal(practice.target, 'star', 'correct camera recognition must update the visible target');
+  assert.equal(hold.observe(seen('crystal'), 271), null, 'one held pose cannot score twice');
+
+  practice.next();
+  assert.equal(practice.target, 'shield');
+  assert.equal(practice.update('shield'), 'correct');
+  assert.equal(practice.target, 'crystal', 'practice cycles after the last sign');
+  assert.throws(() => new PracticeSession([]), TypeError);
+  assert.throws(() => new PracticeSession(['unknown']), TypeError);
 });
 
 test('same turns, equal deadlines, wrong order, tie and fair tiebreak', () => {
