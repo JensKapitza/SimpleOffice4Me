@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 import tempfile
 import threading
 import wave
@@ -13,6 +12,7 @@ from flask import Response, current_app, jsonify, request
 
 from . import android_speech_settings
 from .audio_output_engine import render_tts
+from .component_runtime import resolve_command
 from .kids_piper_assets import installed_model
 from .media_settings import PIPER_READER_THORSTEN
 from .settings_store import SettingsStore
@@ -184,7 +184,7 @@ def _speech_choice(scope, language, piper_model):
     if engine == "android":
         return None, settings
     if engine == "automatic" and settings[scope + "_fallback"]:
-        if not shutil.which("piper"):
+        if not resolve_command("piper"):
             return None, settings
         try:
             model = piper_model(language)
@@ -240,7 +240,8 @@ def private_audio_response(
                 if not generated_ok or not path.is_file():
                     raise ReadAloudError("android_speech_unavailable", 503)
             else:
-                path = render_tts(text, "private-reader", directory, model=model)
+                path = render_tts(text, "private-reader", directory, model=model,
+                                  document_root=current_app.config["DOCUMENT_ROOT"])
             with path.open("rb") as generated:
                 audio = generated.read(MAX_SPEECH_AUDIO_BYTES + 1)
         if len(audio) > MAX_SPEECH_AUDIO_BYTES:

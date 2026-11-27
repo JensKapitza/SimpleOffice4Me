@@ -1,19 +1,23 @@
 """Read-only executable inventory; does not probe hardware or install packages."""
 import platform
 import shutil
+from .component_runtime import resolve_command
 
 
-def audio_dependencies(service, settings):
+def audio_dependencies(service, settings, document_root=None):
     """Describe mandatory stream tools and conditional announcement features.
 
-    Availability means an executable is on PATH, not that its codecs, server,
-    permissions or hardware work. Keep this separate from runtime health.
+    Availability means an executable resolves from the host or verified app
+    runtime, not that its codecs, server, permissions or hardware work.
     """
     rows = []
 
     def add(programs, required, purpose):
         rows.append({"programs": programs, "required": required,
-                     "available": any(shutil.which(name) for name in programs),
+                     "available": any(
+                         resolve_command(name, document_root) if name in {"ffmpeg", "ffprobe", "ffplay", "piper"}
+                         else shutil.which(name) for name in programs
+                     ),
                      "purpose": purpose, "scope": "executable-only"})
 
     if service in {"sender", "receiver"}:

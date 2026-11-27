@@ -47,7 +47,7 @@ def _catalog():
                    capabilities=["start", "stop", "restart", "scan", "settings"])
         try:
             row["settings"] = stream_settings(key)
-            row["dependencies"] = audio_dependencies(key, row["settings"])
+            row["dependencies"] = audio_dependencies(key, row["settings"], current_app.config.get("DOCUMENT_ROOT"))
         except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
             row.update(state="degraded", last_error=error_detail(exc), health={"ok": False, "message": "Audio-Einstellungen nicht lesbar. Speicher und Dateirechte prüfen."})
         rows.append(row)
@@ -56,7 +56,7 @@ def _catalog():
                capabilities=["start", "stop", "restart", "scan", "settings"])
     try:
         row["settings"] = output_worker.settings()
-        row["dependencies"] = audio_dependencies("output", row["settings"])
+        row["dependencies"] = audio_dependencies("output", row["settings"], current_app.config.get("DOCUMENT_ROOT"))
     except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
         row.update(state="degraded", last_error=error_detail(exc), health={"ok": False, "message": "Audio-Einstellungen nicht lesbar. Speicher und Dateirechte prüfen."})
     rows.append(row)

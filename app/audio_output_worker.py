@@ -233,10 +233,10 @@ class AudioOutputWorker:
                         adjusted_files[volume] = playback_files.enter_context(attenuated_audio(path, volume, cancel_event=self.stop_event))
                     adjusted = adjusted_files[volume]
                     if output["node_id"] == "local":
-                        commands.append(playback_command(adjusted, output["device"]))
+                        commands.append(playback_command(adjusted, output["device"], self.root))
                     else:
                         from .audio_output_transport import announcement_command
-                        commands.append(announcement_command(adjusted, output["transport"]))
+                        commands.append(announcement_command(adjusted, output["transport"], self.root))
             with self.lock:
                 for command in commands:
                     if self.stop_event.is_set():

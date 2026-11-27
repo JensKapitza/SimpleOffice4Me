@@ -159,6 +159,7 @@ class ReaderRuntimeCheckTests(unittest.TestCase):
             return None if name == "pdfimages" else name
 
         with patch("app.reader_runtime_check.shutil.which", side_effect=which), \
+                patch("app.reader_runtime_check.resolve_command", return_value="/synthetic/piper"), \
                 patch("app.reader_runtime_check.bounded_tool_output", return_value=b"") as tools, \
                 patch("app.reader_runtime_check.tesseract_languages", return_value={"osd", "other-private-label"}), \
                 patch("app.private_read_aloud.render_tts") as audio:
@@ -186,6 +187,7 @@ class ReaderRuntimeCheckTests(unittest.TestCase):
         self.save_voice_from_settings(default, english)
         self.login(self.client, "admin", "en")
         with patch("app.reader_runtime_check.shutil.which", side_effect=lambda name: name), \
+                patch("app.reader_runtime_check.resolve_command", return_value="/synthetic/piper"), \
                 patch("app.reader_runtime_check.bounded_tool_output", return_value=b""), \
                 patch("app.reader_runtime_check.tesseract_languages", side_effect=ReadAloudError("ocr_timeout", 503)), \
                 patch("app.private_read_aloud.render_tts", side_effect=TimeoutError("private details")) as speak:

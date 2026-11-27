@@ -73,7 +73,7 @@ class ReaderReadAloudTests(unittest.TestCase):
             session["_csrf_token"] = self.csrf
             session["simpleoffice_language"] = "de"
 
-    def render_wave(self, text, voice, directory, *, model):
+    def render_wave(self, text, voice, directory, *, model, document_root=None):
         self.spoken.append(text)
         directory = Path(directory)
         self.temp_dirs.append(directory)
@@ -161,6 +161,26 @@ class ReaderReadAloudTests(unittest.TestCase):
         device.assert_called_once()
         piper.assert_not_called()
 
+    def test_android_automatic_fallback_uses_managed_piper_runtime(self):
+        from app.private_read_aloud import _speech_choice
+
+        voice = self.root.parent / "fixture.onnx"
+        Path(str(voice) + ".json").write_text("{}", encoding="utf-8")
+        android = {
+            "reader": "automatic", "kids": "automatic", "reader_fallback": True,
+            "kids_fallback": False, "voice_de": "", "voice_en": "", "rate": 1.0, "pitch": 1.0,
+        }
+        SettingsStore(self.root).save({"media": {"android_speech": android}}, "admin")
+        def device_engine(*_args):
+            return True
+
+        with patch.dict(app.config, ANDROID_PRIVATE_SPEECH=device_engine), patch(
+            "app.private_read_aloud.resolve_command", return_value="/private/components/bin/piper",
+        ), app.test_request_context("/"):
+            selected_model, selected_device = _speech_choice("reader", "de", lambda _language: str(voice))
+        self.assertEqual(str(voice), selected_model)
+        self.assertIsNone(selected_device)
+
     def test_kids_android_shared_engine_checks_scope_locale_permission_and_opt_in(self):
         url = "/kids/lernen/sprache"
         headers = {"X-CSRF-Token": self.csrf}
@@ -176,7 +196,7 @@ class ReaderReadAloudTests(unittest.TestCase):
                     "kids_fallback": True, "voice_en": "en-installed", "rate": 1.25, "pitch": .9}
         SettingsStore(self.root).save({"media": {"android_speech": settings}}, "admin")
         doc = self.document("private.txt", b"Private boundary.")
-        with patch.dict(app.config, ANDROID_PRIVATE_SPEECH=device), patch("app.private_read_aloud.shutil.which", return_value=None):
+        with patch.dict(app.config, ANDROID_PRIVATE_SPEECH=device), patch("app.private_read_aloud.resolve_command", return_value=None):
             self.assertEqual(403, self.client.post(url, json=request_json).status_code)
             self.assertEqual(405, self.client.get(url, query_string=request_json).status_code)
             self.assertEqual(503, self.post(doc).status_code)
@@ -531,7 +551,7 @@ class ReaderReadAloudTests(unittest.TestCase):
         piper_model = os.environ.get("SIMPLEOFFICE_TEST_PIPER_MODEL")
         real_piper = piper_model and shutil.which("piper") and Path(piper_model).is_file()
 
-        def after_stage(text, voice, directory, *, model):
+        def after_stage(text, voice, directory, *, model, document_root=None):
             self.assertEqual(1, len(set(stage_paths)))
             self.assertFalse(stage_paths[0].parent.exists())
             if real_piper:
@@ -748,15 +768,15 @@ class ReaderReadAloudTests(unittest.TestCase):
         revoked = self.document("revoked.txt", b"Currently readable")
         self.login("member")
 
-        def render_then_change(text, voice, directory, *, model):
-            generated = self.render_wave(text, voice, directory, model=model)
+        def render_then_change(text, voice, directory, *, model, document_root=None):
+            generated = self.render_wave(text, voice, directory, model=model, document_root=document_root)
             record = self.store.get_document(changed["document_id"])
             record["version_number"] += 1
             self.store._save_document(record)
             return generated
 
-        def render_then_revoke(text, voice, directory, *, model):
-            generated = self.render_wave(text, voice, directory, model=model)
+        def render_then_revoke(text, voice, directory, *, model, document_root=None):
+            generated = self.render_wave(text, voice, directory, model=model, document_root=document_root)
             record = self.store.get_document(revoked["document_id"])
             record["attributes"]["chat_attachment"] = {"visibility": "chat", "allowed_local_users": ["elsewhere"]}
             self.store._save_document(record)

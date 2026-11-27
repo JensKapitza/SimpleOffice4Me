@@ -19,6 +19,7 @@ from pathlib import Path
 from contextlib import contextmanager
 from typing import Iterable
 
+from .component_runtime import resolve_command
 
 SAMPLE_RATE = 48_000
 
@@ -89,7 +90,7 @@ def render_tts(text: str, voice: str, cache_dir: str | Path, *, model: str | Non
     selected_model = str(model or _stored_piper_model(document_root)).strip()
     if not selected_model:
         raise RuntimeError("Piper-Modell fehlt: Modellpfad in den Medien-Einstellungen hinterlegen")
-    piper = shutil.which("piper")
+    piper = resolve_command("piper", document_root)
     if not piper:
         raise RuntimeError("Piper ist nicht installiert")
     target = root / f"tts-{_cache_key(text, voice, selected_model)}.wav"
@@ -177,7 +178,7 @@ def attenuated_audio(path: str | Path, volume: int, *, cancel_event=None):
         yield target
 
 
-def playback_command(path: str | Path, device: str = "") -> list[str]:
+def playback_command(path: str | Path, device: str = "", document_root=None) -> list[str]:
     file_path = str(Path(path))
     if shutil.which("pw-play"):
         command = ["pw-play"]
@@ -189,10 +190,11 @@ def playback_command(path: str | Path, device: str = "") -> list[str]:
         if device:
             command.extend(["-D", device])
         return command + [file_path]
-    if shutil.which("ffplay"):
+    ffplay = resolve_command("ffplay", document_root)
+    if ffplay:
         if device and device != "default":
             raise RuntimeError("FFplay kann das gewählte Gerät nicht gezielt ansprechen; Systemstandard wählen oder einen gerätefähigen Player verwenden")
-        return ["ffplay", "-nodisp", "-autoexit", "-loglevel", "error", file_path]
+        return [ffplay, "-nodisp", "-autoexit", "-loglevel", "error", file_path]
     raise RuntimeError("Kein Audio-Player gefunden (pw-play, aplay oder ffplay)")
 
 

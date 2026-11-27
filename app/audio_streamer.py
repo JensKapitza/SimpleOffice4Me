@@ -21,6 +21,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from .component_runtime import resolve_command
 from simpleoffice_service_lifecycle import ServiceState, error_detail
 from simpleoffice_sip_runtime import auto_sip_bind_host
 
@@ -94,7 +96,7 @@ def _rtp_target(host: str, port: int) -> str:
 
 
 def sender_command(*, source: str, backend: str, destinations: list[tuple[str, int]], bitrate_kbps: int = 64) -> list[str]:
-    ffmpeg = shutil.which("ffmpeg")
+    ffmpeg = resolve_command("ffmpeg")
     if not ffmpeg:
         raise RuntimeError("ffmpeg ist nicht installiert")
     backend = str(backend or "pulse").strip().lower()
@@ -135,7 +137,7 @@ def receiver_sdp(port: int) -> str:
 
 
 def decoder_command(sdp_path: str | Path, bind: str = "127.0.0.1") -> list[str]:
-    ffmpeg = shutil.which("ffmpeg")
+    ffmpeg = resolve_command("ffmpeg")
     if not ffmpeg:
         raise RuntimeError("ffmpeg ist nicht installiert")
     return [
@@ -162,7 +164,7 @@ def receiver_playback_command(device: str = "") -> list[str]:
         return paplay_command(device)
     if device not in {"", "default"}:
         raise ValueError("Windows-Receiver unterstützt nur den Systemstandard-Ausgang")
-    ffplay = shutil.which("ffplay")
+    ffplay = resolve_command("ffplay")
     if not ffplay:
         raise RuntimeError("FFplay fehlt; Windows-Wiedergabe ist nicht verfügbar")
     return [ffplay, "-nodisp", "-autoexit", "-loglevel", "error", "-f", "s16le",
