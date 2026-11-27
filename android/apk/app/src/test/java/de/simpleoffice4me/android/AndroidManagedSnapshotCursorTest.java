@@ -10,6 +10,18 @@ public class AndroidManagedSnapshotCursorTest {
     private static final String OWNER = "a".repeat(64);
     private static final String REV = "b".repeat(64);
 
+    @Test
+    public void previewAcceptsOnlyTheSameAccountAndRevisionWithinTwoMinutes() {
+        assertTrue(AndroidManagedSnapshotCursor.approvalMatches("principal", "revision", 1000, 121000,
+                "principal", "revision"));
+        assertFalse(AndroidManagedSnapshotCursor.approvalMatches("principal", "revision", 1000, 121001,
+                "principal", "revision"));
+        assertFalse(AndroidManagedSnapshotCursor.approvalMatches("principal", "revision", 1000, 2000,
+                "other", "revision"));
+        assertFalse(AndroidManagedSnapshotCursor.approvalMatches("principal", "revision", 1000, 2000,
+                "principal", "changed"));
+    }
+
     @Test public void acceptsAFullThousandRowsWithoutOffsetReplay() throws IOException {
         AndroidManagedSnapshotCursor cursor = new AndroidManagedSnapshotCursor();
         assertEquals("", cursor.revision());

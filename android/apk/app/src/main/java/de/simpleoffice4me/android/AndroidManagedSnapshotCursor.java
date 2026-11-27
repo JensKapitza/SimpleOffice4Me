@@ -17,6 +17,12 @@ final class AndroidManagedSnapshotCursor {
     String revision() { return revision; }
     String principal() { return principal; }
 
+    static boolean approvalMatches(String principal, String revision, long approvedAt, long now,
+                                   String currentPrincipal, String currentRevision) {
+        return principal != null && revision != null && now >= approvedAt && now - approvedAt <= 120_000
+                && principal.equals(currentPrincipal) && revision.equals(currentRevision);
+    }
+
     boolean accept(String receivedPrincipal, String receivedRevision, int size, Integer next) throws IOException {
         if (finished || !HEX.matcher(receivedPrincipal).matches() || !HEX.matcher(receivedRevision).matches()
                 || (principal != null && (!principal.equals(receivedPrincipal) || !revision.equals(receivedRevision)))

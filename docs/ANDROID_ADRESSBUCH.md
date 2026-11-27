@@ -28,6 +28,14 @@ verfügbaren Quellen. Namensgleichheit allein reicht nicht. Der optionale
 Geburtstagskalender übernimmt auch 29. Februar unverändert; sein technischer
 Serienanfang ist kein Geburtsjahr.
 
+Vor jedem Abgleich zeigt die APK zuerst die Anzahl der übertragbaren Kontakte
+bzw. Termine und der gewählten Kalender. Bis dahin liest sie nur die
+SimpleOffice-Daten und fordert keine Android-Berechtigung an. Erst
+**Übernehmen** startet die Freigabe und das Schreiben ins SimpleOffice-Konto.
+Die Vorschau gilt zwei Minuten. Vor dem Schreiben prüft die APK die aktuelle
+Kontokennung und Datenrevision erneut. Bei Änderungen, Wechsel der Ansicht
+oder Ablauf ist eine neue Vorschau nötig. Abbrechen verändert nichts.
+
 Ein manueller Kontaktabgleich lädt bis zu 1.000 sichtbare Kontakte in
 Seiten zu je 25. Die App verlangt dieselbe Kontokennung und dieselbe Revision
 für alle Seiten und beginnt erst nach vollständiger Prüfung mit der

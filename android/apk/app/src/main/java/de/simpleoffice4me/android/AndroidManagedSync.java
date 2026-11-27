@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.pm.PackageManager;
+import android.os.SystemClock;
 import android.webkit.CookieManager;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -16,6 +17,7 @@ import java.net.Proxy;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -33,11 +35,16 @@ final class AndroidManagedSync {
     private volatile boolean closed;
     private boolean busy;
     private AlertDialog confirmation;
-    private Request pending;
+    private Prepared pending;
 
     private record Request(String source, String csrf, String userAgent, String cookie,
                            JSONArray calendarIds, long generation) {}
-    private record Snapshot(String principal, List<JSONArray> pages) {}
+    private record Snapshot(String principal, String revision, List<JSONArray> pages) {}
+    private record Prepared(Request request, String principal, String revision, long preparedAt,
+                            int count, List<AndroidManagedContacts.Contact> contacts,
+                            List<List<AndroidManagedCalendarRows.Event>> calendar) {}
+    private static final String CHANGED = "Die Daten oder Freigaben haben sich geändert. Bitte öffne eine neue Vorschau. "
+            + "Diese Übertragung hat noch nichts auf Android geschrieben.";
 
     AndroidManagedSync(Activity activity, BooleanSupplier currentPage) {
         this.activity = activity;
@@ -57,14 +64,7 @@ final class AndroidManagedSync {
             String cookie = CookieManager.getInstance().getCookie(AndroidDeviceSourcePreview.PAGE);
             if (cookie == null || cookie.trim().isEmpty()) { message("Bitte erneut anmelden."); return; }
             Request request = new Request(source, csrf, userAgent, cookie, selected, generation);
-            String what = "contacts".equals(source) ? "Kontakte" : "die ausgewählten Kalender";
-            confirmation = new AlertDialog.Builder(activity).setTitle("Mit Android abgleichen")
-                    .setMessage("SimpleOffice übernimmt " + what
-                            + " ins eigene Android-Konto. Andere Konten bleiben unverändert. Nichts wird zurückgeschrieben.")
-                    .setNegativeButton("Abbrechen", null)
-                    .setPositiveButton("Abgleichen", (dialog, button) -> startOrAsk(request)).create();
-            confirmation.setOnDismissListener(ignored -> confirmation = null);
-            confirmation.show();
+            prepare(request);
         } catch (org.json.JSONException invalid) {
             message("Ungültige Kalender-Auswahl.");
         }
@@ -87,11 +87,72 @@ final class AndroidManagedSync {
                 && request.cookie.equals(CookieManager.getInstance().getCookie(AndroidDeviceSourcePreview.PAGE));
     }
 
-    private void startOrAsk(Request request) {
+    private void prepare(Request request) {
+        busy = true;
+        executor.execute(() -> {
+            Prepared result = null;
+            String error = "Vorschau nicht verfügbar. Prüfe Anmeldung und Auswahl.";
+            try {
+                Snapshot observed = fetchAll(request);
+                List<AndroidManagedContacts.Contact> contacts = Collections.emptyList();
+                List<List<AndroidManagedCalendarRows.Event>> calendars = Collections.emptyList();
+                int count;
+                if ("contacts".equals(request.source)) {
+                    JSONArray combined = new JSONArray();
+                    for (JSONArray page : observed.pages) {
+                        for (int i = 0; i < page.length(); i++) combined.put(page.getJSONObject(i));
+                    }
+                    contacts = AndroidManagedContacts.prepare(combined);
+                    count = contacts.size();
+                } else {
+                    calendars = AndroidManagedCalendarRows.prepare(observed.pages);
+                    count = 0;
+                    for (var page : calendars) count += page.size();
+                }
+                result = new Prepared(request, observed.principal, observed.revision, SystemClock.elapsedRealtime(),
+                                      count, contacts, calendars);
+            } catch (SnapshotChanged changed) {
+                error = CHANGED;
+            } catch (SnapshotTooLarge tooLarge) {
+                error = "contacts".equals(request.source)
+                        ? "Dieses Adressbuch enthält mehr als 1.000 übertragbare Kontakte."
+                        : "Die Auswahl enthält mehr als 1.000 Termine oder Serienausnahmen. Wähle weniger Kalender.";
+            } catch (Exception unavailable) {
+                // No provider access takes place while creating a preview.
+            }
+            final Prepared preview = result;
+            final String feedback = error;
+            activity.runOnUiThread(() -> {
+                busy = false;
+                if (!valid(request) || !currentPage.getAsBoolean()) return;
+                if (preview == null) message(feedback);
+                else if (preview.count == 0) message("Keine Einträge zum Übernehmen. Android wurde nicht verändert.");
+                else showPreview(preview);
+            });
+        });
+    }
+
+    private void showPreview(Prepared preview) {
+        String scope = "contacts".equals(preview.request.source)
+                ? preview.count + " Kontakte"
+                : preview.count + " Termine/Serienausnahmen aus " + preview.request.calendarIds.length() + " ausgewählten Kalendern";
+        confirmation = new AlertDialog.Builder(activity).setTitle("Android-Abgleich prüfen")
+                .setMessage(scope + " sind zur Übernahme ins eigene SimpleOffice-Konto auf diesem Gerät bereit. "
+                        + "Es wurde noch nichts geschrieben. Andere Konten bleiben unverändert.")
+                .setNegativeButton("Abbrechen", null)
+                .setPositiveButton("Übernehmen", (dialog, button) -> startOrAsk(preview)).create();
+        confirmation.setOnDismissListener(ignored -> confirmation = null);
+        confirmation.show();
+    }
+
+    private void startOrAsk(Prepared preview) {
+        Request request = preview.request;
         if (busy || pending != null || !valid(request) || !currentPage.getAsBoolean()) return;
-        if (permitted(request.source)) submit(request);
+        if (!previewMatches(preview, preview.principal, preview.revision)) { message(CHANGED); return; }
+        if (permitted(request.source)) submit(preview);
         else {
-            pending = request;
+            pending = preview;
+            permissionReturned = false;
             try {
                 activity.requestPermissions(permissions(request.source), PERMISSION_REQUEST);
             } catch (IllegalStateException | SecurityException unavailable) {
@@ -110,32 +171,49 @@ final class AndroidManagedSync {
 
     private void resumePermission() {
         if (!resumed || pending == null || !permissionReturned) return;
-        Request request = pending;
+        Prepared preview = pending;
         pending = null;
         permissionReturned = false;
+        Request request = preview.request;
         if (!valid(request) || !currentPage.getAsBoolean()) return;
-        if (permitted(request.source)) submit(request);
+        if (permitted(request.source)) submit(preview);
         else message("Zugriff nicht erteilt. Du kannst ihn in den Android-App-Einstellungen freigeben.");
     }
 
-    private void submit(Request request) {
+    private boolean previewMatches(Prepared preview, String principal, String revision) {
+        return AndroidManagedSnapshotCursor.approvalMatches(preview.principal, preview.revision,
+                preview.preparedAt, SystemClock.elapsedRealtime(), principal, revision);
+    }
+
+    private void verifyPreview(Prepared preview) throws SnapshotChanged {
+        try {
+            JSONObject current = fetch(preview.request, 0, "");
+            if (!previewMatches(preview, current.getString("principal"), current.getString("revision")))
+                throw new SnapshotChanged();
+        } catch (SnapshotChanged changed) {
+            throw changed;
+        } catch (Exception unavailable) {
+            throw new SnapshotChanged();
+        }
+    }
+
+    private void submit(Prepared preview) {
+        Request request = preview.request;
         busy = true;
         executor.execute(() -> {
             String text;
             try {
-                boolean contacts = "contacts".equals(request.source);
-                Snapshot snapshot = fetchAll(request);
-                if (!canContinue(request)) throw new IOException("Sync cancelled");
-                AndroidManagedSyncAccount.bind(snapshot.principal());
-                int count = contacts ? syncContacts(request, snapshot.pages()) : syncCalendar(request, snapshot.pages());
+                if (!canWrite(request)) throw new IOException("Sync cancelled");
+                // Re-read the current revision through the authenticated server before accessing the provider.
+                verifyPreview(preview);
+                if (!canWrite(request)) throw new IOException("Sync cancelled");
+                AndroidManagedSyncAccount.bind(preview.principal);
+                int count = "contacts".equals(request.source)
+                        ? AndroidManagedContacts.sync(activity, preview.contacts, () -> canWrite(request))
+                        : syncCalendar(request, preview.calendar);
                 text = count + " Einträge geprüft oder übernommen. Bestehende Einträge anderer Android-Konten bleiben unberührt.";
             } catch (SnapshotChanged changed) {
-                text = "Die Auswahl hat sich beim Laden geändert. Bitte starte den Abgleich erneut. "
-                        + "Diese Übertragung hat noch nichts auf Android geschrieben.";
-            } catch (SnapshotTooLarge tooLarge) {
-                text = "contacts".equals(request.source)
-                        ? "Dieses Adressbuch enthält mehr als 1.000 übertragbare Kontakte."
-                        : "Die Auswahl enthält mehr als 1.000 Termine oder Serienausnahmen. Wähle weniger Kalender.";
+                text = CHANGED;
             } catch (Exception failure) {
                 text = "Abgleich nicht vollständig. Prüfe Anmeldung, Android-Berechtigungen und Auswahl. Erneutes Abgleichen ist möglich.";
             } finally {
@@ -149,23 +227,14 @@ final class AndroidManagedSync {
         });
     }
 
-    private boolean canContinue(Request request) {
+    private boolean canWrite(Request request) {
         return !Thread.currentThread().isInterrupted() && valid(request) && permitted(request.source);
     }
 
-    private int syncContacts(Request request, List<JSONArray> pages) throws Exception {
-        JSONArray combined = new JSONArray();
-        for (JSONArray rows : pages) {
-            for (int i = 0; i < rows.length(); i++) combined.put(rows.getJSONObject(i));
-        }
-        return combined.length() == 0 ? 0 : AndroidManagedContacts.sync(activity, combined, () -> canContinue(request));
-    }
-
-    private int syncCalendar(Request request, List<JSONArray> pages) throws Exception {
-        List<List<AndroidManagedCalendarRows.Event>> batches = AndroidManagedCalendarRows.prepare(pages);
+    private int syncCalendar(Request request, List<List<AndroidManagedCalendarRows.Event>> batches) throws Exception {
         int count = 0;
         for (List<AndroidManagedCalendarRows.Event> batch : batches) {
-            if (!canContinue(request)) throw new IOException("Sync cancelled");
+            if (!canWrite(request)) throw new IOException("Sync cancelled");
             count += AndroidManagedCalendar.sync(activity, batch);
         }
         return count;
@@ -175,14 +244,14 @@ final class AndroidManagedSync {
         AndroidManagedSnapshotCursor cursor = new AndroidManagedSnapshotCursor();
         List<JSONArray> pages = new ArrayList<>();
         for (int pageIndex = 0; pageIndex < AndroidManagedSnapshotCursor.MAX_ROWS / AndroidManagedSnapshotCursor.PAGE_SIZE; pageIndex++) {
-            if (!canContinue(request)) throw new IOException("Sync cancelled");
+            if (Thread.currentThread().isInterrupted() || !valid(request)) throw new IOException("Sync cancelled");
             JSONObject page = fetch(request, cursor.offset(), cursor.revision());
             JSONArray rows = page.getJSONArray("rows");
             Object nextValue = page.get("next_offset");
             Integer next = nextValue == JSONObject.NULL ? null : (Integer) nextValue;
             boolean done = cursor.accept(page.getString("principal"), page.getString("revision"), rows.length(), next);
             pages.add(rows);
-            if (done) return new Snapshot(cursor.principal(), pages);
+            if (done) return new Snapshot(cursor.principal(), cursor.revision(), pages);
         }
         throw new IOException("Managed export did not end");
     }

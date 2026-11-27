@@ -25,6 +25,7 @@ import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -50,25 +51,25 @@ final class AndroidManagedContacts {
 
     private AndroidManagedContacts() {}
 
-    // Serialize requests within the APK. Provider assertions also guard against device-side changes.
-    static synchronized int sync(Context context, JSONArray rows, BooleanSupplier active) throws Exception {
-        if (context.checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED
-                || context.checkSelfPermission(Manifest.permission.WRITE_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
-            throw new SecurityException("Android contacts permission is required");
-        }
+    static List<Contact> prepare(JSONArray rows) throws org.json.JSONException {
         if (rows.length() > AndroidManagedSnapshotCursor.MAX_ROWS) {
             throw new IllegalArgumentException("Too many contacts in one export");
         }
-
-        // Validate the entire payload before any provider write, including account settings.
         ArrayList<Contact> contacts = new ArrayList<>(rows.length());
         Set<String> ids = new HashSet<>();
         for (int i = 0; i < rows.length(); i++) {
             Contact contact = new Contact(rows.getJSONObject(i));
-            if (!ids.add(contact.id)) {
-                throw new IllegalArgumentException("Duplicate contact identifier");
-            }
+            if (!ids.add(contact.id)) throw new IllegalArgumentException("Duplicate contact identifier");
             contacts.add(contact);
+        }
+        return contacts;
+    }
+
+    // Serialize requests within the APK. Provider assertions also guard against device-side changes.
+    static synchronized int sync(Context context, List<Contact> contacts, BooleanSupplier active) throws Exception {
+        if (context.checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED
+                || context.checkSelfPermission(Manifest.permission.WRITE_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+            throw new SecurityException("Android contacts permission is required");
         }
         if (contacts.isEmpty()) {
             return 0;
@@ -316,7 +317,7 @@ final class AndroidManagedContacts {
         return text;
     }
 
-    private static final class Contact {
+    static final class Contact {
         final String id;
         final String name;
         final String firstName;
