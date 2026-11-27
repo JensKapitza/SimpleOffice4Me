@@ -113,7 +113,12 @@ ausgetauscht.
 
 4. Vom SimpleOffice-Rechner aus `curl http://GATEWAY_IP:8080/status` prüfen.
    Unter **Datenlogger → Worker-Einstellungen** nur die Gateway-IP zusätzlich
-   freigeben und den vorhandenen Datenlogger-Worker aktiv halten. Zwei
+   freigeben und den vorhandenen Datenlogger-Worker aktiv halten. Bei Docker
+   von der tatsächlichen Worker-Umgebung testen: Ein Standard-Bridge-Netz
+   verwendet für ausgehende LAN-Verbindungen meist die LAN-IP des Hosts.
+   Bei 403 die tatsächlich am Gateway sichtbare Absender-IP prüfen; die
+   Freigabe nicht auf andere Geräte oder ganze Netze ausweiten.
+   Zwei
    Messkanäle anlegen, jeweils die Quelle **HTTP/JSON-Sensor** mit derselben
    URL und den Pfaden **nodes.room_a.value** und **nodes.room_b.value**
    konfigurieren, zunächst im 60-Sekunden-Takt. SimpleOffice fragt nur das
@@ -124,7 +129,11 @@ ausgetauscht.
    wenn das Gateway den Knoten nicht abfragen kann. Bei ausgeschaltetem
    Knoten A fehlt dessen Messwert; B bleibt abrufbar. Ein Ausfall des Gateways
    selbst erzeugt einen Abfragefehler, keine erfundene `0` für jeden Knoten.
-   Nach Wiederanlauf läuft der Verlauf weiter. Das Gateway verwendet für
+   Nach Wiederanlauf läuft der Verlauf weiter. Aktiviere beim Anlegen der
+   HTTP/JSON-Quelle optional **Pico-Zustandswechsel protokollieren**.
+   Auf der Seite des Verfügbarkeitskanals erscheinen die letzten 20 bestätigten
+   Zustandswechsel; ein erster Wert und wiederholte gleiche Werte erzeugen
+   kein Ereignis. Das Gateway verwendet für
    nahe beieinander liegende Abfragen standardmäßig höchstens eine Sekunde lang dieselbe
    Stichprobe (`GATEWAY_CACHE_MS`, `0` schaltet die Wiederverwendung ab).
    Der Datenlogger sammelt Stichproben, keinen lückenlosen Messverlauf.

@@ -14,6 +14,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from .datalogger_store import tracks_pico_availability
+
 MAX_HTTP_BYTES = 1024 * 1024
 
 _LOGGER = logging.getLogger(__name__)
@@ -283,7 +285,10 @@ def collect_http(config, document_root=None):
         data = json.loads(body)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise CollectionError("json_invalid") from exc
-    return _number(json_path(data, str(config.get("json_path", "value"))))
+    value = json_path(data, str(config.get("json_path", "value")))
+    if tracks_pico_availability(config) and (type(value) not in (int, float) or value not in (0, 1)):
+        raise CollectionError("availability_invalid")
+    return _number(value)
 
 
 def collect_lm_sensors(config):

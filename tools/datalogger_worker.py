@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 from app.datalogger_collectors import CollectionError, collect
-from app.datalogger_store import DataLoggerStore
+from app.datalogger_store import DataLoggerStore, tracks_pico_availability
 
 running = True
 
@@ -25,8 +25,15 @@ def run(root, once=False):
     while running:
         for source in store.due_sources():
             try:
-                value = collect(source["kind"], json.loads(source["config"]), root)
-                store.add_sample(source["channel_id"], value, "system:datalogger", source_id=source["source_id"])
+                config = json.loads(source["config"])
+                value = collect(source["kind"], config, root)
+                if source["kind"] == "http_json" and tracks_pico_availability(config):
+                    if value not in (0, 1):
+                        raise CollectionError("availability_invalid")
+                    if not store.add_pico_availability_sample(source["channel_id"], source["source_id"], value):
+                        continue
+                else:
+                    store.add_sample(source["channel_id"], value, "system:datalogger", source_id=source["source_id"])
                 store.finish_source(source["source_id"], "ok")
             except CollectionError as exc:
                 store.finish_source(source["source_id"], "error", exc.code)

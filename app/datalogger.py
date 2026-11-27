@@ -17,6 +17,7 @@ from .datalogger_store import (
     MAX_POLL_INTERVAL_SECONDS,
     MIN_POLL_INTERVAL_SECONDS,
     DataLoggerStore,
+    pico_availability_path,
 )
 from .datalogger_collectors import (
     DEFAULT_SENSOR_ALLOWED_HOSTS,
@@ -64,6 +65,8 @@ def _read_channel(channel_id):
 
 
 def _source_config(kind, form):
+    if kind != "http_json" and form.get("track_availability") == "1":
+        raise ValueError("Pico-Zustandswechsel brauchen eine HTTP/JSON-Quelle.")
     if kind == "linux":
         metric = str(form.get("metric", "")).strip() or "load1"
         if metric not in LINUX_METRICS:
@@ -75,9 +78,14 @@ def _source_config(kind, form):
             raise ValueError(f"Unbekannte Datei-Messgröße: {metric}. Erlaubt: {', '.join(sorted(FILE_METRICS))}.")
         return {"metric": metric, "path": (str(form.get("path", "")).strip() or ".")[:500], "recursive": form.get("recursive") == "1", "max_entries": 100000}
     if kind == "http_json":
-        return {"url": form.get("url", "")[:1000], "json_path": (form.get("json_path", "") or "value")[:300], "timeout": 5,
-                "header_name": form.get("header_name", "Authorization")[:80],
-                "header_secret": str(form.get("header_secret", ""))[:MAX_SENSOR_SECRET_CHARS]}
+        config = {"url": form.get("url", "")[:1000], "json_path": (form.get("json_path", "") or "value")[:300], "timeout": 5,
+                  "header_name": form.get("header_name", "Authorization")[:80],
+                  "header_secret": str(form.get("header_secret", ""))[:MAX_SENSOR_SECRET_CHARS]}
+        if form.get("track_availability") == "1":
+            if not pico_availability_path(config):
+                raise ValueError("Für Pico-Zustandswechsel nutze den Pfad nodes.KNOTEN.available.")
+            config["track_availability"] = True
+        return config
     if kind == "lm_sensors": return {"json_path": form.get("json_path", "")[:300]}
     raise ValueError("Unbekannter Quellentyp.")
 
@@ -242,9 +250,14 @@ def channel(channel_id):
         day = date.fromisoformat(error['measured_at'][:10])
         error['before'] = (day - timedelta(days=1)).isoformat()
         error['after'] = (day + timedelta(days=1)).isoformat()
+    sources = store.sources(channel_id)
+    source_names = {source["source_id"]: source["name"] for source in sources}
+    changes = store.pico_availability_changes(channel_id)
+    for change in changes:
+        change["source_name"] = source_names.get(change.pop("source_id"), "Ehemalige Quelle")
     return render_template(
         "datalogger/channel.html", channel=channel, samples=samples, chart_samples=chart_samples,
-        sources=store.sources(channel_id), can_edit=store.can_edit(channel, g.user["username"], is_admin()), users=_users(),
+        sources=sources, availability_changes=changes, can_edit=store.can_edit(channel, g.user["username"], is_admin()), users=_users(),
         page=page, pages=pages, per_page=per_page, total_samples=total,
         linux_metrics=sorted(LINUX_METRICS), file_metrics=sorted(FILE_METRICS),
         start_day=start_day, end_day=end_day, latest=latest, errors=errors,

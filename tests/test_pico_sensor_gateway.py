@@ -60,12 +60,13 @@ class PicoSensorGatewayTest(unittest.TestCase):
                 channels.append((channel, value))
             presence = store.create_channel("room_a available", "owner")
             store.add_source(presence, "owner", "http_json", "Pico availability",
-                             {"url": url, "json_path": "nodes.room_a.available"})
+                             {"url": url, "json_path": "nodes.room_a.available", "track_availability": True})
             run(root, once=True)
             for channel, expected in channels:
                 self.assertEqual([expected], [item["value"] for item in store.samples(channel)])
 
             self.assertEqual([1.0], [item["value"] for item in store.samples(presence)])
+            self.assertEqual([], store.pico_availability_changes(presence))
             a.close()
             with build_opener(ProxyHandler({})).open(url, timeout=3) as response:
                 data = json.load(response)["nodes"]
@@ -79,6 +80,7 @@ class PicoSensorGatewayTest(unittest.TestCase):
             self.assertEqual(0.0, collect_http({"url": url, "json_path": "nodes.room_a.available"}, root))
             next_worker_poll(5)
             self.assertCountEqual([1.0, 0.0], [item["value"] for item in store.samples(presence)])
+            self.assertEqual([False], [entry["available"] for entry in store.pico_availability_changes(presence)])
             self.assertEqual([21.5], [item["value"] for item in store.samples(channels[0][0])])
             with self.assertRaises(CollectionError):
                 collect_http({"url": url, "json_path": "nodes.room_a.value"}, root)
@@ -94,6 +96,34 @@ class PicoSensorGatewayTest(unittest.TestCase):
             self.assertCountEqual([1.0, 0.0, 1.0], [item["value"] for item in store.samples(presence)])
             presence_source, = store.sources(presence)
             self.assertEqual("error", presence_source["last_status"])
+            self.assertEqual([True, False], [entry["available"] for entry in store.pico_availability_changes(presence)])
+
+    def test_invalid_and_repeated_availability_do_not_create_changes(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = DataLoggerStore(root)
+            channel = store.create_channel("availability", "owner")
+            gateway = self.endpoint(lambda _: (200, {"nodes": {"room_a": {"available": 3}}}))
+            source = store.add_source(channel, "owner", "http_json", "Pico",
+                                      {"url": f"http://127.0.0.1:{gateway.port}/status",
+                                       "json_path": "nodes.room_a.available", "track_availability": True})
+            run(root, once=True)
+            self.assertEqual([], store.samples(channel))
+            self.assertEqual("availability_invalid", store.sources(channel)[0]["last_error_code"])
+            for invalid in (False, "0"):
+                alternate = self.endpoint(lambda _: (200, {"nodes": {"room_a": {"available": invalid}}}))
+                legacy = {"url": f"http://127.0.0.1:{alternate.port}/status", "json_path": "nodes.room_a.available"}
+                self.assertEqual(0.0, collect_http(legacy, root))
+                with self.assertRaisesRegex(CollectionError, "availability_invalid"):
+                    collect_http({**legacy, "track_availability": True}, root)
+            with patch("app.datalogger_store.utc_now", return_value="2026-11-27T12:00:01+00:00"):
+                self.assertTrue(store.add_pico_availability_sample(channel, source, 1))
+                self.assertTrue(store.add_pico_availability_sample(channel, source, 0))  # Same receipt is idempotent.
+            with patch("app.datalogger_store.utc_now", return_value="2026-11-27T12:00:02+00:00"):
+                self.assertTrue(store.add_pico_availability_sample(channel, source, 1))
+            self.assertEqual([], store.pico_availability_changes(channel))
+            store.set_source_enabled(source, "owner", False)
+            self.assertFalse(store.add_pico_availability_sample(channel, source, 0))
+            self.assertEqual([], store.pico_availability_changes(channel))
 
     def test_availability_and_measurement_share_one_gateway_poll_over_tcp(self):
         reads = []
