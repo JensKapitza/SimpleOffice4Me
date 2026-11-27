@@ -414,8 +414,9 @@ app.register_blueprint(webdav.bp)
 from . import contact_audit
 app.register_blueprint(contact_audit.bp)
 
-from . import mail_routes
+from . import mail_routes, sms_archive_routes
 app.register_blueprint(mail_routes.bp)
+app.register_blueprint(sms_archive_routes.bp)
 
 from . import mail_reader_routes
 app.register_blueprint(mail_reader_routes.bp)
@@ -568,6 +569,7 @@ PRIVATE_READ_ALOUD_ENDPOINTS = frozenset({
 
 @app.before_request
 def verify_browser_request():
+    sms_archive_routes.limit_request()
     library.book_scan_routes.limit_upload()
     fakturama_admin.limit_preview_upload()
     reader_runtime_check.limit_request()

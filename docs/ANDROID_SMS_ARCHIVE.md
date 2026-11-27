@@ -1,10 +1,24 @@
-# Android-SMS-Archiv: lokaler Kern
+# Android-SMS-Archiv: Ablage und Sicherung
 
 `app.sms_archive_store.SmsArchive` ist ein serverseitiger Ablage- und
-Wiederherstellungskern. Er liest, sendet und löscht keine SMS. Er ist nicht
-über HTTP erreichbar und übernimmt keine App-Berechtigungsprüfung. Ein
-späterer Communications-Einstieg muss Sitzung, Funktionsrecht und CSRF prüfen
-und den Eigentümer sowie die Gerätezuordnung serverseitig ableiten.
+Wiederherstellungskern. Er liest, sendet und löscht keine SMS auf Geräten.
+Unter **Kommunikation → SMS-Archiv** können angemeldete Konten mit dem
+Mail-/Kommunikationsrecht vorhandene archivierte SMS prüfen, nach Nummer oder
+Text suchen und ausgewählte Nachrichten als externe Sicherung herunterladen.
+
+1. Markiere die gewünschten Nachrichten und wähle **Auswahl sichern**.
+2. Bewahre die Datei verschlüsselt und außerhalb der App auf.
+3. Wähle unter **Sicherung wiederherstellen** eine Sicherung desselben
+   SimpleOffice-Kontos aus und bestätige den Import. Bereits vorhandene
+   Nachrichten bleiben unverändert. Eine abweichend wiederverwendete ID
+   bricht den Import der gesamten Auswahl ab.
+
+Es gibt in dieser Oberfläche noch keine Verbindung zur SMS-Datenbank des
+Handys und keinen Import beliebiger Android-Backups. Suchbegriffe werden
+per Formular gesendet statt in URL oder Serverprotokoll geschrieben.
+Sitzung, Funktionsrecht und CSRF werden nach dem üblichen Verfahren geprüft.
+Die Auswahl und die Sicherungsdatei können den Archiveigentümer nicht setzen.
+Der Browser erhält für Seiten und Backups `private, no-store`.
 
 - Der Kern speichert im konfigurierten Dokumentstamm unter
   `.simpleoffice-meta/sms-archive.sqlite3`. Für ein von der APK-Deinstallation
@@ -51,5 +65,5 @@ Dieser Kern fordert weder SMS-Berechtigungen noch eine Standardrolle an.
 Test mit ausschließlich synthetischen SMS:
 
 ```sh
-python -m unittest -v tests.test_sms_archive_store
+python -m unittest -v tests.test_sms_archive_store tests.test_sms_archive_routes
 ```
