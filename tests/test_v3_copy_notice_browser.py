@@ -92,3 +92,12 @@ class CopyNoticeSoundBrowserTest(unittest.TestCase):
         self.assertEqual([660], page.evaluate("() => window.copyTones"))
         button.click()
         self.assertEqual("false", button.get_attribute("aria-pressed"))
+        read = page.locator("[data-copy-read-button]")
+        notice = page.locator("[data-copy-notice-list] [data-notice-id]")
+        self.assertEqual("0", notice.get_attribute("data-notice-read"))
+        with page.expect_response(lambda response: response.url.endswith("/copy-notices/read")) as receipt:
+            read.click()
+        self.assertEqual(204, receipt.value.status)
+        page.wait_for_selector('[data-notice-read="1"]')
+        page.reload(wait_until="domcontentloaded")
+        self.assertEqual("1", notice.get_attribute("data-notice-read"))

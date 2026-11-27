@@ -81,6 +81,12 @@ sichtbaren Tab optional. Der Empfänger aktiviert ihn ausdrücklich; beim
 Tabwechsel, Verlassen der Seite, Offlinegehen oder Ende der Sitzung wird
 er abgeschaltet. Alte Meldungen werden nicht nachvertont.
 
+Mit **Sichtbare Meldungen als gelesen markieren** quittierst du nur die
+gerade angezeigten Einträge. Sie bleiben im Verlauf und der Gelesen-Status
+bleibt für dasselbe Konto erhalten. Meldungen, die währenddessen eintreffen,
+werden nicht mit markiert. Die Quittierung bestätigt keine Kenntnisnahme
+durch ein anderes Gerät und wird nicht an die Senderinstanz übertragen.
+
 ## Erste Zustellung zwischen zwei verifizierten Instanzen
 
 Der Betreiber kann eine **bereits bestätigte** Browser-Kopie oder erfolgreiche

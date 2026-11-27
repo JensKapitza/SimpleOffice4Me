@@ -87,6 +87,12 @@ class ActivityStore:
                     ON activity_event(event_type, occurred_at DESC, event_id DESC);
                 CREATE INDEX IF NOT EXISTS ix_activity_actor
                     ON activity_event(actor, occurred_at DESC, event_id DESC);
+                CREATE TABLE IF NOT EXISTS activity_notice_read (
+                    account_id INTEGER NOT NULL,
+                    event_id TEXT NOT NULL,
+                    received_at TEXT NOT NULL,
+                    PRIMARY KEY(account_id, event_id)
+                );
                 """
             )
 
@@ -181,6 +187,42 @@ class ActivityStore:
                 "SELECT * FROM activity_event WHERE event_id=? AND actor=?", (event_id, actor),
             ).fetchone()
         return self._event(row) if row is not None else None
+
+    def notice_read_ids(self, account_id, ids):
+        selected = tuple(ids)[:10]
+        if not selected:
+            return set()
+        with self._db() as db:
+            rows = db.execute(
+                """SELECT event_id FROM activity_notice_read WHERE account_id=?
+                   AND event_id IN (?,?,?,?,?,?,?,?,?,?)""",
+                (account_id, *selected, *([None] * (10 - len(selected)))),
+            ).fetchall()
+        return {row["event_id"] for row in rows}
+
+    def mark_copy_notices_read(self, account_id, actor, ids, allowed_types):
+        """Mark only an explicit atomic selection of this user's fixed notices."""
+        if not actor or not 1 <= len(ids) <= 10:
+            raise ValueError("invalid selection")
+        with self._db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            for event_id in dict.fromkeys(ids):
+                row = db.execute(
+                    "SELECT event_type, occurred_at FROM activity_event WHERE event_id=? AND actor=? COLLATE BINARY",
+                    (event_id, actor),
+                ).fetchone()
+                if row is None or row["event_type"] not in allowed_types:
+                    raise LookupError("copy notice not found")
+                db.execute(
+                    "INSERT OR IGNORE INTO activity_notice_read VALUES(?,?,?)",
+                    (account_id, event_id, row["occurred_at"]),
+                )
+            db.execute(
+                """DELETE FROM activity_notice_read WHERE account_id=? AND event_id IN (
+                       SELECT event_id FROM activity_notice_read WHERE account_id=?
+                       ORDER BY received_at DESC,event_id DESC LIMIT -1 OFFSET 200
+                   )""", (account_id, account_id),
+            )
 
     @staticmethod
     def _event(row: sqlite3.Row) -> DomainEvent:

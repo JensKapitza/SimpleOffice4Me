@@ -11,6 +11,11 @@
   {% if copy_notices_enabled %}
   <section class="card mb-4" aria-labelledby="copy-notices-heading" data-copy-notice-feed
            data-endpoint="{{ url_for('v3_automation.copy_notices_feed') }}"
+           data-read-endpoint="{{ url_for('v3_automation.mark_copy_notices_read') }}"
+           data-read-label="{{ 'Read' if g.language == 'en' else 'Gelesen' }}"
+           data-unread-label="{{ 'Unread' if g.language == 'en' else 'Ungelesen' }}"
+           data-read-ok="{{ 'Visible notices marked as read.' if g.language == 'en' else 'Sichtbare Meldungen als gelesen markiert.' }}"
+           data-read-failed="{{ 'Could not mark notices as read.' if g.language == 'en' else 'Meldungen konnten nicht als gelesen markiert werden.' }}"
            data-browser-label="{{ 'Document copied' if g.language == 'en' else 'Dokument kopiert' }}"
            data-job-label="{{ 'Copy job completed' if g.language == 'en' else 'Kopierjob abgeschlossen' }}"
            data-peer-label="{{ 'Copy notice from a paired instance' if g.language == 'en' else 'Kopiermeldung einer gekoppelten Instanz' }}"
@@ -57,9 +62,11 @@
       <p id="copy-sound-help" class="small text-secondary mb-1">{{ 'Only in this visible tab; no background notifications. Before leaving or going offline, sound turns off.' if g.language == 'en' else 'Nur in diesem sichtbaren Tab, nicht im Hintergrund. Beim Verlassen oder Offlinegehen schaltet sich der Ton aus.' }}</p>
       <p class="small" role="status" aria-live="polite" data-copy-notice-sound-status></p>
       <p class="visually-hidden" role="status" aria-live="polite" data-copy-notice-announcement></p>
+      <input type="hidden" data-copy-read-token value="{{ csrf_token() }}">
+      <button type="button" class="btn btn-sm btn-outline-secondary mb-2" data-copy-read-button hidden>{{ 'Mark visible notices as read' if g.language == 'en' else 'Sichtbare Meldungen als gelesen markieren' }}</button>
       <ul class="mb-0" data-copy-notice-list>
         {% for notice in copy_notices %}
-          <li data-notice-id="{{ notice.event_id }}">{% if notice.event_type == peer_notice_type %}{{ 'Copy notice from a paired instance' if g.language == 'en' else 'Kopiermeldung einer gekoppelten Instanz' }}{% elif notice.event_type == copy_job_notice_type %}{{ 'Copy job completed' if g.language == 'en' else 'Kopierjob abgeschlossen' }}{% else %}{{ 'Document copied' if g.language == 'en' else 'Dokument kopiert' }}{% endif %} · <time datetime="{{ notice.occurred_at }}">{{ notice.occurred_at }}</time></li>
+          <li data-notice-id="{{ notice.event_id }}" data-notice-read="{{ '1' if notice.event_id in read_notices else '0' }}">{% if notice.event_type == peer_notice_type %}{{ 'Copy notice from a paired instance' if g.language == 'en' else 'Kopiermeldung einer gekoppelten Instanz' }}{% elif notice.event_type == copy_job_notice_type %}{{ 'Copy job completed' if g.language == 'en' else 'Kopierjob abgeschlossen' }}{% else %}{{ 'Document copied' if g.language == 'en' else 'Dokument kopiert' }}{% endif %} · <time datetime="{{ notice.occurred_at }}">{{ notice.occurred_at }}</time> · <span class="small text-secondary">{{ ('Read' if g.language == 'en' else 'Gelesen') if notice.event_id in read_notices else ('Unread' if g.language == 'en' else 'Ungelesen') }}</span></li>
         {% else %}
           <li>{{ 'No notifications yet.' if g.language == 'en' else 'Noch keine Meldungen.' }}</li>
         {% endfor %}

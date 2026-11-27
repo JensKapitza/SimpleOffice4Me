@@ -153,6 +153,12 @@ def main():
         _work(root / a, tls)
         target = json.loads(dst.request("/automation-v3/copy-notices"))["notices"]
         assert len(target) == 2 and len({row["id"] for row in target}) == 2
+        receipt = "/automation-v3/copy-notices/read"
+        dst.request(receipt, data=json.dumps({"ids": [target[0]["id"]]}).encode(),
+                    headers={"Content-Type": "application/json", "X-CSRF-Token": dst.csrf("/automation-v3")})
+        destination_feed = json.loads(dst.request("/automation-v3/copy-notices"))
+        assert destination_feed["seen"] == [target[0]["id"]] and destination_feed["notices"] == target
+        assert not json.loads(src.request("/automation-v3/copy-notices")).get("seen")
         source_page = src.page("/automation-v3")
         assert not source_page.select('[data-delivery-state="peer_unreachable"]')
         rows = source_page.select('[data-delivery-state="delivered"]')
@@ -162,7 +168,7 @@ def main():
         _work(root / a, tls)
         assert src.page("/automation-v3").select_one('[data-delivery-state="denied"]')
         assert json.loads(dst.request("/automation-v3/copy-notices"))["notices"] == target
-        print("PASS: real copy triggers durable peer job; paired HTTPS delivery, replay, end-of-day offline recovery, and revoke verified")
+        print("PASS: real copy triggers durable peer job; paired HTTPS delivery, replay, end-of-day offline recovery, private read receipt and revoke verified")
 
 
 

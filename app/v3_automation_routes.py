@@ -10,13 +10,14 @@ from flask import Blueprint, abort, current_app, flash, g, jsonify, make_respons
 
 from .access_control import has_feature
 from .auth import login_required
+from .v3_activity import ActivityStore
 from .v3_automation import AutomationEngine, AutomationStore, default_action_registry
 from .v3_capabilities import enabled
 from .workflow_peer_notices import DEST, PEER_NOTICE, PeerNoticeGrants, feature_on, permitted_peer
 from .federation_store import FederationStore
 from . import workflow_peer_notice_jobs as peer_jobs
 from .v3_copy_notices import (
-    COPY_EVENT, JOB_EVENT_NAME, JOB_NOTICE, PRESET, TIMER_PRESETS, enable_copy_notice_preset,
+    COPY_EVENT, JOB_EVENT_NAME, JOB_NOTICE, NOTICE_EVENTS, PRESET, TIMER_PRESETS, enable_copy_notice_preset,
     is_local_copy_notice_rule, recent_copy_notices,
 )
 
@@ -108,6 +109,20 @@ def _peer_notice_options():
             "zone": g.app_settings.get("interface", {}).get("timezone", "UTC")}
 
 
+def _notice_inbox(actor, *, strict=False):
+    root = current_app.config["DOCUMENT_ROOT"]
+    try:
+        rows = recent_copy_notices(root, actor, strict=strict)
+        if not rows:
+            return [], set()
+        read = ActivityStore(root).notice_read_ids(g.user["id"], (row.event_id for row in rows))
+        return rows, read
+    except (OSError, sqlite3.Error):
+        if strict:
+            raise
+        return [], set()
+
+
 def _render_index(actor: str, *, preview=None):
     store = _store()
     rules = store.list(actor)
@@ -127,6 +142,7 @@ def _render_index(actor: str, *, preview=None):
     except (OSError, sqlite3.Error, ValueError) as exc:
         current_app.logger.warning("Could not read copy delivery receipts: %s", type(exc).__name__)
         peer_receipts = None
+    rows, seen = _notice_inbox(actor)
     return render_template(
         "admin/v3_automation.html",
         enabled=True,
@@ -140,7 +156,8 @@ def _render_index(actor: str, *, preview=None):
         peer_notice_type=PEER_NOTICE,
         peer_notice_options=_peer_notice_options(),
         peer_receipts=peer_receipts,
-        copy_notices=recent_copy_notices(current_app.config["DOCUMENT_ROOT"], actor),
+        copy_notices=rows,
+        read_notices=seen,
         manual_check_rule_ids=manual_check_rule_ids,
     )
 
@@ -160,16 +177,40 @@ def copy_notices_feed():
     if not enabled("v3.automation") or not enabled("v3.activity"):
         return jsonify({"enabled": False, "notices": []})
     try:
-        rows = recent_copy_notices(
-            current_app.config["DOCUMENT_ROOT"], str(g.user["username"]), strict=True,
-        )
+        rows, seen = _notice_inbox(str(g.user["username"]), strict=True)
     except (OSError, sqlite3.Error):
         abort(503)
-    return jsonify({"enabled": True, "notices": [
+    return jsonify({"enabled": True, **({"seen": sorted(seen)} if seen else {}), "notices": [
         {"id": row.event_id, "kind": {JOB_NOTICE: "job", PEER_NOTICE: "peer"}.get(row.event_type, "browser"),
          "at": row.occurred_at}
         for row in rows
     ]})
+
+
+@bp.post("/copy-notices/read")
+@login_required
+def mark_copy_notices_read():
+    if not enabled("v3.automation") or not enabled("v3.activity"):
+        abort(404)
+    if not request.is_json or not request.content_length or request.headers.get("Transfer-Encoding"):
+        abort(400)
+    if request.content_length > 1024:
+        abort(413)
+    body = request.get_json(silent=True)
+    if type(body) is not dict or set(body) != {"ids"} or type(body["ids"]) is not list:
+        abort(400)
+    ids = body["ids"]
+    if not 1 <= len(ids) <= 10 or not all(isinstance(i, str) and re.fullmatch(r"[a-f0-9]{64}", i) for i in ids):
+        abort(400)
+    try:
+        ActivityStore(current_app.config["DOCUMENT_ROOT"]).mark_copy_notices_read(
+            g.user["id"], str(g.user["username"]), ids, (*NOTICE_EVENTS.values(), PEER_NOTICE),
+        )
+    except LookupError:
+        abort(404)
+    except (OSError, sqlite3.Error):
+        abort(503)
+    return "", 204
 
 
 @bp.post("/peer-notices")

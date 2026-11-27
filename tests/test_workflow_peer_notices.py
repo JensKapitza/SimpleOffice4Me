@@ -75,6 +75,28 @@ class WorkflowPeerNoticeTests(_WorkflowPeerNoticeFixture):
         self.assertEqual([], other.get("/automation-v3/copy-notices").json["notices"])
         self.assertNotIn(grant.encode(), other.get("/automation-v3").data)
 
+    def test_read_receipts_are_explicit_atomic_private_and_do_not_remove_notices(self):
+        store = ActivityStore(self.root)
+        first = store.record(PEER_NOTICE, "owner", event_id="1" * 64)
+        late = store.record(PEER_NOTICE, "owner", event_id="2" * 64)
+        foreign = store.record(PEER_NOTICE, "other", event_id="3" * 64)
+        unrelated = store.record("unrelated", "owner", event_id="4" * 64)
+        url = "/automation-v3/copy-notices/read"
+        feed = "/automation-v3/copy-notices"
+        self.assertEqual(403, self.client.post(url, json={"ids": [first.event_id]}).status_code)
+        for invalid in (foreign, unrelated):
+            failed = self.client.post(url, headers=self.csrf, json={"ids": [first.event_id, invalid.event_id]})
+            self.assertEqual(404, failed.status_code)
+            self.assertEqual([], self.client.get(feed).json.get("seen", []))
+        for _ in range(2):
+            seen = self.client.post(url, headers=self.csrf, json={"ids": [first.event_id]})
+            self.assertEqual(204, seen.status_code)
+            self.assertEqual("private, no-store", seen.headers["Cache-Control"])
+        updated = self.client.get(feed).json
+        self.assertEqual([first.event_id], updated["seen"])
+        self.assertEqual({first.event_id, late.event_id}, {row["id"] for row in updated["notices"]})
+        self.assertEqual(2, len(store.list(actor="owner", event_type=PEER_NOTICE)))
+
     def test_expired_early_and_revoked_do_not_create_notices(self):
         grant = self._grant()
         old = self.now - timedelta(seconds=400)

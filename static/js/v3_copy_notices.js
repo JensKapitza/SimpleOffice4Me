@@ -10,7 +10,12 @@
   const REFRESH = 5000;
   const BACKOFF = 30000;
   const TIMEOUT = 10000;
-  let visibleIds = Array.from(list.querySelectorAll('[data-notice-id]'), row => row.dataset.noticeId);
+  const initialRows = Array.from(list.querySelectorAll('[data-notice-id]'));
+  let visibleIds = initialRows.map(row => row.dataset.noticeId);
+  let seenIds = new Set(initialRows.filter(row => row.dataset.noticeRead === '1').map(row => row.dataset.noticeId));
+  const readButton = pane.querySelector('[data-copy-read-button]');
+  const token = pane.querySelector('[data-copy-read-token]')?.value;
+  let marking;
   let timer;
   let controller;
   let stopped = false;
@@ -87,6 +92,13 @@
     return age >= -2000 && age <= 20000;
   };
 
+  const updateReadButton = () => {
+    if (readButton) {
+      readButton.hidden = stopped || !token || !pane.dataset.readEndpoint;
+      readButton.disabled = Boolean(marking) || !visibleIds.some(id => !seenIds.has(id));
+    }
+  };
+
   const cancel = () => {
     clearTimeout(timer);
     timer = undefined;
@@ -102,17 +114,25 @@
       timer = setTimeout(refresh, delay);
     }
   };
-  const render = (rows, announce) => {
+  const render = (rows, announce, read = new Set()) => {
     const ids = rows.map(item => item.id);
-    const newRows = rows.filter(item => !visibleIds.includes(item.id));
-    if (ids.length === visibleIds.length && ids.every((id, index) => id === visibleIds[index])) return;
+    const newRows = rows.filter(item => !visibleIds.includes(item.id) && !read.has(item.id));
+    if (ids.length === visibleIds.length && ids.every((id, index) =>
+      id === visibleIds[index] && read.has(id) === seenIds.has(id))) {
+      updateReadButton();
+      return;
+    }
     const entries = rows.map(item => {
       const li = document.createElement('li');
       const instant = document.createElement('time');
       li.dataset.noticeId = item.id;
+      li.dataset.noticeRead = read.has(item.id) ? '1' : '0';
+      const status = document.createElement('span');
+      status.className = 'small text-secondary';
+      status.textContent = read.has(item.id) ? pane.dataset.readLabel : pane.dataset.unreadLabel;
       instant.dateTime = item.at;
       instant.textContent = item.at;
-      li.append(pane.dataset[item.kind === 'peer' ? 'peerLabel' : (item.kind === 'job' ? 'jobLabel' : 'browserLabel')], ' · ', instant);
+      li.append(pane.dataset[item.kind === 'peer' ? 'peerLabel' : (item.kind === 'job' ? 'jobLabel' : 'browserLabel')], ' · ', instant, ' · ', status);
       return li;
     });
     if (!entries.length) {
@@ -122,6 +142,8 @@
     }
     list.replaceChildren(...entries);
     visibleIds = ids;
+    seenIds = read;
+    updateReadButton();
     announcement.textContent = announce && newRows.length ? pane.dataset.newLabel : '';
     if (announce && newRows.some(item => item.kind === 'peer' && fresh(item))) playTone();
   };
@@ -160,7 +182,10 @@
         item && typeof item.id === 'string' && /^[a-f0-9]{64}$/.test(item.id) &&
         ['browser', 'job', 'peer'].includes(item.kind) && typeof item.at === 'string' && !Number.isNaN(Date.parse(item.at))
       ))) throw new Error('copy notice response invalid');
-      render(rows, true);
+      const read = payload.seen === undefined ? [] : payload.seen;
+      if (!Array.isArray(read) || read.length > 10 || !read.every(id => rows.some(row => row.id === id)))
+        throw new Error('copy notice receipt invalid');
+      render(rows, true, new Set(read));
     } catch (_error) {
       delay = BACKOFF; // Keep the current list during transient failures.
     } finally {
@@ -171,6 +196,31 @@
       }
     }
   };
+  readButton?.addEventListener?.('click', async () => {
+    if (!token || !pane.dataset.readEndpoint || !maySound() || marking) return;
+    const ids = visibleIds.filter(id => !seenIds.has(id));
+    if (!ids.length) return;
+    marking = new AbortController();
+    const timeout = setTimeout(() => marking?.abort(), TIMEOUT);
+    updateReadButton();
+    try {
+      const response = await fetch(pane.dataset.readEndpoint, {
+        method: 'POST', credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: marking.signal,
+        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': token}, body: JSON.stringify({ids}),
+      });
+      if (response.status !== 204) throw new Error('copy notice receipt unavailable');
+      announcement.textContent = pane.dataset.readOk;
+    } catch (_error) {
+      announcement.textContent = pane.dataset.readFailed;
+    } finally {
+      clearTimeout(timeout);
+      marking = undefined;
+      updateReadButton();
+      cancel();
+      schedule(0);
+    }
+  });
+  updateReadButton();
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { disarm(); cancel(); } else schedule(0);
   });
