@@ -672,7 +672,7 @@ public class MainActivity extends Activity {
                 + "deviceSources.querySelectorAll('[data-managed-source]').forEach(button=>{"
                 + "button.disabled=false;button.addEventListener('click',event=>{if(!event.isTrusted)return;"
                 + "const kind=button.dataset.managedSource;"
-                + "const ids=kind==='calendar'?Array.from(deviceSources.querySelectorAll('[data-managed-calendar]:checked'),item=>item.value):[];"
+                + "const ids=kind==='calendar'?Array.from(deviceSources.querySelectorAll('[data-managed-calendar]:checked'),item=>({id:item.value,name:item.dataset.calendarLabel||item.value})):[];"
                 + "const csrf=document.querySelector('meta[name=csrf-token]')?.content||'';"
                 + "if(window.SimpleOfficeAndroid.syncManagedSource(bridgeToken,kind,csrf,JSON.stringify(ids))!=='pending')"
                 + "state.textContent='Android-Abgleich ist nicht verfügbar.';"

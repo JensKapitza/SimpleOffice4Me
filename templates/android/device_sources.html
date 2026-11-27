@@ -30,7 +30,7 @@
     {% endif %}
     {% if 'calendar' in sources %}
     <fieldset class="my-2"><legend class="h6">{{ 'Choose calendars' if g.language == 'en' else 'Kalender auswählen' }}</legend>
-      {% for item in calendars %}<label class="d-block"><input class="form-check-input" type="checkbox" data-managed-calendar value="{{ item.calendar_id }}"> {{ item.name }}</label>{% endfor %}
+      {% for item in calendars %}<label class="d-block"><input class="form-check-input" type="checkbox" data-managed-calendar data-calendar-label="{{ item.name }}" value="{{ item.calendar_id }}"> {{ item.name }}</label>{% endfor %}
     </fieldset>
     <p class="small">{{ 'Up to 1,000 events and recurrence exceptions per sync. Select fewer calendars if needed.' if g.language == 'en' else 'Bis zu 1.000 Termine und Serienausnahmen je Abgleich. Wähle bei Bedarf weniger Kalender.' }}</p>
     <button type="button" class="btn btn-outline-primary" data-managed-source="calendar" disabled>{{ 'Preview selected calendars' if g.language == 'en' else 'Kalenderabgleich prüfen' }}</button>

@@ -1,8 +1,8 @@
 package de.simpleoffice4me.android;
 
 import org.junit.Test;
-
 import java.io.IOException;
+import java.util.List;
 
 import static org.junit.Assert.*;
 
@@ -47,5 +47,22 @@ public class AndroidManagedSnapshotCursorTest {
         AndroidManagedSnapshotCursor cursor = new AndroidManagedSnapshotCursor();
         assertThrows(IOException.class, () -> cursor.accept(OWNER, REV, 0, 25));
         assertTrue(cursor.accept(OWNER, REV, 0, null));
+    }
+
+    @Test public void calendarPreviewNamesTheExactCapturedSelection() {
+        var parsed = AndroidManagedCalendarSelection.validate(List.of(
+                new AndroidManagedCalendarSelection.Item("work-1", "Work"),
+                new AndroidManagedCalendarSelection.Item("simpleoffice:birthdays", "Birthdays")));
+        assertEquals(List.of("Work", "Birthdays"), AndroidManagedCalendarSelection.names(parsed));
+        assertEquals("12 Termine/Serienausnahmen in den Kalendern:\n• Work\n• Birthdays",
+                AndroidManagedSyncPreview.calendarScope(12, AndroidManagedCalendarSelection.names(parsed)));
+    }
+
+    @Test public void calendarPreviewRejectsForgedIdsAndSanitizesLabels() {
+        assertThrows(IllegalArgumentException.class, () -> AndroidManagedCalendarSelection.validate(
+                List.of(new AndroidManagedCalendarSelection.Item("https://example.test/", "Work"))));
+        var parsed = AndroidManagedCalendarSelection.validate(List.of(
+                new AndroidManagedCalendarSelection.Item("work-1", "Work\nCalendar")));
+        assertEquals(List.of("Work Calendar"), AndroidManagedCalendarSelection.names(parsed));
     }
 }

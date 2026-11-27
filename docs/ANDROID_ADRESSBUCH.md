@@ -29,7 +29,10 @@ Geburtstagskalender übernimmt auch 29. Februar unverändert; sein technischer
 Serienanfang ist kein Geburtsjahr.
 
 Vor jedem Abgleich zeigt die APK zuerst die Anzahl der übertragbaren Kontakte
-bzw. Termine und der gewählten Kalender. Bis dahin liest sie nur die
+bzw. Termine und beim Kalenderabgleich zusätzlich die Namen genau der
+ausgewählten Kalender. Die Vorschau bezieht sich auf die Auswahl, die beim
+Start erfasst wurde; spätere Änderungen im Formular ändern diese Freigabe
+nicht. Bis dahin liest sie nur die
 SimpleOffice-Daten und fordert keine Android-Berechtigung an. Erst
 **Übernehmen** startet die Freigabe und das Schreiben ins SimpleOffice-Konto.
 Die Vorschau gilt zwei Minuten. Vor dem Schreiben prüft die APK die aktuelle

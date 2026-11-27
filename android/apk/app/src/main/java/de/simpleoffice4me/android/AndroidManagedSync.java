@@ -38,7 +38,7 @@ final class AndroidManagedSync {
     private Prepared pending;
 
     private record Request(String source, String csrf, String userAgent, String cookie,
-                           JSONArray calendarIds, long generation) {}
+                           JSONArray calendarIds, List<String> calendarNames, long generation) {}
     private record Snapshot(String principal, String revision, List<JSONArray> pages) {}
     private record Prepared(Request request, String principal, String revision, long preparedAt,
                             int count, List<AndroidManagedContacts.Contact> contacts,
@@ -54,18 +54,32 @@ final class AndroidManagedSync {
     void open(String source, String csrf, String userAgent, String calendarIds) {
         if (!resumed || closed || !currentPage.getAsBoolean() || busy || pending != null || confirmation != null) return;
         try {
-            JSONArray selected = new JSONArray(calendarIds);
-            if (selected.length() > 8 || ("contacts".equals(source) ? selected.length() != 0 : selected.length() == 0)) {
+            if (calendarIds == null || calendarIds.length() > 8192)
+                throw new IllegalArgumentException("Calendar selection is too large");
+            JSONArray submitted = new JSONArray(calendarIds);
+            if (submitted.length() > 8 || ("contacts".equals(source) ? submitted.length() != 0 : submitted.length() == 0)) {
                 message("Wähle bis zu acht Kalender.");
                 return;
             }
-            for (int i = 0; i < selected.length(); i++)
-                if (!(selected.get(i) instanceof String id) || !id.equals("simpleoffice:birthdays") && !id.matches("[a-z0-9][a-z0-9-]{0,62}")) return;
+            List<AndroidManagedCalendarSelection.Item> rawCalendars = new ArrayList<>();
+            for (int i = 0; i < submitted.length(); i++) {
+                if (!(submitted.get(i) instanceof JSONObject calendar))
+                    throw new IllegalArgumentException("Invalid calendar selection");
+                Object rawId = calendar.opt("id");
+                Object rawName = calendar.opt("name");
+                if (!(rawId instanceof String id) || !(rawName instanceof String name))
+                    throw new IllegalArgumentException("Invalid calendar selection");
+                rawCalendars.add(new AndroidManagedCalendarSelection.Item(id, name));
+            }
+            List<AndroidManagedCalendarSelection.Item> calendars = AndroidManagedCalendarSelection.validate(rawCalendars);
+            JSONArray selected = new JSONArray();
+            for (AndroidManagedCalendarSelection.Item calendar : calendars) selected.put(calendar.id());
             String cookie = CookieManager.getInstance().getCookie(AndroidDeviceSourcePreview.PAGE);
             if (cookie == null || cookie.trim().isEmpty()) { message("Bitte erneut anmelden."); return; }
-            Request request = new Request(source, csrf, userAgent, cookie, selected, generation);
+            Request request = new Request(source, csrf, userAgent, cookie, selected,
+                    AndroidManagedCalendarSelection.names(calendars), generation);
             prepare(request);
-        } catch (org.json.JSONException invalid) {
+        } catch (org.json.JSONException | IllegalArgumentException invalid) {
             message("Ungültige Kalender-Auswahl.");
         }
     }
@@ -135,9 +149,9 @@ final class AndroidManagedSync {
     private void showPreview(Prepared preview) {
         String scope = "contacts".equals(preview.request.source)
                 ? preview.count + " Kontakte"
-                : preview.count + " Termine/Serienausnahmen aus " + preview.request.calendarIds.length() + " ausgewählten Kalendern";
+                : AndroidManagedSyncPreview.calendarScope(preview.count, preview.request.calendarNames);
         confirmation = new AlertDialog.Builder(activity).setTitle("Android-Abgleich prüfen")
-                .setMessage(scope + " sind zur Übernahme ins eigene SimpleOffice-Konto auf diesem Gerät bereit. "
+                .setMessage(scope + "\n\nDiese Auswahl kann ins eigene SimpleOffice-Konto auf diesem Gerät übernommen werden. "
                         + "Es wurde noch nichts geschrieben. Andere Konten bleiben unverändert.")
                 .setNegativeButton("Abbrechen", null)
                 .setPositiveButton("Übernehmen", (dialog, button) -> startOrAsk(preview)).create();

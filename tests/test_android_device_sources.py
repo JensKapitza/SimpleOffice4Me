@@ -3,6 +3,7 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 from app import app
+from app.calendar_collections import CalendarCollections
 from app.db import get_db
 from tests.http_api_fixture import CsrfMetadata, PublicHttpTestCase
 
@@ -52,6 +53,13 @@ class AndroidDeviceSourceTests(PublicHttpTestCase):
             self.assertEqual(204, response.status_code)
             self.assertEqual(b"", response.data)
             self.assertEqual("no-store", response.headers["Cache-Control"])
+
+    def test_calendar_labels_are_rendered_as_escaped_native_preview_data(self):
+        with app.app_context():
+            CalendarCollections(app.config["DOCUMENT_ROOT"]).create('Work <team> & home', "owner")
+        page = self.mobile.get(PAGE, base_url=ORIGIN, headers=APK)
+        self.assertEqual(200, page.status_code)
+        self.assertIn('data-calendar-label="Work &lt;team&gt; &amp; home"', page.get_data(as_text=True))
 
     def test_non_apk_and_forwarded_requests_get_help_without_provider_controls(self):
         for origin, headers, environ in (
