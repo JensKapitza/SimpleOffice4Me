@@ -62,3 +62,31 @@ zu große Antworten führen nicht zu automatischen Löschungen. Kein Rückschrei
 und keine Änderungen an fremden Android-Konten. Die Geräteabnahme ist erst
 erfolgreich, wenn die normalen Kontakt- und Kalender-Apps die Daten anzeigen,
 nicht bereits wenn serverseitige Tests grün sind.
+
+## Automatisierte Abnahme am echten Android-Kontaktanbieter
+
+Der APK-Workflow führt bei Änderungen an der Android-Übernahme einen
+Instrumentierungstest in einem frischen Emulator aus. Er prüft die
+Kontaktfreigabe, eine synthetische Übernahme, zwei Wiederholungen nach
+einer Namensänderung und einen unveränderten Kontakt außerhalb des
+SimpleOffice-Kontos. Der Test liest veröffentlichte Android-Kontakte aus dem
+Systemanbieter und verwendet den echten SimpleOffice-Writer. Er prüft
+nicht den WebView-Dialog, die Oberfläche einer bestimmten Kontakte-App,
+Kalender oder ein physisches Gerät.
+
+Für die manuelle Reproduktion muss ein **frischer, entbehrlicher AVD** laufen,
+der die APK-ABI `arm64-v8a` anbietet und auf dem noch kein SimpleOffice
+installiert ist. Der Test legt zwei synthetische Kontakte an. Den AVD danach
+verwerfen, nicht ein bestehendes Android-System dafür verwenden.
+
+```sh
+(cd android/apk && gradle --no-daemon assembleDebug assembleDebugAndroidTest)
+bash tools/run_android_contacts_provider_acceptance.sh \
+  android/apk/app/build/outputs/apk/debug/app-debug.apk \
+  android/apk/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk \
+  emulator-5554
+```
+
+Nur `SIMPLEOFFICE_CONTACTS_PROVIDER_PASS` zusammen mit
+`INSTRUMENTATION_CODE: -1` ist ein bestandener Provider-Test. Der bisherige
+APK-Pakettest allein belegt keinen Android-Lauf.
