@@ -15,7 +15,10 @@ from unittest.mock import patch
 
 from bs4 import BeautifulSoup
 
-from app import app, english_voice_assets as english, kids_hand_assets, kids_piper_assets as piper, optional_local_setup as optional
+from app import (
+    app, english_voice_assets as english, kids_hand_assets, kids_piper_assets as piper,
+    optional_local_setup as optional, optional_piper_runtime as piper_runtime,
+)
 from app import optional_hand_game_install as hand
 from app.document_store import DocumentStore
 from app.settings_store import SettingsStore
@@ -596,7 +599,10 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
         self.assertEqual("installed", by_id["piper-engine"]["status"])
         self.assertEqual("partial", by_id["ffmpeg"]["status"])
         self.assertEqual("separate-workflow", by_id["osm-data"]["status"])
-        self.assertEqual({"voice-package", "kids-hand", "english-voice"}, set(inventory["supported_install_features"]))
+        expected_features = {"voice-package", "kids-hand", "english-voice"}
+        if piper_runtime.install_supported():
+            expected_features.add("piper-engine")
+        self.assertEqual(expected_features, set(inventory["supported_install_features"]))
         page = document(self.client.get(SETUP))
         self.assertIsNotNone(page.select_one("#component-manager"))
         self.assertIsNotNone(page.select_one("#english-voice #english-voice-heading"))
@@ -607,7 +613,9 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
         with patch.object(optional, "queue", return_value="queued") as queue:
             reply = self.action(self.client, "/install-all")
         self.assertEqual(303, reply.status_code)
-        self.assertEqual(["kids-hand"], [call.args[1] for call in queue.call_args_list])
+        expected_basics = (["piper-engine"] if piper_runtime.install_supported() else []) + ["kids-hand"]
+        self.assertEqual(expected_basics,
+                         [call.args[1] for call in queue.call_args_list])
 
     def test_basics_does_not_download_voices_and_explicit_staging_preserves_custom_voice(self):
         self.root.mkdir(parents=True, exist_ok=True)
@@ -616,6 +624,7 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
         model.with_suffix(".onnx.json").write_text("{}", encoding="utf-8")
         settings = SettingsStore(self.root)
         settings.save({"media": {"piper_model_en": str(model)}}, "admin")
+        expected_basics = (["piper-engine"] if piper_runtime.install_supported() else []) + ["kids-hand"]
 
         def submit(form):
             payload = {field["name"]: field["value"] for field in form.select("input[name][value]")}
@@ -630,11 +639,38 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
                 page = document(self.client.get(SETUP))
                 self.assertEqual("configured", optional.readiness(self.root)["reader_english"])
                 self.assertEqual(303, submit(page.select_one('form[action$="/install-all"]')).status_code)
-                self.assertEqual(["kids-hand"], [call.args[1] for call in queue.call_args_list])
+                self.assertEqual(expected_basics,
+                                 [call.args[1] for call in queue.call_args_list])
                 if piper_path:
                     self.assertEqual(303, submit(page.select_one('#english-voice form[action$="/install"]')).status_code)
-                    self.assertEqual(["kids-hand", "english-voice"], [call.args[1] for call in queue.call_args_list])
+                    self.assertEqual(expected_basics + ["english-voice"],
+                                     [call.args[1] for call in queue.call_args_list])
                 self.assertEqual(str(model), settings.settings()["media"]["piper_model_en"])
+
+    def test_piper_engine_queue_rejects_unverified_platform_before_creating_job(self):
+        with patch.object(piper_runtime, "install_supported", return_value=False), patch.object(
+            optional._WORKERS, "submit",
+        ) as submit:
+            self.assertEqual("unsupported", optional.queue(self.root, "piper-engine"))
+        self.assertFalse(optional._job_file(self.root).exists())
+        submit.assert_not_called()
+
+    def test_piper_inventory_distinguishes_unsupported_and_cancelled_states(self):
+        with patch.object(optional, "resolve_command", return_value=None), patch.object(
+            piper_runtime, "install_supported", return_value=False,
+        ):
+            unsupported = {item["id"]: item for item in optional.component_inventory(self.root)["components"]}
+        self.assertEqual("unsupported", unsupported["piper-engine"]["status"])
+        self.assertIsNone(unsupported["piper-engine"]["install_feature"])
+
+        job_file = optional._job_file(self.root)
+        job_file.parent.mkdir(parents=True, exist_ok=True)
+        job_file.write_text(json.dumps({optional.PIPER_ENGINE: {"state": "cancelled"}}), encoding="utf-8")
+        with patch.object(optional, "resolve_command", return_value=None), patch.object(
+            piper_runtime, "install_supported", return_value=True,
+        ):
+            cancelled = {item["id"]: item for item in optional.component_inventory(self.root)["components"]}
+        self.assertEqual("cancelled", cancelled["piper-engine"]["status"])
 
     def test_non_admin_cannot_queue_install_all(self):
         member = app.test_client()

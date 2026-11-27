@@ -14,7 +14,9 @@ import threading
 import time
 from uuid import uuid4
 
-from . import english_voice_assets, kids_hand_assets, kids_piper_assets, optional_hand_game_install
+from . import (
+    english_voice_assets, kids_hand_assets, kids_piper_assets, optional_hand_game_install, optional_piper_runtime,
+)
 from .document_store_core import CONTROL_DIR, atomic_json_write
 from .component_runtime import resolve_command
 from .file_lock import exclusive_file_lock
@@ -23,10 +25,13 @@ from .settings_store import SettingsStore
 
 VOICE_PACKAGE = "voice-package"
 ENGLISH_VOICE_PACKAGE = "english-voice"
-FEATURES = frozenset((VOICE_PACKAGE, "kids-hand", ENGLISH_VOICE_PACKAGE))
+PIPER_ENGINE = "piper-engine"
+FEATURES = frozenset((VOICE_PACKAGE, "kids-hand", ENGLISH_VOICE_PACKAGE, PIPER_ENGINE))
 _ACTIVE = frozenset(("queued", "downloading"))
 _IN_PROGRESS = _ACTIVE | {"cancelling"}
-_JOB_LIFETIME = 300
+# Piper setup allows up to 300 s of wheel downloads plus venv/pip smoke checks.
+# Keep its queued/running lease longer so a slow but valid install isn't reopened.
+_JOB_LIFETIME = 1800
 _LOG = logging.getLogger(__name__)
 _WORKERS = ThreadPoolExecutor(max_workers=1, thread_name_prefix="optional-model-setup")
 _ADMISSION = threading.BoundedSemaphore(3)
@@ -39,6 +44,7 @@ _PROGRESS_INTERVAL = 0.5
 _VOICE_INSTALL_SPACE = 128 * 1024 * 1024
 _ENGLISH_VOICE_INSTALL_SPACE = 160 * 1024 * 1024
 _HAND_INSTALL_SPACE = 64 * 1024 * 1024
+_PIPER_ENGINE_INSTALL_SPACE = 300 * 1024 * 1024
 
 
 class _PersistentCancelEvent:
@@ -117,6 +123,9 @@ def progress_details(root: str | Path) -> dict[str, dict[str, object]]:
         error = row.get("error")
         if not isinstance(error, str) or error not in {"install-failed", "setup-error"}:
             error = ""
+        phase = row.get("progress", {}).get("phase") if isinstance(row.get("progress"), dict) else ""
+        if phase not in {"download", "prepare", "install", "check"}:
+            phase = "download"
         details[feature] = {
             "state": _job_state(row),
             "file": Path(str(progress.get("file", ""))).name[:80],
@@ -124,6 +133,7 @@ def progress_details(root: str | Path) -> dict[str, dict[str, object]]:
             "total": total,
             "percent": min(100, received * 100 // total) if total else None,
             "error": error,
+            "phase": phase,
         }
     return details
 
@@ -144,10 +154,10 @@ def _transition(root: Path, feature: str, job_id: str, state: str, *, error: str
 
 
 def _record_progress(root: Path, feature: str, job_id: str, filename: str,
-                     received: int, total: int) -> None:
+                     received: int, total: int, *, phase: str = "download") -> None:
     now = time.monotonic()
     with _PROGRESS_GUARD:
-        if (now - _PROGRESS_WRITES.get(job_id, 0.0) < _PROGRESS_INTERVAL
+        if (phase == "download" and now - _PROGRESS_WRITES.get(job_id, 0.0) < _PROGRESS_INTERVAL
                 and (total <= 0 or received < total)):
             return
         _PROGRESS_WRITES[job_id] = now
@@ -165,6 +175,7 @@ def _record_progress(root: Path, feature: str, job_id: str, filename: str,
             "file": Path(str(filename)).name[:80],
             "received": received,
             "total": total,
+            "phase": phase if phase in {"download", "prepare", "install", "check"} else "download",
         }
         atomic_json_write(_job_file(root), data)
 
@@ -202,8 +213,9 @@ def _execute(root: Path, feature: str, job_id: str) -> None:
             return
         if not _transition(root, feature, job_id, "downloading"):
             return
-        progress = lambda name, received, total: _record_progress(  # noqa: E731
+        progress = lambda name, received, total, phase="download": _record_progress(  # noqa: E731
             root, feature, job_id, name, received, total,
+            phase=phase,
         )
         if feature == VOICE_PACKAGE:
             result = kids_piper_assets.install_package(root, progress=progress, cancel_event=cancel_event)
@@ -213,6 +225,8 @@ def _execute(root: Path, feature: str, job_id: str) -> None:
             )
         elif feature == ENGLISH_VOICE_PACKAGE:
             result = english_voice_assets.install(root, progress=progress, cancel_event=cancel_event)
+        elif feature == PIPER_ENGINE:
+            result = optional_piper_runtime.install(root, progress=progress, cancel_event=cancel_event)
         else:
             result = "failed"
         state = "cancelled" if result == "cancelled" or cancel_event.is_set() else (
@@ -243,6 +257,8 @@ def queue(root: str | Path, feature: str, *, manual_hand_directory: str = "") ->
     root = Path(root).resolve()
     if feature == "kids-hand" and (manual_hand_directory or not optional_hand_game_install.install_supported()):
         return "manual"
+    if feature == PIPER_ENGINE and not optional_piper_runtime.install_supported():
+        return "unsupported"
     with exclusive_file_lock(_job_lock(root)):
         data = _read(root)
         state = _job_state(data.get(feature))
@@ -251,12 +267,14 @@ def queue(root: str | Path, feature: str, *, manual_hand_directory: str = "") ->
         if ((feature == VOICE_PACKAGE and kids_piper_assets.installed_model(root))
                 or (feature == "kids-hand" and kids_hand_assets.ready(
                     optional_hand_game_install.asset_directory(root, "")))
-                or (feature == ENGLISH_VOICE_PACKAGE and english_voice_assets.installed_model(root))):
+                or (feature == ENGLISH_VOICE_PACKAGE and english_voice_assets.installed_model(root))
+                or (feature == PIPER_ENGINE and resolve_command("piper", root))):
             return "ready"
         required = {
             VOICE_PACKAGE: _VOICE_INSTALL_SPACE,
             "kids-hand": _HAND_INSTALL_SPACE,
             ENGLISH_VOICE_PACKAGE: _ENGLISH_VOICE_INSTALL_SPACE,
+            PIPER_ENGINE: _PIPER_ENGINE_INSTALL_SPACE,
         }[feature]
         try:
             if shutil.disk_usage(root).free < required:
@@ -412,9 +430,33 @@ def component_inventory(root: str | Path, *, manual_hand_directory: str = "") ->
     except (ImportError, ValueError):
         onnx_present = False
     readiness_state = readiness(root, manual_hand_directory=manual_hand_directory)
+    piper_job = _job_state(_read(root).get(PIPER_ENGINE))
+    piper_from_app = False
+    if piper:
+        try:
+            piper_from_app = Path(piper).resolve().is_relative_to((root / CONTROL_DIR / "components").resolve())
+        except (OSError, RuntimeError, ValueError):
+            piper_from_app = False
+    if piper_job in _ACTIVE or piper_job == "cancelled":
+        piper_status = piper_job
+    elif piper:
+        piper_status = "installed"
+    elif piper_job == "failed":
+        piper_status = "failed"
+    else:
+        piper_status = "missing" if optional_piper_runtime.install_supported() else "unsupported"
     components = [
-        {"id": "piper-engine", "status": "installed" if piper else "missing", "managed": False,
-         "detail": "host" if piper and shutil.which("piper") else "app" if piper else "not-installable-here"},
+        {"id": PIPER_ENGINE, "status": piper_status, "managed": piper_from_app,
+         "install_feature": PIPER_ENGINE if not piper and optional_piper_runtime.install_supported() else None,
+         "download_bytes": (sum(item.size for item in optional_piper_runtime.manifest())
+                            if not piper and optional_piper_runtime.install_supported() else 0),
+         "required_bytes": _PIPER_ENGINE_INSTALL_SPACE if not piper and optional_piper_runtime.install_supported() else 0,
+         "version": optional_piper_runtime.installed_version(root),
+         "license": optional_piper_runtime.LICENSE,
+         "wheels": [{"name": item.filename, "size": item.size, "sha256": item.digest,
+                     "url": item.url} for item in optional_piper_runtime.manifest()],
+         "detail": "app-managed" if piper_from_app else "host" if piper else
+         "available-here" if optional_piper_runtime.install_supported() else "not-installable-here"},
         {"id": "german-voice", "status": str(readiness_state["reader_default"]), "managed": False},
         {"id": "english-voice", "status": str(readiness_state["english_voice_package"]), "managed": True,
          "install_feature": ENGLISH_VOICE_PACKAGE,
@@ -439,4 +481,5 @@ def component_inventory(root: str | Path, *, manual_hand_directory: str = "") ->
         {"id": "osm-data", "status": "separate-workflow", "managed": False},
     ]
     return {"runtime": runtime, "architecture": architecture, "components": components,
-            "supported_install_features": [VOICE_PACKAGE, "kids-hand", ENGLISH_VOICE_PACKAGE]}
+            "supported_install_features": [VOICE_PACKAGE, "kids-hand", ENGLISH_VOICE_PACKAGE]
+            + ([PIPER_ENGINE] if optional_piper_runtime.install_supported() else [])}
