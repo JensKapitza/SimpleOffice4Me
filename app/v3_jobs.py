@@ -119,6 +119,7 @@ class JobStore:
         *,
         idempotency_key: str,
         priority: int = 0,
+        not_before: int = 0,
         max_attempts: int = 3,
         max_open_per_principal: int = 0,
         max_open_total: int = 0,
@@ -129,6 +130,8 @@ class JobStore:
         kind=str(kind).strip(); principal=str(principal).strip(); key=str(idempotency_key).strip()
         if not kind or not principal or not key:
             raise ValueError("kind, principal and idempotency key are required")
+        if type(not_before) is not int or not 0 <= not_before <= (1 << 63) - 1:
+            raise ValueError("invalid earliest job time")
         now=int(time.time()); encoded=_json(payload)
         attempts=max(1,min(20,int(max_attempts))); prio=max(-100,min(100,int(priority)))
         with self._db() as db:
@@ -175,7 +178,7 @@ class JobStore:
                 """INSERT INTO v3_job(job_id,kind,state,idempotency_key,principal,payload_json,
                    priority,max_attempts,available_at,created_at,updated_at)
                    VALUES(?,?,'queued',?,?,?,?,?,?,?,?)""",
-                (job_id,kind,key,principal,encoded,prio,attempts,0,now,now),
+                (job_id,kind,key,principal,encoded,prio,attempts,not_before,now,now),
             )
             row=db.execute("SELECT * FROM v3_job WHERE job_id=?",(job_id,)).fetchone()
         return self._record(row)
@@ -372,6 +375,9 @@ def default_handlers(
 ) -> dict[str,Handler]:
     jobs = store or JobStore(root)
     handlers = {"documents.reindex": document_reindex_handler(root)}
+    from .v3_copy_notices import NOTICE_JOB_KIND, copy_notice_job_handler
+
+    handlers[NOTICE_JOB_KIND] = copy_notice_job_handler(root)
     if worker_id:
         from .smart_folder_batch_jobs import batch_handler
 

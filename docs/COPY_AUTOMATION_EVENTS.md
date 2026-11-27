@@ -44,7 +44,33 @@ flask --app app run-replications --run-id spiegelung-2026-11-27T1800Z --notify-a
 
 Der Job läuft standardmäßig als Audit-Akteur `system`. Ein `--actor` ist keine Empfängerfreigabe und eine Anmeldung im Browser legt keinen Job-Empfänger fest. Ohne `--notify-account` bleiben Kopierjobs unverändert und versenden keine Meldung. Ein unbekanntes oder gesperrtes Konto fällt vor dem Kopieren auf; zusätzlich wird die Kontofreigabe beim Zustellen geprüft. Auch bei gültigem Ziel muss das Konto die Job-Meldungen selbst aktiviert haben. Teilläufe, Läufe ohne Änderungen und einzeln aus der Oberfläche gestartete Spiegelungsregeln lösen die Job-Meldung nicht aus. Die optionale Meldung wird nach der bestätigten Kopie verarbeitet; sie ist keine atomare Zustellgarantie bei Prozessabbruch.
 
-Die Aktion `app.copy_notice` akzeptiert keine Parameter oder Zielgeräte. Der Einstieg führt keine anderen oder gemischten Aktionen aus. Sofortige Ablauffristen können geprüft werden, verzögerte Aktionen und Zeitfenster werden hier nicht eingeplant. Unter **Arbeit → Automation 3.0** erscheinen die letzten zehn Meldungen
+Die Aktion `app.copy_notice` akzeptiert keine Parameter oder Zielgeräte. Der
+Einstieg führt keine anderen oder gemischten Aktionen aus. Bei aktivierten
+Hintergrundjobs kannst du „Sofort“, „Nach 30 Sekunden“ oder „Nach 5 Minuten“
+wählen. Die zwei verzögerten Varianten verfallen fünf Minuten nach ihrer
+Fälligkeit. Die Auswahl erscheint beim Aktivieren einer Regel; zum Umstellen
+die Regel deaktivieren und mit dem gewünschten Wert wieder aktivieren.
+
+Der Betreiber startet den vorhandenen V3-Hintergrunddienst mit demselben
+Dokumentstamm und der gleichen Kontodatenbank wie die Webanwendung. Beispiel
+für einen gewöhnlichen Dienstprozess bei aktivierter Capability `v3.jobs`:
+
+```sh
+export SIMPLEOFFICE_DOCUMENT_ROOT=/pfad/zum/dokumentbestand
+python -m tools.v3_job_worker --root "$SIMPLEOFFICE_DOCUMENT_ROOT"
+```
+
+Verzögerte Meldungen verwenden eine dauerhafte Warteschlange. Regel,
+Empfängerkonto und die gespeicherte UTC-Frist werden beim Zustellen erneut
+geprüft. Eine inzwischen geänderte oder deaktivierte Regel oder ein nicht
+mehr autorisiertes Konto verhindert die Meldung. Nach einem Neustart werden
+fällige, gültige Aufträge weiter verarbeitet; abgelaufene bekommen
+„Zeitfenster verpasst“. Ein fehlender oder nicht aktivierter Worker führt
+nicht zu harter Echtzeit oder zu einer sofortigen Ersatzmeldung. Die
+Zeitplanung unterstützt hier relative Verzögerungen mit Ablauf, keine
+geplanten lokalen Zeitslots und keine Gerätezustellung.
+
+Unter **Arbeit → Automation 3.0** erscheinen die letzten zehn Meldungen
 dieses Kontos. Die Liste aktualisiert sich, solange der Tab sichtbar und
 online ist, normalerweise alle fünf Sekunden. Ein Hintergrund-Tab startet
 keine Anfragen. Bei vorübergehenden Fehlern bleibt die letzte sichtbare Liste

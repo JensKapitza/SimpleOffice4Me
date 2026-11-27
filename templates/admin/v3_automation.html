@@ -24,12 +24,25 @@
         {% if source == 'job' %}
           <p class="small mb-1">{{ 'The operator must select this account in the job setup.' if g.language == 'en' else 'Beim Einrichten des Jobs muss der Betreiber dieses Konto als Empfänger angeben.' }}</p>
         {% endif %}
-        {% if copy_notice_active[source] %}
-          <p class="small">{{ 'Active. You can deactivate this rule below.' if g.language == 'en' else 'Aktiv. Die Regel lässt sich unten deaktivieren.' }}</p>
+        {% if copy_notice_delays[source] is not none %}
+          <p class="small">
+            {{ 'Active' if g.language == 'en' else 'Aktiv' }}
+            {% if copy_notice_delays[source] %} · {{ 'Delay:' if g.language == 'en' else 'Verzögerung:' }} {{ copy_notice_delays[source] }} s{% endif %}.
+            {{ 'You can deactivate this rule below.' if g.language == 'en' else 'Die Regel lässt sich unten deaktivieren.' }}
+          </p>
         {% else %}
           <form method="post" action="{{ url_for('v3_automation.create_copy_notice') }}">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="source" value="{{ source }}">
+            {% if copy_notice_timer_enabled %}
+            <label class="form-label d-block" for="notice-delay-{{ source }}">{{ 'Show notification' if g.language == 'en' else 'Meldung anzeigen' }}</label>
+            <select class="form-select form-select-sm w-auto mb-2" id="notice-delay-{{ source }}" name="delay">
+              <option value="0">{{ 'Immediately' if g.language == 'en' else 'Sofort' }}</option>
+              <option value="30">{{ 'After 30 seconds' if g.language == 'en' else 'Nach 30 Sekunden' }}</option>
+              <option value="300">{{ 'After 5 minutes' if g.language == 'en' else 'Nach 5 Minuten' }}</option>
+            </select>
+            <p class="small">{{ 'Delayed notices require the background worker and expire five minutes after they are due.' if g.language == 'en' else 'Verzögerte Meldungen brauchen den Hintergrunddienst und verfallen fünf Minuten nach ihrer Fälligkeit.' }}</p>
+            {% endif %}
             <button class="btn btn-outline-primary" type="submit">{{ ('Enable ' ~ name_en) if g.language == 'en' else (name_de ~ ' aktivieren') }}</button>
           </form>
         {% endif %}
@@ -102,7 +115,7 @@
       {% endif %}
       <div class="card"><div class="card-header"><strong>{{ 'Recent runs' if g.language == 'en' else 'Letzte Ausführungen' }}</strong></div>
         <div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th scope="col">{{ 'Time' if g.language == 'en' else 'Zeit' }}</th><th scope="col">Status</th><th scope="col">{{ 'Rule' if g.language == 'en' else 'Regel' }}</th></tr></thead><tbody>{% for row in logs %}<tr><td>{{ row.created_at }}</td><td>
-          {% set timing_labels = {'window_missed': ('Time window missed' if g.language == 'en' else 'Zeitfenster verpasst'), 'waiting_for_window': ('Waiting for time window' if g.language == 'en' else 'Wartet auf Zeitfenster'), 'executed': ('Executed' if g.language == 'en' else 'Ausgeführt')} %}
+          {% set timing_labels = {'schedule_unavailable': ('Background job unavailable' if g.language == 'en' else 'Hintergrundjob nicht verfügbar'), 'window_missed': ('Time window missed' if g.language == 'en' else 'Zeitfenster verpasst'), 'waiting_for_window': ('Waiting for time window' if g.language == 'en' else 'Wartet auf Zeitfenster'), 'executed': ('Executed' if g.language == 'en' else 'Ausgeführt')} %}
           {{ timing_labels.get(row.status, row.status) }}
           {% if row.action_states %}<ul class="small mb-0">{% for item in row.action_states %}<li>{{ item.type }}: {{ timing_labels.get(item.state, item.state) }}{% if item.expires_at %} · <time datetime="{{ item.expires_at }}">{{ item.expires_at_local or item.expires_at }}</time> ({{ item.origin_timezone }}){% endif %}</li>{% endfor %}</ul>{% endif %}
         </td><td><code>{{ row.rule_id }}</code></td></tr>{% else %}<tr><td colspan="3" class="text-secondary">{{ 'No runs.' if g.language == 'en' else 'Keine Ausführungen.' }}</td></tr>{% endfor %}</tbody></table></div>

@@ -13,7 +13,7 @@ from .auth import login_required
 from .v3_automation import AutomationEngine, AutomationStore, default_action_registry
 from .v3_capabilities import enabled
 from .v3_copy_notices import (
-    COPY_EVENT, JOB_EVENT_NAME, JOB_NOTICE, PRESET, enable_copy_notice_preset,
+    COPY_EVENT, JOB_EVENT_NAME, JOB_NOTICE, PRESET, TIMER_PRESETS, enable_copy_notice_preset,
     is_local_copy_notice_rule, recent_copy_notices,
 )
 
@@ -94,6 +94,13 @@ def _render_index(actor: str, *, preview=None):
         {rule.rule_id for rule in rules if _task_check_rule(rule)}
         if has_feature(g.user, "projects") else set()
     )
+    copy_notice_delays = {
+        source: next((
+            int(rule.actions[0].get("timing", {}).get("delay_seconds", 0))
+            for rule in rules if rule.enabled and rule.scope == PRESET and is_local_copy_notice_rule(rule, event)
+        ), None)
+        for source, event in (("browser", COPY_EVENT), ("job", JOB_EVENT_NAME))
+    }
     return render_template(
         "admin/v3_automation.html",
         enabled=True,
@@ -101,11 +108,8 @@ def _render_index(actor: str, *, preview=None):
         logs=store.logs(actor, limit=50),
         preview=preview,
         copy_notices_enabled=enabled("v3.activity"),
-        copy_notice_active={
-            source: any(rule.enabled and rule.scope == PRESET and is_local_copy_notice_rule(rule, event)
-                        for rule in rules)
-            for source, event in (("browser", COPY_EVENT), ("job", JOB_EVENT_NAME))
-        },
+        copy_notice_timer_enabled=enabled("v3.jobs"),
+        copy_notice_delays=copy_notice_delays,
         copy_job_notice_type=JOB_NOTICE,
         copy_notices=recent_copy_notices(current_app.config["DOCUMENT_ROOT"], actor),
         manual_check_rule_ids=manual_check_rule_ids,
@@ -151,11 +155,15 @@ def create_copy_notice():
         "browser": (COPY_EVENT, "Document copied", "Dokument kopiert"),
         "job": (JOB_EVENT_NAME, "Copy job completed", "Kopierjob abgeschlossen"),
     }.get(source)
-    if item is None:
+    delay_value = request.form.get("delay", "0")
+    if item is None or delay_value not in {str(value) for value in TIMER_PRESETS}:
         abort(400)
+    delay = int(delay_value)
+    if delay and not enabled("v3.jobs"):
+        abort(409)
     event, name_en, name_de = item
     try:
-        enable_copy_notice_preset(_store(), actor, name_en if language == "en" else name_de, event)
+        enable_copy_notice_preset(_store(), actor, name_en if language == "en" else name_de, event, delay=delay)
         flash("Local copy notifications enabled." if language == "en" else "Lokale Kopiermeldungen aktiviert.")
     except (OSError, sqlite3.Error) as exc:
         current_app.logger.warning("Could not save copy notification preset: %s", type(exc).__name__)
