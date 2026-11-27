@@ -127,9 +127,15 @@ Das Kopieren selbst wartet nicht auf Netzwerk oder Empfänger. Ein
 Hintergrundauftrag speichert die ursprüngliche UTC-Zeit, IANA-Absenderzone
 und absoluten Grenzen. Neustart, kurze Ausfälle und erneute Versuche ändern
 diese Zeiten nicht. Regelversion, Kontorechte, Vertrauen und Empfangsfreigabe
-werden erneut geprüft. „Letzte Ausführungen“ unterscheidet vorgemerkt, nicht
-erreichbar, bereitgestellt, Zeitfenster verpasst und abgelehnt. „Bereitgestellt“
-bedeutet einen Eintrag im Zielkonto, keinen Zustellnachweis des Geräts. Kein
+werden erneut geprüft. Unter „Zustellstatus für gekoppelte Kopiermeldungen“
+stehen die aktuellen Ergebnisse der letzten 50 Hintergrundaufträge,
+gruppiert nach Kopie: je Regel ein Ergebnis mit Frist in der Absenderzeitzone
+und Anzahl der Versuche. Ein geplanter Wiederholungsversuch nach Ablauf wird
+als „Kein weiterer Versuch vor Fristablauf“ ausgewiesen. Nach Ablauf erscheint
+„Zeitfenster verpasst“ auch, wenn der Hintergrunddienst noch nicht wieder
+läuft. „Bereitgestellt“ bestätigt einen Eintrag im Zielkonto, nicht das
+Öffnen am Gerät. Unter „Ausführungsverlauf“ bleiben die einzelnen technischen
+Zwischenstände verfügbar. Kein
 Hintergrund-Push, Ton, harte Echtzeit oder Fernsteuerung.
 
 Der reproduzierbare Test mit zwei gewöhnlichen, isolierten HTTPS-Instanzen

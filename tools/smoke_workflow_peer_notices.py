@@ -123,8 +123,9 @@ def main():
         _prepare_copy(root / a, tls, a)
         event_id = _copy(root / a, tls, a, "synthetic-workflow-run")
         assert not json.loads(dst.request("/automation-v3/copy-notices"))["notices"]
+        assert src.page("/automation-v3").select_one('[data-delivery-state="peer_queued"]')
         _work(root / a, tls)
-        assert src.page("/automation-v3").select_one('[data-run-state="delivered"]')
+        assert len(src.page("/automation-v3").select('[data-delivery-state="delivered"]')) == 1
         args = ["-m", "flask", "--app", "app", "send-workflow-copy-notice",
                 "--peer", b, "--destination", grant, "--actor", a, "--event-id", event_id]
         result = _cli(root / a, tls, args)
@@ -137,7 +138,7 @@ def main():
         destination_server.close()
         _copy(root / a, tls, a, "synthetic-workflow-run-reconnect")
         _work(root / a, tls)
-        assert src.page("/automation-v3").select_one('[data-run-state="peer_unreachable"]')
+        assert src.page("/automation-v3").select_one('[data-delivery-state="peer_unreachable"]')
         dst, _ = destination_server.enter_context(
             fixture.instance(root / b, b, tls, context, destination_password, bearer, port=destination_port),
         )
@@ -145,10 +146,14 @@ def main():
         _work(root / a, tls)
         target = json.loads(dst.request("/automation-v3/copy-notices"))["notices"]
         assert len(target) == 2 and len({row["id"] for row in target}) == 2
+        source_page = src.page("/automation-v3")
+        assert not source_page.select('[data-delivery-state="peer_unreachable"]')
+        rows = source_page.select('[data-delivery-state="delivered"]')
+        assert len(rows) == 2 and any(": 2" in row.get_text() for row in rows)
         _copy(root / a, tls, a, "synthetic-workflow-run-revoked")
         dst.page(consent, fields={"operation": "revoke", "grant": grant, "_csrf_token": dst.csrf("/automation-v3")})
         _work(root / a, tls)
-        assert src.page("/automation-v3").select_one('[data-run-state="denied"]')
+        assert src.page("/automation-v3").select_one('[data-delivery-state="denied"]')
         assert json.loads(dst.request("/automation-v3/copy-notices"))["notices"] == target
         print("PASS: real copy triggers durable peer job; paired HTTPS delivery, replay, offline recovery, and revoke verified")
 

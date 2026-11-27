@@ -415,6 +415,29 @@ class AutomationStore:
             result.append(view)
         return result
 
+    def recent_peer_outcomes(self, principal: str, job_keys: list[str]) -> dict[str, str]:
+        """Return exact terminal peer outcomes for already scoped job keys, without action payloads."""
+        keys = list(dict.fromkeys(job_keys))[:50]
+        if not principal or not keys:
+            return {}
+        entries = [f"{status}:{key}" for key in keys for status in ("delivered", "duplicate", "window_missed")]
+        placeholders = ",".join("?" for _ in entries)
+        with self._db() as db:
+            rows = db.execute(
+                f"""SELECT e.idempotency_key, e.status
+                      FROM v3_automation_execution e
+                      JOIN v3_automation_rule r ON r.rule_id=e.rule_id
+                     WHERE r.owner=? COLLATE BINARY AND e.principal=? COLLATE BINARY
+                       AND e.idempotency_key IN ({placeholders})
+                     ORDER BY (e.status IN ('delivered', 'duplicate')) DESC,
+                              e.created_at DESC, e.rowid DESC""",
+                (principal, principal, *entries),
+            ).fetchall()
+        result = {}
+        for row in rows:
+            result.setdefault(row["idempotency_key"].split(":", 1)[1], row["status"])
+        return result
+
     def create_confirmation(
         self,
         rule: AutomationRule,

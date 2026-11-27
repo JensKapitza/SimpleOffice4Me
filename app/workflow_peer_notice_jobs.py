@@ -1,11 +1,13 @@
 """Queue a fixed, authorized account notice for asynchronous delivery to a peer."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import hashlib
 import logging
 import math
 from pathlib import Path
 import sqlite3
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import current_app, has_app_context
 
@@ -176,3 +178,62 @@ def job_handler(root):
             _deliver(root, job)
 
     return run
+
+
+def _receipt_state(job, known, window, now, *, worker_enabled):
+    if known in {"delivered", "duplicate"}:
+        return "delivered"
+    if known == "window_missed":
+        return "window_missed"
+    if job.state == "cancelled":
+        return "cancelled"
+    if job.state == "failed":
+        return "denied" if job.last_error == "denied" else "failed"
+    if job.state == "succeeded":
+        return "unknown"
+    window_state = received_window_status(window, now)
+    if window_state == "window_missed":
+        return window_state
+    if not worker_enabled:
+        return "queue_paused"
+    if window_state != "ready":
+        return window_state
+    if job.state == "retry_scheduled":
+        return "peer_unreachable" if job.last_error == "peer_unreachable" else "retry_scheduled"
+    return "sending" if job.state == "running" else "peer_queued"
+
+
+def receipts(root, principal, store, rules, *, clock=_now):
+    """A private bounded read model: one current outcome per job, grouped by original copy."""
+    account = _account(root, principal)
+    if not feature_on(root) or not account:
+        return []
+    jobs = [job for job in JobStore(root).recent_for_principal(principal, KIND)
+            if job.payload.get("account") == account]
+    known = store.recent_peer_outcomes(principal, [job.idempotency_key for job in jobs])
+    labels = {(rule.rule_id, rule.version): rule.name for rule in rules if rule.scope == PRESET}
+    groups = {}
+    now = clock()
+    worker_enabled = enabled("v3.jobs", root=root)
+    for job in jobs:
+        try:
+            window = job.payload["window"]
+            end = utc_instant(window["expires_at"])
+            zone = ZoneInfo(window["origin_timezone"])
+            state = _receipt_state(job, known.get(job.idempotency_key), window, now, worker_enabled=worker_enabled)
+            if state in {"peer_unreachable", "retry_scheduled"}:
+                next_at = datetime.fromtimestamp(job.available_at, timezone.utc)
+                if next_at >= end:
+                    state = "retry_after_deadline"
+            group = groups.setdefault(job.payload["event_id"], {"at": window["requested_at"], "targets": []})
+            group["targets"].append({
+                "name": labels.get((job.payload["rule_id"], job.payload["version"]), ""),
+                "state": state,
+                "deadline": end.isoformat(),
+                "local": end.astimezone(zone).strftime("%Y-%m-%d %H:%M:%S %Z"),
+                "zone": zone.key,
+                "attempt": job.attempt,
+            })
+        except (ValueError, TypeError, KeyError, OverflowError, ZoneInfoNotFoundError) as exc:
+            LOG.warning("peer copy receipt could not be rendered: %s", type(exc).__name__)
+    return list(groups.values())

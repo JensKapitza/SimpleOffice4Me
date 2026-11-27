@@ -121,6 +121,11 @@ def _render_index(actor: str, *, preview=None):
         ), None)
         for source, event in (("browser", COPY_EVENT), ("job", JOB_EVENT_NAME))
     }
+    try:
+        peer_receipts = peer_jobs.receipts(current_app.config["DOCUMENT_ROOT"], actor, store, rules)
+    except (OSError, sqlite3.Error, ValueError) as exc:
+        current_app.logger.warning("Could not read copy delivery receipts: %s", type(exc).__name__)
+        peer_receipts = None
     return render_template(
         "admin/v3_automation.html",
         enabled=True,
@@ -133,6 +138,7 @@ def _render_index(actor: str, *, preview=None):
         copy_job_notice_type=JOB_NOTICE,
         peer_notice_type=PEER_NOTICE,
         peer_notice_options=_peer_notice_options(),
+        peer_receipts=peer_receipts,
         copy_notices=recent_copy_notices(current_app.config["DOCUMENT_ROOT"], actor),
         manual_check_rule_ids=manual_check_rule_ids,
     )

@@ -1,0 +1,44 @@
+{% if peer_receipts is none %}
+<p class="alert alert-warning" role="status">{{ 'Delivery status is temporarily unavailable.' if g.language == 'en' else 'Der Zustellstatus ist vorübergehend nicht verfügbar.' }}</p>
+{% elif peer_receipts %}
+{% set en = g.language == 'en' %}
+{% set labels = {
+  'delivered': 'Available in the target account' if en else 'Im Zielkonto bereitgestellt',
+  'window_missed': 'Time window missed' if en else 'Zeitfenster verpasst',
+  'waiting_for_window': 'Waiting for start time' if en else 'Wartet auf Startzeit',
+  'retry_after_deadline': 'No retry before the deadline' if en else 'Kein weiterer Versuch vor Fristablauf',
+  'peer_unreachable': 'Target offline; another attempt is scheduled' if en else 'Ziel nicht erreichbar; neuer Versuch geplant',
+  'retry_scheduled': 'Another attempt is scheduled' if en else 'Neuer Versuch geplant',
+  'queue_paused': 'Background queue is disabled' if en else 'Hintergrundwarteschlange deaktiviert',
+  'peer_queued': 'Queued' if en else 'Vorgemerkt',
+  'sending': 'Delivery in progress' if en else 'Zustellung läuft',
+  'denied': 'Target not authorized' if en else 'Ziel nicht freigegeben',
+  'cancelled': 'Cancelled' if en else 'Abgebrochen',
+  'failed': 'Delivery failed' if en else 'Zustellung fehlgeschlagen',
+  'unknown': 'No receipt available' if en else 'Keine Bestätigung verfügbar'
+} %}
+<section class="card p-3 mb-4" aria-labelledby="peer-copy-receipts-title">
+  <h2 class="h5" id="peer-copy-receipts-title">{{ 'Delivery status for paired copy notices' if en else 'Zustellstatus für gekoppelte Kopiermeldungen' }}</h2>
+  <p class="small">{{ 'Recent deliveries grouped by original copy. “Available” confirms the target account received the notice, not that someone opened it.' if en else 'Die letzten Zustellungen, gruppiert nach Kopiervorgang. „Bereitgestellt“ bestätigt den Eingang im Zielkonto, nicht das Öffnen am Gerät.' }}</p>
+  <ul class="list-group mb-2">
+    {% for copy in peer_receipts %}
+    <li class="list-group-item">
+      <h3 class="h6">{{ 'Copy at' if en else 'Kopie vom' }} <time datetime="{{ copy.at }}">{{ copy.at }}</time></h3>
+      <ul class="mb-0">
+        {% for target in copy.targets %}
+        <li data-delivery-state="{{ target.state }}">
+          {{ target.name or ('Previous version of a rule' if en else 'Frühere Regelversion') }}:
+          <strong>{{ labels[target.state] }}</strong>
+          <span class="small"> · {{ 'Deadline' if en else 'Frist' }}
+            <time datetime="{{ target.deadline }}">{{ target.local }}</time> ({{ target.zone }})
+            · {{ 'Attempts' if en else 'Versuche' }}: {{ target.attempt }}
+          </span>
+        </li>
+        {% endfor %}
+      </ul>
+    </li>
+    {% endfor %}
+  </ul>
+  <a href="{{ url_for('v3_automation.index') }}" class="btn btn-sm btn-outline-secondary align-self-start">{{ 'Refresh status' if en else 'Status aktualisieren' }}</a>
+</section>
+{% endif %}

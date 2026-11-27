@@ -175,3 +175,44 @@ class WorkflowPeerNoticeRuleTests(_WorkflowPeerNoticeFixture):
             with self.assertRaisesRegex(PermanentJobError, "rule has changed"):
                 job_handler(self.root)(job)
             send.assert_not_called()
+
+    def test_receipts_group_active_targets_by_copy_and_do_not_expose_grants_or_other_accounts(self):
+        from bs4 import BeautifulSoup
+        from app.document_copy_events import capture_copy_completed
+
+        self._create()
+        self.form["destination"] = "c" * 32
+        self._create()
+        with app.app_context():
+            capture_copy_completed(self.root, "owner", "receipt-synthetic-copy")
+        page = self.client.get("/automation-v3")
+        box = BeautifulSoup(page.data, "html.parser").select_one("section[aria-labelledby=peer-copy-receipts-title]")
+        self.assertIsNotNone(box)
+        self.assertEqual(1, len(box.select("h3")))
+        self.assertEqual(2, len(box.select('[data-delivery-state="peer_queued"]')))
+        self.assertNotIn("b" * 32, page.get_data(as_text=True))
+        self.assertNotIn("c" * 32, page.get_data(as_text=True))
+        self._register(self.client, "other")
+        other = app.test_client()
+        self._login(other, "other")
+        self.assertNotIn(b"peer-copy-receipts-title", other.get("/automation-v3").data)
+
+    def test_receipt_stops_promising_retries_past_the_original_deadline(self):
+        from app.v3_automation import AutomationStore
+        from app.v3_automation_timing import utc_instant
+        from app.v3_jobs import JobStore
+        from app.workflow_peer_notice_jobs import receipts
+        self._create()
+        job = self._queue()
+        deadline = utc_instant(job.payload["window"]["expires_at"])
+        jobs = JobStore(self.root)
+        now = int(deadline.timestamp()) - 3
+        jobs.claim("offline-worker", now=now)
+        jobs.fail(job.job_id, "peer_unreachable", retryable=True, now=now)
+        store = AutomationStore(self.root)
+        with app.app_context():
+            rules = store.list("owner")
+            waiting, = receipts(self.root, "owner", store, rules, clock=lambda: deadline - timedelta(seconds=2))
+            expired, = receipts(self.root, "owner", store, rules, clock=lambda: deadline)
+        self.assertEqual("retry_after_deadline", waiting["targets"][0]["state"])
+        self.assertEqual("window_missed", expired["targets"][0]["state"])

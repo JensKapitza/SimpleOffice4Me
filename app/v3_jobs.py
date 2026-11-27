@@ -95,6 +95,8 @@ class JobStore:
               ON v3_job(state,available_at,priority DESC,created_at);
             CREATE INDEX IF NOT EXISTS ix_v3_job_updated
               ON v3_job(updated_at DESC,job_id);
+            CREATE INDEX IF NOT EXISTS ix_v3_job_principal_kind
+              ON v3_job(principal,kind,updated_at DESC,job_id DESC);
             """)
             columns = {str(row[1]) for row in db.execute("PRAGMA table_info(v3_job)")}
             if "progress_json" not in columns:
@@ -308,6 +310,18 @@ class JobStore:
                    WHERE (?='' OR state=?) AND (?='' OR kind=?)
                    ORDER BY updated_at DESC,job_id DESC LIMIT ?""",
                 (state,state,kind,kind,size),
+            ).fetchall()
+        return [self._record(row) for row in rows]
+
+    def recent_for_principal(self, principal: str, kind: str, *, limit: int = 50) -> list[Job]:
+        if not principal or not kind:
+            return []
+        size = max(1, min(100, int(limit)))
+        with self._db() as db:
+            rows = db.execute(
+                """SELECT * FROM v3_job WHERE principal=? COLLATE BINARY AND kind=?
+                   ORDER BY updated_at DESC, job_id DESC LIMIT ?""",
+                (principal, kind, size),
             ).fetchall()
         return [self._record(row) for row in rows]
 

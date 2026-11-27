@@ -116,6 +116,7 @@
     {% endif %}
   </section>
   {% endif %}
+  {% include "admin/_peer_copy_receipts.html" %}
   <div class="row g-4">
     <section class="col-xl-5">
       <div class="card"><div class="card-header"><strong>{{ 'New rule' if g.language == 'en' else 'Neue Regel' }}</strong></div><div class="card-body">
@@ -169,14 +170,14 @@
         </div>
       </div>
       {% endif %}
-      <div class="card"><div class="card-header"><strong>{{ 'Recent runs' if g.language == 'en' else 'Letzte Ausführungen' }}</strong></div>
+      <details class="card"><summary class="card-header"><strong>{{ 'Run history' if g.language == 'en' else 'Ausführungsverlauf' }}</strong></summary>
         <div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th scope="col">{{ 'Time' if g.language == 'en' else 'Zeit' }}</th><th scope="col">Status</th><th scope="col">{{ 'Rule' if g.language == 'en' else 'Regel' }}</th></tr></thead><tbody>{% for row in logs %}<tr><td>{{ row.created_at }}</td><td data-run-state="{{ row.status }}">
           {% set timing_labels = {'schedule_unavailable': ('Background job unavailable' if g.language == 'en' else 'Hintergrundjob nicht verfügbar'), 'window_missed': ('Time window missed' if g.language == 'en' else 'Zeitfenster verpasst'), 'waiting_for_window': ('Waiting for time window' if g.language == 'en' else 'Wartet auf Zeitfenster'), 'executed': ('Executed' if g.language == 'en' else 'Ausgeführt')} %}
           {% set peer_labels = {
             'peer_queued': ('Queued for delivery' if g.language == 'en' else 'Zur Zustellung vorgemerkt'),
             'delivered': ('Available in the target account' if g.language == 'en' else 'Im Zielkonto bereitgestellt'),
             'duplicate': ('Already received' if g.language == 'en' else 'Bereits empfangen'),
-            'peer_unreachable': ('Target unreachable; retries within the deadline' if g.language == 'en' else 'Ziel nicht erreichbar; erneuter Versuch nur innerhalb der Frist'),
+            'peer_unreachable': ('Target unreachable' if g.language == 'en' else 'Ziel nicht erreichbar'),
             'recipient_busy': ('Target busy' if g.language == 'en' else 'Ziel ausgelastet'),
             'peer_invalid': ('Invalid target settings or response' if g.language == 'en' else 'Zieleinstellung oder Antwort ungültig'),
             'peer_queue_unavailable': ('Could not queue peer notice' if g.language == 'en' else 'Föderierte Meldung konnte nicht eingeplant werden'),
@@ -185,7 +186,7 @@
           {{ peer_labels.get(row.status, timing_labels.get(row.status, row.status)) }}
           {% if row.action_states %}<ul class="small mb-0">{% for item in row.action_states %}<li>{{ item.type }}: {{ peer_labels.get(item.state, timing_labels.get(item.state, item.state)) }}{% if item.expires_at %} · <time datetime="{{ item.expires_at }}">{{ item.expires_at_local or item.expires_at }}</time> ({{ item.origin_timezone }}){% endif %}</li>{% endfor %}</ul>{% endif %}
         </td><td><code>{{ row.rule_id }}</code></td></tr>{% else %}<tr><td colspan="3" class="text-secondary">{{ 'No runs.' if g.language == 'en' else 'Keine Ausführungen.' }}</td></tr>{% endfor %}</tbody></table></div>
-      </div>
+      </details>
     </section>
   </div>
   {% endif %}
