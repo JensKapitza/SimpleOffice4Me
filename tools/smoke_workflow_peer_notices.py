@@ -145,7 +145,17 @@ def main():
         destination_server.close()
         _copy(root / a, tls, a, "synthetic-workflow-run-reconnect")
         _work(root / a, tls)
-        assert src.page("/automation-v3").select_one('[data-delivery-state="peer_unreachable"]')
+        offline_page = src.page("/automation-v3")
+        offline_row = offline_page.select_one('[data-delivery-state="peer_unreachable"], [data-delivery-state="retry_due"]')
+        assert offline_row
+        next_attempt = offline_row.select_one("[data-next-attempt]")
+        if offline_row["data-delivery-state"] == "peer_unreachable":
+            assert next_attempt
+            assert datetime.fromisoformat(next_attempt["datetime"]) < datetime.fromisoformat(
+                offline_row.select_one("time:not([data-next-attempt])")["datetime"],
+            )
+        else:
+            assert not next_attempt
         dst, _ = destination_server.enter_context(
             fixture.instance(root / b, b, tls, context, destination_password, bearer, port=destination_port),
         )
@@ -160,7 +170,7 @@ def main():
         assert destination_feed["seen"] == [target[0]["id"]] and destination_feed["notices"] == target
         assert not json.loads(src.request("/automation-v3/copy-notices")).get("seen")
         source_page = src.page("/automation-v3")
-        assert not source_page.select('[data-delivery-state="peer_unreachable"]')
+        assert not source_page.select('[data-next-attempt], [data-delivery-state="peer_unreachable"], [data-delivery-state="retry_due"]')
         rows = source_page.select('[data-delivery-state="delivered"]')
         assert len(rows) == 2 and any(": 2" in row.get_text() for row in rows)
         _copy(root / a, tls, a, "synthetic-workflow-run-revoked")

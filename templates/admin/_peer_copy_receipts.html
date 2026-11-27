@@ -6,8 +6,14 @@
   'delivered': 'Available in the target account' if en else 'Im Zielkonto bereitgestellt',
   'window_missed': 'Time window missed' if en else 'Zeitfenster verpasst',
   'waiting_for_window': 'Waiting for start time' if en else 'Wartet auf Startzeit',
+  'start_after_deadline': 'Cannot start before the deadline' if en else 'Start vor Fristablauf nicht möglich',
+  'retry_due': 'Retry due; waiting for the background service' if en else 'Versuch fällig; wartet auf Hintergrunddienst',
   'retry_after_deadline': 'No retry before the deadline' if en else 'Kein weiterer Versuch vor Fristablauf',
   'peer_unreachable': 'Target offline; another attempt is scheduled' if en else 'Ziel nicht erreichbar; neuer Versuch geplant',
+  'recipient_busy': 'Target busy; another attempt is scheduled' if en else 'Ziel ausgelastet; neuer Versuch geplant',
+  'peer_unreachable_final': 'Target unreachable; no further attempts' if en else 'Ziel nicht erreichbar; keine weiteren Versuche',
+  'recipient_busy_final': 'Target busy; no further attempts' if en else 'Ziel ausgelastet; keine weiteren Versuche',
+  'peer_invalid': 'Target settings or response invalid' if en else 'Zieleinstellungen oder Antwort ungültig',
   'retry_scheduled': 'Another attempt is scheduled' if en else 'Neuer Versuch geplant',
   'queue_paused': 'Background queue is disabled' if en else 'Hintergrundwarteschlange deaktiviert',
   'peer_queued': 'Queued' if en else 'Vorgemerkt',
@@ -32,6 +38,10 @@
           <span class="small"> · {{ 'Deadline' if en else 'Frist' }}
             <time datetime="{{ target.deadline }}">{{ target.local }}</time> ({{ target.zone }})
             · {{ 'Attempts' if en else 'Versuche' }}: {{ target.attempt }}
+            {% if target.next_attempt %}
+            · {{ 'Next attempt no earlier than' if en else 'Nächster Versuch frühestens' }}
+            <time data-next-attempt datetime="{{ target.next_attempt.at }}">{{ target.next_attempt.local }}</time>
+            {% endif %}
           </span>
         </li>
         {% endfor %}

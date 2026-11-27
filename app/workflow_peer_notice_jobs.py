@@ -201,7 +201,12 @@ def _receipt_state(job, known, window, now, *, worker_enabled):
     if job.state == "cancelled":
         return "cancelled"
     if job.state == "failed":
-        return "denied" if job.last_error == "denied" else "failed"
+        return {
+            "denied": "denied",
+            "peer_unreachable": "peer_unreachable_final",
+            "recipient_busy": "recipient_busy_final",
+            "peer_invalid": "peer_invalid",
+        }.get(job.last_error, "failed")
     if job.state == "succeeded":
         return "unknown"
     window_state = received_window_status(window, now)
@@ -212,8 +217,32 @@ def _receipt_state(job, known, window, now, *, worker_enabled):
     if window_state != "ready":
         return window_state
     if job.state == "retry_scheduled":
-        return "peer_unreachable" if job.last_error == "peer_unreachable" else "retry_scheduled"
+        return {
+            "peer_unreachable": "peer_unreachable",
+            "recipient_busy": "recipient_busy",
+        }.get(job.last_error, "retry_scheduled")
     return "sending" if job.state == "running" else "peer_queued"
+
+
+_RETRY_STATES = {"peer_unreachable", "recipient_busy", "retry_scheduled"}
+_PENDING_STATES = _RETRY_STATES | {"peer_queued", "waiting_for_window"}
+
+
+def _local_time(instant, zone):
+    return instant.astimezone(zone).strftime("%Y-%m-%d %H:%M:%S %Z")
+
+
+def _receipt_schedule(job, window, state, *, now, end, zone):
+    if state not in _PENDING_STATES:
+        return state, None
+    # The durable queue's retry backoff is authoritative, but cannot start an action
+    # before the original action window. Neither time promises a device is online.
+    eligible = max(utc_instant(window["not_before"]), datetime.fromtimestamp(job.available_at, timezone.utc))
+    if eligible >= end:
+        return ("retry_after_deadline" if job.state == "retry_scheduled" else "start_after_deadline"), None
+    if eligible <= now:
+        return ("retry_due" if state in _RETRY_STATES else state), None
+    return state, {"at": eligible.isoformat(), "local": _local_time(eligible, zone)}
 
 
 def receipts(root, principal, store, rules, *, clock=_now):
@@ -234,19 +263,17 @@ def receipts(root, principal, store, rules, *, clock=_now):
             end = utc_instant(window["expires_at"])
             zone = ZoneInfo(window["origin_timezone"])
             state = _receipt_state(job, known.get(job.idempotency_key), window, now, worker_enabled=worker_enabled)
-            if state in {"peer_unreachable", "retry_scheduled"}:
-                next_at = datetime.fromtimestamp(job.available_at, timezone.utc)
-                if next_at >= end:
-                    state = "retry_after_deadline"
+            state, next_attempt = _receipt_schedule(job, window, state, now=now, end=end, zone=zone)
             group = groups.setdefault(job.payload["event_id"], {"at": window["requested_at"], "targets": []})
             group["targets"].append({
                 "name": labels.get((job.payload["rule_id"], job.payload["version"]), ""),
                 "state": state,
                 "deadline": end.isoformat(),
-                "local": end.astimezone(zone).strftime("%Y-%m-%d %H:%M:%S %Z"),
+                "local": _local_time(end, zone),
                 "zone": zone.key,
+                "next_attempt": next_attempt,
                 "attempt": job.attempt,
             })
-        except (ValueError, TypeError, KeyError, OverflowError, ZoneInfoNotFoundError) as exc:
+        except (OSError, ValueError, TypeError, KeyError, OverflowError, ZoneInfoNotFoundError) as exc:
             LOG.warning("peer copy receipt could not be rendered: %s", type(exc).__name__)
     return list(groups.values())

@@ -254,7 +254,50 @@ class WorkflowPeerNoticeRuleTests(_WorkflowPeerNoticeFixture):
             expired, = receipts(self.root, "owner", store, rules, clock=lambda: deadline)
         self.assertEqual("retry_after_deadline", waiting["targets"][0]["state"])
         self.assertEqual("window_missed", expired["targets"][0]["state"])
+        self.assertIsNone(waiting["targets"][0]["next_attempt"])
+        self.assertIsNone(expired["targets"][0]["next_attempt"])
 
+    def test_receipts_show_retry_eligibility_in_sender_zone_without_promising_delivery(self):
+        from unittest.mock import patch
+        from bs4 import BeautifulSoup
+        from app.v3_automation import AutomationStore
+        from app.v3_automation_timing import utc_instant
+        from app.v3_jobs import JobStore
+        from app.workflow_peer_notice_jobs import receipts
+
+        self.form["zone"] = "Asia/Kathmandu"
+        self._create()
+        job = self._queue()
+        deadline = utc_instant(job.payload["window"]["expires_at"])
+        jobs = JobStore(self.root)
+        now = int(deadline.timestamp()) - 35
+        jobs.claim("test-worker", now=now)
+        jobs.fail(job.job_id, "recipient_busy", retryable=True, now=now)
+        clock = lambda: datetime.fromtimestamp(now, timezone.utc)
+        with patch("app.v3_automation_routes.peer_jobs.receipts", wraps=receipts) as read:
+            read.side_effect = lambda *args: receipts(*args, clock=clock)
+            page = self.client.get("/automation-v3")
+        row = BeautifulSoup(page.data, "html.parser").select_one('[data-delivery-state="recipient_busy"]')
+        self.assertIsNotNone(row)
+        expected = datetime.fromtimestamp(now + 5, timezone.utc)
+        self.assertEqual(expected.isoformat(), row.select_one("[data-next-attempt]")["datetime"])
+        self.assertIn("Asia/Kathmandu", row.get_text())
+        self.assertNotIn("b" * 32, row.get_text())
+
+        store = AutomationStore(self.root)
+        with app.app_context():
+            rules = store.list("owner")
+            due, = receipts(self.root, "owner", store, rules, clock=lambda: expected)
+        self.assertEqual("retry_due", due["targets"][0]["state"])
+        self.assertIsNone(due["targets"][0]["next_attempt"])
+        self.assertEqual("retry_scheduled", jobs.get(job.job_id).state)
+
+        jobs.claim("test-worker", now=now + 5)
+        jobs.fail(job.job_id, "peer_unreachable", retryable=False, now=now + 5)
+        with app.app_context():
+            failed, = receipts(self.root, "owner", store, rules, clock=lambda: expected)
+        self.assertEqual("peer_unreachable_final", failed["targets"][0]["state"])
+        self.assertIsNone(failed["targets"][0]["next_attempt"])
 
     def test_day_end_rule_persists_bounded_long_retry_and_original_zone(self):
         from app.v3_automation_timing import action_window, utc_instant
