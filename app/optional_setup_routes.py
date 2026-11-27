@@ -128,6 +128,13 @@ def install():
                         "Dieser Installer unterstützt die erkannte Python-Version, Plattform oder Architektur nicht."),
         "failed": ("Setup could not be started. You can retry.", "Einrichtung konnte nicht starten. Wiederholen ist möglich."),
     }
+    if state == "unsupported" and feature in {optional_local_setup.VOICE_PACKAGE,
+                                               optional_local_setup.ENGLISH_VOICE_PACKAGE} \
+            and optional_local_setup.bundled_android_runtime() and android_speech_available():
+        flash("Use the Android device voice. This app does not have the Piper runtime required by this model."
+              if g.language == "en" else
+              "Nutze die Android-Gerätestimme. In dieser App fehlt die Piper-Laufzeit für dieses Modell.")
+        return redirect(url_for("optional_setup.index", _anchor="android-speech"), code=303)
     flash(messages[state][0 if g.language == "en" else 1])
     return redirect(url_for("optional_setup.index", _anchor=feature), code=303)
 

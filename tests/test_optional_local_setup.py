@@ -5,6 +5,7 @@ from email.message import EmailMessage
 from hashlib import sha256
 import io
 import json
+import os
 from pathlib import Path
 import tarfile
 from threading import Event
@@ -84,6 +85,45 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
 
     def status(self, section):
         return document(self.client.get(SETUP)).select_one(f"#{section} [data-optional-status]")["data-optional-status"]
+
+    def test_bundled_android_guides_to_device_voice_without_admitting_unusable_models(self):
+        with patch.dict(os.environ, {"SIMPLEOFFICE_ANDROID": "1"}), \
+                patch.dict(app.config, ANDROID_PRIVATE_SPEECH=lambda *_: None), \
+                patch.object(optional, "resolve_command", return_value=None), \
+                patch.object(piper_runtime, "install_supported", return_value=False), \
+                patch.object(ffmpeg_runtime, "install_supported", return_value=False), \
+                patch.object(optional._WORKERS, "submit") as submit:
+            inventory = optional.component_inventory(self.root)
+            self.assertEqual("android-apk", inventory["runtime"])
+            self.assertEqual(["kids-hand"], inventory["supported_install_features"])
+            page = document(self.client.get(SETUP))
+            self.assertIsNotNone(page.select_one("header a[href='#android-speech']"))
+            self.assertIsNotNone(page.select_one("#android-speech"))
+            self.assertIsNone(page.select_one("#piper-engine details"))
+            for feature in ("voice-package", "english-voice"):
+                form_selector = f'#{feature} form[action="{SETUP}/install"]'
+                self.assertIsNone(page.select_one(form_selector))
+                response = self.action(self.client, "/install", feature=feature)
+                self.assertEqual(303, response.status_code)
+                self.assertTrue(response.location.endswith("#android-speech"))
+            self.assertFalse(optional._job_file(self.root).exists())
+            self.assertIsNotNone(page.select_one('a[href="#kids-hand"]'))
+            submit.assert_not_called()
+
+    def test_android_keeps_an_existing_model_job_cancellable_without_new_download(self):
+        with patch.dict(os.environ, {"SIMPLEOFFICE_ANDROID": "1"}), \
+                patch.object(optional, "resolve_command", return_value=None), \
+                patch.object(optional._WORKERS, "submit") as submit:
+            job_file = optional._job_file(self.root)
+            job_file.parent.mkdir(parents=True, exist_ok=True)
+            job_file.write_text(json.dumps({"english-voice": {
+                "state": "queued", "id": "existing", "started": time.time(),
+            }}), encoding="utf-8")
+            self.assertEqual("queued", self.status("english-voice"))
+            self.assertEqual("queued", optional.queue(self.root, "english-voice"))
+            self.assertEqual(303, self.action(self.client, "/cancel", feature="english-voice").status_code)
+            self.assertEqual("cancelling", optional.progress_states(self.root)["english-voice"])
+            submit.assert_not_called()
 
     def wait_status(self, section, state):
         limit = time.monotonic() + 3
