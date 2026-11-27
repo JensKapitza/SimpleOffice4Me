@@ -18,6 +18,7 @@ from bs4 import BeautifulSoup
 from app import (
     app, english_voice_assets as english, kids_hand_assets, kids_piper_assets as piper,
     optional_local_setup as optional, optional_piper_runtime as piper_runtime,
+    optional_ffmpeg_runtime as ffmpeg_runtime,
 )
 from app import optional_hand_game_install as hand
 from app.document_store import DocumentStore
@@ -95,7 +96,8 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
         self.fail(f"expected {state}, got {observed}: {optional.progress_details(self.root)}")
 
     def test_fresh_dashboard_tour_permissions_and_skip_are_local_and_nonblocking(self):
-        with patch.object(optional, "resolve_command", return_value=None):
+        with patch.object(optional, "resolve_command", return_value=None), \
+                patch.object(ffmpeg_runtime, "install_supported", return_value=True):
             self.assertEqual(app.test_client().get(SETUP).status_code, 302)
             dashboard = document(self.client.get(DASHBOARD))
             self.assertTrue(dashboard.select_one(f'#optional-setup-dashboard a[href="{SETUP}"]'))
@@ -107,6 +109,11 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
             self.assertEqual("engine-missing", self.status("kids-voice"))
             self.assertEqual("missing", self.status("voice-package"))
             self.assertIsNotNone(document(page).select_one('#voice-package button[value="voice-package"]'))
+            ffmpeg_card = document(page).select_one("#ffmpeg-runtime")
+            self.assertIsNotNone(ffmpeg_card)
+            self.assertIn("LGPL-3.0-or-later", ffmpeg_card.get_text(" "))
+            self.assertIn(ffmpeg_runtime._ARCHIVE_SHA256, ffmpeg_card.get_text(" "))
+            self.assertIsNotNone(ffmpeg_card.select_one('button[value="ffmpeg-runtime"]'))
             self.assertEqual("missing", self.status("kids-hand"))
             self.assertIn(b"CC0 1.0", page.data)
             self.assertIn(b"Apache-2.0", page.data)
@@ -607,6 +614,8 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
         expected_features = {"voice-package", "kids-hand", "english-voice"}
         if piper_runtime.install_supported():
             expected_features.add("piper-engine")
+        if ffmpeg_runtime.install_supported():
+            expected_features.add("ffmpeg-runtime")
         self.assertEqual(expected_features, set(inventory["supported_install_features"]))
         page = document(self.client.get(SETUP))
         component_status = page.select_one("#component-manager .row[aria-label]")
@@ -627,8 +636,15 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
         self.assertTrue(any(message in follow_up.get_text(" ", strip=True) for message in (
             "Finger Magic: queued", "Fingerzauber: vorgemerkt",
         )))
-        self.assertEqual(["kids-hand"],
+        expected_queued = (["ffmpeg-runtime"] if ffmpeg_runtime.install_supported() else []) + ["kids-hand"]
+        self.assertEqual(expected_queued,
                          [call.args[1] for call in queue.call_args_list])
+
+        with patch.object(ffmpeg_runtime, "install_supported", return_value=True), \
+                patch.object(optional, "queue", return_value="queued") as queue:
+            reply = self.action(self.client, "/install", feature="ffmpeg-runtime")
+        self.assertEqual(303, reply.status_code)
+        self.assertEqual("ffmpeg-runtime", queue.call_args.args[1])
 
     def test_basics_does_not_download_voices_and_explicit_staging_preserves_custom_voice(self):
         self.root.mkdir(parents=True, exist_ok=True)
@@ -651,7 +667,7 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
                 self.assertEqual("configured", optional.readiness(self.root)["reader_english"])
                 expected_basics = (
                     ["piper-engine"] if piper_path is None and piper_runtime.install_supported() else []
-                ) + ["kids-hand"]
+                ) + (["ffmpeg-runtime"] if piper_path is None and ffmpeg_runtime.install_supported() else []) + ["kids-hand"]
                 self.assertEqual(303, submit(page.select_one('form[action$="/install-all"]')).status_code)
                 self.assertEqual(expected_basics,
                                  [call.args[1] for call in queue.call_args_list])

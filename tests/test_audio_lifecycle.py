@@ -46,6 +46,12 @@ class AudioSettingsTests(unittest.TestCase):
             command = decoder_command("stream.sdp", "127.0.0.1")
         self.assertEqual("127.0.0.1", command[command.index("-localaddr") + 1])
 
+    def test_decoder_resolves_managed_ffmpeg_from_explicit_document_root(self):
+        with patch("app.audio_streamer.resolve_command", return_value="/private/components/ffmpeg/bin/ffmpeg") as resolve:
+            command = decoder_command("stream.sdp", "127.0.0.1", "/private/documents")
+        resolve.assert_called_once_with("ffmpeg", "/private/documents")
+        self.assertEqual("/private/components/ffmpeg/bin/ffmpeg", command[0])
+
 
 class AudioLifecycleTests(unittest.TestCase):
     def setUp(self):
@@ -68,6 +74,15 @@ class AudioLifecycleTests(unittest.TestCase):
             self.assertEqual(1, self.process.terminate.call_count)
             self.start()
             self.assertEqual(2, popen.call_count)
+
+    def test_manager_keeps_component_root_for_future_stream_restarts(self):
+        self.manager.set_document_root("/private/documents")
+        with patch("app.audio_streamer.resolve_command", return_value="/private/ffmpeg") as resolve, \
+                patch("app.audio_streamer.subprocess.Popen", return_value=self.process):
+            self.start()
+        self.assertTrue(any(call.args == ("ffmpeg", Path("/private/documents"))
+                            for call in resolve.call_args_list))
+        self.assertEqual(Path("/private/documents"), self.manager.document_root)
 
     def test_invalid_config_does_not_stop_active_stream(self):
         with patch("app.audio_streamer.shutil.which", return_value="ffmpeg"), patch("app.audio_streamer.subprocess.Popen", return_value=self.process):

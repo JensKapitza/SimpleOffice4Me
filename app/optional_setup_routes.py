@@ -150,6 +150,8 @@ def install_all():
     features = []
     if inventory.get(optional_local_setup.PIPER_ENGINE, {}).get("install_feature"):
         features.append(optional_local_setup.PIPER_ENGINE)
+    if inventory.get("ffmpeg", {}).get("install_feature"):
+        features.append(optional_local_setup.FFMPEG_RUNTIME)
     features.append("kids-hand")
     for feature in features:
         try:
@@ -164,6 +166,7 @@ def install_all():
           detail={"features": outcomes})
     labels = {
         optional_local_setup.PIPER_ENGINE: ("Piper runtime" if g.language == "en" else "Piper-Laufzeit"),
+        optional_local_setup.FFMPEG_RUNTIME: ("FFmpeg tools" if g.language == "en" else "FFmpeg-Werkzeuge"),
         "kids-hand": ("Finger Magic" if g.language == "en" else "Fingerzauber"),
     }
     outcome_text = {
