@@ -9,32 +9,44 @@ serial=${3:-}
 test -f "$apk"
 test -f "$test_apk"
 
+sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+adb_bin=""
+if [[ -n "$sdk" ]]; then
+  adb_bin="$sdk/platform-tools/adb"
+fi
+
 if [[ -z "$serial" ]]; then
   if [[ "${GITHUB_ACTIONS:-}" != true || ! -c /dev/kvm ]]; then
     echo 'Use a fresh disposable AVD and specify its emulator-NNNN serial.' >&2
     exit 2
   fi
-  sdk="${ANDROID_HOME:?Android SDK not installed}"
+  test -n "${sdk:?Android SDK not installed}"
   image='system-images;android-30;google_apis;x86_64'
   serial=emulator-5560
   if [[ ! -r /dev/kvm || ! -w /dev/kvm ]]; then
     sudo chown "$(id -u):$(id -g)" /dev/kvm
   fi
   timeout 480 "$sdk/cmdline-tools/latest/bin/sdkmanager" 'platform-tools' 'emulator' "$image"
+  test -x "$adb_bin" || { echo 'SDK platform-tools installed without usable adb' >&2; exit 2; }
+  timeout 30 "$adb_bin" start-server
   avd='simpleoffice-provider-acceptance'
   printf 'no\n' | "$sdk/cmdline-tools/latest/bin/avdmanager" create avd -n "$avd" -k "$image"
+  emulator_log="${RUNNER_TEMP:?}/android-provider-emulator.log"
   "$sdk/emulator/emulator" -avd "$avd" -port 5560 -no-window -no-audio -no-boot-anim \
-    -no-snapshot -wipe-data -gpu swiftshader_indirect >"${RUNNER_TEMP:?}/android-provider-emulator.log" 2>&1 &
+    -no-snapshot -wipe-data -gpu swiftshader_indirect >"$emulator_log" 2>&1 &
   emulator_pid=$!
-  trap 'kill "$emulator_pid" 2>/dev/null || true' EXIT
+  trap 'status=$?; kill "$emulator_pid" 2>/dev/null || true; if ((status != 0)); then tail -n 60 "$emulator_log" >&2; fi' EXIT
 fi
 
 [[ "$serial" =~ ^emulator-[0-9]+$ ]] || { echo 'Not an Android emulator serial' >&2; exit 2; }
-adb_for_test() { timeout 120 adb -s "$serial" "$@"; }
+if [[ ! -x "$adb_bin" ]]; then
+  adb_bin="$(command -v adb)" || { echo 'adb is missing from the Android SDK and PATH' >&2; exit 2; }
+fi
+adb_for_test() { timeout 120 "$adb_bin" -s "$serial" "$@"; }
 adb_for_test wait-for-device
 booted=false
 for ((i=0; i<60; i++)); do
-  if [[ "$(timeout 5 adb -s "$serial" shell getprop sys.boot_completed | tr -d '\r')" == 1 ]]; then
+  if [[ "$(timeout 5 "$adb_bin" -s "$serial" shell getprop sys.boot_completed | tr -d '\r')" == 1 ]]; then
     booted=true
     break
   fi
