@@ -7,7 +7,7 @@ import math
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
 
-from flask import Blueprint, Response, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, Response, abort, current_app, flash, g, jsonify, make_response, redirect, render_template, request, url_for
 
 from .access_control import is_admin
 from .auth import login_required
@@ -24,6 +24,7 @@ from .datalogger_collectors import (
 )
 from .datalogger_reporting import EXPORT_ROWS, csv_content, date_window, summarize, summary_pdf
 from .db import get_db
+from .local_device_access import direct_loopback_request
 from .settings_store import SettingsStore
 from .system_management import platform_kind
 
@@ -94,6 +95,29 @@ def index():
         server_presets=SERVER_PRESETS if is_admin() and platform_kind() == 'linux' else {},
         stale_hints=suggest_stale_channels(series),
     )
+
+
+@bp.get("/serial")
+@login_required
+def serial_terminal():
+    local = direct_loopback_request()
+    channels = []
+    if local:
+        store = _store()
+        username = g.user["username"]
+        admin = is_admin()
+        channels = [row for row in store.channels_for(username, admin) if store.can_edit(row, username, admin)]
+    response = make_response(render_template(
+        "datalogger/serial.html", serial_allowed=local, channels=channels, can_manage_settings=is_admin(),
+    ))
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Robots-Tag"] = "noindex, nofollow"
+    serial = "(self)" if local else "()"
+    response.headers["Permissions-Policy"] = (
+        f"camera=(), microphone=(), geolocation=(), display-capture=(), serial={serial}"
+    )
+    return response
 
 
 @bp.post('/server-presets/<metric>')

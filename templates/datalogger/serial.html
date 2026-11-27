@@ -1,0 +1,62 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container py-4" data-serial-terminal data-local="{{ '1' if serial_allowed else '0' }}">
+  <a href="{{ url_for('datalogger.index') }}">Datenlogger</a>
+  <h1>Serielles Terminal</h1>
+  <p>Verbinde einen COM-Port, USB-Seriell-Adapter oder ein Board mit diesem Rechner. Rohdaten bleiben im Browser. Nur ausdrücklich gespeicherte Messwerte gehen an den Datenlogger.</p>
+  <p data-status role="status" aria-live="polite">{{ 'Bereit zur Portauswahl.' if serial_allowed else 'Stecke das Gerät am Rechner an und öffne SimpleOffice dort über localhost. Über eine Netzwerk- oder Proxyverbindung ist der Portzugriff deaktiviert.' }}</p>
+  {% if serial_allowed %}
+  <noscript><p>Das Terminal benötigt JavaScript.</p></noscript>
+  <fieldset class="mb-3" data-settings disabled>
+    <legend class="h5">Port einstellen</legend>
+    <div class="d-flex flex-wrap gap-2 align-items-end">
+      <label>Baudrate <input class="form-control" type="number" data-baud min="50" max="3000000" value="9600" required></label>
+      <label>Datenbits <select class="form-select" data-bits><option selected>8</option><option>7</option></select></label>
+      <label>Parität <select class="form-select" data-parity><option value="none">Keine</option><option value="even">Gerade</option><option value="odd">Ungerade</option></select></label>
+      <label>Stoppbits <select class="form-select" data-stopbits><option selected>1</option><option>2</option></select></label>
+      <label>Flusskontrolle <select class="form-select" data-flow><option value="none">Keine</option><option value="hardware">RTS/CTS</option></select></label>
+      <button class="btn btn-primary" type="button" data-connect>Port auswählen</button>
+    </div>
+  </fieldset>
+  <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+    <button class="btn btn-outline-secondary" type="button" data-disconnect disabled>Port trennen</button>
+    <button class="btn btn-outline-primary" type="button" data-capture disabled>Mitschnitt starten</button>
+    <button class="btn btn-outline-primary" type="button" data-export disabled>Mitschnitt als JSONL speichern</button>
+    <button class="btn btn-outline-secondary" type="button" data-clear disabled>Mitschnitt leeren</button>
+    <span data-capture-status role="status" aria-live="polite">Kein Mitschnitt. Limit: 4 MiB Nutzdaten.</span>
+  </div>
+  <label class="d-block mb-3">Empfangene Daten (letzter Ausschnitt)
+    <textarea class="form-control font-monospace" data-output readonly rows="10" spellcheck="false"></textarea>
+  </label>
+  <form method="get" class="d-flex flex-wrap gap-2 align-items-end mb-4" data-send-form>
+    <label>Nachricht <input class="form-control font-monospace" data-input required maxlength="8192" autocomplete="off" spellcheck="false"></label>
+    <label>Format <select class="form-select" data-format><option value="text">UTF-8-Text</option><option value="hex">Hex-Bytes</option></select></label>
+    <label>Zeilenende <select class="form-select" data-ending><option value="none">Keins</option><option value="lf">LF</option><option value="cr">CR</option><option value="crlf">CRLF</option></select></label>
+    <button class="btn btn-outline-primary" type="submit" disabled data-send>Senden</button>
+  </form>
+  <section class="mb-4" aria-labelledby="serial-measurement">
+    <h2 id="serial-measurement" class="h5">Messwert übernehmen</h2>
+    <p>Das Board sendet pro Zeile <code>SO4M,21.5</code>. Der letzte gültige Wert erscheint hier. Wähle den Zielkanal passend zur Einheit und speichere den Wert bei Bedarf.</p>
+    <p>Letzter Wert: <output data-value>–</output></p>
+    {% if channels %}
+    <form method="post" target="_blank" rel="noopener" action="{{ url_for('datalogger.add_sample', channel_id=channels[0].channel_id) }}" class="d-flex flex-wrap gap-2 align-items-end" data-sample-form>
+      <label>Messkanal <select class="form-select" data-channel>
+        {% for channel in channels %}<option value="{{ url_for('datalogger.add_sample', channel_id=channel.channel_id) }}">{{ channel.name }}{% if channel.unit %} ({{ channel.unit }}){% endif %}</option>{% endfor %}
+      </select></label>
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="value" data-sample>
+      <button class="btn btn-outline-primary" type="submit" disabled data-save>Messwert speichern (neuer Tab)</button>
+    </form>
+    {% else %}<p>Lege zuerst einen eigenen Messkanal an oder lass dir Schreibrechte geben.</p>{% endif %}
+  </section>
+  <script defer src="{{ url_for('static', filename='js/serial-terminal.js') }}"></script>
+  {% endif %}
+  <section aria-labelledby="local-print-scan">
+    <h2 id="local-print-scan" class="h5">Drucker und Dokumentenscanner</h2>
+    <p>Für einen USB- oder Netzwerkdrucker verwende die eingerichtete Druckerwarteschlange. Bei einem älteren Scanner scanne mit dem vorhandenen Treiber in eine PDF- oder Bilddatei und importiere sie anschließend.</p>
+    {% if can_manage_settings %}<a class="btn btn-outline-secondary" href="{{ url_for('admin.printer_settings') }}">Drucker einrichten</a>{% endif %}
+    <a class="btn btn-outline-secondary" href="{{ url_for('documents.index') }}#capture-first">Scandateien übernehmen</a>
+  </section>
+</main>
+{% endblock %}
