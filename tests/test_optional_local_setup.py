@@ -610,11 +610,13 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
         self.assertIsNotNone(page.select_one('form[action="/setup/optional/install-all"] button[type="submit"]'))
         self.assertTrue(page.select_one('a[href="/admin/osm-addresses"]'))
 
-        with patch.object(optional, "queue", return_value="queued") as queue:
+        with patch.object(optional, "resolve_command", side_effect=lambda name, *_args: {
+            "piper": "/usr/bin/piper", "ffmpeg": "/usr/bin/ffmpeg",
+            "ffprobe": None, "ffplay": "/usr/bin/ffplay",
+        }[name]), patch.object(optional, "queue", return_value="queued") as queue:
             reply = self.action(self.client, "/install-all")
         self.assertEqual(303, reply.status_code)
-        expected_basics = (["piper-engine"] if piper_runtime.install_supported() else []) + ["kids-hand"]
-        self.assertEqual(expected_basics,
+        self.assertEqual(["kids-hand"],
                          [call.args[1] for call in queue.call_args_list])
 
     def test_basics_does_not_download_voices_and_explicit_staging_preserves_custom_voice(self):
@@ -624,8 +626,6 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
         model.with_suffix(".onnx.json").write_text("{}", encoding="utf-8")
         settings = SettingsStore(self.root)
         settings.save({"media": {"piper_model_en": str(model)}}, "admin")
-        expected_basics = (["piper-engine"] if piper_runtime.install_supported() else []) + ["kids-hand"]
-
         def submit(form):
             payload = {field["name"]: field["value"] for field in form.select("input[name][value]")}
             trigger = form.select_one('button[type="submit"][name]')
@@ -638,6 +638,9 @@ class OptionalLocalSetupTests(PublicHttpTestCase):
                     patch.object(optional, "queue", return_value="queued") as queue:
                 page = document(self.client.get(SETUP))
                 self.assertEqual("configured", optional.readiness(self.root)["reader_english"])
+                expected_basics = (
+                    ["piper-engine"] if piper_path is None and piper_runtime.install_supported() else []
+                ) + ["kids-hand"]
                 self.assertEqual(303, submit(page.select_one('form[action$="/install-all"]')).status_code)
                 self.assertEqual(expected_basics,
                                  [call.args[1] for call in queue.call_args_list])

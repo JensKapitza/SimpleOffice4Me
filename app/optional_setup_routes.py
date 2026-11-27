@@ -143,7 +143,14 @@ def install_all():
     root = current_app.config["DOCUMENT_ROOT"]
     manual = optional_local_setup.hand_override(current_app.config)
     outcomes = {}
-    features = [optional_local_setup.PIPER_ENGINE, "kids-hand"]
+    inventory = {
+        item["id"]: item
+        for item in optional_local_setup.component_inventory(root, manual_hand_directory=manual)["components"]
+    }
+    features = []
+    if inventory.get(optional_local_setup.PIPER_ENGINE, {}).get("install_feature"):
+        features.append(optional_local_setup.PIPER_ENGINE)
+    features.append("kids-hand")
     for feature in features:
         try:
             outcomes[feature] = optional_local_setup.queue(
