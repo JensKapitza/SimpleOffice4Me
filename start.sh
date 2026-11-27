@@ -526,6 +526,18 @@ venv_uses_system_site_packages() {
   [ -f "$VENV/pyvenv.cfg" ] && grep -Eiq '^include-system-site-packages[[:space:]]*=[[:space:]]*true$' "$VENV/pyvenv.cfg"
 }
 
+optional_engines_ready() {
+  [ "$IS_TERMUX" -eq 1 ] && return 0
+  if [ "${SIMPLEOFFICE_PIPER_INSTALL:-1}" != "0" ] && [ ! -x "$VENV/bin/piper" ]; then
+    return 1
+  fi
+  if [ "${SIMPLEOFFICE_OCR_INSTALL:-1}" != "0" ] &&
+     ! "$VENV/bin/python" -c 'import rapidocr, onnxruntime' >/dev/null 2>&1; then
+    return 1
+  fi
+  return 0
+}
+
 native_dependency_versions_ok() {
   "$VENV/bin/python" - <<'PY'
 from importlib.metadata import PackageNotFoundError, version
@@ -548,18 +560,6 @@ requirements = {
     "cryptography": ">=50.0.2,<51",
     "watchdog": ">=6,<7",
     "tzdata": ">=2024.1",
-}
-
-optional_engines_ready() {
-  [ "$IS_TERMUX" -eq 1 ] && return 0
-  if [ "${SIMPLEOFFICE_PIPER_INSTALL:-1}" != "0" ] && [ ! -x "$VENV/bin/piper" ]; then
-    return 1
-  fi
-  if [ "${SIMPLEOFFICE_OCR_INSTALL:-1}" != "0" ] &&
-     ! "$VENV/bin/python" -c 'import rapidocr, onnxruntime' >/dev/null 2>&1; then
-    return 1
-  fi
-  return 0
 }
 
 problems = []
@@ -689,6 +689,7 @@ if [ "$STANDALONE" -eq 0 ] && [ "$CHECK_SYSTEM" -eq 0 ] && [ "$START_MODE" != se
      "$VENV/bin/python" -c 'from importlib.metadata import version; version("simpleoffice4me")' >/dev/null 2>&1 &&
      "$VENV/bin/python" -m pip check >/dev/null 2>&1 &&
      { [ "$START_MODE" = run ] || optional_engines_ready; }; then
+    export PATH="$VENV/bin:$PATH"
     cd "$ROOT"
     exec "$VENV/bin/python" -m tools.launcher start
   fi

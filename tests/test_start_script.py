@@ -1,9 +1,17 @@
+import re
 import subprocess
 import unittest
 from pathlib import Path
 
 
 class StartScriptTests(unittest.TestCase):
+    def test_python_dependency_checks_compile(self):
+        script = (Path(__file__).resolve().parents[1] / "start.sh").read_text()
+        checks = re.findall(r"<<'PY'\n(.*?)^PY$", script, re.MULTILINE | re.DOTALL)
+        self.assertTrue(checks)
+        for check in checks:
+            compile(check, "start.sh embedded Python", "exec")
+
     def test_help_lists_google_oauth_options_without_starting_the_server(self):
         root = Path(__file__).resolve().parents[1]
         result = subprocess.run(["bash", str(root / "start.sh"), "--help"], cwd=root, text=True, capture_output=True, check=False)
