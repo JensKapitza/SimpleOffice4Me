@@ -107,7 +107,8 @@ jobs:
           tests.test_folder_import_browser
           tests.test_document_media_preview_browser
           tests.test_site_visit_report_browser
-          tests.test_contextflow_angel_browser -v
+          tests.test_contextflow_angel_browser
+          tests.test_v3_copy_notice_browser -v
       - name: Validate rendered folder-picker HTML5
         shell: bash
         run: |

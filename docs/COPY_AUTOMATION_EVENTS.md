@@ -75,8 +75,11 @@ dieses Kontos. Die Liste aktualisiert sich, solange der Tab sichtbar und
 online ist, normalerweise alle fünf Sekunden. Ein Hintergrund-Tab startet
 keine Anfragen. Bei vorübergehenden Fehlern bleibt die letzte sichtbare Liste
 erhalten; nach Ende der Sitzung oder Abschalten der Funktion stoppt der Abruf.
-Das ist eine Aktualisierung dieser Seite, kein Push außerhalb der App, Ton
-oder föderiertes Ziel.
+Das ist eine Aktualisierung dieser Seite, kein Push außerhalb der App.
+Für neue Meldungen gekoppelter Instanzen ist ein kurzer Ton in diesem
+sichtbaren Tab optional. Der Empfänger aktiviert ihn ausdrücklich; beim
+Tabwechsel, Verlassen der Seite, Offlinegehen oder Ende der Sitzung wird
+er abgeschaltet. Alte Meldungen werden nicht nachvertont.
 
 ## Erste Zustellung zwischen zwei verifizierten Instanzen
 
@@ -139,8 +142,8 @@ als „Kein weiterer Versuch vor Fristablauf“ ausgewiesen. Nach Ablauf erschei
 „Zeitfenster verpasst“ auch, wenn der Hintergrunddienst noch nicht wieder
 läuft. „Bereitgestellt“ bestätigt einen Eintrag im Zielkonto, nicht das
 Öffnen am Gerät. Unter „Ausführungsverlauf“ bleiben die einzelnen technischen
-Zwischenstände verfügbar. Kein
-Hintergrund-Push, Ton, harte Echtzeit oder Fernsteuerung.
+Zwischenstände verfügbar. Kein Hintergrund-Push, keine Systemtöne,
+keine harte Echtzeit und keine Fernsteuerung.
 
 Der reproduzierbare Test mit zwei gewöhnlichen, isolierten HTTPS-Instanzen
 nutzt echtes Pairing, Webformular, Kopierjob, mehrfach neu gestarteten

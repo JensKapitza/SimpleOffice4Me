@@ -15,7 +15,10 @@
            data-job-label="{{ 'Copy job completed' if g.language == 'en' else 'Kopierjob abgeschlossen' }}"
            data-peer-label="{{ 'Copy notice from a paired instance' if g.language == 'en' else 'Kopiermeldung einer gekoppelten Instanz' }}"
            data-empty-label="{{ 'No notifications yet.' if g.language == 'en' else 'Noch keine Meldungen.' }}"
-           data-new-label="{{ 'New copy notification.' if g.language == 'en' else 'Neue Kopiermeldung.' }}">
+           data-new-label="{{ 'New copy notification.' if g.language == 'en' else 'Neue Kopiermeldung.' }}"
+           data-sound-on-label="{{ 'Sound on for new paired notices in this tab.' if g.language == 'en' else 'Ton für neue gekoppelte Meldungen in diesem Tab an.' }}"
+           data-sound-off-label="{{ 'Sound off.' if g.language == 'en' else 'Ton aus.' }}"
+           data-sound-unavailable-label="{{ 'Sound unavailable here; visual notices still work.' if g.language == 'en' else 'Hier ist kein Ton verfügbar. Die Meldungen bleiben sichtbar.' }}">
     <div class="card-body">
       <h2 class="h5" id="copy-notices-heading">{{ 'Local copy notifications' if g.language == 'en' else 'Lokale Kopiermeldungen' }}</h2>
       <p>{{ 'Select which completed copies to show in this account.' if g.language == 'en' else 'Wähle aus, welche abgeschlossenen Kopien in diesem Konto angezeigt werden sollen.' }}</p>
@@ -50,6 +53,9 @@
       </div>
       {% endfor %}
       <p class="small text-secondary">{{ 'Updates while this page is open.' if g.language == 'en' else 'Die Meldungen aktualisieren sich, solange diese Seite geöffnet ist.' }}</p>
+      <button type="button" class="btn btn-sm btn-outline-secondary mb-2" data-copy-notice-sound aria-pressed="false" aria-describedby="copy-sound-help" hidden>{{ 'Sound for new paired notices' if g.language == 'en' else 'Ton für neue gekoppelte Meldungen' }}</button>
+      <p id="copy-sound-help" class="small text-secondary mb-1">{{ 'Only in this visible tab; no background notifications. Before leaving or going offline, sound turns off.' if g.language == 'en' else 'Nur in diesem sichtbaren Tab, nicht im Hintergrund. Beim Verlassen oder Offlinegehen schaltet sich der Ton aus.' }}</p>
+      <p class="small" role="status" aria-live="polite" data-copy-notice-sound-status></p>
       <p class="visually-hidden" role="status" aria-live="polite" data-copy-notice-announcement></p>
       <ul class="mb-0" data-copy-notice-list>
         {% for notice in copy_notices %}
