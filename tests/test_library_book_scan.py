@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 import unittest
@@ -106,6 +107,24 @@ class BookScanRouteTests(unittest.TestCase):
         self.assertEqual(403, other.get(SCAN).status_code)
         result = other.post(SCAN, data={"_csrf_token": self.token(other, "/library")})
         self.assertEqual(403, result.status_code)
+
+    def test_peer_store_unavailable_keeps_private_scanner_available(self):
+        with patch("app.library.book_scan_routes.peers_for",
+                   side_effect=sqlite3.OperationalError("synthetic store unavailable")) as peers:
+            with self.assertLogs(app.logger, level="WARNING") as logged:
+                response = self.client.get(SCAN)
+            peers.assert_called_once()
+            self.assertEqual(200, response.status_code)
+            self.assertEqual("private, no-store", response.headers["Cache-Control"])
+            page = BeautifulSoup(response.data, "html.parser")
+            self.assertIsNotNone(page.select_one("[data-scan-export]"))
+            self.assertIsNotNone(page.select_one("[data-scan-sharing-unavailable]"))
+            self.assertIsNone(page.select_one("[data-scan-share]"))
+            self.assertIn("OperationalError", " ".join(logged.output))
+            self.assertNotIn("synthetic store unavailable", " ".join(logged.output))
+            token = page.select_one('meta[name="csrf-token"]')["content"]
+            self.assertEqual(200, self.export([image_file("CAPITEL ALPHA")], "[[0,0]]", token=token).status_code)
+            peers.assert_called_once()
 
     def test_export_is_csrf_protected_private_and_is_not_imported(self):
         page = image_file("CAPITEL ALPHA")

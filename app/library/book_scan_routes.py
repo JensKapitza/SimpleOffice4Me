@@ -1,6 +1,7 @@
 """Private, explicit export of a browser-held book-page scan session."""
 
 from hashlib import sha256
+import sqlite3
 import time
 
 from flask import abort, current_app, g, jsonify, make_response, render_template, request, send_file, session
@@ -49,10 +50,17 @@ def book_scan():
         abort(403)
     if request.method == "GET":
         root = current_app.config["DOCUMENT_ROOT"]
-        share_peers = peers_for(root, "send") if is_admin(g.user) and supported_storage(root) else []
+        share_peers = []
+        sharing_unavailable = False
+        if is_admin(g.user) and supported_storage(root):
+            try:
+                share_peers = peers_for(root, "send")
+            except (OSError, sqlite3.Error) as exc:
+                sharing_unavailable = True
+                current_app.logger.warning("Book scan peer selection unavailable (%s)", type(exc).__name__)
         return _private(make_response(render_template(
             "library/book_scan.html", page_limit=MAX_PAGES, byte_limit=MAX_PAGE, total_limit=MAX_REQUEST,
-            share_peers=share_peers,
+            share_peers=share_peers, sharing_unavailable=sharing_unavailable,
         )))
     files = request.files.getlist("pages")
     try:

@@ -29,6 +29,9 @@
       <button type="submit" class="btn btn-primary" data-scan-download disabled>{{ 'Create private PDF' if en else 'Privates PDF erstellen' }}</button>
     </fieldset>
   </form>
+  {% if sharing_unavailable %}
+  <p class="text-body-secondary mt-3" data-scan-sharing-unavailable role="status">{{ 'Peer sharing is temporarily unavailable. You can still download a private PDF.' if en else 'Teilen mit Gegenstellen ist vorübergehend nicht verfügbar. Du kannst das PDF weiterhin privat herunterladen.' }}</p>
+  {% endif %}
   {% if share_peers %}
   <form action="{{ url_for('library.book_scan_publications') }}" method="post" enctype="multipart/form-data" class="mt-3" data-scan-share hidden>
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
