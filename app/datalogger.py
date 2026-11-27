@@ -6,6 +6,7 @@ import json
 import math
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
+from uuid import UUID
 
 from flask import Blueprint, Response, abort, current_app, flash, g, jsonify, make_response, redirect, render_template, request, url_for
 
@@ -328,9 +329,35 @@ def update_channel(channel_id):
 @bp.post("/channels/<channel_id>/samples")
 @login_required
 def add_sample(channel_id):
-    try: _store().add_sample(channel_id, request.form.get("value", ""), g.user["username"], measured_at=request.form.get("measured_at") or None, admin=is_admin())
-    except PermissionError: abort(403)
-    except (ValueError, TypeError): flash("Ungültiger Messwert oder Zeitstempel.")
+    return _record_sample(channel_id, measured_at=request.form.get("measured_at") or None)
+
+
+@bp.post("/serial/samples")
+@login_required
+def add_serial_sample():
+    if not direct_loopback_request():
+        abort(403)
+    selected = request.form.getlist("channel_id")
+    if len(selected) != 1 or len(selected[0]) != 36:
+        abort(400)
+    channel_id = selected[0]
+    try:
+        canonical_id = str(UUID(channel_id))
+    except ValueError:
+        abort(400)
+    if channel_id != canonical_id:
+        abort(400)
+    return _record_sample(channel_id)
+
+
+def _record_sample(channel_id, *, measured_at=None):
+    try:
+        _store().add_sample(channel_id, request.form.get("value", ""), g.user["username"],
+                            measured_at=measured_at, admin=is_admin())
+    except PermissionError:
+        abort(403)
+    except (ValueError, TypeError):
+        flash("Ungültiger Messwert oder Zeitstempel.")
     return redirect(url_for("datalogger.channel", channel_id=channel_id))
 
 

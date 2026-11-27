@@ -248,7 +248,6 @@
   if (channels) {
     channels.addEventListener("submit", (event) => {
       if (sample === null) { event.preventDefault(); return; }
-      channels.action = by("channel").value;
       by("sample").value = String(sample);
     });
   }

@@ -40,9 +40,9 @@
     <p>Das Board sendet pro Zeile <code>SO4M,21.5</code>. Der letzte gültige Wert erscheint hier. Wähle den Zielkanal passend zur Einheit und speichere den Wert bei Bedarf.</p>
     <p>Letzter Wert: <output data-value>–</output></p>
     {% if channels %}
-    <form method="post" target="_blank" rel="noopener" action="{{ url_for('datalogger.add_sample', channel_id=channels[0].channel_id) }}" class="d-flex flex-wrap gap-2 align-items-end" data-sample-form>
-      <label>Messkanal <select class="form-select" data-channel>
-        {% for channel in channels %}<option value="{{ url_for('datalogger.add_sample', channel_id=channel.channel_id) }}">{{ channel.name }}{% if channel.unit %} ({{ channel.unit }}){% endif %}</option>{% endfor %}
+    <form method="post" target="_blank" rel="noopener" action="{{ url_for('datalogger.add_serial_sample') }}" class="d-flex flex-wrap gap-2 align-items-end" data-sample-form>
+      <label>Messkanal <select class="form-select" name="channel_id">
+        {% for channel in channels %}<option value="{{ channel.channel_id }}">{{ channel.name }}{% if channel.unit %} ({{ channel.unit }}){% endif %}</option>{% endfor %}
       </select></label>
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="value" data-sample>

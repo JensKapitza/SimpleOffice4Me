@@ -15,7 +15,11 @@ function fixture({local = "1", secure = true, host = "localhost", framed = false
     return nodes.get(name);
   }
   for (const [name,value] of Object.entries({baud:"9600",bits:"8",stopbits:"1",parity:"none",
-    flow:"none",format:"text",ending:"crlf",channel:"/datalogger/channels/demo/samples"})) node(name).value = value;
+    flow:"none",format:"text",ending:"crlf"})) node(name).value = value;
+  Object.defineProperty(node("sample-form"), "action", {
+    get: () => "/datalogger/serial/samples",
+    set: () => assert.fail("the serial script must never change the form action"),
+  });
   let reader, asks = 0, closed = 0, options, confirm = false;
   const port = {
     readable: new ReadableStream({start: (controller) => { reader = controller; }}),
@@ -36,7 +40,7 @@ function fixture({local = "1", secure = true, host = "localhost", framed = false
     confirmClear:() => { confirm = true; }, port};
 }
 
-test("explicit serial chooser, UTF-8 and hex TX, streaming RX, selected channel, exact capture bytes", async () => {
+test("explicit serial chooser, UTF-8 and hex TX, streaming RX, fixed sample endpoint, exact capture bytes", async () => {
   const f = fixture();
   assert.equal(f.asks(), 0);
   await f.node("connect").events.click();
@@ -52,7 +56,7 @@ test("explicit serial chooser, UTF-8 and hex TX, streaming RX, selected channel,
   assert.match(f.node("output").value, /<img src=x>/);
   f.node("sample-form").events.submit({preventDefault(){assert.fail("valid sample");}});
   assert.equal(f.node("sample").value, "21.5");
-  assert.equal(f.node("sample-form").action, "/datalogger/channels/demo/samples");
+  assert.equal(f.node("sample-form").action, "/datalogger/serial/samples");
   f.node("input").value = "Test";
   f.node("send-form").events.submit({preventDefault(){}});
   await tick();
