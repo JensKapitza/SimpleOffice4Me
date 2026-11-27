@@ -106,3 +106,22 @@ python -m pip install -e '.[test,web-export]'
 python -m playwright install --with-deps --no-shell chromium
 SIMPLEOFFICE_INTAKE_BROWSER_REQUIRED=1 python -m unittest -v tests.test_inventory_intake_browser
 ```
+
+## NFC-Kennung im Inventar erfassen
+
+- In **Inventar** bei **NFC lesen** einen einzelnen Tag ans Android-Gerät halten.
+  Die APK liest nur die Tag-Kennung, kein NDEF, keine Karteninhalte und keine Links.
+  Bei deaktiviertem NFC erscheint ein Hinweis. Erneutes Antippen bricht den Scan
+  ab; ohne Ergebnis endet er nach 15 Sekunden. Im Browser braucht dieser Weg
+  Web-NFC-Unterstützung und kann je nach Gerät nur NDEF-Tags mit UID erkennen.
+- Am Laptop einen USB-NFC-Leser im **Tastaturmodus / USB-HID** verwenden und seine
+  Ausgabe auf die **hexadezimale UID** stellen. Im Formular auf **USB-NFC-Leser**
+  klicken, dann den Tag auf den Leser legen. Eine abschließende Eingabetaste
+  übernimmt die UID, speichert aber nicht. Ohne Sondergerät ist das NFC-Feld
+  weiter manuell nutzbar. Ein reiner PC/SC-Leser oder eine automatische
+  Weiterleitung vom Handy zum Laptop ist nicht Bestandteil dieses Wegs.
+- Vor dem Speichern den Treffer prüfen. Der Scan füllt nur das Feld; er legt
+  kein Objekt an. Vorhandene NFC-Datensätze mit der früheren Form
+  `UID | Inhalt` bleiben über ihre UID auffindbar. UIDs sind keine
+  Authentifizierung; Tags mit wechselnder oder nicht lesbarer UID sind keine
+  verlässlichen Inventaretiketten.

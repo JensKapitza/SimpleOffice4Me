@@ -166,6 +166,27 @@ class InventoryBookTests(unittest.TestCase):
             self.assertIsNotNone(found)
             self.assertEqual(created["object_id"], found["object_id"])
 
+    def test_nfc_uid_finds_old_payload_suffix_and_hex_variants_without_rewriting(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = ObjectStore(Path(temp))
+            legacy = "04:66:a2:ff | https://example.invalid/metadata"
+            created = store.create(
+                {"name": "Legacy NFC tag", "type": "object", "fields": "nfc_id=" + legacy}, "tester",
+            )
+            with patch("app.inventory._objects", return_value=store):
+                found = _find_exact("", "0466A2FF")
+                self.assertEqual(created["object_id"], found["object_id"])
+                self.assertEqual(legacy, found["fields"]["nfc_id"])
+                self.assertEqual(created["object_id"], _find_exact("", "04-66-a2-ff")["object_id"])
+                self.assertIsNone(_find_exact("", "0466A200"))
+                self.assertIsNone(_find_exact("", "https://example.invalid/metadata"))
+
+    def test_nfc_uid_normalizes_hex_without_overwriting_manual_values(self):
+        from app.inventory import _object_fields
+
+        self.assertEqual("0044AABB", _object_fields({"nfc_id": "00-44-aa-bb"}, "")["nfc_id"])
+        self.assertEqual("TAG-123", _object_fields({"nfc_id": "TAG-123"}, "")["nfc_id"])
+
     def test_metadata_http_client_rejects_unknown_host_before_network_access(self):
         with self.assertRaisesRegex(ValueError, "Metadatenquelle"):
             _http_json("https://example.com/books")

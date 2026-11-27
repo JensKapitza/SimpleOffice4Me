@@ -59,9 +59,18 @@
     holdBarcode: EN ? 'Hold the barcode in front of the camera …' : 'Barcode vor die Kamera halten …', holdQr: EN ? 'Hold the QR code in front of the camera; enter EAN/barcodes manually.' : 'QR-Code vor die Kamera halten; EAN/Barcodes bitte manuell eingeben.',
     isbnFound: (code) => EN ? `ISBN recognized: ${code}. Loading book data …` : `ISBN erkannt: ${code}. Lade Buchdaten …`, barcodeFoundPhoto: (value) => EN ? `Barcode recognized: ${value}. No ISBN – please take a photo, analysis starts automatically.` : `Barcode erkannt: ${value}. Kein ISBN – bitte ein Foto aufnehmen, die Analyse startet automatisch.`,
     barcodeFound: (value) => EN ? `Barcode recognized: ${value}` : `Barcode erkannt: ${value}`, camDenied: EN ? 'Camera access denied. Please check the browser permission.' : 'Kamerazugriff verweigert. Bitte Berechtigung im Browser prüfen.',
-    camFailed: EN ? 'Could not open the camera. Please check permissions or camera.' : 'Kamera konnte nicht geöffnet werden. Bitte Berechtigungen oder Kamera prüfen.', nfcUnsupported: EN ? 'Web NFC is not supported. The NFC value can be entered manually.' : 'Web NFC wird nicht unterstützt. NFC-Wert kann manuell eingetragen werden.',
-    nfcHold: EN ? 'Hold the NFC tag to the phone …' : 'NFC-Tag an das Handy halten …', nfcRead: EN ? 'NFC read.' : 'NFC wurde gelesen.',
-    nfcFailed: EN ? 'Could not read NFC.' : 'NFC konnte nicht gelesen werden.',
+    camFailed: EN ? 'Could not open the camera. Please check permissions or camera.' : 'Kamera konnte nicht geöffnet werden. Bitte Berechtigungen oder Kamera prüfen.',
+    nfcUnsupported: EN ? 'No NFC scan available here. Use the Android app, a USB NFC reader in keyboard mode, or enter the ID.' : 'Hier ist kein NFC-Direktscan verfügbar. Android-App, USB-NFC-Leser im Tastaturmodus oder manuelle Eingabe verwenden.',
+    nfcHold: EN ? 'Hold the NFC tag to the phone. Select NFC again to cancel.' : 'NFC-Tag ans Handy halten. Zum Abbrechen erneut auf NFC klicken.',
+    nfcRead: EN ? 'NFC ID entered. Review and save the form.' : 'NFC-ID übernommen. Formular prüfen und speichern.',
+    nfcFailed: EN ? 'Could not read the NFC ID.' : 'NFC-ID konnte nicht gelesen werden.',
+    nfcDisabled: EN ? 'Enable NFC in Android settings and try again.' : 'NFC in den Android-Einstellungen einschalten und erneut versuchen.',
+    nfcDenied: EN ? 'NFC permission was denied in the browser.' : 'NFC-Freigabe im Browser wurde verweigert.',
+    nfcNoId: EN ? 'This tag did not provide an NFC ID.' : 'Dieser Tag hat keine NFC-ID geliefert.',
+    nfcTimeout: EN ? 'No tag read. Select NFC to try again.' : 'Kein Tag gelesen. Zum Wiederholen erneut auf NFC klicken.',
+    nfcCancelled: EN ? 'NFC scan cancelled.' : 'NFC-Scan abgebrochen.',
+    nfcKeyboard: EN ? 'Hold the tag to the USB reader. Its ID appears in this field.' : 'Tag an den USB-Leser halten. Seine UID erscheint in diesem Feld.',
+    nfcKeyboardInvalid: EN ? 'No valid ID. Set the USB reader to send the tag ID in hexadecimal.' : 'Ungültige ID. USB-Leser so einstellen, dass er die Tag-UID als Hexadezimalwert ausgibt.',
   };
 
   const root = document.getElementById('inventory-app');
@@ -406,10 +415,11 @@
     if (!findInput) return;
     const raw = cleanText(findInput.value); if (!raw) { findInput.focus(); return; }
     const localMatches = localFinderMatches(raw); renderFinderMatches(localMatches, raw);
-    const canonicalIsbn = normalizeIsbn(raw); const query = canonicalIsbn || raw.replace(/^#\s*/, '').trim();
+    const nfcQuery = raw.replace(/^#\s*/, '').trim();
+    const query = normalizeIsbn(raw) || nfcQuery;
     if (finderAbort) finderAbort.abort(); finderAbort = new AbortController(); findInput.setAttribute('aria-busy', 'true'); setStatus(STR.searchingInventory(raw), 'primary');
     try {
-      const response = await fetch(`${urls.find}?identifier=${encodeURIComponent(query)}&nfc=${encodeURIComponent(query)}`, { headers: { Accept: 'application/json' }, cache: 'no-store', signal: finderAbort.signal });
+      const response = await fetch(`${urls.find}?identifier=${encodeURIComponent(query)}&nfc=${encodeURIComponent(nfcQuery)}`, { headers: { Accept: 'application/json' }, cache: 'no-store', signal: finderAbort.signal });
       const data = await safeJson(response);
       if (response.ok && data.found && data.url && navigateLocal(data.url)) return;
       const numeric = raw.replace(/^#\s*/, '').trim();
@@ -430,10 +440,10 @@
   };
 
   const duplicateProbe = async (value, source) => {
-    const raw = cleanText(value); if (!raw || !urls.find) return; const query = normalizeIsbn(raw) || raw;
+    const raw = cleanText(value); if (!raw || !urls.find) return; const query = source === 'nfc' ? raw : normalizeIsbn(raw) || raw;
     try {
       const response = await fetch(`${urls.find}?identifier=${encodeURIComponent(source === 'nfc' ? '' : query)}&nfc=${encodeURIComponent(source === 'nfc' ? query : '')}`, { headers: { Accept: 'application/json' }, cache: 'no-store' });
-      const data = await safeJson(response); if (response.ok && data.found) setStatus(STR.duplicateFound(data.display_id || '', data.name || ''), 'warning');
+      const data = await safeJson(response); if (response.ok && data.found && (source !== 'nfc' || (nfc?.value === raw && !activeNfcScan))) setStatus(STR.duplicateFound(data.display_id || '', data.name || ''), 'warning');
     } catch (_error) {}
   };
 
@@ -510,7 +520,7 @@
   isbn?.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); lookup(); } });
   isbn?.addEventListener('blur', () => duplicateProbe(isbn.value, 'identifier'));
   barcode?.addEventListener('blur', () => duplicateProbe(barcode.value, 'identifier'));
-  nfc?.addEventListener('blur', () => duplicateProbe(nfc.value, 'nfc'));
+
   lookupButton?.addEventListener('click', lookup); $('clear-book-data')?.addEventListener('click', clearBookMetadata);
   $('book-mode')?.addEventListener('click', () => { type.value = 'book'; objectTypeWasAutoBook = false; updateMode(); isbn.focus(); });
   $('object-mode')?.addEventListener('click', () => { type.value = 'object'; objectTypeWasAutoBook = false; updateMode(); title.focus(); });
@@ -950,21 +960,88 @@
     } catch (error) { if (generation !== cameraGeneration) return; stopCamera(); setStatus(error?.name === 'NotAllowedError' ? STR.camDenied : STR.camFailed, 'danger'); }
   });
 
-  $('scan-nfc')?.addEventListener('click', async () => {
-    if (!('NDEFReader' in window)) { setStatus(STR.nfcUnsupported, 'warning'); nfc?.focus(); return; }
-    try {
-      const reader = new NDEFReader(); await reader.scan(); setStatus(STR.nfcHold, 'primary');
-      reader.addEventListener('reading', (event) => {
-        const parts = []; if (event.serialNumber) parts.push(event.serialNumber);
-        for (const record of event.message.records) { try { if (record.data) parts.push(new TextDecoder(record.encoding || 'utf-8').decode(record.data)); } catch (_error) {} }
-        nfc.value = parts.filter(Boolean).join(' | ').slice(0, 240); setStatus(STR.nfcRead, 'success'); duplicateProbe(nfc.value, 'nfc');
-      }, { once: true });
-    } catch (_error) { setStatus(STR.nfcFailed, 'danger'); }
+  const nfcButton = $('scan-nfc');
+  const nfcHelper = window.SimpleOfficeInventoryNfc;
+  let activeNfcScan = null;
+  let keyboardBackup = null;
+  const cancelNfc = (quiet = false) => {
+    if (!activeNfcScan) return;
+    activeNfcScan.quiet = quiet;
+    activeNfcScan.controller.abort();
+  };
+  const applyNfc = (uid) => {
+    nfc.value = uid;
+    nfc.dispatchEvent(new Event('input', {bubbles: true}));
+    setStatus(STR.nfcRead, 'success');
+    duplicateProbe(uid, 'nfc');
+  };
+  const finishKeyboard = () => {
+    const original = keyboardBackup;
+    keyboardBackup = null;
+    if (nfc.value === original) return;
+    const uid = nfcHelper?.normalizeUid(nfc.value);
+    if (uid) applyNfc(uid);
+    else {
+      nfc.value = original;
+      setStatus(STR.nfcKeyboardInvalid, 'warning');
+    }
+  };
+  $('nfc-keyboard')?.addEventListener('click', () => {
+    if (!nfc || !nfcHelper) return;
+    cancelNfc(true);
+    if (keyboardBackup === null) keyboardBackup = nfc.value;
+    nfc.focus();
+    nfc.select();
+    setStatus(STR.nfcKeyboard, 'primary');
   });
+  nfc?.addEventListener('blur', () => {
+    if (keyboardBackup !== null) finishKeyboard();
+    else duplicateProbe(nfc.value, 'nfc');
+  });
+  nfc?.addEventListener('keydown', (event) => {
+    // USB keyboard readers often append Enter. Never submit the object from this field.
+    if (event.key !== 'Enter' || event.isComposing) return;
+    event.preventDefault();
+    if (keyboardBackup !== null) finishKeyboard();
+    else duplicateProbe(nfc.value, 'nfc');
+  });
+  nfcButton?.addEventListener('click', async () => {
+    if (!nfc || !nfcHelper) return;
+    if (activeNfcScan) { cancelNfc(); return; }
+    const controller = new AbortController();
+    const session = {controller, quiet: false};
+    activeNfcScan = session;
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 15000);
+    nfcButton.setAttribute('aria-busy', 'true');
+    setStatus(STR.nfcHold, 'primary');
+    try {
+      applyNfc(await nfcHelper.scan({signal: controller.signal}));
+    } catch (error) {
+      const messages = {
+        unavailable: STR.nfcUnsupported, disabled: STR.nfcDisabled, denied: STR.nfcDenied,
+        'no-id': STR.nfcNoId, timeout: STR.nfcTimeout, abort: timedOut ? STR.nfcTimeout : STR.nfcCancelled,
+      };
+      if (!session.quiet) {
+        const message = Object.hasOwn(messages, error?.code) ? messages[error.code] : STR.nfcFailed;
+        setStatus(message, 'warning');
+        if (error?.code === 'unavailable') nfc.focus();
+      }
+    } finally {
+      clearTimeout(timer);
+      activeNfcScan = null;
+      nfcButton.removeAttribute('aria-busy');
+    }
+  });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) cancelNfc(); });
 
+  form?.addEventListener('submit', () => {
+    if (keyboardBackup !== null) finishKeyboard();
+    cancelNfc(true);
+  }, {capture: true});
   form?.addEventListener('submit', () => { rememberLocation(); if (saveButton) { saveButton.disabled = true; saveButton.setAttribute('aria-busy', 'true'); saveButton.textContent = STR.saving; } });
   window.addEventListener('online', updateConnectivity); window.addEventListener('offline', updateConnectivity);
   window.addEventListener('resize', syncActionBarInset); window.visualViewport?.addEventListener('resize', syncActionBarInset); window.visualViewport?.addEventListener('scroll', syncActionBarInset);
-  window.addEventListener('pagehide', () => { stopCamera(); const old = photoPreview?.dataset.objectUrl; if (old) URL.revokeObjectURL(old); });
+  window.addEventListener('pagehide', () => { cancelNfc(); stopCamera(); const old = photoPreview?.dataset.objectUrl; if (old) URL.revokeObjectURL(old); });
   prepareMarketplaceUi(); syncActionBarInset(); updateConnectivity(); updateMode(); if (isbn && cleanText(isbn.value)) updateBookLinks(normalizeIsbn(isbn.value));
 })();

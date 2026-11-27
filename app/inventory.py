@@ -205,11 +205,21 @@ def _warranty_months(value: Any) -> str:
     return str(months)
 
 
+_NFC_UID = re.compile(r"[0-9A-Fa-f]{2}(?:[ :\-]?[0-9A-Fa-f]{2}){0,31}")
+
+
+def _canonical_nfc_uid(value: str) -> str:
+    if not _NFC_UID.fullmatch(value):
+        return ""
+    return re.sub(r"[ :\-]", "", value).upper()
+
+
 def _object_fields(form: Any, isbn: str) -> dict[str, str]:
+    nfc_id = _single_line(form.get("nfc_id"), 240)
     values = {
         "isbn": isbn,
         "barcode": _single_line(form.get("barcode"), 120),
-        "nfc_id": _single_line(form.get("nfc_id"), 240),
+        "nfc_id": _canonical_nfc_uid(nfc_id) or nfc_id,
         "manufacturer": _single_line(form.get("manufacturer"), 240),
         "model": _single_line(form.get("model"), 240),
         "serial_number": _single_line(form.get("serial_number"), 240),
@@ -237,14 +247,24 @@ def _find_exact(identifier: str = "", nfc_id: str = "") -> dict[str, Any] | None
     if not queries:
         return None
     store = _objects()
-    candidates: dict[str, dict[str, Any]] = {}
-    for query in queries:
-        for item in store.objects(query):
-            candidates[str(item.get("object_id", ""))] = item
-    for item in candidates.values():
+    canonical_uid = _canonical_nfc_uid(nfc_id)
+    if canonical_uid:
+        # The old browser reader stored mixed case, optional separators, and possibly
+        # a suffix containing the tag's payload. Compare the UID without rewriting data.
+        candidates = store.objects()
+    else:
+        matches: dict[str, dict[str, Any]] = {}
+        for query in queries:
+            for item in store.objects(query):
+                matches[str(item.get("object_id", ""))] = item
+        candidates = matches.values()
+    for item in candidates:
         if identifier and str(item.get("identifier", "")).strip() == identifier:
             return item
-        if nfc_id and str(item.get("fields", {}).get("nfc_id", "")).strip() == nfc_id:
+        stored_nfc = str(item.get("fields", {}).get("nfc_id", "")).strip()
+        if nfc_id and stored_nfc == nfc_id:
+            return item
+        if canonical_uid and _canonical_nfc_uid(stored_nfc.split(" | ", 1)[0]) == canonical_uid:
             return item
     return None
 
