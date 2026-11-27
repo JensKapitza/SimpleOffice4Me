@@ -6,9 +6,10 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from flask import Blueprint, Response, abort, current_app, flash, g, redirect, render_template, request, url_for
+from flask import Blueprint, Response, abort, current_app, flash, g, redirect, render_template, request, session, url_for
 
 from .auth import login_required
+from .security_controls import csrf_token
 from .sms_archive_store import (
     ArchiveConflict, ArchiveIntegrityError, MANUAL_SOURCE, MAX_BACKUP_BYTES, MAX_RECORDS, SmsArchive, manual_message,
 )
@@ -163,9 +164,25 @@ def export():
     if not selected:
         return _empty_selection()
     try:
-        backup = _archive().export(selected)
+        ticket = _archive().prepare_export(selected, csrf_token())
     except (ArchiveIntegrityError, OSError, sqlite3.Error) as exc:
-        current_app.logger.warning("SMS archive export unavailable: %s", type(exc).__name__)
+        current_app.logger.warning("SMS archive export could not be prepared: %s", type(exc).__name__)
+        abort(503)
+    except ValueError:
+        abort(404)
+    return redirect(url_for("sms_archive.download_export", ticket=ticket), code=303)
+
+
+@bp.get("/export/<ticket>")
+@login_required
+def download_export(ticket):
+    session_key = session.get("_csrf_token")
+    if not isinstance(session_key, str):
+        abort(404)
+    try:
+        backup = _archive().download_export(ticket, session_key)
+    except (ArchiveIntegrityError, OSError, sqlite3.Error) as exc:
+        current_app.logger.warning("SMS archive download unavailable: %s", type(exc).__name__)
         abort(503)
     except ValueError:
         abort(404)

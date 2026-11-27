@@ -47,6 +47,12 @@ Ablage bleibt lokal; sie ist weder ein DMS-Dokument noch ein Objekt für die
 allgemeine S3-Schnittstelle. Der bewusste Download aus dem eigenen Konto ist
 der vorgesehene Exportweg. Lege diese Datei nicht in einem freigegebenen Ordner ab.
 
+Auf Android öffnet **Auswahl sichern** die Android-Dateiverwaltung. Wähle dort
+ein unabhängiges Speicherziel. Falls die Auswahl des Speicherorts länger als
+fünf Minuten dauert oder du dich abmeldest, beginne den Export erneut. Der
+Downloadlink enthält nur eine Zufallskennung und funktioniert nur in der
+aktuellen angemeldeten Sitzung. Er enthält weder SMS-Text noch Eintragsnummern.
+
 - Der Kern speichert im konfigurierten Dokumentstamm unter
   `.simpleoffice-meta/sms-archive.sqlite3`. Für ein von der APK-Deinstallation
   unabhängiges Archiv muss dieser Stamm auf einem Server oder sonst außerhalb

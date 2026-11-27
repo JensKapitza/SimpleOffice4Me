@@ -47,8 +47,7 @@ final class AndroidDownloadHandler {
         }
         String mime = safeMimeType(mimeType);
         String filename = URLUtil.guessFileName(url, contentDisposition, mime);
-        String cookie = CookieManager.getInstance().getCookie(url);
-        pending = new PendingDownload(url, userAgent, mime, cookie == null ? "" : cookie);
+        pending = new PendingDownload(url, userAgent, mime);
         Intent save = new Intent(Intent.ACTION_CREATE_DOCUMENT);
         save.addCategory(Intent.CATEGORY_OPENABLE);
         save.setType(mime);
@@ -74,7 +73,9 @@ final class AndroidDownloadHandler {
             Toast.makeText(activity, "Unsicheres Speicherziel wurde abgelehnt.", Toast.LENGTH_LONG).show();
             return true;
         }
-        executor.execute(() -> downloadTo(download, destination));
+        // Use the current session, not a cookie captured before the document picker.
+        String cookie = CookieManager.getInstance().getCookie(download.url);
+        executor.execute(() -> downloadTo(download, destination, cookie));
         return true;
     }
 
@@ -83,7 +84,7 @@ final class AndroidDownloadHandler {
         executor.shutdownNow();
     }
 
-    private void downloadTo(PendingDownload download, Uri destination) {
+    private void downloadTo(PendingDownload download, Uri destination, String cookie) {
         HttpURLConnection connection = null;
         try {
             URL parsed = new URL(download.url);
@@ -96,7 +97,7 @@ final class AndroidDownloadHandler {
             connection.setRequestProperty("Accept", "*/*");
             connection.setRequestProperty("Connection", "close");
             if (!download.userAgent.isEmpty()) connection.setRequestProperty("User-Agent", download.userAgent);
-            if (!download.cookie.isEmpty()) connection.setRequestProperty("Cookie", download.cookie);
+            if (cookie != null && !cookie.isEmpty()) connection.setRequestProperty("Cookie", cookie);
             int status = connection.getResponseCode();
             if (status < 200 || status >= 300) throw new IOException("unexpected download status");
             ContentResolver resolver = activity.getContentResolver();
@@ -178,13 +179,11 @@ final class AndroidDownloadHandler {
         final String url;
         final String userAgent;
         final String mimeType;
-        final String cookie;
 
-        PendingDownload(String url, String userAgent, String mimeType, String cookie) {
+        PendingDownload(String url, String userAgent, String mimeType) {
             this.url = url;
             this.userAgent = userAgent == null ? "" : userAgent;
             this.mimeType = mimeType;
-            this.cookie = cookie;
         }
     }
 }

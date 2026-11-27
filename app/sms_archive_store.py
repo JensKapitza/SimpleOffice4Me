@@ -6,14 +6,19 @@ import hmac
 import json
 import os
 import re
+import secrets
 import sqlite3
 import stat
+from time import time as _clock
 from pathlib import Path
 
 from .sqlite_utils import connect
 
 MAX_RECORDS = 50
 MAX_BACKUP_BYTES = 6 * 1024 * 1024
+EXPORT_TTL = 300
+_EXPORTS_PER_OWNER = 8
+_EXPORTS_TOTAL = 1024
 _MAX_ID = (1 << 63) - 1
 _MAX_DATE_MS = 253402300799999
 _FIELDS = {"source", "provider_id", "date_ms", "direction", "address", "body"}
@@ -133,6 +138,58 @@ class SmsArchive:
                 ) WITHOUT ROWID
             """)
             db.execute("CREATE INDEX IF NOT EXISTS sms_owner_date ON archived_sms(owner, date_ms DESC)")
+
+    @staticmethod
+    def _ensure_exports(db):
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS sms_archive_export (
+                ticket_hash TEXT PRIMARY KEY, owner TEXT NOT NULL, session_hash TEXT NOT NULL,
+                expires_at INTEGER NOT NULL, selection TEXT NOT NULL
+            ) WITHOUT ROWID
+        """)
+        db.execute("CREATE INDEX IF NOT EXISTS sms_archive_export_expiry ON sms_archive_export(expires_at)")
+        db.execute("CREATE INDEX IF NOT EXISTS sms_archive_export_owner ON sms_archive_export(owner,expires_at)")
+
+    def prepare_export(self, keys, session_key: str, *, now: int | None = None) -> str:
+        """Persist only checked selection references so WebView can fetch by GET."""
+        items = [(row["source"], row["provider_id"]) for row in self.selected(keys)]
+        if not session_key:
+            raise ValueError("An authenticated download session is required")
+        ticket = secrets.token_hex(24)
+        instant = int(_clock()) if now is None else now
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            self._ensure_exports(db)
+            db.execute("DELETE FROM sms_archive_export WHERE expires_at<=?", (instant,))
+            db.execute(
+                """DELETE FROM sms_archive_export WHERE ticket_hash IN (
+                       SELECT ticket_hash FROM sms_archive_export WHERE owner=?
+                       ORDER BY expires_at DESC, ticket_hash DESC LIMIT -1 OFFSET ?
+                   )""",
+                (self.owner, _EXPORTS_PER_OWNER - 1),
+            )
+            if db.execute("SELECT COUNT(*) FROM sms_archive_export").fetchone()[0] >= _EXPORTS_TOTAL:
+                raise OSError("SMS download preparation is at capacity")
+            db.execute("INSERT INTO sms_archive_export VALUES(?,?,?,?,?)",
+                       (_digest(ticket.encode()), self.owner, _digest(session_key.encode()),
+                        instant + EXPORT_TTL, _canonical(items).decode()))
+        return ticket
+
+    def download_export(self, ticket: str, session_key: str, *, now: int | None = None) -> bytes:
+        """Reauthorize an unexpired opaque ticket; WebView and the native saver may both fetch it."""
+        if not re.fullmatch(r"[0-9a-f]{48}", ticket) or not session_key:
+            raise ValueError("SMS download not found")
+        instant = int(_clock()) if now is None else now
+        with self._connect() as db:
+            self._ensure_exports(db)
+            row = db.execute(
+                "SELECT selection FROM sms_archive_export "
+                "WHERE ticket_hash=? AND owner=? AND session_hash=? AND expires_at>?",
+                (_digest(ticket.encode()), self.owner, _digest(session_key.encode()), instant),
+            ).fetchone()
+        if row is None:
+            raise ValueError("SMS download not found")
+        return self.export(json.loads(row["selection"]))
 
     def _connect(self):
         db = connect(str(self._path), timeout=5)

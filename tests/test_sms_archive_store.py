@@ -61,6 +61,21 @@ class SmsArchiveTests(unittest.TestCase):
             untouched.restore(json.dumps(changed).encode())
         self.assertEqual([], untouched.page())
 
+    def test_download_tickets_are_bounded_and_survive_a_new_store_instance(self):
+        self.archive.append([record()])
+        session_key = "synthetic-session"
+        first, *_, latest = [
+            self.archive.prepare_export([(SOURCE, 1)], session_key, now=1000 + i)
+            for i in range(9)
+        ]
+        reopened = SmsArchive(self.root, "owner-one")
+        with self.assertRaises(ValueError):
+            reopened.download_export(first, session_key, now=1010)
+        self.assertEqual(self.archive.export([(SOURCE, 1)]),
+                         reopened.download_export(latest, session_key, now=1010))
+        with self.assertRaises(ValueError):
+            SmsArchive(self.root, "other").download_export(latest, session_key, now=1010)
+
     def test_archive_corruption_is_not_marked_archived_or_exported(self):
         self.archive.append([record()])
         with sqlite3.connect(self.root / ".simpleoffice-meta" / "sms-archive.sqlite3") as db:

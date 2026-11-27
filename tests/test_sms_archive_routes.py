@@ -26,8 +26,40 @@ class SmsArchiveRoutesTests(PublicHttpTestCase):
         SmsArchive(self.root, "owner").append([self.first, self.second])
         self.csrf = self._csrf_headers(self.client, self.base)
 
-    def _download(self):
+    def _prepare_download(self):
         return self.client.post(self.base + "/export", data={"selected": f"{self.source}:1"}, headers=self.csrf)
+
+    def _download(self):
+        ready = self._prepare_download()
+        self.assertEqual(303, ready.status_code)
+        return self.client.get(ready.headers["Location"])
+
+    def test_download_handoff_can_be_fetched_again_only_in_same_session_before_expiry(self):
+        from unittest.mock import patch
+        from app.sms_archive_store import EXPORT_TTL
+
+        with patch("app.sms_archive_store._clock", return_value=2_000_000_000):
+            ready = self._prepare_download()
+            self.assertEqual(303, ready.status_code)
+            location = ready.headers["Location"]
+            self.assertRegex(location, r"^/communication/sms/export/[0-9a-f]{48}$")
+            self.assertIn("no-store", ready.headers["Cache-Control"])
+            self.assertNotIn(self.source, location)
+            self.assertEqual(200, self.client.head(location).status_code)
+            first = self.client.get(location)
+            native = self.client.get(location, follow_redirects=False)
+            self.assertEqual(200, native.status_code)
+            self.assertEqual(first.data, native.data)
+            self.assertEqual([self.first], native.json["payload"]["records"])
+        self.assertEqual(302, app.test_client().get(location).status_code)
+        other_session = app.test_client()
+        self._login(other_session, "owner")
+        self._csrf_headers(other_session, self.base)
+        self.assertEqual(404, other_session.get(location).status_code)
+        with patch("app.sms_archive_store._clock", return_value=2_000_000_000 + EXPORT_TTL):
+            self.assertEqual(404, self.client.get(location).status_code)
+        self.assertEqual(404, self.client.get(self.base + "/export/bad-token").status_code)
+
 
     def _upload(self, client, csrf, data, *, confirmed=True):
         form = {"backup": (BytesIO(data), "example.json")}
@@ -147,7 +179,8 @@ class SmsArchiveRoutesTests(PublicHttpTestCase):
         self.assertEqual(int(datetime(2026, 11, 27, 11, 10, 5, tzinfo=timezone.utc).timestamp() * 1000), entry["date_ms"])
         self.assertEqual([], SmsArchive(self.root, "other").page(query="pasted"))
         selection = f'{entry["source"]}:{entry["provider_id"]}'
-        backup = self.client.post(self.base + "/export", data={"selected": selection}, headers=self.csrf)
+        backup = self.client.post(self.base + "/export", data={"selected": selection}, headers=self.csrf,
+                                  follow_redirects=True)
         clean = SmsArchive(self.root.parent / "manual-backup", "owner")
         self.assertEqual(1, clean.restore(backup.data))
         self.assertEqual([entry], clean.page())
