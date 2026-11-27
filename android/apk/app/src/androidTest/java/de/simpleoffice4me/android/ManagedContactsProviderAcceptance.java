@@ -38,15 +38,18 @@ public final class ManagedContactsProviderAcceptance extends Instrumentation {
     }
 
     @Override public void onStart() {
+        Bundle result = new Bundle();
         try {
             verify(getTargetContext());
-            Bundle result = report("SIMPLEOFFICE_CONTACTS_PROVIDER_PASS");
             result.putString("simpleoffice_contacts_provider", "pass");
+            ManagedCalendarProviderAcceptance.verify(getTargetContext(), getUiAutomation());
+            result.putString("simpleoffice_calendar_provider", "pass");
             finish(Activity.RESULT_OK, result);
         } catch (Exception | AssertionError failure) {
             String reason = failure instanceof AssertionError
                     ? failure.getMessage() : failure.getClass().getSimpleName();
-            finish(Activity.RESULT_CANCELED, report("Contact provider acceptance failed: " + reason));
+            result.putAll(report("Android provider acceptance failed: " + reason));
+            finish(Activity.RESULT_CANCELED, result);
         } finally {
             AndroidManagedSyncAccount.clear();
         }

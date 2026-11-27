@@ -63,7 +63,7 @@ und keine Änderungen an fremden Android-Konten. Die Geräteabnahme ist erst
 erfolgreich, wenn die normalen Kontakt- und Kalender-Apps die Daten anzeigen,
 nicht bereits wenn serverseitige Tests grün sind.
 
-## Automatisierte Abnahme am echten Android-Kontaktanbieter
+## Automatisierte Abnahme an echten Android-Datenanbietern
 
 Der APK-Workflow führt bei Änderungen an der Android-Übernahme einen
 Instrumentierungstest in einem frischen Emulator aus. Er prüft die
@@ -71,12 +71,14 @@ Kontaktfreigabe, eine synthetische Übernahme, zwei Wiederholungen nach
 einer Namensänderung und einen unveränderten Kontakt außerhalb des
 SimpleOffice-Kontos. Der Test liest veröffentlichte Android-Kontakte aus dem
 Systemanbieter und verwendet den echten SimpleOffice-Writer. Er prüft
-nicht den WebView-Dialog, die Oberfläche einer bestimmten Kontakte-App,
-Kalender oder ein physisches Gerät.
+zusätzlich Kalender-Vorkommen vor und nach der Zeitumstellung,
+eine verschobene und abgesagte Instanz, einen Schaltgeburtstag und ein
+unberührtes fremdes Kalenderereignis. WebView-Dialog und die Oberfläche einer
+bestimmten Android-App bleiben separate Tests.
 
 Für die manuelle Reproduktion muss ein **frischer, entbehrlicher AVD** laufen,
 der die APK-ABI `arm64-v8a` anbietet und auf dem noch kein SimpleOffice
-installiert ist. Der Test legt zwei synthetische Kontakte an. Den AVD danach
+installiert ist. Der Test legt synthetische Kontakte, Kalender und Termine an. Den AVD danach
 verwerfen, nicht ein bestehendes Android-System dafür verwenden.
 
 ```sh
@@ -87,6 +89,7 @@ bash tools/run_android_contacts_provider_acceptance.sh \
   emulator-5554
 ```
 
-Nur `INSTRUMENTATION_RESULT: simpleoffice_contacts_provider=pass` zusammen mit
-`INSTRUMENTATION_CODE: -1` ist ein bestandener Provider-Test. Der bisherige
+Nur die zwei `INSTRUMENTATION_RESULT`-Werte
+`simpleoffice_contacts_provider=pass` und `simpleoffice_calendar_provider=pass`
+zusammen mit `INSTRUMENTATION_CODE: -1` gelten als bestanden. Der bisherige
 APK-Pakettest allein belegt keinen Android-Lauf.

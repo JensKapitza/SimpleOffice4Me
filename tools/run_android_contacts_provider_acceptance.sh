@@ -79,4 +79,5 @@ result="$(adb_for_test shell am instrument -w -r -e disposable yes \
   de.simpleoffice4me.android.test/de.simpleoffice4me.android.ManagedContactsProviderAcceptance | tr -d '\r')"
 printf '%s\n' "$result"
 grep -Fxq 'INSTRUMENTATION_RESULT: simpleoffice_contacts_provider=pass' <<<"$result"
+grep -Fxq 'INSTRUMENTATION_RESULT: simpleoffice_calendar_provider=pass' <<<"$result"
 grep -Fxq 'INSTRUMENTATION_CODE: -1' <<<"$result"

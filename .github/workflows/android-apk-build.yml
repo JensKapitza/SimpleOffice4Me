@@ -427,7 +427,7 @@ jobs:
         working-directory: android/apk
         run: gradle --no-daemon assembleDebugAndroidTest
 
-      - name: Android ContactsProvider acceptance on disposable emulator
+      - name: Android contacts and calendar providers on disposable emulator
         if: steps.contacts-acceptance.outputs.needed == 'true'
         timeout-minutes: 20
         shell: bash
