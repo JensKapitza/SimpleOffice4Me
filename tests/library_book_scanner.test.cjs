@@ -6,7 +6,7 @@ const vm = require("node:vm");
 
 const script = readFileSync(join(__dirname, "../static/js/library_book_scanner.js"), "utf8");
 
-function scanner(fetch) {
+function scanner(fetch, canShare = false) {
   const downloads = [];
   const revoked = [];
   function element() {
@@ -14,7 +14,8 @@ function scanner(fetch) {
     return {
       children: [], style: {}, disabled: false, focus() {}, remove() {},
       addEventListener(name, callback) { callbacks.set(name, callback); },
-      event(name) { return callbacks.get(name)?.({preventDefault() {}}); },
+      event(name, detail = {}) { return callbacks.get(name)?.({preventDefault() {}, ...detail}); },
+      reset() { this.resetCount = (this.resetCount || 0) + 1; },
       click() { if (this.download) downloads.push(this.download); return this.event("click"); },
       append(...children) { this.children.push(...children); },
       replaceChildren() { this.children = []; },
@@ -33,15 +34,23 @@ function scanner(fetch) {
   const status = element();
   const list = element();
   const root = element();
+  const share = element();
+  const shareControls = element();
+  share.hidden = true;
+  shareControls.disabled = true;
+  const window = element();
+  window.setTimeout = (callback) => callback();
   const elements = {
-    "[data-book-scanner]": root, "form": form, "[data-scan-controls]": controls,
+    "[data-book-scanner]": root, "[data-scan-export]": form, "[data-scan-controls]": controls,
     "[data-scan-download]": submit, "[data-scan-pages]": list, "[data-scan-message]": status,
+    "[data-scan-share]": share, "[data-scan-share-controls]": shareControls,
   };
   root.dataset = {maxPages: "4", maxPageBytes: "5", maxTotalBytes: "12", lang: "en"};
   vm.runInNewContext(script, {
     document: {querySelector: root.querySelector, createElement: element},
     URL: {createObjectURL: (file) => "blob:" + file.name, revokeObjectURL: (url) => revoked.push(url)},
-    window: {setTimeout(callback) { callback(); }},
+    window,
+    FormDataEvent: canShare ? function FormDataEvent() {} : undefined,
     FormData: class extends Map {
       constructor() { super(); this.set("_csrf_token", "fixture-csrf"); }
       append(key, value) { this.set(key, [...(this.get(key) || []), value]); }
@@ -52,7 +61,7 @@ function scanner(fetch) {
     picker.files = files.map(file => typeof file === "string" ? {name: file, size: 1} : file);
     picker.event("change");
   }
-  return {add, controls, submit, form, list, status, downloads, revoked};
+  return {add, controls, submit, form, share, shareControls, window, list, status, downloads, revoked};
 }
 
 test("review stays in the tab; explicit export sends the current order and rotation only once", async () => {
@@ -97,4 +106,34 @@ test("size or server validation errors keep the prior selection available withou
   assert.equal(ui.status.textContent, "Select smaller pages.");
   assert.equal(ui.submit.disabled, false);
   assert.deepEqual(ui.downloads, []);
+});
+
+test("only a successful export supplies the exact in-memory PDF to the separate sharing form", async () => {
+  const pdf = {name: "generated"};
+  let requests = 0;
+  const ui = scanner(async () => {
+    requests += 1;
+    return {ok: true, headers: {get: () => "application/pdf"}, blob: async () => pdf};
+  }, true);
+  const submission = () => {
+    const slots = [];
+    ui.share.event("formdata", {formData: {set: (...args) => slots.push(args)}});
+    return slots;
+  };
+  ui.add("first.jpg");
+  assert.deepEqual(submission(), []);
+  await ui.form.event("submit");
+  assert.equal(requests, 1);
+  assert.equal(ui.share.hidden, false);
+  assert.equal(ui.shareControls.disabled, false);
+  assert.deepEqual(submission(), [["pdf", pdf, "Book-scan.pdf"]]);
+  const before = ui.share.resetCount;
+  ui.list.children[0].children[2].children[2].click();
+  assert.equal(ui.share.hidden, true);
+  assert.equal(ui.shareControls.disabled, true);
+  assert.equal(ui.share.resetCount, before + 1);
+  assert.deepEqual(submission(), []);
+  await ui.form.event("submit");
+  ui.window.event("pagehide");
+  assert.deepEqual(submission(), []);
 });

@@ -133,10 +133,10 @@ jobs:
         run: |
           python -m pip install -e '.[test,web-export]'
           python -m playwright install --with-deps --no-shell chromium
-      - name: Submit synthetic barcodes through the normal mobile form
+      - name: Scan synthetic barcodes and share a reviewed PDF without reselecting it
         env:
           SIMPLEOFFICE_INTAKE_BROWSER_REQUIRED: '1'
-        run: python -m unittest -v tests.test_inventory_intake_browser
+        run: python -m unittest -v tests.test_inventory_intake_browser tests.test_library_book_scanner_browser
       - name: Check the native scanner form in the sandboxed system Chrome
         shell: bash
         env:
