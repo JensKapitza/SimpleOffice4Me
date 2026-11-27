@@ -19,6 +19,9 @@ class KidsLogicWorkshopTests(PublicHttpTestCase):
         self.assertEqual(page.status_code, 200)
         soup = BeautifulSoup(page.text, "html.parser")
         self.assertEqual(len(soup.select("main[data-kids-logic]")), 1)
+        legend = soup.select_one(".logic-set-legend")
+        self.assertEqual("group", legend.get("role"))
+        self.assertTrue(legend.get("aria-label"))
         for anchor in ("schalter", "mengen", "sicherheit"):
             self.assertIn(f'href="{WORKSHOP}#{anchor}"', home.text)
             self.assertIsNotNone(soup.find(id=anchor))

@@ -52,6 +52,16 @@ class BrowserPageCrawlTests(unittest.TestCase):
         self.assertEqual((True, ""), browser_candidate("/printershare/", "printershare.index"))
         self.assertTrue(browser_page_candidate(base + "/printershare/", base))
 
+    def test_reaction_room_page_is_crawled_but_its_protected_qr_image_is_not(self):
+        base = "http://127.0.0.1:8080"
+        room = "/kids/reaktionsparcours/rooms"
+        qr = room + "/qr"
+        self.assertEqual((True, ""), browser_candidate(room, "kids_reaction.rooms"))
+        self.assertTrue(browser_page_candidate(base + room, base))
+        self.assertEqual((False, "non-page-get"), browser_candidate(qr, "kids_reaction.room_qr"))
+        self.assertFalse(browser_page_candidate(base + qr, base))
+        self.assertFalse(browser_page_candidate(base + qr + "?code=ABCD2345", base))
+
     def test_canonical_url_keeps_view_and_drops_volatile_query(self):
         actual = canonical_browser_url(
             "http://127.0.0.1:8080/admin/federation"

@@ -1,7 +1,7 @@
 <section id="mengen" class="logic-region" aria-labelledby="logic-sets" data-logic-unit="sets">
   <h2 id="logic-sets">{{ 'Shapes and sets' if en else 'Formen und Mengen' }}</h2>
   <p>{{ 'All tiles belong to one collection. A means red, B means circle. A red circle belongs to both. Try up to five times; wrong picks fade a little. Then you can reveal the answer or continue.' if en else 'Alle Karten gehören zu einer Sammlung. A heißt rot, B heißt Kreis. Ein roter Kreis gehört zu beiden. Du hast bis zu fünf Versuche. Falsche Karten verblassen dabei. Danach kannst du die Lösung ansehen oder weiterspielen.' }}</p>
-  <div class="logic-set-legend" aria-label="{{ 'Set clues' if en else 'Hinweise zu den Mengen' }}">
+  <div class="logic-set-legend" role="group" aria-label="{{ 'Set clues' if en else 'Hinweise zu den Mengen' }}">
     <span><i class="logic-set-sample" data-color="red" aria-hidden="true"></i> A = {{ 'red' if en else 'rot' }}</span>
     <span><i class="logic-set-sample logic-set-circle" aria-hidden="true"></i> B = {{ 'round' if en else 'rund' }}</span>
   </div>
