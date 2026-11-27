@@ -6,6 +6,7 @@ from io import BytesIO
 import os
 import threading
 import unittest
+from unittest import mock
 
 try:
     from playwright.sync_api import expect, sync_playwright
@@ -101,6 +102,49 @@ class InventoryIntakeBrowserTests(PublicHttpTestCase):
                 context.close()
         finally:
             browser.close()
+
+    def test_mobile_card_shows_title_source_before_and_after_confirming(self):
+        with sync_playwright() as playwright, self._mobile_context(playwright) as context:
+            page = context.new_page()
+            page.route("**/*", lambda route: route.continue_()
+                       if route.request.url.startswith(self.origin + "/") else route.abort())
+            self._sign_in(page)
+            photo = BytesIO()
+            Image.new("RGB", (32, 32), "white").save(photo, "PNG")
+            page.locator("#intake-photo").set_input_files({
+                "name": "synthetic-label.png", "mimeType": "image/png", "buffer": photo.getvalue(),
+            })
+            card = page.locator("article[id^=draft-]")
+            expect(card).to_have_count(1)
+            editor = card.locator("[data-intake-editor]")
+            editor.locator('input[name="title"]').fill("Manual label")
+            editor.locator('select[name="kind"]').select_option("object")
+            with page.expect_navigation(wait_until="domcontentloaded"):
+                editor.get_by_role("button", name="Entwurf aktualisieren").tap()
+
+            title = card.locator("[data-intake-card-title]")
+            expect(title).to_have_text("Manual label")
+            # Only the OCR adapter is a fixture here. The HTTPS smoke exercises real Tesseract.
+            with mock.patch("app.object_vision._run_tesseract", return_value={
+                "status": "completed", "text": "Titel: Label from photo",
+            }), page.expect_navigation(wait_until="domcontentloaded"):
+                card.get_by_role("button", name="Text lokal erkennen").tap()
+            with page.expect_navigation(wait_until="domcontentloaded"):
+                card.get_by_role("button", name="Titel von OCR auswählen", exact=True).tap()
+            expect(title).to_have_text("Label from photo")
+            expect(card.locator("[data-intake-title-source]")).to_have_text("OCR")
+            expect(editor.locator('input[name="title"]')).to_have_value("Manual label")
+            review = card.locator('[data-intake-review-field="title"]')
+            expect(review).to_contain_text("Label from photo")
+            expect(review).to_contain_text("OCR")
+            self.assertFalse(any(item["name"] == "Label from photo" for item in self.objects.objects()))
+
+            with page.expect_navigation(wait_until="domcontentloaded"):
+                editor.get_by_role("button", name="Als neues Exemplar lokal speichern").tap()
+            expect(card.locator("[data-intake-state]")).to_have_text("Bestätigt")
+            expect(review).to_contain_text("OCR")
+            expect(card.get_by_role("link", name="Inventareintrag öffnen")).to_be_visible()
+            self.assertEqual(1, sum(item["name"] == "Label from photo" for item in self.objects.objects()))
 
     def test_mobile_mixed_batch_destination_is_optional_and_only_applies_to_future_drafts(self):
         original = self.objects.object(self.first["object_id"])

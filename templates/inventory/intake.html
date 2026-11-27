@@ -69,11 +69,45 @@
           {% endif %}
         </div>
         <div class="card-body">
-          {% set shown_title = draft.confirmed.fields.get('title') if draft.confirmed else draft.manual.get('title') %}
-          <h3 class="h5" id="title-{{ uid }}">{% if shown_title %}<span translate="no">{{ shown_title }}</span>{% else %}Ohne Titel{% endif %}</h3>
+          {% set has_snapshot = not draft.confirmed or draft.confirmed.get('source_snapshot', false) %}
+          {% set chosen = (draft.confirmed.sources if has_snapshot else {}) if draft.confirmed else draft.selected %}
+          {% set fields = draft.confirmed.fields if draft.confirmed else draft.manual %}
+          {% set selected_title = chosen.get('title') %}
+          {% set shown_title = (selected_title.value if selected_title else fields.get('title')) if has_snapshot else '' %}
+          {% set source_borders = {'manual':'border-secondary','external_catalog':'border-primary','ocr':'border-info','local_ai':'border-success'} %}
+          <h3 class="h5" id="title-{{ uid }}" data-intake-card-title>
+            {% if shown_title %}
+            <span class="border-start border-3 ps-2 {{ source_borders.get(selected_title.kind if selected_title else 'manual') }}" translate="no">{{ shown_title }}</span>
+            {% else %}{{ 'Gespeichertes Exemplar' if draft.confirmed else 'Ohne Titel' }}{% endif %}
+          </h3>
+          {% if shown_title and has_snapshot %}<p class="small mb-1" data-intake-title-source>{{ selected_title.label if selected_title else 'Manuell' }}</p>{% endif %}
           {% set field_names = {'title':'Titel','manufacturer':'Marke','size':'Größe / Menge','unit':'Einheit','variant':'Variante','publisher':'Verlag','published_date':'Erscheinungsjahr/-datum','edition':'Ausgabe'} %}
           <p class="small"><strong data-intake-state>{{ {'confirmed':'Bestätigt', 'question':'Rückfrage', 'in_review':'In Prüfung'}[draft.state] }}{% if draft.state == 'question' and draft.conflict_fields %}: {% for field in field_names if field in draft.conflict_fields %}{{ field_names[field] }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}</strong>
             · <time datetime="{{ draft.created_at }}">{{ draft.created_at|replace('T', ' ')|truncate(16, true, '') }} UTC</time></p>
+          {% if has_snapshot and (chosen or draft.confirmed) %}
+          <section class="border rounded p-2 mb-3" data-intake-review aria-labelledby="review-{{ uid }}">
+            <h4 class="h6" id="review-{{ uid }}">{{ 'Angaben aus dem bestätigten Entwurf' if draft.confirmed else 'Aktuell zur Übernahme ausgewählt' }}</h4>
+            {% if not draft.confirmed %}
+              <p class="small mb-2">Diese Vorschau zeigt den gespeicherten Entwurf. Wenn du ein manuelles Feld änderst, prüfe nach dem Aktualisieren, welche Quellen noch gewählt sind.</p>
+            {% endif %}
+            <dl class="mb-0">
+              {% for field, label in field_names.items() %}
+              {% set row = chosen.get(field) %}
+              {% set value = row.value if row else fields.get(field) %}
+              {% if value %}
+              <div class="border-start border-3 ps-2 mb-2 {{ source_borders.get(row.kind if row else 'manual') }}" data-intake-review-field="{{ field }}">
+                <dt class="small">{{ label }}</dt>
+                <dd class="mb-0 text-break"><span translate="no">{{ value }}</span> <span class="badge text-bg-secondary">{{ row.label if row else 'Manuell' }}</span></dd>
+                {% if row and row.supports %}
+                  {% set citations = draft.evidence|selectattr('source_id', 'in', row.supports)|map(attribute='label')|list %}
+                  {% if citations %}<dd class="small mb-0">Belegt durch {{ citations|join(', ') }}</dd>{% endif %}
+                {% endif %}
+              </div>
+              {% endif %}
+              {% endfor %}
+            </dl>
+          </section>
+          {% endif %}
           {% if draft.confirmed %}
             <a href="{{ url_for('inventory.item_detail', object_id=draft.confirmed.object_id) }}">Inventareintrag öffnen</a>
             {% for notice in draft.confirmed.notices %}<p>{{ notice }}</p>{% endfor %}
@@ -149,7 +183,6 @@
           </section>
           {% endif %}
           {% if draft.evidence %}
-          {% set source_borders = {'manual':'border-secondary','external_catalog':'border-primary','ocr':'border-info','local_ai':'border-success'} %}
           {% set has_conflict = draft.conflict_fields %}
           <details class="mt-3 border rounded p-2{% if has_conflict %} border-warning{% endif %}" data-intake-sources{% if has_conflict %} open{% endif %}>
             <summary>Quellen nach Feld vergleichen{% if has_conflict %} · Abweichende Angaben{% endif %}</summary>

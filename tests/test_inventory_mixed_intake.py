@@ -465,6 +465,10 @@ class MixedIntakeTests(unittest.TestCase):
         selected_edition = visible.select_one('[data-intake-source-field="edition"] [data-intake-source-kind="local_ai"]')
         self.assertIn("Ausgewählt", selected_edition.get_text(" ", strip=True))
         self.assertIsNone(selected_edition.select_one('button[name="source_id"]'))
+        for field, provider in (("edition", "Open Library"), ("published_date", "Google Books")):
+            review_row = visible.parent.select_one(f'[data-intake-review-field="{field}"]')
+            self.assertIn("border-success", review_row["class"])
+            self.assertIn(f"Lokale KI Belegt durch {provider}", review_row.get_text(" ", strip=True))
         stale = self.post(base + "/confirm", revision=str(reviewed["revision"]))
         self.assertEqual(409, stale.status_code)
         saved = self.post(base + "/confirm", revision=str(current["revision"]), publisher="", edition="", published_date="")
@@ -472,6 +476,80 @@ class MixedIntakeTests(unittest.TestCase):
         self.assertEqual("First printing", saved.json["draft"]["confirmed"]["fields"]["edition"])
         self.assertEqual("1988-11-01", saved.json["draft"]["confirmed"]["fields"]["published_date"])
         self.assertEqual(1, len(ObjectStore(self.documents).objects()))
+
+    def test_card_title_and_review_track_explicit_source_and_undo_without_erasing_manual(self):
+        draft = self.observe_label(self.photo(title="Manual name", kind="object"),
+                                   "Titel: <Synthetic & scanned>")
+        path = f'/{draft["id"]}'
+
+        def card(who=None):
+            return self.get_page(who).select_one(f'#draft-{draft["id"]}')
+
+        self.assertEqual("Manual name", card().select_one("[data-intake-card-title]").get_text(strip=True))
+        source = next(row["source_id"] for row in draft["evidence"] if row["kind"] == "ocr")
+
+        def choose(current):
+            response = self.post(path + "/choose", revision=str(current["revision"]), source_id=source)
+            self.assertEqual(200, response.status_code, response.data)
+            return response.json["draft"]
+
+        current = choose(draft)
+        self.assertEqual("Manual name", card().select_one('input[name="title"]')["value"])
+        self.assertEqual("<Synthetic & scanned>", card().select_one("[data-intake-card-title]").get_text(strip=True))
+        self.assertEqual("OCR", card().select_one("[data-intake-title-source]").get_text(strip=True))
+        self.assertIn("border-info", card().select_one('[data-intake-review-field="title"]')["class"])
+        self.assertIsNone(card(self.bob))
+        self.assertEqual([], ObjectStore(self.documents).objects())
+
+        response = self.post(path + "/choose", revision=str(current["revision"]), clear_field="title")
+        self.assertEqual(200, response.status_code, response.data)
+        self.assertEqual("Manual name", card().select_one("[data-intake-card-title]").get_text(strip=True))
+        self.assertEqual("Manuell", card().select_one("[data-intake-title-source]").get_text(strip=True))
+        self.assertIsNone(card().select_one("[data-intake-review]"))
+
+        current = choose(response.json["draft"])
+        saved = self.post(path + "/confirm", revision=str(current["revision"]), title="Manual name", kind="object")
+        self.assertEqual(200, saved.status_code, saved.data)
+        confirmed = card()
+        self.assertEqual("<Synthetic & scanned>", confirmed.select_one("[data-intake-card-title]").get_text(strip=True))
+        self.assertEqual("OCR", confirmed.select_one("[data-intake-title-source]").get_text(strip=True))
+        self.assertIn("OCR", confirmed.select_one('[data-intake-review-field="title"]').get_text(" ", strip=True))
+        self.assertIsNone(confirmed.select_one("[data-intake-editor]"))
+        self.assertIsNone(card(self.bob))
+        self.assertEqual(1, len(ObjectStore(self.documents).objects()))
+
+    def test_confirmation_recovery_never_attributes_a_retried_form_to_saved_inventory(self):
+        draft = self.photo(title="Initial title", kind="object")
+        path = f'/{draft["id"]}/confirm'
+        # Only the draft index fails; the real inventory item and receipt are committed.
+        with mock.patch("app.capture_inbox_store.atomic_json_write", side_effect=OSError):
+            failed = self.post(path, revision="1", title="Actual stored title", kind="object")
+        self.assertEqual(400, failed.status_code, failed.data)
+        self.assertEqual(["Actual stored title"], [item["name"] for item in ObjectStore(self.documents).objects()])
+        retry = self.post(path, revision="1", title="Different retry title", kind="object")
+        self.assertEqual(200, retry.status_code, retry.data)
+        result = retry.json["draft"]["confirmed"]
+        self.assertIs(result["source_snapshot"], False)
+        self.assertEqual({}, result["fields"])
+        self.assertEqual({}, result["sources"])
+        card = self.get_page().select_one(f'#draft-{draft["id"]}')
+        self.assertEqual("Gespeichertes Exemplar", card.select_one("[data-intake-card-title]").get_text(strip=True))
+        self.assertIsNone(card.select_one("[data-intake-review]"))
+        self.assertIsNone(card.select_one("[data-intake-title-source]"))
+        self.assertIsNotNone(card.select_one('a[href*="' + result["object_id"] + '"]'))
+        self.assertEqual(1, len(ObjectStore(self.documents).objects()))
+
+        # Simulate an older recovery record that stored the retry fields, but no trustworthy provenance.
+        store = CaptureInboxStore(self.documents)
+        index = json.loads(store.index_path.read_text())
+        legacy = index["entries"][draft["id"]]["intake"]["confirmed"]
+        legacy.pop("source_snapshot")
+        legacy["fields"]["title"] = "Unverified old retry"
+        store.index_path.write_text(json.dumps(index))
+        card = self.get_page().select_one(f'#draft-{draft["id"]}')
+        self.assertEqual("Gespeichertes Exemplar", card.select_one("[data-intake-card-title]").get_text(strip=True))
+        self.assertIsNone(card.select_one("[data-intake-review]"))
+        self.assertIsNotNone(card.select_one('a[href*="' + result["object_id"] + '"]'))
 
     def test_verified_book_suggestion_previews_only_empty_fields_and_never_confirms(self):
         from tests.test_inventory_catalog import ISBN
