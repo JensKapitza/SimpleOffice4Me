@@ -16,7 +16,7 @@ from uuid import uuid4
 
 from . import (
     english_voice_assets, kids_hand_assets, kids_piper_assets, optional_hand_game_install, optional_piper_runtime,
-    optional_ffmpeg_runtime,
+    optional_ffmpeg_runtime, optional_ocr_runtime,
 )
 from .document_store_core import CONTROL_DIR, atomic_json_write
 from .component_runtime import managed_command, resolve_command
@@ -28,7 +28,9 @@ VOICE_PACKAGE = "voice-package"
 ENGLISH_VOICE_PACKAGE = "english-voice"
 PIPER_ENGINE = "piper-engine"
 FFMPEG_RUNTIME = "ffmpeg-runtime"
-FEATURES = frozenset((VOICE_PACKAGE, "kids-hand", ENGLISH_VOICE_PACKAGE, PIPER_ENGINE, FFMPEG_RUNTIME))
+OCR_RUNTIME = "ocr-runtime"
+FEATURES = frozenset((VOICE_PACKAGE, "kids-hand", ENGLISH_VOICE_PACKAGE, PIPER_ENGINE, FFMPEG_RUNTIME,
+                      OCR_RUNTIME))
 _ACTIVE = frozenset(("queued", "downloading"))
 _IN_PROGRESS = _ACTIVE | {"cancelling"}
 # Piper setup allows up to 300 s of wheel downloads plus venv/pip smoke checks.
@@ -48,6 +50,7 @@ _ENGLISH_VOICE_INSTALL_SPACE = 160 * 1024 * 1024
 _HAND_INSTALL_SPACE = 64 * 1024 * 1024
 _PIPER_ENGINE_INSTALL_SPACE = 300 * 1024 * 1024
 _FFMPEG_INSTALL_SPACE = optional_ffmpeg_runtime.REQUIRED_SPACE
+_OCR_INSTALL_SPACE = optional_ocr_runtime.artifact()["required_bytes"]
 
 
 class _PersistentCancelEvent:
@@ -237,6 +240,8 @@ def _execute(root: Path, feature: str, job_id: str) -> None:
             result = optional_piper_runtime.install(root, progress=progress, cancel_event=cancel_event)
         elif feature == FFMPEG_RUNTIME:
             result = optional_ffmpeg_runtime.install(root, progress=progress, cancel_event=cancel_event)
+        elif feature == OCR_RUNTIME:
+            result = optional_ocr_runtime.install(root, progress=progress, cancel_event=cancel_event)
         else:
             result = "failed"
         state = "cancelled" if result == "cancelled" or cancel_event.is_set() else (
@@ -271,6 +276,10 @@ def queue(root: str | Path, feature: str, *, manual_hand_directory: str = "") ->
         return "unsupported"
     if feature == FFMPEG_RUNTIME and not optional_ffmpeg_runtime.install_supported():
         return "unsupported"
+    if feature == OCR_RUNTIME and optional_ocr_runtime.host_available():
+        return "ready"
+    if feature == OCR_RUNTIME and not optional_ocr_runtime.install_supported():
+        return "unsupported"
     with exclusive_file_lock(_job_lock(root)):
         data = _read(root)
         state = _job_state(data.get(feature))
@@ -282,7 +291,8 @@ def queue(root: str | Path, feature: str, *, manual_hand_directory: str = "") ->
                 or (feature == ENGLISH_VOICE_PACKAGE and english_voice_assets.installed_model(root))
                 or (feature == PIPER_ENGINE and resolve_command("piper", root))
                 or (feature == FFMPEG_RUNTIME and all(resolve_command(name, root)
-                                                       for name in ("ffmpeg", "ffprobe", "ffplay")))):
+                                                       for name in ("ffmpeg", "ffprobe", "ffplay")))
+                or (feature == OCR_RUNTIME and optional_ocr_runtime.ready(root))):
             return "ready"
         if feature in {VOICE_PACKAGE, ENGLISH_VOICE_PACKAGE} and bundled_android_runtime() \
                 and not resolve_command("piper", root):
@@ -293,6 +303,7 @@ def queue(root: str | Path, feature: str, *, manual_hand_directory: str = "") ->
             ENGLISH_VOICE_PACKAGE: _ENGLISH_VOICE_INSTALL_SPACE,
             PIPER_ENGINE: _PIPER_ENGINE_INSTALL_SPACE,
             FFMPEG_RUNTIME: _FFMPEG_INSTALL_SPACE,
+            OCR_RUNTIME: _OCR_INSTALL_SPACE,
         }[feature]
         try:
             if shutil.disk_usage(root).free < required:
@@ -456,6 +467,9 @@ def component_inventory(root: str | Path, *, manual_hand_directory: str = "") ->
     readiness_state = readiness(root, manual_hand_directory=manual_hand_directory)
     piper_job = _job_state(_read(root).get(PIPER_ENGINE))
     ffmpeg_job = _job_state(_read(root).get(FFMPEG_RUNTIME))
+    ocr_job = _job_state(_read(root).get(OCR_RUNTIME))
+    managed_ocr = optional_ocr_runtime.ready(root)
+    system_ocr = optional_ocr_runtime.host_available()
     piper_from_app = False
     if piper:
         try:
@@ -514,8 +528,23 @@ def component_inventory(root: str | Path, *, manual_hand_directory: str = "") ->
              optional_hand_game_install.MODEL_NAME
          ][1], "required_bytes": _HAND_INSTALL_SPACE},
         {"id": "rapidocr-onnx", "status": "installed" if rapidocr_present and onnx_present else
-         "partial" if rapidocr_present or onnx_present else "missing", "managed": False,
-         "detail": "rapidocr-present" if rapidocr_present else "rapidocr-missing",
+         "installed" if managed_ocr else "failed" if ocr_job == "failed" else
+         ocr_job if ocr_job in _ACTIVE or ocr_job == "cancelled" else
+         "partial" if rapidocr_present or onnx_present else
+         "missing" if optional_ocr_runtime.install_supported() else "unsupported",
+         "managed": managed_ocr,
+         "install_feature": OCR_RUNTIME if not (system_ocr or managed_ocr)
+         and optional_ocr_runtime.install_supported() else None,
+         "download_bytes": optional_ocr_runtime.artifact()["download_bytes"]
+         if not (system_ocr or managed_ocr) and optional_ocr_runtime.install_supported() else 0,
+         "required_bytes": _OCR_INSTALL_SPACE if not (system_ocr or managed_ocr)
+         and optional_ocr_runtime.install_supported() else 0,
+         "version": optional_ocr_runtime.installed_version(root),
+         "license": optional_ocr_runtime.LICENSE,
+         "license_url": optional_ocr_runtime.LICENSE_URL,
+         "artifact": optional_ocr_runtime.artifact(),
+         "detail": "app-managed" if managed_ocr else "server-python" if system_ocr else
+         "rapidocr-present" if rapidocr_present else "rapidocr-missing",
          "onnx": "installed" if onnx_present else "missing"},
         {"id": "osm-data", "status": "separate-workflow", "managed": False},
     ]
@@ -524,4 +553,5 @@ def component_inventory(root: str | Path, *, manual_hand_directory: str = "") ->
             "supported_install_features": ([VOICE_PACKAGE, "kids-hand", ENGLISH_VOICE_PACKAGE]
                                            if voice_download_supported else ["kids-hand"])
             + ([PIPER_ENGINE] if optional_piper_runtime.install_supported() else [])
-            + ([FFMPEG_RUNTIME] if optional_ffmpeg_runtime.install_supported() else [])}
+            + ([FFMPEG_RUNTIME] if optional_ffmpeg_runtime.install_supported() else [])
+            + ([OCR_RUNTIME] if optional_ocr_runtime.install_supported() else [])}

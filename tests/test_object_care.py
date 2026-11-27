@@ -13,7 +13,7 @@ from app.library.object_care import (
 )
 from app.library.store import LibraryStore
 from app.object_store import ObjectStore
-from app.object_vision import _rapidocr_output, analyze_ocr
+from app.object_vision import _rapidocr_output, _run_rapidocr, analyze_ocr
 
 
 class UnifiedObjectCareTests(unittest.TestCase):
@@ -63,6 +63,15 @@ class UnifiedObjectCareTests(unittest.TestCase):
         self.assertEqual("rapidocr", result["engine"])
         self.assertEqual("Bosch GWS 750", result["text"])
         tesseract.assert_not_called()
+
+    def test_missing_server_ocr_uses_isolated_managed_worker(self):
+        expected = {"engine": "rapidocr", "status": "completed", "text": "lokal erkannt",
+                    "characters": 13, "confidence": 0.9, "blocks": []}
+        with patch("app.object_vision._rapidocr_engine", side_effect=ModuleNotFoundError("no server package")), \
+                patch("app.object_vision._managed_rapidocr", return_value=expected) as managed:
+            result = _run_rapidocr(Path("generated-local-image.png"))
+        self.assertEqual(expected, result)
+        managed.assert_called_once_with(Path("generated-local-image.png"))
 
     def test_ocr_falls_back_to_tesseract_when_ml_is_unavailable(self):
         ml = {
