@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from flask import Blueprint, Response, abort, current_app, flash, g, redirect, render_template, request, session, url_for
@@ -56,20 +56,55 @@ def _language(de: str, en: str) -> str:
     return en if getattr(g, "language", "en") == "en" else de
 
 
+def _archive_day(value: str, *, end: bool = False) -> int | None:
+    if not value:
+        return None
+    if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
+        raise ValueError("invalid archive date")
+    days = (date.fromisoformat(value) - _EPOCH.date()).days
+    if days < 0:
+        raise ValueError("archive date before epoch")
+    return days * 86_400_000 + (86_399_999 if end else 0)
+
+
 @bp.route("", methods=["GET", "POST"])
 @login_required
 def index():
-    query = request.form.get("query", "").strip() if request.method == "POST" else ""
-    page_value = request.form.get("page", "0") if request.method == "POST" else "0"
+    if request.method == "GET":
+        return _render_archive()
+    names = ("query", "page", "direction", "date_from", "date_to")
+    if any(len(request.form.getlist(name)) > 1 for name in names):
+        abort(400)
+    query = request.form.get("query", "").strip()
+    page_value = request.form.get("page", "0")
     if not re.fullmatch(r"[0-9]{1,7}", page_value) or len(query.encode("utf-8")) > 256:
         abort(400)
-    return _render_archive(query=query, page=int(page_value))
-
-
-def _render_archive(*, query="", page=0, manual_values=None, manual_error="", status=200):
-    zone = g.app_settings["interface"]["timezone"]
+    filters = {name: request.form.get(name, "") for name in names[2:]}
+    if filters["direction"] not in ("", "inbox", "sent"):
+        abort(400)
     try:
-        rows = _archive().page(query=query, limit=PAGE_SIZE + 1, offset=page * PAGE_SIZE)
+        first = _archive_day(filters["date_from"])
+        last = _archive_day(filters["date_to"], end=True)
+        if first is not None and last is not None and first > last:
+            raise ValueError("reversed archive dates")
+    except ValueError:
+        return _render_archive(
+            query=query, filters=filters, status=400,
+            search_error=_language("Wähle einen gültigen UTC-Zeitraum ab 1970. Das Enddatum darf nicht vor dem Anfang liegen.",
+                                   "Choose a valid UTC date range from 1970 onward. The end cannot precede the start."),
+        )
+    return _render_archive(query=query, page=int(page_value), filters=filters, first=first, last=last)
+
+
+def _render_archive(*, query="", page=0, filters=None, first=None, last=None, search_error="",
+                    manual_values=None, manual_error="", status=200):
+    zone = g.app_settings["interface"]["timezone"]
+    filters = filters or {"direction": "", "date_from": "", "date_to": ""}
+    try:
+        rows = [] if search_error else _archive().page(
+            query=query, direction=filters["direction"], first_ms=first, last_ms=last,
+            limit=PAGE_SIZE + 1, offset=page * PAGE_SIZE,
+        )
     except (ArchiveIntegrityError, OSError, sqlite3.Error) as exc:
         current_app.logger.warning("SMS archive page unavailable: %s", type(exc).__name__)
         return render_template("sms_archive/index.html", archive_unavailable=True), 503
@@ -80,6 +115,7 @@ def _render_archive(*, query="", page=0, manual_values=None, manual_error="", st
     ]
     return render_template("sms_archive/index.html", messages=messages, query=query,
                            page=page, has_next=len(rows) > PAGE_SIZE, manual_values=manual_values or {},
+                           search_filters=filters, search_error=search_error, filtering=bool(query) or any(filters.values()),
                            manual_error=manual_error, manual_zones=tuple(dict.fromkeys((zone, "UTC")))), status
 
 

@@ -6,6 +6,18 @@ Unter **Kommunikation → SMS-Archiv** können angemeldete Konten mit dem
 Mail-/Kommunikationsrecht vorhandene archivierte SMS prüfen, nach Nummer oder
 Text suchen und ausgewählte Nachrichten als externe Sicherung herunterladen.
 
+Die Archivsuche kombiniert Nummer oder Nachrichtentext mit **Empfangen**
+oder **Gesendet** sowie einem optionalen Zeitraum. Suche und Anzeige
+verwenden UTC; Anfangs- und Endtag sind eingeschlossen. Beim Blättern
+bleiben die Filter erhalten. **Filter zurücksetzen** zeigt wieder das
+gesamte eigene Archiv. Die Sicherung oder der Mailentwurf übernimmt
+weiterhin nur ausdrücklich markierte Nachrichten, nicht alle Treffer.
+
+**English:** Combine archive text/number search with incoming/outgoing
+and optional inclusive UTC dates. Filters persist across result pages and
+stay out of URLs. Backups and drafts still include only selected messages.
+
+
 1. Markiere die gewünschten Nachrichten und wähle **Auswahl sichern**.
 2. Bewahre die Datei verschlüsselt und außerhalb der App auf.
 3. Wähle unter **Sicherung wiederherstellen** eine Sicherung desselben

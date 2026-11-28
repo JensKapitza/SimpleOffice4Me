@@ -21,7 +21,7 @@ class SmsArchiveBrowserTests(PublicHttpTestCase):
         root = Path(app.config["DOCUMENT_ROOT"])
         first = {"source": "a" * 32, "provider_id": 1, "date_ms": 1750000001000,
                  "direction": "inbox", "address": "Synthetic sender", "body": "Only this message"}
-        SmsArchive(root, "owner").append([first, {**first, "provider_id": 2, "body": "Other message"}])
+        SmsArchive(root, "owner").append([first, {**first, "provider_id": 2, "body": "Other message", "direction": "sent"}])
         cookie_name = app.config["SESSION_COOKIE_NAME"]
         cookie = self.client.get_cookie(cookie_name)
         self.assertIsNotNone(cookie)
@@ -41,6 +41,15 @@ class SmsArchiveBrowserTests(PublicHttpTestCase):
                 page = context.new_page()
                 page.set_default_timeout(12000)
                 page.goto(origin + "/communication/sms", wait_until="load")
+                page.locator("#sms-direction").select_option("inbox")
+                page.locator("#sms-date-from").fill("2025-06-15")
+                page.locator("#sms-date-to").fill("2025-06-15")
+                page.locator('button[name="page"][value="0"]').click()
+                page.wait_for_load_state("load")
+                self.assertEqual(origin + "/communication/sms", page.url)
+                self.assertEqual("inbox", page.locator("#sms-direction").input_value())
+                self.assertEqual(1, page.locator('input[name="selected"]').count())
+                self.assertNotIn("Other message", page.locator("main").inner_text())
                 page.evaluate("window.archivePageDidNotNavigate = true")
                 form = page.locator('form[action="/communication/sms/export"]')
                 form.locator("li").filter(has_text=first["body"]).locator('input[name="selected"]').check()

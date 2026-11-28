@@ -252,17 +252,24 @@ class SmsArchive:
                     states.append("archived" if self._checked(row) == record else "conflict")
         return states
 
-    def page(self, *, query: str = "", limit: int = MAX_RECORDS, offset: int = 0) -> list[dict]:
+    def page(self, *, query: str = "", direction: str = "", first_ms: int | None = None, last_ms: int | None = None,
+             limit: int = MAX_RECORDS, offset: int = 0) -> list[dict]:
         query = _text(query, 256)
         if type(limit) is not int or not 1 <= limit <= MAX_RECORDS or type(offset) is not int or not 0 <= offset <= _MAX_ID:
             raise ValueError("Invalid SMS archive page")
+        first_ms = 0 if first_ms is None else first_ms
+        last_ms = _MAX_DATE_MS if last_ms is None else last_ms
+        if (direction not in ("", "inbox", "sent") or type(first_ms) is not int or type(last_ms) is not int
+                or not 0 <= first_ms <= last_ms <= _MAX_DATE_MS):
+            raise ValueError("Invalid SMS archive filters")
         with self._connect() as db:
             db.create_function("sms_casefold", 1, str.casefold, deterministic=True)
             rows = db.execute(
                 "SELECT source,provider_id,date_ms,direction,address,body,digest FROM archived_sms "
-                "WHERE owner=? AND (?='' OR instr(sms_casefold(address),?) OR instr(sms_casefold(body),?)) "
+                "WHERE owner=? AND date_ms BETWEEN ? AND ? AND (?='' OR direction=?) "
+                "AND (?='' OR instr(sms_casefold(address),?) OR instr(sms_casefold(body),?)) "
                 "ORDER BY date_ms DESC, source, provider_id LIMIT ? OFFSET ?",
-                (self.owner, query, query.casefold(), query.casefold(), limit, offset),
+                (self.owner, first_ms, last_ms, direction, direction, query, query.casefold(), query.casefold(), limit, offset),
             )
             return [self._checked(row) for row in rows]
 

@@ -1,4 +1,5 @@
 """Exercise private SMS archive UI using synthetic messages only."""
+from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 
@@ -92,6 +93,54 @@ class SmsArchiveRoutesTests(PublicHttpTestCase):
             self.assertEqual(self._upload(self.client, self.csrf, export.data).status_code, 200)
         self.assertEqual([self.first], SmsArchive(restored_root, "owner").page())
         self.assertEqual(2, len(SmsArchive(self.root, "owner").page()))
+
+    def test_direction_date_and_text_filters_stay_private_and_keep_pagination(self):
+        from bs4 import BeautifulSoup
+        base = int(datetime(2025, 6, 15, tzinfo=timezone.utc).timestamp()) * 1000
+        fixtures = [
+            {**self.second, "provider_id": i + 10, "date_ms": base + i, "body": "Batch selected"}
+            for i in range(26)
+        ]
+        fixtures.extend({**self.second, "provider_id": i, "date_ms": stamp, "direction": direction, "body": label}
+                        for i, stamp, direction, label in (
+                            (100, base - 1, "sent", "Batch too early"),
+                            (101, base + 86_400_000, "sent", "Batch too late"),
+                            (102, base, "inbox", "Batch wrong direction"),
+                            (103, base + 86_399_999, "sent", "Batch last millisecond"),
+                        ))
+        SmsArchive(self.root, "owner").append(fixtures)
+        SmsArchive(self.root, "other").append([{**fixtures[0], "body": "Batch foreign account"}])
+        filters = {"query": "bAtCh", "direction": "sent", "date_from": "2025-06-15", "date_to": "2025-06-15"}
+        first = self.client.post(self.base, data={**filters, "page": "0"}, headers=self.csrf)
+        second = self.client.post(self.base, data={**filters, "page": "1"}, headers=self.csrf)
+        self.assertEqual([200, 200], [first.status_code, second.status_code])
+        self.assertEqual([b"", b""], [first.request.query_string, second.request.query_string])
+        self.assertEqual("private, no-store", first.headers["Cache-Control"])
+        one, two = (BeautifulSoup(response.data, "html.parser") for response in (first, second))
+        self.assertEqual("sent", two.select_one('#sms-direction option[selected]')["value"])
+        self.assertEqual("2025-06-15", two.select_one("#sms-date-to")["value"])
+        self.assertEqual("bAtCh", two.select_one("#sms-query")["value"])
+        self.assertEqual(self.base, two.find("a", string="Clear filters")["href"])
+        def ids(doc):
+            return {item["value"] for item in doc.select('input[name="selected"]')}
+        self.assertEqual((25, 2), (len(ids(one)), len(ids(two))))
+        self.assertFalse(ids(one) & ids(two))
+        self.assertIn(f"{self.source}:103", ids(one))
+        self.assertIn(f"{self.source}:10", ids(two))
+        for excluded in ("too early", "too late", "wrong direction", "foreign account"):
+            self.assertNotIn(excluded, one.get_text() + two.get_text())
+
+    def test_invalid_date_filters_show_help_without_listing_messages(self):
+        for dates in ({"date_from": "2025-06-20", "date_to": "2025-06-19"},
+                      {"date_from": "2025-02-29"}, {"date_to": "1969-12-31"}):
+            response = self.client.post(self.base, data=dates, headers=self.csrf)
+            self.assertEqual(400, response.status_code)
+            self.assertIn("valid UTC date range", response.get_data(as_text=True))
+            self.assertNotIn("Synthetic sender", response.get_data(as_text=True))
+        invalid = self.client.post(self.base, data={"direction": "draft"}, headers=self.csrf)
+        self.assertEqual(400, invalid.status_code)
+        duplicate = self.client.post(self.base, data={"direction": ["sent", "inbox"]}, headers=self.csrf)
+        self.assertEqual(400, duplicate.status_code)
 
     def test_other_account_cannot_list_export_or_restore_owner_messages(self):
         backup = self._download().data
