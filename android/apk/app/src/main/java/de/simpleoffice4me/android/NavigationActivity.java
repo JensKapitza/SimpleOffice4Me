@@ -40,7 +40,9 @@ public final class NavigationActivity extends MainActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        BootstrapActivity.startupStage("navigation-creating");
         super.onCreate(savedInstanceState);
+        BootstrapActivity.startupStage("navigation-created");
         registerNetworkMonitor();
         navigationExecutor.execute(this::checkForUpdate);
     }

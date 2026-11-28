@@ -12,6 +12,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.InputFilter;
 import android.text.InputType;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.webkit.CookieManager;
@@ -75,11 +76,14 @@ public final class BootstrapActivity extends Activity {
         super.onCreate(savedInstanceState);
         originalIntent = new Intent(getIntent());
         buildSplash();
+        startupStage("launcher-created");
 
         SharedPreferences identity = getSharedPreferences(IDENTITY_PREFS, MODE_PRIVATE);
         if (identity.getBoolean(IDENTITY_READY, false)) {
+            startupStage("local-choice-present");
             beginNativeStartup(identity.getString(IDENTITY_EMAIL, ""));
         } else {
+            startupStage("account-picker");
             chooseGoogleAccount();
         }
     }
@@ -142,6 +146,7 @@ public final class BootstrapActivity extends Activity {
             }
         }
         rememberIdentity(email);
+        startupStage("account-picker-returned");
         beginNativeStartup(email);
     }
 
@@ -165,26 +170,38 @@ public final class BootstrapActivity extends Activity {
     }
 
     private void beginNativeStartup(String accountEmail) {
+        startupStage("clearing-session");
         clearPreviousWebSession();
+        startupStage("cleared-session");
         executor.execute(() -> {
             try {
                 File runtimeRoot = new File(getFilesDir(), "simpleoffice-runtime");
                 syncRuntimeAssets(runtimeRoot);
+                startupStage("assets-ready");
                 showStatus("Lokale Python-Laufzeit wird gestartet …", true);
                 if (!Python.isStarted()) Python.start(new AndroidPlatform(this));
+                startupStage("python-ready");
                 String bootstrapToken = UUID.randomUUID().toString() + UUID.randomUUID();
+                startupStage("python-module-loading");
                 PyObject module = Python.getInstance().getModule("android_runtime");
+                startupStage("python-module-loaded");
+                String lanAddresses = AndroidLanNetwork.localIpv4Addresses();
+                startupStage("before-python-start");
                 module.callAttr(
                         "start",
                         runtimeRoot.getAbsolutePath(),
                         BuildConfig.ERROR_REPORT_URL,
                         accountEmail == null ? "" : accountEmail,
                         bootstrapToken,
-                        AndroidLanNetwork.localIpv4Addresses());
+                        lanAddresses,
+                        BuildConfig.DEBUG);
                 showStatus("Lokales Benutzerkonto wird vorbereitet …", true);
+                startupStage("python-start-returned");
                 waitForBackend();
+                startupStage("http-ready");
                 establishNativeSession(bootstrapToken);
             } catch (Exception error) {
+                startupStage("bootstrap-failed");
                 showFatal(error);
             }
         });
@@ -298,6 +315,7 @@ public final class BootstrapActivity extends Activity {
                 if (cookie != null && !cookie.trim().isEmpty()) manager.setCookie(LOCAL_URL, cookie);
             }
             manager.flush();
+            startupStage("open-navigation");
             startActivity(forwardedIntent());
             finish();
         });
@@ -477,9 +495,14 @@ public final class BootstrapActivity extends Activity {
         showStatus("Start fehlgeschlagen:\n" + detail, false);
     }
 
+    static void startupStage(String stage) {
+        if (BuildConfig.DEBUG) Log.i("SO4MEStartup", stage);
+    }
+
     @Override
     protected void onDestroy() {
         destroyed = true;
+        startupStage("launcher-destroyed");
         executor.shutdownNow();
         super.onDestroy();
     }

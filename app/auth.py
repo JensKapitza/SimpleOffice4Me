@@ -380,7 +380,7 @@ FEATURE_BLUEPRINTS = {
     "tasks": "projects", "datalogger": "datalogger",
     "library": "documents", "inventory": "documents", "shopping": "documents",
     "mail_reader": "mail", "mail_index": "mail",
-    "mail_reader_cases": "mail",
+    "mail_reader_cases": "mail", "sms_archive": "mail",
     "mail_keywords": "mail", "mail_handover": "mail",
 }
 

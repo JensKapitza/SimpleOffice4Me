@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import os
 import sys
 import tempfile
 import unittest
@@ -100,6 +101,49 @@ class AndroidRuntimeTests(unittest.TestCase):
             mode=ctypes.RTLD_GLOBAL | os.RTLD_NOW,
         )
 
+    def test_cold_start_sets_environment_and_links_native_modules_before_any_app_import(self):
+        spec = importlib.util.spec_from_file_location("android_runtime_cold_order_test", RUNTIME)
+        runtime = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(runtime)
+        steps = []
+        real_import = __import__
+
+        def track_import(name, *args, **kwargs):
+            if name == "app":
+                self.assertEqual(["symbols", "rust"], steps[:2])
+                self.assertEqual("synthetic@example.com", os.environ["SIMPLEOFFICE_ANDROID_ACCOUNT"])
+                self.assertEqual("x" * 64, os.environ["SIMPLEOFFICE_ANDROID_BOOTSTRAP_TOKEN"])
+                steps.append("app")
+            return real_import(name, *args, **kwargs)
+
+        from contextlib import ExitStack
+        from app import app as flask_app
+        cwd = Path.cwd()
+        path_before = sys.path[:]
+        try:
+            with ExitStack() as fixtures:
+                fixtures.enter_context(mock.patch.dict(os.environ))
+                fixtures.enter_context(mock.patch("builtins.__import__", side_effect=track_import))
+                fixtures.enter_context(mock.patch.object(runtime, "_promote_android_python_symbols",
+                                                         side_effect=lambda: steps.append("symbols")))
+                fixtures.enter_context(mock.patch.object(runtime, "_verify_android_cryptography_extension",
+                                                         side_effect=lambda: steps.append("rust")))
+                fixtures.enter_context(mock.patch.object(runtime, "_android_speech_class", return_value=mock.Mock()))
+                fixtures.enter_context(mock.patch.object(runtime, "make_server"))
+                fixtures.enter_context(mock.patch.object(runtime.threading, "Thread"))
+                fixtures.enter_context(mock.patch.dict(flask_app.config))
+                fixtures.enter_context(mock.patch.dict(flask_app.blueprints,
+                                                       android_auth=True, android_paired_folder=True))
+                fixtures.enter_context(mock.patch.object(flask_app, "register_blueprint"))
+                fixtures.enter_context(mock.patch.object(app_config_store, "put"))
+                self.assertTrue(runtime.start(str(ROOT), account_email="synthetic@example.com",
+                                              bootstrap_token="x" * 64))
+        finally:
+            os.chdir(cwd)
+            sys.path[:] = path_before
+        self.assertIn("app", steps)
+        self.assertEqual(["symbols", "rust", "app"], steps[:3])
+
     def test_cryptography_rust_extension_preflight_uses_the_expected_module(self):
         spec = importlib.util.spec_from_file_location("android_runtime_crypto_test", RUNTIME)
         self.assertIsNotNone(spec)
@@ -166,15 +210,17 @@ class AndroidRuntimeTests(unittest.TestCase):
 
         runtime._THREAD = RunningThread()
         runtime._SERVER = object()
-        with mock.patch.object(runtime, "_configure_environment") as configure:
-            self.assertTrue(runtime.start(str(ROOT), "", "user@example.com", "x" * 64))
-            configure.assert_called_once_with(
-                ROOT.resolve(), "", "user@example.com", "x" * 64, ""
-            )
+        with (mock.patch.object(runtime, "_configure_environment") as configure,
+              mock.patch.object(runtime, "_configure_lan_addresses") as configure_lan):
+            self.assertTrue(runtime.start(str(ROOT), "", "user@example.com", "x" * 64, "10.0.0.8"))
+            configure.assert_called_once_with(ROOT.resolve(), "", "user@example.com", "x" * 64)
+            configure_lan.assert_called_once_with("10.0.0.8")
 
             configure.reset_mock()
+            configure_lan.reset_mock()
             self.assertTrue(runtime.start(str(ROOT)))
             configure.assert_not_called()
+            configure_lan.assert_not_called()
 
 
 if __name__ == "__main__":

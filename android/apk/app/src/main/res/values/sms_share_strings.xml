@@ -1,0 +1,6 @@
+<resources>
+    <string name="sms_share_title">Review shared SMS</string>
+    <string name="sms_share_review">Use the shared text in the SMS archive for the account shown behind this dialog? Nothing is saved yet.</string>
+    <string name="sms_share_use">Copy into form</string>
+    <string name="sms_share_not_copied">Text was not copied. An existing draft is not overwritten. You can paste the message manually.</string>
+</resources>

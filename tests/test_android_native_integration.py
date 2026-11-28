@@ -158,7 +158,8 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         handler = self.read(JAVA / "AndroidDownloadHandler.java")
         activity = self.read(JAVA / "MainActivity.java")
         self.assertIn('Intent.ACTION_CREATE_DOCUMENT', handler)
-        self.assertIn('CookieManager.getInstance().getCookie(url)', handler)
+        self.assertIn('CookieManager.getInstance().getCookie(download.url)', handler)
+        self.assertNotIn('final String cookie;', handler)
         self.assertIn('connection.setInstanceFollowRedirects(false)', handler)
         self.assertIn('127.0.0.1', handler)
         self.assertIn('localhost', handler)
@@ -169,6 +170,21 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertIn('nicht unterstütztem Link-Schema wurde blockiert', handler)
         self.assertIn('webView.setDownloadListener', activity)
         self.assertIn('downloadHandler.onActivityResult', activity)
+
+    def test_save_document_result_is_disjoint_from_other_native_activity_results(self):
+        import re
+
+        handler = self.read(JAVA / "AndroidDownloadHandler.java")
+        request_code = re.search(r"SAVE_DOCUMENT_REQUEST = (\d+);", handler)
+        self.assertIsNotNone(request_code)
+        for filename in ("MainActivity.java", "AndroidGoogleAuthorization.java", "AndroidDeviceSourcePreview.java"):
+            with self.subTest(filename=filename):
+                used = re.findall(r"\b\w*REQUEST\w*\s*=\s*(\d+)\s*;", self.read(JAVA / filename))
+                self.assertTrue(used)
+                self.assertNotIn(request_code[1], used)
+        result_handler = handler.split("boolean onActivityResult(", 1)[1].split("private static void debugStage", 1)[0]
+        self.assertLess(result_handler.index("pending = null;"), result_handler.index("RESULT_OK"))
+        self.assertIn("if (BuildConfig.DEBUG) Log.i(DEBUG_TAG, phase);", handler)
 
     def test_local_folders_use_persistable_tree_grants_and_keep_uris_native(self):
         registry = self.read(JAVA / "AndroidLocalFolderRegistry.java")
