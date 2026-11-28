@@ -79,6 +79,15 @@ class AndroidApkBuildMatrixTest(unittest.TestCase):
         self.assertIn("SIMPLEOFFICE_BUILD_DATE", text)
         self.assertIn("SIMPLEOFFICE_BUILD_SEQUENCE", text)
 
+    def test_inventory_only_prs_rebuild_the_android_webview_assets(self):
+        workflow = Path(".github/workflows/android-apk-build.yml").read_text(encoding="utf-8")
+        pr_filters = workflow.split("  pull_request:\n", 1)[1].split("  push:\n", 1)[0]
+        for pattern in ("app/inventory.py", "static/js/inventory*.js", "templates/inventory/**"):
+            self.assertIn(f"      - '{pattern}'", pr_filters)
+        for path in ("static/js/inventory_nfc.js", "templates/inventory/index.html"):
+            self.assertIn(f"grep -F 'assets/simpleoffice/{path}' /tmp/apk-files.txt", workflow)
+            self.assertTrue(Path(path).is_file())
+
     def test_apk_job_downloads_and_hash_verifies_all_native_python_wheels(self):
         for workflow_name in ("android-apk-build.yml", "ubuntu-26-compat.yml"):
             text = (Path(".github/workflows") / workflow_name).read_text(encoding="utf-8")

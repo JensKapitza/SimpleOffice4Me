@@ -143,7 +143,10 @@ public class MainActivity extends Activity {
     private final List<Uri> queuedFolderImportUris = new ArrayList<>();
     private final List<Uri> queuedFolderImportOwnedGrants = new ArrayList<>();
     private NfcAdapter nfcAdapter;
-    private boolean nfcScanRequested;
+    private String nfcRequestId = "";
+    private Runnable nfcTimeout;
+    private volatile long nfcPageEpoch;
+    private boolean nfcResumed;
     private volatile boolean localPageVisible;
     // Written on the WebView UI thread, read by @JavascriptInterface worker threads.
     private volatile String currentWebViewUrl = "";
@@ -342,11 +345,10 @@ public class MainActivity extends Activity {
                 pendingLocalFolderResult = "";
                 if (localFolderNames != null) localFolderNames.clear();
                 localPageVisible = isLocalUrl(url);
+                nfcPageEpoch++;
+                stopNfcReader();
                 if (offlineWorksetStore != null) offlineWorksetStore.unbindOwner();
-                if (!localPageVisible) {
-                    stopNfcReader();
-                    return;
-                }
+                if (!localPageVisible) return;
                 mainFrameLoadFailed = false;
                 showStatus("SimpleOffice4Me wird geladen …", true);
             }
@@ -380,6 +382,10 @@ public class MainActivity extends Activity {
             public void doUpdateVisitedHistory(WebView view, String url, boolean isReload) {
                 super.doUpdateVisitedHistory(view, url, isReload);
                 intakeBarcode.onHistory(url, isReload);
+                if (isReload || !isNfcInventoryPage(url)) {
+                    nfcPageEpoch++;
+                    stopNfcReader();
+                }
                 if (isReload || !isOfflineSpeechSettingsPage(url)) offlineSpeechSettingsNonce = "";
             }
 
@@ -387,6 +393,7 @@ public class MainActivity extends Activity {
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 super.onReceivedError(view, request, error);
                 if (request.isForMainFrame()) {
+                    nfcPageEpoch++;
                     intakeBarcode.onLoadFailed();
                     offlineSpeechSettingsNonce = "";
                     deviceSourcePageReady = false;
@@ -636,13 +643,9 @@ public class MainActivity extends Activity {
                 + googleDriveUiShim()
                 + deviceSourcesUiShim()
                 + "window.dispatchEvent(new Event('simpleoffice:native-audio-ready'));"
-                + "if(!window.NDEFReader){class NativeNDEFReader extends EventTarget{async scan(){"
-                + "const state=String(window.SimpleOfficeAndroid.startNfcScan(bridgeToken));"
-                + "if(state!=='ok')throw new DOMException(state==='disabled'?'NFC ist deaktiviert.':'NFC ist nicht verfügbar.','NotSupportedError');"
-                + "window.addEventListener('simpleoffice:nfc',(event)=>{const reading=new Event('reading');"
-                + "Object.defineProperty(reading,'serialNumber',{value:String(event.detail||'')});"
-                + "Object.defineProperty(reading,'message',{value:{records:[]}});this.dispatchEvent(reading);},{once:true});}}"
-                + "window.NDEFReader=NativeNDEFReader;}"
+                + "window.SimpleOfficeNativeNfc={"
+                + "start:(id)=>String(window.SimpleOfficeAndroid.startNfcScan(bridgeToken,id)),"
+                + "stop:(id)=>window.SimpleOfficeAndroid.stopNfcScan(bridgeToken,id)};"
                 + "document.addEventListener('click',function(event){"
                 + "const trigger=event.target&&event.target.closest?event.target.closest('#start-barcode,#shopping-barcode-scan'):null;"
                 + "if(!trigger)return;"
@@ -1168,12 +1171,24 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
-        public String startNfcScan(String token) {
-            if (!bridgeAllowed(token)) return "blocked";
+        public String startNfcScan(String token, String requestId) {
+            if (!bridgeAllowed(token) || !isNfcInventoryPage(currentWebViewUrl)
+                    || !validNfcRequestId(requestId)) return "blocked";
             if (nfcAdapter == null) return "unavailable";
             if (!nfcAdapter.isEnabled()) return "disabled";
-            mainHandler.post(MainActivity.this::beginNfcScan);
+            long epoch = nfcPageEpoch;
+            mainHandler.post(() -> {
+                if (epoch == nfcPageEpoch) beginNfcScan(requestId);
+            });
             return "ok";
+        }
+
+        @JavascriptInterface
+        public void stopNfcScan(String token, String requestId) {
+            if (!bridgeAllowed(token) || !validNfcRequestId(requestId)) return;
+            mainHandler.post(() -> {
+                if (requestId.equals(nfcRequestId)) stopNfcReader();
+            });
         }
 
         @JavascriptInterface
@@ -1775,43 +1790,71 @@ public class MainActivity extends Activity {
         else if (state != null) applyBarcodeStatusToPage(state);
     }
 
-    private void beginNfcScan() {
-        if (!localPageVisible || nfcAdapter == null || !nfcAdapter.isEnabled()) return;
+    private static boolean validNfcRequestId(String id) {
+        return id != null && id.length() <= 48 && id.matches("inventory-[a-z0-9]+-[a-z0-9]+");
+    }
+
+    private static boolean isNfcInventoryPage(String url) {
+        if (!isLocalUrl(url)) return false;
+        String path = Uri.parse(url).getPath();
+        return "/inventory".equals(path) || "/inventory/".equals(path);
+    }
+
+    private void beginNfcScan(String requestId) {
+        if (!nfcResumed || !localPageVisible || mainFrameLoadFailed || webView == null
+                || !isNfcInventoryPage(webView.getUrl())) return;
+        stopNfcReader();
+        if (nfcAdapter == null || !nfcAdapter.isEnabled()) {
+            dispatchNfcResult(requestId, nfcAdapter == null ? "unavailable" : "disabled", "");
+            return;
+        }
         int flags = NfcAdapter.FLAG_READER_NFC_A | NfcAdapter.FLAG_READER_NFC_B
                 | NfcAdapter.FLAG_READER_NFC_F | NfcAdapter.FLAG_READER_NFC_V
-                | NfcAdapter.FLAG_READER_NFC_BARCODE;
-        nfcScanRequested = true;
+                | NfcAdapter.FLAG_READER_NFC_BARCODE | NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK;
+        nfcRequestId = requestId;
+        nfcTimeout = () -> finishNfcScan(requestId, "timeout", "");
+        mainHandler.postDelayed(nfcTimeout, 15_000);
         try {
-            nfcAdapter.enableReaderMode(this, this::handleNfcTag, flags, null);
-        } catch (IllegalStateException error) {
-            nfcScanRequested = false;
+            nfcAdapter.enableReaderMode(this, tag -> handleNfcTag(requestId, tag), flags, null);
+        } catch (IllegalStateException | UnsupportedOperationException | SecurityException error) {
+            finishNfcScan(requestId, "failed", "");
         }
     }
 
-    private void handleNfcTag(Tag tag) {
+    private void handleNfcTag(String requestId, Tag tag) {
         String serial = toHex(tag == null ? null : tag.getId());
-        mainHandler.post(() -> {
-            stopNfcReader();
-            if (webView == null || !localPageVisible || serial.isEmpty()) return;
-            String quoted = JSONObject.quote(serial);
-            webView.evaluateJavascript(
-                    "window.dispatchEvent(new CustomEvent('simpleoffice:nfc',{detail:" + quoted + "}));",
-                    null);
-        });
+        mainHandler.post(() -> finishNfcScan(requestId, serial.isEmpty() ? "no-id" : "ok", serial));
+    }
+
+    private void finishNfcScan(String requestId, String state, String serial) {
+        if (!requestId.equals(nfcRequestId)) return;
+        stopNfcReader();
+        dispatchNfcResult(requestId, state, serial);
+    }
+
+    private void dispatchNfcResult(String requestId, String state, String serial) {
+        if (webView == null || !localPageVisible || !isNfcInventoryPage(webView.getUrl())) return;
+        webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('simpleoffice:nfc',{detail:{requestId:"
+                + JSONObject.quote(requestId) + ",state:" + JSONObject.quote(state)
+                + ",serial:" + JSONObject.quote(serial) + "}}));", null);
     }
 
     private void stopNfcReader() {
-        if (nfcAdapter != null && nfcScanRequested) {
+        if (nfcTimeout != null) mainHandler.removeCallbacks(nfcTimeout);
+        nfcTimeout = null;
+        boolean active = !nfcRequestId.isEmpty();
+        nfcRequestId = "";
+        if (nfcAdapter != null && active) {
             try {
                 nfcAdapter.disableReaderMode(this);
-            } catch (IllegalStateException ignored) {
+            } catch (IllegalStateException | UnsupportedOperationException ignored) {
+                // A stopped Activity can no longer own reader mode.
             }
         }
-        nfcScanRequested = false;
     }
 
     private static String toHex(byte[] bytes) {
-        if (bytes == null || bytes.length == 0) return "";
+        if (bytes == null || bytes.length == 0 || bytes.length > 32) return "";
         char[] alphabet = "0123456789ABCDEF".toCharArray();
         char[] result = new char[bytes.length * 2];
         for (int index = 0; index < bytes.length; index++) {
@@ -2010,6 +2053,8 @@ public class MainActivity extends Activity {
             webView.evaluateJavascript("window.dispatchEvent(new Event('simpleoffice:speech-stop'));", null);
         }
         offlineSpeechResumed = false;
+        nfcResumed = false;
+        nfcPageEpoch++;
         AndroidOfflineSpeech.onPause(offlineSpeechOwner);
         intakeBarcode.setResumed(false);
         // The Android permission dialog may pause this Activity before delivering its result.
@@ -2031,6 +2076,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         offlineSpeechResumed = true;
+        nfcResumed = true;
         if (bundledBackendReady) AndroidOfflineSpeech.onResume(offlineSpeechOwner, getApplicationContext());
         if (webView != null) {
             webView.resumeTimers();

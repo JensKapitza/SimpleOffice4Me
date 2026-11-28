@@ -205,11 +205,21 @@ def _warranty_months(value: Any) -> str:
     return str(months)
 
 
+_NFC_UID = re.compile(r"[0-9A-Fa-f]{2}(?:[ :\-]?[0-9A-Fa-f]{2}){0,31}")
+
+
+def _canonical_nfc_uid(value: str) -> str:
+    if not _NFC_UID.fullmatch(value):
+        return ""
+    return re.sub(r"[ :\-]", "", value).upper()
+
+
 def _object_fields(form: Any, isbn: str) -> dict[str, str]:
+    nfc_id = _single_line(form.get("nfc_id"), 240)
     values = {
         "isbn": isbn,
         "barcode": _single_line(form.get("barcode"), 120),
-        "nfc_id": _single_line(form.get("nfc_id"), 240),
+        "nfc_id": _canonical_nfc_uid(nfc_id) or nfc_id,
         "manufacturer": _single_line(form.get("manufacturer"), 240),
         "model": _single_line(form.get("model"), 240),
         "serial_number": _single_line(form.get("serial_number"), 240),
@@ -233,18 +243,26 @@ def _object_fields(form: Any, isbn: str) -> dict[str, str]:
 def _find_exact(identifier: str = "", nfc_id: str = "") -> dict[str, Any] | None:
     identifier = _single_line(identifier, 120)
     nfc_id = _single_line(nfc_id, 240)
-    queries = list(dict.fromkeys(value for value in (identifier, nfc_id) if value))
-    if not queries:
+    if not identifier and not nfc_id:
         return None
     store = _objects()
-    candidates: dict[str, dict[str, Any]] = {}
-    for query in queries:
-        for item in store.objects(query):
-            candidates[str(item.get("object_id", ""))] = item
-    for item in candidates.values():
-        if identifier and str(item.get("identifier", "")).strip() == identifier:
+    canonical_uid = _canonical_nfc_uid(nfc_id)
+    # Historical UIDs may have separators or a payload suffix, so a text
+    # search for the normalized UID cannot narrow down those candidates.
+    catalog = store.objects() if canonical_uid else None
+    if identifier:
+        candidates = catalog if catalog is not None else store.objects(identifier)
+        for item in candidates:
+            if str(item.get("identifier", "")).strip() == identifier:
+                return item
+    if not nfc_id:
+        return None
+    candidates = catalog if catalog is not None else store.objects(nfc_id)
+    for item in candidates:
+        stored_nfc = str(item.get("fields", {}).get("nfc_id", "")).strip()
+        if stored_nfc == nfc_id:
             return item
-        if nfc_id and str(item.get("fields", {}).get("nfc_id", "")).strip() == nfc_id:
+        if canonical_uid and _canonical_nfc_uid(stored_nfc.split(" | ", 1)[0]) == canonical_uid:
             return item
     return None
 
@@ -762,6 +780,39 @@ def find_item():
         "name": item.get("name", ""),
         "url": url_for("inventory.item_detail", object_id=item["object_id"]),
     })
+
+
+@bp.post("/nfc-find")
+@login_required
+def find_nfc_tag():
+    """Private exact tag lookup; do not send the UID in URLs or follow tag payloads."""
+    if not request.is_json or not request.content_length or request.headers.get("Transfer-Encoding"):
+        abort(400)
+    if request.content_length > 512:
+        abort(413)
+    body = request.get_json(silent=True)
+    if type(body) is not dict or set(body) != {"uid"} or not isinstance(body["uid"], str):
+        abort(400)
+    uid = _canonical_nfc_uid(body["uid"].strip())
+    if not uid:
+        abort(400)
+    matches = []
+    limited = False
+    for item in _objects().objects():
+        stored = str(item.get("fields", {}).get("nfc_id", "")).strip()
+        if _canonical_nfc_uid(stored.split(" | ", 1)[0]) != uid:
+            continue
+        if len(matches) == 20:
+            limited = True
+            break
+        matches.append({
+            "object_id": item["object_id"], "name": item.get("name", "")[:160],
+            "display_id": item.get("display_id", ""), "location": item.get("location", "")[:160],
+        })
+    response = jsonify({"matches": matches, "limited": limited})
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
 
 
 @bp.get("/amazon")
