@@ -1,5 +1,6 @@
 """Explicit opt-in and one real Web Audio node on the authenticated copy feed."""
 import importlib.util
+from io import BytesIO
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -10,6 +11,7 @@ from werkzeug.serving import make_server
 
 from app import app
 from app.db import ensure_auth_database
+from app.document_store import DocumentStore
 from app.settings_store import SettingsStore
 from app.v3_activity import ActivityStore
 from app.workflow_peer_notices import PEER_NOTICE
@@ -17,7 +19,7 @@ from app.workflow_peer_notices import PEER_NOTICE
 
 @unittest.skipUnless(importlib.util.find_spec("playwright"), "install the optional web-export extra")
 class CopyNoticeSoundBrowserTest(unittest.TestCase):
-    def test_new_paired_notice_sounds_after_a_real_click(self):
+    def test_paired_and_real_local_copy_sound_after_explicit_choice(self):
         from playwright.sync_api import Error, sync_playwright
 
         with sync_playwright() as runtime:
@@ -101,3 +103,32 @@ class CopyNoticeSoundBrowserTest(unittest.TestCase):
         page.wait_for_selector('[data-notice-read="1"]')
         page.reload(wait_until="domcontentloaded")
         self.assertEqual("1", notice.get_attribute("data-notice-read"))
+        self.assertEqual("false", button.get_attribute("aria-pressed"))
+        source = page.locator("[data-copy-notice-sound-source]")
+        source.select_option("local")
+        csrf = page.locator("[data-copy-read-token]").input_value()
+        headers = {"X-CSRF-Token": csrf}
+        activate = page.request.post(
+            origin + "/automation-v3/copy-notice", headers=headers, form={"source": "browser"}, max_redirects=0,
+        )
+        self.assertEqual(302, activate.status)
+        button.click()
+        page.wait_for_selector('[data-copy-notice-sound][aria-pressed="true"]')
+        preview = page.locator("[data-copy-notice-test-sound]")
+        preview.click()
+        page.wait_for_function("() => window.copyTones.length === 1")
+        ActivityStore(root).record(PEER_NOTICE, "owner", event_id="b" * 64, source="synthetic.audio.smoke")
+        page.wait_for_selector(f'[data-notice-id="{"b" * 64}"]', timeout=12_000)
+        self.assertEqual([660], page.evaluate("() => window.copyTones"))
+        (root / "copies").mkdir()
+        document = DocumentStore(root).import_upload(BytesIO(b"audio smoke"), "synthetic.txt", "owner")
+        copied = page.request.post(
+            origin + f"/documents/{document['document_id']}/copy", headers=headers,
+            form={"destination_folder": "copies"}, max_redirects=0,
+        )
+        self.assertEqual(302, copied.status)
+        self.assertEqual(b"audio smoke", (root / "copies" / "synthetic.txt").read_bytes())
+        page.wait_for_function("() => window.copyTones.length === 2", timeout=12_000)
+        source.select_option("all")
+        self.assertEqual("false", button.get_attribute("aria-pressed"))
+        self.assertTrue(preview.is_disabled())

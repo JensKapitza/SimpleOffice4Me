@@ -21,22 +21,30 @@
   let stopped = false;
   let active = true;
 
+  const audioControls = pane.querySelector('[data-copy-notice-audio]');
+  const sourceSelect = pane.querySelector('[data-copy-notice-sound-source]');
+  const testSound = pane.querySelector('[data-copy-notice-test-sound]');
   const soundButton = pane.querySelector('[data-copy-notice-sound]');
   const soundStatus = pane.querySelector('[data-copy-notice-sound-status]');
   const Audio = window.AudioContext || window.webkitAudioContext;
   let audio;
-  let armed = false;
+  let armedSource;
+  let armedAt;
+  let tone;
 
   const showSoundState = message => {
     if (!soundButton || !soundStatus) return;
-    soundButton.setAttribute('aria-pressed', String(armed));
+    soundButton.setAttribute('aria-pressed', String(Boolean(armedSource)));
+    if (testSound) testSound.disabled = !armedSource;
     soundStatus.textContent = message || '';
   };
   const disarm = () => {
     const previous = audio;
     const hadSound = Boolean(previous);
     audio = undefined;
-    armed = false;
+    armedSource = undefined;
+    armedAt = undefined;
+    tone = undefined;
     if (previous) {
       void previous.close().catch(() => {});
       showSoundState(pane.dataset.soundOffLabel);
@@ -45,7 +53,8 @@
   };
   const maySound = () => active && !stopped && !document.hidden && navigator.onLine !== false;
   if (soundButton && soundStatus && Audio) {
-    soundButton.hidden = false;
+    if (audioControls) audioControls.hidden = false;
+    sourceSelect?.addEventListener('change', disarm);
     soundButton.addEventListener('click', async () => {
       if (disarm() || !maySound()) return;
       let own;
@@ -56,7 +65,10 @@
         if (audio !== own) return;
         if (!maySound()) { disarm(); return; }
         if (own.state !== 'running') throw new Error('copy tone unavailable');
-        armed = true;
+        const source = sourceSelect?.value ?? 'peer';
+        if (!['peer', 'local', 'all'].includes(source)) throw new Error('invalid audio selection');
+        armedSource = source;
+        armedAt = Date.now();
         showSoundState(pane.dataset.soundOnLabel);
       } catch (_error) {
         if (!own || audio === own) {
@@ -67,7 +79,7 @@
     });
   }
   const playTone = () => {
-    if (!armed || !audio || audio.state !== 'running' || !maySound()) return;
+    if (tone || !armedSource || !audio || audio.state !== 'running' || !maySound()) return;
     try {
       const own = audio;
       const now = own.currentTime;
@@ -79,7 +91,12 @@
       envelope.gain.linearRampToValueAtTime(0, now + 0.14);
       oscillator.connect(envelope);
       envelope.connect(own.destination);
-      oscillator.onended = () => { oscillator.disconnect(); envelope.disconnect(); };
+      tone = oscillator;
+      oscillator.onended = () => {
+        if (tone === oscillator) tone = undefined;
+        oscillator.disconnect();
+        envelope.disconnect();
+      };
       oscillator.start(now);
       oscillator.stop(now + 0.15);
     } catch (_error) {
@@ -87,9 +104,14 @@
       showSoundState(pane.dataset.soundUnavailableLabel);
     }
   };
-  const fresh = item => {
-    const age = Date.now() - Date.parse(item.at);
-    return age >= -2000 && age <= 20000;
+  testSound?.addEventListener('click', playTone);
+  const audible = item => {
+    const at = Date.parse(item.at);
+    const age = Date.now() - at;
+    const group = item.kind === 'peer' ? 'peer' : 'local';
+    // Do not play backlog from before the explicit click.
+    return Boolean(armedSource) && (armedSource === 'all' || armedSource === group) &&
+      at >= armedAt && age >= -2000 && age <= 20000;
   };
 
   const updateReadButton = () => {
@@ -145,7 +167,7 @@
     seenIds = read;
     updateReadButton();
     announcement.textContent = announce && newRows.length ? pane.dataset.newLabel : '';
-    if (announce && newRows.some(item => item.kind === 'peer' && fresh(item))) playTone();
+    if (announce && newRows.some(audible)) playTone();
   };
   const refresh = async () => {
     timer = undefined;
@@ -163,7 +185,7 @@
       if (response.type === 'opaqueredirect' || [302, 401, 403, 404].includes(response.status)) {
         stopped = true;
         disarm();
-        if (soundButton) soundButton.hidden = true;
+        if (audioControls) audioControls.hidden = true;
         render([], false);
         return;
       }
@@ -173,7 +195,7 @@
       if (payload?.enabled === false) {
         stopped = true;
         disarm();
-        if (soundButton) soundButton.hidden = true;
+        if (audioControls) audioControls.hidden = true;
         render([], false);
         return;
       }

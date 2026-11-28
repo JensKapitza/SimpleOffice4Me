@@ -13,16 +13,20 @@ function setup(initial = [], enableAudio = false) {
   const status = constructors();
   const soundStatus = constructors();
   const soundButton = Object.assign(new EventTarget(), {
-    hidden: true, attributes: {'aria-pressed': 'false'},
+    attributes: {'aria-pressed': 'false'},
     setAttribute(key, value) { this.attributes[key] = value; },
   });
+  const audioControls = {hidden: true};
+  const sourceSelect = Object.assign(new EventTarget(), {value: 'peer'});
+  const testSound = Object.assign(new EventTarget(), {disabled: true});
   const pane = {
     dataset: {endpoint: '/automation-v3/copy-notices', jobLabel: 'Job complete', browserLabel: 'Document copied',
       peerLabel: 'Paired notice', emptyLabel: 'No notifications', newLabel: 'New notification',
       soundOnLabel: 'On', soundOffLabel: 'Off', soundUnavailableLabel: 'Unavailable'},
     querySelector(sel) {
       return {'[data-copy-notice-list]': list, '[data-copy-notice-announcement]': status,
-        '[data-copy-notice-sound]': soundButton, '[data-copy-notice-sound-status]': soundStatus}[sel];
+        '[data-copy-notice-audio]': audioControls, '[data-copy-notice-sound-source]': sourceSelect,
+        '[data-copy-notice-test-sound]': testSound, '[data-copy-notice-sound]': soundButton, '[data-copy-notice-sound-status]': soundStatus}[sel];
     },
   };
   const document = Object.assign(new EventTarget(), {hidden: false, querySelector: () => pane, createElement: constructors});
@@ -39,7 +43,7 @@ function setup(initial = [], enableAudio = false) {
         return {gain: {setValueAtTime() {}, linearRampToValueAtTime() {}}, connect() {}, disconnect() {}};
       }
       createOscillator() {
-        return {frequency: {}, connect() {}, disconnect() {}, start() { sounds.push(this.frequency.value); }, stop() {}};
+        return {frequency: {}, connect() {}, disconnect() {}, start() { sounds.push(this.frequency.value); this.onended(); }, stop() {}};
       }
     };
   }
@@ -67,7 +71,7 @@ function setup(initial = [], enableAudio = false) {
     await promise;
   };
   return {list, status, timers, pending, document, window, navigator, tick, start, answer, sounds, soundButton,
-    soundStatus, closeCount: () => closed};
+    soundStatus, audioControls, sourceSelect, testSound, closeCount: () => closed};
 }
 
 const good = (...notices) => ({ok: true, status: 200, json: async () => ({enabled: true, notices})});
@@ -145,9 +149,9 @@ test('fresh paired notice sounds once after explicit opt-in and not for old or l
   await new Promise(setImmediate);
   assert.equal(c.soundButton.attributes['aria-pressed'], 'true');
   const recent = peer('c');
-  await c.answer(good(recent, peer('d'), row, old), c.start(5000));
+  await c.answer(good(recent, peer('d'), {...row, at: new Date().toISOString()}, old), c.start(5000));
   assert.deepEqual(c.sounds, [660]);
-  await c.answer(good(recent, peer('d'), row, old), c.start(5000));
+  await c.answer(good(recent, peer('d'), {...row, at: new Date().toISOString()}, old), c.start(5000));
   assert.deepEqual(c.sounds, [660]);
   await c.answer(good({...row, id: 'e'.repeat(64)}, peer('f', new Date(Date.now() - 30_000)), recent), c.start(5000));
   assert.deepEqual(c.sounds, [660]);
@@ -174,5 +178,31 @@ test('switching tabs or revoking access closes audio and never plays catch-up au
   await new Promise(setImmediate);
   await c.answer({ok: false, status: 403}, c.start(5000));
   assert.equal(c.closeCount(), 2);
-  assert.equal(c.soundButton.hidden, true);
+  assert.equal(c.audioControls.hidden, true);
+});
+
+test('local and combined selection only sound for unread matching events after a fresh opt-in', async () => {
+  const c = setup([], true);
+  assert.equal(c.audioControls.hidden, false);
+  c.sourceSelect.value = 'local';
+  c.sourceSelect.dispatchEvent(new Event('change'));
+  c.soundButton.dispatchEvent(new Event('click'));
+  await new Promise(setImmediate);
+  assert.equal(c.testSound.disabled, false);
+  c.testSound.dispatchEvent(new Event('click'));
+  const stale = {...row, at: new Date(Date.now() - 5000).toISOString()};
+  await c.answer(good(stale, peer('b')), c.start(5000));
+  assert.deepEqual(c.sounds, [660]); // the intentional test tone only
+  const local = {...row, id: 'c'.repeat(64), at: new Date().toISOString()};
+  await c.answer(good(stale, peer('b'), local), c.start(5000));
+  assert.deepEqual(c.sounds, [660, 660]);
+  c.sourceSelect.value = 'all';
+  c.sourceSelect.dispatchEvent(new Event('change'));
+  assert.equal(c.testSound.disabled, true);
+  await c.answer(good(local, peer('d')), c.start(5000));
+  assert.deepEqual(c.sounds, [660, 660]);
+  c.soundButton.dispatchEvent(new Event('click'));
+  await new Promise(setImmediate);
+  await c.answer(good(local, peer('d'), peer('e')), c.start(5000));
+  assert.deepEqual(c.sounds, [660, 660, 660]);
 });

@@ -76,10 +76,14 @@ online ist, normalerweise alle fünf Sekunden. Ein Hintergrund-Tab startet
 keine Anfragen. Bei vorübergehenden Fehlern bleibt die letzte sichtbare Liste
 erhalten; nach Ende der Sitzung oder Abschalten der Funktion stoppt der Abruf.
 Das ist eine Aktualisierung dieser Seite, kein Push außerhalb der App.
-Für neue Meldungen gekoppelter Instanzen ist ein kurzer Ton in diesem
-sichtbaren Tab optional. Der Empfänger aktiviert ihn ausdrücklich; beim
-Tabwechsel, Verlassen der Seite, Offlinegehen oder Ende der Sitzung wird
-er abgeschaltet. Alte Meldungen werden nicht nachvertont.
+Unter **Meldungston** kannst du zwischen lokalen Kopien und Kopierjobs,
+Meldungen gekoppelter Instanzen oder beiden Gruppen wählen. Schalte **Ton
+in diesem Tab** ausdrücklich ein und prüfe die Ausgabe mit **Ton testen**.
+Die Auswahl verändert keine Regeln und erzeugt keine zusätzliche Meldung.
+Beim Ändern der Auswahl, Tabwechsel, Verlassen der Seite, Offlinegehen oder
+Ende der Sitzung schaltet sich der Ton ab. Alte Meldungen werden nicht
+nachvertont. Eine Betriebssystem- oder Hintergrundbenachrichtigung ist das
+nicht.
 
 Mit **Sichtbare Meldungen als gelesen markieren** quittierst du nur die
 gerade angezeigten Einträge. Sie bleiben im Verlauf und der Gelesen-Status
