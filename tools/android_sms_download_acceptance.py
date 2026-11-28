@@ -93,10 +93,26 @@ class Device:
             if port is not None:
                 self.adb("forward", "--remove", f"tcp:{port}")
 
+    def startup_milestones(self):
+        allowed = {
+            "launcher-created", "local-choice-present", "account-picker", "account-picker-returned",
+            "clearing-session", "cleared-session", "assets-ready", "python-ready", "python-start-returned",
+            "http-ready", "bootstrap-failed", "open-navigation", "launcher-destroyed",
+            "navigation-creating", "navigation-created",
+        }
+        try:
+            log = self.adb("logcat", "-d", "-s", "SO4MEStartup:I")
+            events = [line.rsplit(": ", 1)[-1] for line in log.splitlines() if ": " in line]
+            print("Debug startup milestones:", " ".join(item for item in events if item in allowed) or "none",
+                  flush=True)
+        except (OSError, subprocess.SubprocessError):
+            print("Debug startup milestones: unavailable", flush=True)
+
     def diagnose_startup(self, probe):
         """Report fixed phases, never a raw hierarchy, response, cookie or credential."""
         print("DevTools probe:", probe, flush=True)
         self.foreground("at timeout")
+        self.startup_milestones()
         self.backend_probe()
         try:
             statuses = [node.get("text", "") for node in self.nodes() if node.get("package") == APP]
