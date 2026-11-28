@@ -113,6 +113,7 @@ PERSISTENCE_COVERAGE = {
     "mail_case_attachments": "excluded:mail-case draft attachments require case participant ACLs and malware-scan state",
     "mail_send_delegation": "excluded:mail account delegation is authorization state and must not be projected through generic S3",
     "mail_index": "excluded:internal mail search index; EML archive provider is authoritative",
+    "sms_archive_store": "excluded:SMS bodies and addresses are private; only an authenticated account can export a selected backup via Communication",
     "osm_address_storage": "excluded:public geodata index, not application-owned user data",
     "printershare_store": "excluded:printer credentials and job control state",
     "project_tracker": "pending-provider:project time and billing records need project ACLs",

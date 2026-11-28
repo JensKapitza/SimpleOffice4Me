@@ -79,7 +79,6 @@ def _configure_environment(
     error_report_url: str = "",
     account_email: str = "",
     bootstrap_token: str = "",
-    lan_addresses: str = "",
 ) -> None:
     os.chdir(runtime_root)
     if str(runtime_root) not in sys.path:
@@ -94,8 +93,6 @@ def _configure_environment(
     os.environ["SIMPLEOFFICE_OSM_INDEX"] = "0"
     os.environ["SIMPLEOFFICE_DATALOGGER"] = "0"
     os.environ["SIMPLEOFFICE_MCP"] = "0"
-    _configure_lan_addresses(lan_addresses)
-
     email = str(account_email or "").strip().casefold()
     token = str(bootstrap_token or "").strip()
     if len(email) > 320 or any(character.isspace() for character in email):
@@ -196,12 +193,18 @@ def set_lan_addresses(lan_addresses: str = "") -> bool:
     return True
 
 
+def _startup_stage(debug: bool, stage: str) -> None:
+    if debug is True:
+        print("SO4ME_PY_START " + stage, flush=True)
+
+
 def start(
     runtime_root: str,
     error_report_url: str = "",
     account_email: str = "",
     bootstrap_token: str = "",
     lan_addresses: str = "",
+    debug_startup: bool = False,
 ) -> bool:
     """Import the app and bind the local server before returning.
 
@@ -212,6 +215,7 @@ def start(
     """
     global _SERVER, _THREAD
 
+    _startup_stage(debug_startup, "python-entry")
     root = Path(runtime_root).resolve()
     if not (root / "app" / "__init__.py").is_file():
         raise RuntimeError(f"SimpleOffice4Me sources missing under {root}")
@@ -228,20 +232,27 @@ def start(
         # and must not clear a valid bootstrap identity.
         if bootstrap_token:
             _configure_environment(
-                root, error_report_url, account_email, bootstrap_token, lan_addresses
+                root, error_report_url, account_email, bootstrap_token
             )
+            _configure_lan_addresses(lan_addresses)
         elif lan_addresses:
             _configure_lan_addresses(lan_addresses)
         return True
 
     _configure_environment(
-        root, error_report_url, account_email, bootstrap_token, lan_addresses
+        root, error_report_url, account_email, bootstrap_token
     )
+    # Importing any app.* module implicitly initializes app/__init__.py.
+    # Finish environment and native linking before LAN setup can do that.
+    _startup_stage(debug_startup, "environment-ready")
     _promote_android_python_symbols()
+    _startup_stage(debug_startup, "symbols-ready")
     _verify_android_cryptography_extension()
+    _startup_stage(debug_startup, "rust-ready")
 
     try:
         from app import app
+        _startup_stage(debug_startup, "flask-imported")
         from app import android_auth, android_paired_folder
         # Register native routes on every Android runtime start, even when the
         # system restores NavigationActivity directly. Without a bootstrap token
@@ -250,6 +261,8 @@ def start(
             app.register_blueprint(android_auth.bp)
         if android_paired_folder.bp.name not in app.blueprints:
             app.register_blueprint(android_paired_folder.bp)
+        _configure_lan_addresses(lan_addresses)
+        _startup_stage(debug_startup, "routes-ready")
     except Exception as exc:
         raise RuntimeError(f"SimpleOffice4Me import failed: {type(exc).__name__}: {exc}") from exc
 
@@ -293,4 +306,5 @@ def start(
         daemon=True,
     )
     _THREAD.start()
+    _startup_stage(debug_startup, "backend-listening")
     return True

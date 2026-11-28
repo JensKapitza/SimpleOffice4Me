@@ -1,0 +1,138 @@
+{% extends "layout.html" %}
+{% set en = g.language == 'en' %}
+{% block title %}{{ 'SMS archive' if en else 'SMS-Archiv' }} · SimpleOffice4Me{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-lg py-4">
+  <h1 class="h2">{{ 'SMS archive' if en else 'SMS-Archiv' }}</h1>
+  <p>{{ 'Private archive and backup. This page does not read or delete messages on your phone.' if en else 'Privates Archiv mit Sicherung. Diese Seite liest oder löscht keine SMS auf deinem Handy.' }}</p>
+  {% for message in get_flashed_messages() %}
+  <p class="alert alert-info" role="status" aria-live="polite">{{ message }}</p>
+  {% endfor %}
+  {% if archive_unavailable %}
+  <p class="alert alert-warning" role="alert">{{ 'The archive could not be read. No messages were changed.' if en else 'Das Archiv konnte nicht gelesen werden. Es wurden keine Nachrichten geändert.' }}</p>
+  {% else %}
+  <div class="d-flex flex-wrap gap-2 mb-3">
+    <a class="btn btn-outline-primary" href="#sms-manual">{{ 'Add copied message' if en else 'Kopierte SMS hinzufügen' }}</a>
+    <a class="btn btn-outline-secondary" href="#sms-restore">{{ 'Restore backup' if en else 'Sicherung wiederherstellen' }}</a>
+  </div>
+  <section class="mb-4" aria-labelledby="sms-search-title">
+    <h2 class="h5" id="sms-search-title">{{ 'Search archived messages' if en else 'Archivierte Nachrichten suchen' }}</h2>
+    <form method="post" action="{{ url_for('sms_archive.index') }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <div class="row g-2">
+        <div class="col-sm-6 col-lg-4">
+          <label class="form-label" for="sms-query">{{ 'Phone number or message text' if en else 'Rufnummer oder Nachrichtentext' }}</label>
+          <input class="form-control" id="sms-query" name="query" value="{{ query }}" maxlength="256" autocomplete="off">
+        </div>
+        <div class="col-sm-6 col-lg-2">
+          <label class="form-label" for="sms-direction">{{ 'Direction' if en else 'Richtung' }}</label>
+          <select class="form-select" id="sms-direction" name="direction">
+            <option value="">{{ 'All' if en else 'Alle' }}</option>
+            <option value="inbox"{% if search_filters.direction == 'inbox' %} selected{% endif %}>{{ 'Received' if en else 'Empfangen' }}</option>
+            <option value="sent"{% if search_filters.direction == 'sent' %} selected{% endif %}>{{ 'Sent' if en else 'Gesendet' }}</option>
+          </select>
+        </div>
+        <div class="col-sm-6 col-lg-3">
+          <label class="form-label" for="sms-date-from">{{ 'From (UTC)' if en else 'Von (UTC)' }}</label>
+          <input class="form-control" id="sms-date-from" name="date_from" type="date" min="1970-01-01" max="9999-12-31" value="{{ search_filters.date_from }}">
+        </div>
+        <div class="col-sm-6 col-lg-3">
+          <label class="form-label" for="sms-date-to">{{ 'Through (UTC)' if en else 'Bis einschließlich (UTC)' }}</label>
+          <input class="form-control" id="sms-date-to" name="date_to" type="date" min="1970-01-01" max="9999-12-31" value="{{ search_filters.date_to }}">
+        </div>
+      </div>
+      {% if search_error %}<p class="alert alert-warning mt-2" role="alert">{{ search_error }}</p>{% endif %}
+      <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+        <button class="btn btn-outline-primary" name="page" value="0" type="submit">{{ 'Search' if en else 'Suchen' }}</button>
+        {% if filtering %}
+        <a class="btn btn-outline-secondary" href="{{ url_for('sms_archive.index') }}">{{ 'Clear filters' if en else 'Filter zurücksetzen' }}</a>
+        {% endif %}
+        {% if page > 0 %}<button class="btn btn-outline-secondary" name="page" value="{{ page - 1 }}" type="submit">{{ 'Previous page' if en else 'Vorherige Seite' }}</button>{% endif %}
+        {% if has_next %}<button class="btn btn-outline-secondary" name="page" value="{{ page + 1 }}" type="submit">{{ 'Next page' if en else 'Nächste Seite' }}</button>{% endif %}
+      </div>
+    </form>
+    {% if messages %}
+    {# A file response leaves this page alive, including after a canceled native picker. #}
+    <form method="post" action="{{ url_for('sms_archive.export') }}" class="mt-3" data-allow-multiple-submit="true">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <ul class="list-group mb-3">
+        {% for sms in messages %}
+        <li class="list-group-item">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="selected" id="sms-row-{{ loop.index }}" value="{{ sms.source }}:{{ sms.provider_id }}">
+            <label class="form-check-label" for="sms-row-{{ loop.index }}">
+              <span class="badge text-bg-secondary">{{ 'Archived' if en else 'Archiviert' }}</span>
+              {% if sms.manual_entry %}<span>{{ 'Manually added' if en else 'Manuell hinzugefügt' }}</span>{% endif %}
+              <span>{{ ('Received' if en else 'Empfangen') if sms.direction == 'inbox' else ('Sent' if en else 'Gesendet') }}</span>
+              <strong>{{ sms.address }}</strong>
+              <time datetime="{{ sms.sent_at }}">{{ sms.sent_at[:16].replace('T', ' ') }} UTC</time>
+            </label>
+          </div>
+          <p class="mb-0 text-break" style="white-space: pre-wrap" dir="auto">{{ sms.body }}</p>
+        </li>
+        {% endfor %}
+      </ul>
+      <p class="small">{{ 'A downloaded backup contains private messages in plain text. Store it outside the app in a protected, encrypted location.' if en else 'Die heruntergeladene Sicherung enthält private Nachrichten im Klartext. Bewahre sie außerhalb der App an einem geschützten, verschlüsselten Ort auf.' }}</p>
+      <button class="btn btn-primary" type="submit">{{ 'Back up selection' if en else 'Auswahl sichern' }}</button>
+      <button class="btn btn-outline-primary" type="submit" formaction="{{ url_for('sms_archive.mail_draft') }}">{{ 'Prepare email draft' if en else 'Mailentwurf vorbereiten' }}</button>
+    </form>
+    {% elif not search_error %}
+    <p class="mt-3">{{ ('No matching messages.' if filtering else 'No messages in the archive yet.') if en else ('Keine passenden Nachrichten.' if filtering else 'Noch keine Nachrichten im Archiv.') }}</p>
+    {% endif %}
+  </section>
+  <section class="mb-4" aria-labelledby="sms-manual-title" id="sms-manual">
+    <h2 class="h5" id="sms-manual-title">{{ 'Add a copied message' if en else 'Kopierte SMS hinzufügen' }}</h2>
+    <p>{{ 'Copy the selected SMS in your messaging app and paste its text here. In the Android app you can also use Share → SimpleOffice4Me. Nothing is read from your clipboard automatically.' if en else 'Kopiere die ausgewählte SMS in deiner Nachrichten-App und füge den Text hier ein. In der Android-App kannst du auch Teilen → SimpleOffice4Me nutzen. Die Zwischenablage wird nicht automatisch gelesen.' }}</p>
+    {% if manual_error %}<p class="alert alert-warning" role="alert">{{ manual_error }}</p>{% endif %}
+    <form method="post" action="{{ url_for('sms_archive.add_manual') }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <div class="row g-2 mb-2">
+        <div class="col-md-6">
+          <label for="sms-manual-address" class="form-label">{{ 'Phone number or sender ID' if en else 'Rufnummer oder Absenderkennung' }}</label>
+          <input id="sms-manual-address" class="form-control" name="address" maxlength="512" value="{{ manual_values.get('address', '') }}" required autocomplete="off">
+        </div>
+        <div class="col-md-6">
+          <label for="sms-manual-direction" class="form-label">{{ 'Direction' if en else 'Richtung' }}</label>
+          <select id="sms-manual-direction" class="form-select" name="direction">
+            <option value="inbox">{{ 'Received' if en else 'Empfangen' }}</option>
+            <option value="sent"{% if manual_values.get('direction') == 'sent' %} selected{% endif %}>{{ 'Sent' if en else 'Gesendet' }}</option>
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label for="sms-manual-when" class="form-label">{{ 'Original date and time' if en else 'Ursprüngliches Datum und Uhrzeit' }}</label>
+          <input id="sms-manual-when" class="form-control" name="when" type="datetime-local" step="1" value="{{ manual_values.get('when', '') }}" required>
+        </div>
+        <div class="col-md-6">
+          <label for="sms-manual-zone" class="form-label">{{ 'Time zone' if en else 'Zeitzone' }}</label>
+          <select id="sms-manual-zone" class="form-select" name="zone">
+            {% for zone in manual_zones %}<option value="{{ zone }}"{% if manual_values.get('zone') == zone %} selected{% endif %}>{{ zone }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <label for="sms-manual-body" class="form-label">{{ 'Message text' if en else 'Nachrichtentext' }}</label>
+      <textarea id="sms-manual-body" data-android-sms-share class="form-control mb-2" name="body" rows="4" maxlength="16000" required>{{ manual_values.get('body', '') }}</textarea>
+      <div class="form-check mb-2">
+        <input class="form-check-input" type="checkbox" id="sms-manual-confirm" name="confirm" value="1" required>
+        <label class="form-check-label" for="sms-manual-confirm">{{ 'Save this selected message to my private archive.' if en else 'Diese ausgewählte SMS in meinem privaten Archiv speichern.' }}</label>
+      </div>
+      <button class="btn btn-outline-primary" type="submit">{{ 'Archive message' if en else 'SMS archivieren' }}</button>
+    </form>
+  </section>
+  <section id="sms-restore" aria-labelledby="sms-restore-title">
+    <h2 class="h5" id="sms-restore-title">{{ 'Restore a backup' if en else 'Sicherung wiederherstellen' }}</h2>
+    <p>{{ 'Select a backup from this SimpleOffice account. Existing messages are never overwritten.' if en else 'Wähle eine Sicherung aus diesem SimpleOffice-Konto. Vorhandene Nachrichten werden nie überschrieben.' }}</p>
+    <form method="post" enctype="multipart/form-data" action="{{ url_for('sms_archive.restore') }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <label for="sms-backup" class="form-label">{{ 'SMS backup file' if en else 'SMS-Sicherungsdatei' }}</label>
+      <input id="sms-backup" class="form-control mb-2" type="file" name="backup" accept=".json,application/json" required>
+      <div class="form-check mb-2">
+        <input class="form-check-input" type="checkbox" id="sms-confirm" name="confirm" value="1" required>
+        <label class="form-check-label" for="sms-confirm">{{ 'Add the selected backup to my archive.' if en else 'Die ausgewählte Sicherung zu meinem Archiv hinzufügen.' }}</label>
+      </div>
+      <button class="btn btn-outline-primary" type="submit">{{ 'Restore selected file' if en else 'Ausgewählte Datei wiederherstellen' }}</button>
+    </form>
+  </section>
+  {% endif %}
+</main>
+{% endblock %}

@@ -2,6 +2,7 @@ package de.simpleoffice4me.android;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.media.projection.MediaProjectionManager;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
@@ -82,6 +83,7 @@ public class MainActivity extends Activity {
     private volatile String offlineSpeechSettingsNonce = "";
     private final AndroidAudioStreamer audioStreamer = new AndroidAudioStreamer();
     private final AndroidIntentRouter intentRouter = new AndroidIntentRouter();
+    private AlertDialog smsShareDialog;
     private final AndroidIntakeBarcodeBridge intakeBarcode = new AndroidIntakeBarcodeBridge(this, mainHandler);
     private AndroidDownloadHandler downloadHandler;
     private AndroidGoogleAuthorization googleAuthorization;
@@ -209,6 +211,7 @@ public class MainActivity extends Activity {
         if (webView != null && isLocalUrl(webView.getUrl())) {
             if (!navigateToPendingIntent(webView, webView.getUrl())) {
                 injectPendingShareUi(webView, webView.getUrl());
+                offerSharedSms(webView, webView.getUrl());
             }
         }
     }
@@ -330,6 +333,7 @@ public class MainActivity extends Activity {
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
+                if (smsShareDialog != null) smsShareDialog.dismiss();
                 intakeBarcode.onLoadStarted();
                 // Default-deny every navigation until a locally served speech page loads.
                 view.getSettings().setMediaPlaybackRequiresUserGesture(true);
@@ -371,6 +375,7 @@ public class MainActivity extends Activity {
                         bindOfflineSpeechSettings(view, url);
                     }
                     injectPendingShareUi(view, url);
+                    offerSharedSms(view, url);
                     if (!mainFrameLoadFailed) {
                         progress.setVisibility(View.GONE);
                         status.setVisibility(View.GONE);
@@ -449,7 +454,8 @@ public class MainActivity extends Activity {
         if (currentPath != null && currentPath.startsWith("/auth/")) return false;
         String target = intentRouter.pendingNavigationPath();
         if (samePath(currentPath, target)) {
-            intentRouter.clearPendingNavigation();
+            if (SmsShareText.PATH.equals(target)) intentRouter.navigationTargetReached();
+            else intentRouter.clearPendingNavigation();
             return false;
         }
         intentRouter.clearPendingNavigation();
@@ -566,6 +572,31 @@ public class MainActivity extends Activity {
                 + "box.append(text,button);root.insertBefore(box,root.firstChild);"
                 + "})(" + count + ");";
         view.evaluateJavascript(script, null);
+    }
+
+    private void offerSharedSms(WebView view, String url) {
+        if (!bundledBackendReady || mainFrameLoadFailed || !SmsShareText.URL.equals(url)
+                || !url.equals(view.getUrl()) || isFinishing() || isDestroyed()) return;
+        String text = intentRouter.takePendingSmsText();
+        if (text.isEmpty()) return;
+        if (smsShareDialog != null) smsShareDialog.dismiss();
+        smsShareDialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.sms_share_title)
+                .setMessage(R.string.sms_share_review)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.sms_share_use, (dialog, which) -> {
+                    if (!bundledBackendReady || mainFrameLoadFailed || !SmsShareText.URL.equals(view.getUrl())) return;
+                    view.evaluateJavascript(SmsShareText.fillScript(text), filled -> {
+                        if (!isFinishing() && !isDestroyed() && !"true".equals(filled)) {
+                            android.widget.Toast.makeText(this, R.string.sms_share_not_copied,
+                                    android.widget.Toast.LENGTH_LONG).show();
+                        }
+                    });
+                }).create();
+        smsShareDialog.setOnDismissListener(dialog -> {
+            if (smsShareDialog == dialog) smsShareDialog = null;
+        });
+        smsShareDialog.show();
     }
 
     private void showSharedFilesSelected(int count) {
@@ -2123,6 +2154,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (smsShareDialog != null) smsShareDialog.dismiss();
         offlineSpeechResumed = false;
         offlineSpeechSettingsNonce = "";
         AndroidOfflineSpeech.onStop(offlineSpeechOwner);
