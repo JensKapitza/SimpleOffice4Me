@@ -5,9 +5,10 @@ import argparse
 from contextlib import contextmanager
 import math
 import re
+import time
 from urllib.parse import urlsplit
 
-from playwright.sync_api import expect, sync_playwright
+from playwright.sync_api import Error as PlaywrightError, expect, sync_playwright
 
 from tools.android_emulator_smoke import _adb
 from tools.android_nfc_fallback_acceptance import APP, ORIGIN, webview_port
@@ -115,6 +116,38 @@ def main():
         verify_save(page, channel)
 
 
+def choose_foreground(candidates):
+    focused = [page for page, visible, focus in candidates if visible and focus]
+    if len(focused) == 1:
+        return focused[0]
+    visible = [page for page, visible, _ in candidates if visible]
+    return visible[0] if len(visible) == 1 else None
+
+
+def foreground_page(browser, *, seconds=45):
+    # Launcher re-entry can add another Activity/WebView while the previous
+    # one remains a debuggable target. Never trust the DevTools list order.
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        candidates = []
+        for context in browser.contexts:
+            for page in context.pages:
+                if not page.url.startswith(ORIGIN + "/") or page.is_closed():
+                    continue
+                try:
+                    visible, focused = page.evaluate(
+                        "() => [document.visibilityState === 'visible', document.hasFocus()]"
+                    )
+                    candidates.append((page, visible, focused))
+                except PlaywrightError:
+                    continue
+        selected = choose_foreground(candidates)
+        if selected is not None:
+            return selected
+        time.sleep(0.25)
+    raise AssertionError("No unique foreground SimpleOffice WebView after launcher resume")
+
+
 @contextmanager
 def android_page(serial):
     port = webview_port(serial)
@@ -123,7 +156,7 @@ def android_page(serial):
             browser = runtime.chromium.connect_over_cdp(
                 f"http://127.0.0.1:{port}", no_defaults=True, timeout=15000
             )
-            page, = browser.contexts[0].pages
+            page = foreground_page(browser)
             page.set_default_timeout(20000)
             page.wait_for_url(ORIGIN + "/**", timeout=60000)
             yield page
