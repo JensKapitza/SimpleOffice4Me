@@ -18,3 +18,17 @@ class MotionTargetSelectionTest(unittest.TestCase):
         self.assertIsNone(choose_foreground([(older, False, False), (current, False, False)]))
         self.assertIsNone(choose_foreground([(older, True, False), (current, True, False)]))
         self.assertIsNone(choose_foreground([(older, True, True), (current, True, True)]))
+
+    def test_only_resumed_navigation_matches_launcher_readiness(self):
+        from tools.android_motion_acceptance import APP, navigation_is_resumed
+
+        for field in ("topResumedActivity", "mResumedActivity"):
+            for component in (".NavigationActivity", APP + ".NavigationActivity"):
+                self.assertTrue(navigation_is_resumed(f"  {field}=ActivityRecord{{ t0 {APP}/{component} }}"))
+        for activities in (
+            f"  topResumedActivity=ActivityRecord{{ t0 {APP}/.BootstrapActivity }}",
+            f"  Hist #0: ActivityRecord{{ t0 {APP}/.NavigationActivity }}",
+            f"  topResumedActivity=ActivityRecord{{ t0 other.example/.NavigationActivity }}",
+            f"  topResumedActivity=ActivityRecord{{ t0 {APP}/.NavigationActivityOther }}",
+        ):
+            self.assertFalse(navigation_is_resumed(activities))

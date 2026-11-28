@@ -5,6 +5,7 @@ import argparse
 from contextlib import contextmanager
 import math
 import re
+import subprocess
 import time
 from urllib.parse import urlsplit
 
@@ -59,11 +60,34 @@ def samples(page, channel):
     return rows
 
 
+def navigation_is_resumed(activity_dump):
+    return any(
+        re.search(r"\b(?:topResumedActivity|mResumedActivity)\s*[:=]", line)
+        and re.search(rf"\b{re.escape(APP)}/(?:{re.escape(APP)})?\.NavigationActivity\b", line)
+        for line in activity_dump.splitlines()
+    )
+
+
 def launch(serial):
+    # Use the launcher's NEW_TASK | RESET_TASK_IF_NEEDED flags so Home
+    # re-entry follows the normal task path rather than an explicit intent alone.
     result = _adb("shell", "am", "start", "-W", "-a", "android.intent.action.MAIN",
-                  "-c", "android.intent.category.LAUNCHER", "-n", f"{APP}/.BootstrapActivity",
+                  "-c", "android.intent.category.LAUNCHER", "-f", "0x10200000",
+                  "-n", f"{APP}/.BootstrapActivity",
                   serial=serial, timeout=45)
-    assert "Status: ok" in result, "SimpleOffice did not return to the foreground"
+    assert "Status: ok" in result, "Android did not accept the SimpleOffice launcher intent"
+    # am start -W only waits for BootstrapActivity, not native startup or
+    # the NavigationActivity which hosts the actual WebView.
+    deadline = time.monotonic() + 100
+    while time.monotonic() < deadline:
+        try:
+            activities = _adb("shell", "dumpsys", "activity", "activities", serial=serial, timeout=5)
+            if navigation_is_resumed(activities):
+                return
+        except (OSError, subprocess.SubprocessError):
+            pass
+        time.sleep(0.5)
+    raise AssertionError("Android did not resume SimpleOffice NavigationActivity after launcher intent")
 
 
 def verify_pause(page, serial):
@@ -146,6 +170,7 @@ def foreground_page(browser, *, seconds=45):
     # Launcher re-entry can add another Activity/WebView while the previous
     # one remains a debuggable target. Never trust the DevTools list order.
     deadline = time.monotonic() + seconds
+    candidates = []
     while time.monotonic() < deadline:
         candidates = []
         for context in browser.contexts:
@@ -163,7 +188,8 @@ def foreground_page(browser, *, seconds=45):
         if selected is not None:
             return selected
         time.sleep(0.25)
-    raise AssertionError("No unique foreground SimpleOffice WebView after launcher resume")
+    visibility = [(visible, focused) for _, visible, focused in candidates]
+    raise AssertionError(f"No unique foreground SimpleOffice WebView; local target visibility/focus: {visibility}")
 
 
 @contextmanager
