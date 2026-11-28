@@ -432,7 +432,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Verify real WebView SMS backup through Android system picker
+      - name: Verify real WebView SMS backup and recovery through Android system pickers
         if: steps.sms-backup-acceptance.outputs.needed == 'true'
         timeout-minutes: 22
         shell: bash

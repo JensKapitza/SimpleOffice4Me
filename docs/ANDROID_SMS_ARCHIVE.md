@@ -118,3 +118,23 @@ einmal abbrechen, dann erneut teilen und übernehmen. Vor Bestätigung der
 Pflichtfelder darf die Suche keinen neuen Eintrag zeigen. Danach suchen und
 die Nachricht in eine externe Sicherung aufnehmen. Zwei Freigaben,
 Nicht-Klartext und einen vorhandenen Textentwurf als Negativfälle prüfen.
+
+### Wiederherstellung nach einer Neuinstallation prüfen
+
+Die Android-CI startet zwei frische Wegwerf-Emulatoren mit demselben
+ARM64-Debug-APK. Der erste exportiert eine von zwei synthetischen Meldungen
+nach Abbruch und erneuter Auswahl über den Systemdialog. Nur diese Datei
+wird übertragen, keine App-Daten. Der zweite startet mit einem leeren
+Archiv, wählt die Datei im Android-Dateidialog und prüft, dass der erste
+Import genau eine und die Wiederholung keine neue Nachricht anlegt.
+
+Lokal ist mit einem frisch eingerichteten kompatiblen Emulator der Exporttest
+reproduzierbar. Vom Repository-Stamm starten und die Emulator-ID einsetzen:
+
+```sh
+python -m pip install --require-hashes -r requirements-ci-tools.txt -r requirements-ci-browser.txt
+bash tools/run_android_sms_download_acceptance.sh android/apk/app/build/outputs/apk/debug/app-debug.apk emulator-5560
+```
+
+Der vollständige Lauf mit zwei frischen Emulatoren ist Teil des Android-CI-Jobs.
+Ein grüner Exportmarker allein bestätigt noch nicht die Wiederherstellung.

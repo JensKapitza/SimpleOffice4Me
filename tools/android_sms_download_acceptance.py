@@ -1,7 +1,8 @@
-"""Exercise a real debug APK WebView and system document picker on a fresh emulator."""
+"""Exercise a debug APK and actual system pickers on fresh disposable emulators."""
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import hashlib
 from http.client import HTTPConnection, HTTPException
 import json
@@ -16,7 +17,8 @@ from playwright.sync_api import sync_playwright
 
 APP = "de.simpleoffice4me.android"
 LOCAL = "http://127.0.0.1:8765"
-TARGET = "/sdcard/Download/simpleoffice-sms-backup.json"
+BACKUP_NAME = "simpleoffice-sms-backup.json"
+TARGET = f"/sdcard/Download/{BACKUP_NAME}"
 DOCS_UI = {"com.google.android.documentsui", "com.android.documentsui"}
 DESIRED = "Synthetic selected backup message"
 OTHER = "Synthetic unselected message"
@@ -292,7 +294,8 @@ def pull_complete_backup(device):
             device.adb("shell", "test", "-s", TARGET)
             device.adb("pull", TARGET, str(path))
             try:
-                return json.loads(path.read_bytes())
+                raw = path.read_bytes()
+                return raw, json.loads(raw)
             except (json.JSONDecodeError, UnicodeDecodeError):
                 # The provider creates the destination before the stream finishes.
                 return None
@@ -306,7 +309,8 @@ def system_save(node):
                  or node.get("resource-id", "").endswith(":id/option_menu_save")))
 
 
-def verify_backup(device):
+@contextmanager
+def archive_page(device):
     if device.adb("shell", "getprop", "ro.hardware") not in {"ranchu", "goldfish"}:
         raise AssertionError("This acceptance runs on an Android emulator only")
     result = device.adb("shell", "am", "start", "-W", "-a", "android.intent.action.MAIN",
@@ -328,6 +332,14 @@ def verify_backup(device):
             page.set_default_timeout(20000)
             page.wait_for_url(f"{LOCAL}/**", timeout=150000)
             page.goto(f"{LOCAL}/communication/sms", wait_until="domcontentloaded")
+            yield page
+    finally:
+        device.adb("forward", "--remove", f"tcp:{port}")
+
+
+def verify_backup(device, fixture=None):
+    try:
+        with archive_page(device) as page:
             seed(page)
             seed(page, OTHER)
             export = page.locator('form[action="/communication/sms/export"]')
@@ -356,30 +368,91 @@ def verify_backup(device):
                     ))
                     save = device.wait_node(system_save, "Save in Downloads")
             device.click(save)
-            data = pull_complete_backup(device)
+            raw, data = pull_complete_backup(device)
             payload = json.dumps(data["payload"], ensure_ascii=False, sort_keys=True,
                                  separators=(",", ":")).encode()
             assert data["sha256"] == hashlib.sha256(payload).hexdigest(), "Backup checksum mismatch"
             records = data["payload"]["records"]
             assert data["payload"]["owner"] == "android", "Backup does not belong to the native offline account"
             assert len(records) == 1 and records[0]["body"] == DESIRED, "Backup selection mismatch"
+            if fixture is not None:
+                # The caller chooses a fresh private temp directory, never overwrite.
+                with fixture.open("xb") as output:
+                    output.write(raw)
             print("simpleoffice_sms_native_backup=pass")
     finally:
         try:
             print("Android native download phases:", " ".join(device.download_phases()) or "none", flush=True)
         except (OSError, subprocess.SubprocessError):
             print("Android native download phases: unavailable", flush=True)
-        device.adb("forward", "--remove", f"tcp:{port}")
+
+
+def system_file(node):
+    return node.get("package") in DOCS_UI and node.get("text") == BACKUP_NAME
+
+
+def choose_recovery_file(page, device):
+    upload = page.locator("#sms-backup")
+    # With CDP state preserved this invokes Android's normal WebChromeClient
+    # picker, not Playwright's set_input_files or a Java bridge shortcut.
+    upload.click(no_wait_after=True)
+    device.wait_node(lambda node: node.get("package") in DOCS_UI, "Android restore document picker")
+    choices = device.nodes()
+    selected = next((node for node in choices if system_file(node)), None)
+    if selected is None:
+        drawer = next((node for node in choices if node.get("package") in DOCS_UI
+                       and node.get("content-desc") in {"Show roots", "Open navigation drawer"}), None)
+        if drawer is not None:
+            device.click(drawer)
+            device.click(device.wait_node(
+                lambda node: node.get("package") in DOCS_UI and node.get("text") == "Downloads",
+                "Downloads root for restore",
+            ))
+        selected = device.wait_node(system_file, "transferred backup in the native document list")
+    device.click(selected)
+    page.wait_for_function("name => document.querySelector('#sms-backup')?.files[0]?.name === name",
+                           arg=BACKUP_NAME)
+
+
+def verify_restore(device):
+    with archive_page(device) as page:
+        contents = page.locator('form[action="/communication/sms/export"] li')
+        assert contents.count() == 0, "Recovery emulator archive was not empty"
+        for restored in (1, 0):
+            choose_recovery_file(page, device)
+            page.locator("#sms-confirm").check()
+            with page.expect_response(
+                lambda response: response.url == f"{LOCAL}/communication/sms/restore"
+                and response.request.method == "POST",
+            ) as submitted:
+                page.locator('form[action="/communication/sms/restore"] button[type=submit]').click()
+            assert submitted.value.status == 303, "Native recovery did not complete its restore POST"
+            notice = page.locator('main [role="status"]').filter(
+                has_text=re.compile(rf"^{restored} SMS (?:messages restored|wiederhergestellt)\."),
+            )
+            notice.wait_for()
+            assert contents.count() == 1, "Recovery did not retain exactly one record"
+            assert contents.filter(has_text=DESIRED).count() == 1, "Restored record did not match the selection"
+            assert contents.filter(has_text=OTHER).count() == 0, "Unselected record unexpectedly restored"
+            print(f"Android native restore: imported {restored}; one selected record present", flush=True)
+        print("simpleoffice_sms_native_restore=pass")
 
 
 def main():
     args = argparse.ArgumentParser(description=__doc__)
     args.add_argument("--adb", required=True)
     args.add_argument("--serial", required=True)
+    mode = args.add_mutually_exclusive_group()
+    mode.add_argument("--save-fixture", type=Path)
+    mode.add_argument("--restore", action="store_true")
     values = args.parse_args()
     if not re.fullmatch(r"emulator-\d+", values.serial):
         args.error("Only disposable emulator serials are accepted")
-    verify_backup(Device(values.adb, values.serial))
+    device = Device(values.adb, values.serial)
+    if values.restore:
+        verify_restore(device)
+    else:
+        verify_backup(device, values.save_fixture)
 
 
 if __name__ == "__main__":
