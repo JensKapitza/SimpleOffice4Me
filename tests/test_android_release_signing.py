@@ -191,6 +191,15 @@ class AndroidReleaseSigningTest(unittest.TestCase):
         self.assertIn('"$GITHUB_REF_NAME" != "v$version"', RELEASE_WORKFLOW)
         self.assertIn("fetch-depth: 0", RELEASE_WORKFLOW)
 
+    def test_dispatch_has_no_user_inputs_and_only_main_builds_sms_variant(self) -> None:
+        triggers = RELEASE_WORKFLOW.split("permissions:", 1)[0]
+        self.assertIn("workflow_dispatch:", triggers)
+        self.assertNotIn("inputs:", triggers)
+        self.assertIn("github.ref == 'refs/heads/main'", RELEASE_WORKFLOW)
+        self.assertIn("SIMPLEOFFICE_ANDROID_DEVICE_SMS", RELEASE_WORKFLOW)
+        self.assertIn("-SMS-IMPORT.apk", RELEASE_WORKFLOW)
+        self.assertIn("The SMS-read variant is not a tag or standard distribution artifact.", RELEASE_WORKFLOW)
+
     def test_release_secrets_are_scoped_and_not_written_to_github_env(self) -> None:
         self.assertIn(
             "ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}",

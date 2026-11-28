@@ -158,10 +158,10 @@ In einer entsprechend gebauten APK findest du den Import unter **Kommunikation �
 
 Für einen Installationskanal, der die Android-Freigabe unterstützt, lässt sich die **optionale APK** mit `SIMPLEOFFICE_ANDROID_DEVICE_SMS=1` bauen (aus dem bestehenden Android-Build-Verzeichnis mit dem üblichen Wheel- und Signatur-Setup: `SIMPLEOFFICE_ANDROID_DEVICE_SMS=1 gradle --no-daemon :app:assembleRelease`). Ohne die Option enthält die APK **kein** `READ_SMS`. Unter Android 10+ ist [READ_SMS als „hard restricted“ eingestuft](https://developer.android.com/reference/android/Manifest.permission#READ_SMS): Der Installationskanal muss die Berechtigung zulassen, und der Nutzer muss sie erteilen. Ein Download oder Sideload allein garantiert das nicht. Diese Variante ist nicht für Google Play vorgesehen: Die [Play-Regeln zu SMS-Berechtigungen](https://support.google.com/googleplay/android-developer/answer/10208820) verlangen Eignung und Freigabe. Das private Archiv ersetzt keine Wiederherstellung in den ursprünglichen Android-Nachrichtenanbieter. SimpleOffice wird dabei nicht zur Standard-SMS-App. Fällt der Direktimport weg, bleiben manuelles Teilen und die Archiv-Sicherung verfügbar.
 
-Für signierte Testverteilung bietet der manuell auf `main` gestartete Workflow
-**Android APK release (signed)** die standardmäßig abgewählte Option
-`device_sms_import`. Sein getrennt benanntes Artefakt endet auf
-`-SMS-IMPORT.apk`; normale und Tag-Releases bleiben ohne SMS-Leserecht.
+Für signierte Testverteilung erzeugt ein manueller Start des Workflows
+**Android APK release (signed)** auf `main` das getrennt benannte Artefakt
+`-SMS-IMPORT.apk`. Der Workflow nimmt keine frei wählbaren Eingaben an.
+Version-Tag-Releases bleiben Standard-APKs ohne SMS-Leserecht.
 Die APK verwendet dieselbe App-ID und Signatur. Erfordert der Installationskanal
 eine Neuinstallation, sichere und prüfe das Archiv zuerst außerhalb der App.
 Nicht deinstallieren, um eine Berechtigung zu erzwingen.

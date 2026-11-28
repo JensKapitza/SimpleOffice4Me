@@ -1,7 +1,8 @@
 name: Android APK release (signed)
 
-# Signed release APK with the stable update key. Triggered manually or by
-# project-release.yml (tag releases). Secrets (working copies; the only
+# Signed release APK with the stable update key. A manual run on main creates
+# the isolated SMS-IMPORT variant; project-release.yml uses version tags for
+# the ordinary APK. Secrets (working copies; the only
 # backup lives outside the repository, see android/apk/README.md):
 #   ANDROID_RELEASE_KEYSTORE_BASE64, ANDROID_RELEASE_KEYSTORE_PASSWORD,
 #   ANDROID_RELEASE_KEY_PASSWORD. Alias is the workflow constant below.
@@ -10,11 +11,6 @@ name: Android APK release (signed)
 
 on:
   workflow_dispatch:
-    inputs:
-      device_sms_import:
-        description: 'Build the optional signed SMS-read variant for an authorized installer (not Google Play)'
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -38,7 +34,9 @@ jobs:
     needs: native-wheels
     runs-on: ubuntu-24.04
     env:
-      SIMPLEOFFICE_ANDROID_DEVICE_SMS: ${{ inputs.device_sms_import && '1' || '0' }}
+      # A manual run from main is the isolated SMS-import artifact. Version-tag
+      # runs remain the ordinary release APK and never inherit SMS access.
+      SIMPLEOFFICE_ANDROID_DEVICE_SMS: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && '1' || '0' }}
       SIMPLEOFFICE_ANDROID_ABI: arm64-v8a
       SIMPLEOFFICE_ANDROID_PYTHON: '3.14'
       SIMPLEOFFICE_ANDROID_WHEEL_DIR: ${{ github.workspace }}/android/apk/app/wheelhouse
@@ -211,7 +209,7 @@ jobs:
       - name: Upload signed release APK
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ inputs.device_sms_import && 'simpleoffice4me-android-release-signed-sms-import' || 'simpleoffice4me-android-release-signed' }}
+          name: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && 'simpleoffice4me-android-release-signed-sms-import' || 'simpleoffice4me-android-release-signed' }}
           path: artifacts/android/*
           if-no-files-found: error
           retention-days: 90
