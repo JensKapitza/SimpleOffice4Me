@@ -23,6 +23,13 @@ on:
       - 'templates/documents/**'
       - 'tools/launcher.py'
       - 'tools/*federation*.py'
+      - 'tools/smoke_workflow_peer_notices.py'
+      - 'app/workflow_peer_notice*.py'
+      - 'app/document_copy_events.py'
+      - 'app/replication_store.py'
+      - 'app/v3_automation*.py'
+      - 'app/v3_copy_notices.py'
+      - 'app/v3_jobs.py'
       - 'tests/test_federation_docker_smoke.py'
   pull_request:
     paths: *acceptance_paths
@@ -74,6 +81,14 @@ jobs:
             --image "$TEST_IMAGE" \
             --html-deps "$RUNNER_TEMP/federation-html-deps" \
             --artifacts "$RUNNER_TEMP/federation-deployment"
+      - name: Verify automatic copy notices across isolated HTTPS instances
+        timeout-minutes: 6
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -e '.[test]'
+          python -m tools.smoke_workflow_peer_notices \
+            |& tee "$RUNNER_TEMP/federation-deployment/workflow-copy-notices.log"
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

@@ -23,6 +23,10 @@ STATUSES = {"needs-action", "in-process", "completed", "cancelled"}
 LIST_PERMISSIONS = {"read", "create", "edit", "complete", "delete", "manage"}
 
 
+class TodoPrivateListRequired(ValueError):
+    """The default list is not an active private destination for this task."""
+
+
 class TodoConflict(ValueError):
     def __init__(self, item: dict[str, Any] | None = None):
         super().__init__("task resource changed concurrently")
@@ -144,6 +148,7 @@ class TodoStore:
         source_document_id: str = "",
         automation_operation_id: str = "",
         calendar_followup_event_id: str = "",
+        require_private_default: bool = False,
     ) -> dict[str, Any]:
         values = dict(values or {})
         if not title.strip() or not actor.strip(): raise ValueError("to-do title and user are required")
@@ -182,6 +187,11 @@ class TodoStore:
             data = self._read()
             self._ensure_default(data, actor)
             task_list = self._list(data, list_id, actor, "create")
+            if require_private_default and (
+                list_id != self.default_list_id(actor) or task_list.get("owner") != actor
+                or task_list.get("archived") or any((task_list.get("permissions") or {}).values())
+            ):
+                raise TodoPrivateListRequired("private personal task list required")
             if calendar_followup_event_id:
                 open_followups = self._open_calendar_followups(data, actor)
                 if existing := open_followups.get(calendar_followup_event_id):

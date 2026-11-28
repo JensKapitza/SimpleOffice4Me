@@ -50,6 +50,11 @@ async function networkFirstNavigation(event) {
   try {
     const preload = await event.preloadResponse;
     if (preload) return preload;
+  } catch (_error) {
+    // Losing the speculative GET does not mean the route is offline.
+    // Never retry a mutation: only GET navigations reach this handler.
+  }
+  try {
     return await fetch(event.request);
   } catch (_error) {
     return await caches.match(OFFLINE_URL) || Response.error();

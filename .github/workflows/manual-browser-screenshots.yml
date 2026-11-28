@@ -8,6 +8,7 @@ on:
   pull_request:
     paths:
       - tests/browser/manual_screenshot_smoke.py
+      - static/service-worker.js
       - tests/browser/page_crawl.py
       - tests/browser/route_inventory.py
       - tests/test_browser_page_crawl.py

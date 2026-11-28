@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from flask import session
+
 from app import app
 from app.federation_identity import FederationIdentity
 from app.federation_pairing import FederationPairingTokens
@@ -16,6 +18,42 @@ from tests.federation_admin_ui_fixture import FederationAdminUiFixture
 
 
 class FederationAdminPairingUiTests(FederationAdminUiFixture, unittest.TestCase):
+    def test_read_only_qr_images_do_not_refresh_a_stale_session_cookie(self):
+        profile = {
+            "peer_id": "office-a", "label": "Office A", "country": "DE",
+            "base_url": "http://192.168.1.20:8090",
+        }
+        with patch("app.federation_peer_admin.local_profile", return_value=profile), patch(
+            "app.federation_peer_admin._lan_connect_profiles",
+            return_value=[{"payload": encode_peer(profile)}],
+        ):
+            for path in (
+                "/admin/federation/peer-discovery/qr.svg",
+                "/admin/federation/peer-discovery/qr/lan/0.svg",
+            ):
+                with self.subTest(path=path):
+                    response = self.client.get(path)
+                    self.assertEqual(200, response.status_code)
+                    self.assertIn("no-store", response.headers["Cache-Control"])
+                    self.assertIn("Cookie", response.headers.get("Vary", ""))
+                    self.assertNotIn("Set-Cookie", response.headers)
+
+    def test_qr_image_still_sets_cookie_for_a_real_session_change(self):
+        profile = {
+            "peer_id": "office-a", "label": "Office A", "country": "DE",
+            "base_url": "http://192.168.1.20:8090",
+        }
+
+        def change_session():
+            session["qr-session-regression"] = "changed"
+            return [{"payload": encode_peer(profile)}]
+
+        with patch("app.federation_peer_admin._lan_connect_profiles", side_effect=change_session):
+            response = self.client.get("/admin/federation/peer-discovery/qr/lan/0.svg")
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn("Set-Cookie", response.headers)
+
     def test_one_scan_invite_page_is_short_lived_and_has_no_store_headers(self):
         profile = {
             "peer_id": "office-a", "label": "Office A", "country": "DE",

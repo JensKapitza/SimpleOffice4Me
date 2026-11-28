@@ -151,6 +151,23 @@ class V3AutomationTests(unittest.TestCase):
         self.assertEqual(rule.version + 1, updated.version)
         self.assertEqual(rule.rule_id, self.store.get(rule.rule_id, "alice").rule_id)
 
+    def test_peer_outcomes_use_multiple_batches_and_prefer_confirmed_delivery(self):
+        from app.v3_automation import ExecutionResult
+
+        rule = self.rule()
+        keys = [hashlib.sha256(f"synthetic receipt {n}".encode()).hexdigest() for n in range(21)]
+        for key in keys:
+            self.store.record_execution(
+                rule, key=f"delivered:{key}", correlation_id=key, principal="alice",
+                result=ExecutionResult("delivered", True, False, ()),
+            )
+        self.store.record_execution(
+            rule, key=f"window_missed:{keys[0]}", correlation_id=keys[0], principal="alice",
+            result=ExecutionResult("window_missed", True, False, ()),
+        )
+        self.assertEqual(dict.fromkeys(keys, "delivered"), self.store.recent_peer_outcomes("alice", keys))
+        self.assertEqual({}, self.store.recent_peer_outcomes("bob", keys))
+
     def test_confirmation_is_owner_bound_and_expires(self):
         rule = self.rule(trigger={"type": "check", "name": "manual.check"})
         token = "synthetic-confirmation-token"

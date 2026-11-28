@@ -5,15 +5,42 @@ import json
 import hashlib
 import re
 import secrets
-from flask import Blueprint, abort, current_app, flash, g, make_response, redirect, render_template, request, url_for
+import sqlite3
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+from flask import Blueprint, abort, current_app, flash, g, jsonify, make_response, redirect, render_template, request, url_for
 
 from .access_control import has_feature
 from .auth import login_required
+from .todo_store import TodoPrivateListRequired, TodoStore
+from .v3_activity import ActivityStore
 from .v3_automation import AutomationEngine, AutomationStore, default_action_registry
 from .v3_capabilities import enabled
+from .v3_automation_timing import action_window, window_status
+from .workflow_peer_notices import DEST, PEER_NOTICE, PeerNoticeGrants, feature_on, permitted_peer
+from .federation_store import FederationStore
+from . import workflow_peer_notice_jobs as peer_jobs
+from .v3_copy_notices import (
+    ACTION, COPY_EVENT, JOB_EVENT_NAME, JOB_NOTICE, NOTICE_EVENTS, PRESET, TIMER_PRESETS, enable_copy_notice_preset,
+    is_local_copy_notice_rule, recent_copy_notices,
+)
 
 
 bp = Blueprint("v3_automation", __name__, url_prefix="/automation-v3")
+
+
+@bp.app_context_processor
+def _automation_navigation():
+    user = getattr(g, "user", None)
+    return {"v3_automation_nav": bool(user is not None and enabled("v3.automation"))}
+
+
+@bp.after_request
+def _private_response(response):
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.vary.add("Cookie")
+    return response
 
 
 def _store() -> AutomationStore:
@@ -68,19 +95,75 @@ def _task_check_rule(rule) -> bool:
     return True
 
 
-def _render_index(actor: str, *, preview=None):
+def _peer_notice_options():
+    root = current_app.config["DOCUMENT_ROOT"]
+    if not feature_on(root) or not has_feature(g.user, "sync"):
+        return None
+    peers = {"receive": [], "send": []}
+    for row in FederationStore(root).list_peers():
+        for direction, items in peers.items():
+            try:
+                peer = permitted_peer(root, row["peer_id"], direction)
+                items.append({"peer_id": peer["peer_id"], "label": peer["label"]})
+            except (ValueError, PermissionError):
+                continue
+    return {"peers": peers["receive"], "send": peers["send"] if peer_jobs.available(root) else [],
+            "grants": PeerNoticeGrants(root).for_account(g.user),
+            "delays": peer_jobs.DELAYS, "deadlines": peer_jobs.DEADLINES,
+            "zone": g.app_settings.get("interface", {}).get("timezone", "UTC")}
+
+
+def _notice_inbox(actor, *, strict=False):
+    root = current_app.config["DOCUMENT_ROOT"]
+    try:
+        rows = recent_copy_notices(root, actor, strict=strict)
+        if not rows:
+            return [], set()
+        read = ActivityStore(root).notice_read_ids(g.user["id"], (row.event_id for row in rows))
+        return rows, read
+    except (OSError, sqlite3.Error):
+        if strict:
+            raise
+        return [], set()
+
+
+def _render_index(actor: str, *, preview=None, peer_preview=None):
     store = _store()
     rules = store.list(actor)
     manual_check_rule_ids = (
         {rule.rule_id for rule in rules if _task_check_rule(rule)}
         if has_feature(g.user, "projects") else set()
     )
+    copy_notice_delays = {
+        source: next((
+            int(rule.actions[0].get("timing", {}).get("delay_seconds", 0))
+            for rule in rules if rule.enabled and rule.scope == PRESET and is_local_copy_notice_rule(rule, event)
+        ), None)
+        for source, event in (("browser", COPY_EVENT), ("job", JOB_EVENT_NAME))
+    }
+    try:
+        peer_receipts = peer_jobs.receipts(current_app.config["DOCUMENT_ROOT"], actor, store, rules)
+    except (OSError, sqlite3.Error, ValueError) as exc:
+        current_app.logger.warning("Could not read copy delivery receipts: %s", type(exc).__name__)
+        peer_receipts = None
+    rows, seen = _notice_inbox(actor)
     return render_template(
         "admin/v3_automation.html",
         enabled=True,
         rules=rules,
         logs=store.logs(actor, limit=50),
         preview=preview,
+        peer_preview=peer_preview,
+        copy_notices_enabled=enabled("v3.activity"),
+        copy_notice_tasks_enabled=has_feature(g.user, "projects"),
+        copy_notice_timer_enabled=enabled("v3.jobs"),
+        copy_notice_delays=copy_notice_delays,
+        copy_job_notice_type=JOB_NOTICE,
+        peer_notice_type=PEER_NOTICE,
+        peer_notice_options=_peer_notice_options(),
+        peer_receipts=peer_receipts,
+        copy_notices=rows,
+        read_notices=seen,
         manual_check_rule_ids=manual_check_rule_ids,
     )
 
@@ -91,20 +174,204 @@ def index():
     actor = str(g.user["username"])
     if not enabled("v3.automation"):
         return render_template("admin/v3_automation.html", enabled=False, rules=[], logs=[])
-    store = _store()
-    rules = store.list(actor)
-    manual_check_rule_ids = (
-        {rule.rule_id for rule in rules if _task_check_rule(rule)}
-        if has_feature(g.user, "projects") else set()
-    )
-    return render_template(
-        "admin/v3_automation.html",
-        enabled=True,
-        rules=rules,
-        logs=store.logs(actor, limit=50),
-        preview=None,
-        manual_check_rule_ids=manual_check_rule_ids,
-    )
+    return _render_index(actor)
+
+
+@bp.get("/copy-notices")
+@login_required
+def copy_notices_feed():
+    if not enabled("v3.automation") or not enabled("v3.activity"):
+        return jsonify({"enabled": False, "notices": []})
+    try:
+        rows, seen = _notice_inbox(str(g.user["username"]), strict=True)
+    except (OSError, sqlite3.Error):
+        abort(503)
+    return jsonify({"enabled": True, **({"seen": sorted(seen)} if seen else {}), "notices": [
+        {"id": row.event_id, "kind": {JOB_NOTICE: "job", PEER_NOTICE: "peer"}.get(row.event_type, "browser"),
+         "at": row.occurred_at}
+        for row in rows
+    ]})
+
+
+@bp.post("/copy-notices/read")
+@login_required
+def mark_copy_notices_read():
+    if not enabled("v3.automation") or not enabled("v3.activity"):
+        abort(404)
+    if not request.is_json or not request.content_length or request.headers.get("Transfer-Encoding"):
+        abort(400)
+    if request.content_length > 1024:
+        abort(413)
+    body = request.get_json(silent=True)
+    if type(body) is not dict or set(body) != {"ids"} or type(body["ids"]) is not list:
+        abort(400)
+    ids = body["ids"]
+    if not 1 <= len(ids) <= 10 or not all(isinstance(i, str) and re.fullmatch(r"[a-f0-9]{64}", i) for i in ids):
+        abort(400)
+    try:
+        ActivityStore(current_app.config["DOCUMENT_ROOT"]).mark_copy_notices_read(
+            g.user["id"], str(g.user["username"]), ids, (*NOTICE_EVENTS.values(), PEER_NOTICE),
+        )
+    except LookupError:
+        abort(404)
+    except (OSError, sqlite3.Error):
+        abort(503)
+    return "", 204
+
+
+@bp.post("/copy-notices/task")
+@login_required
+def create_copy_notice_task():
+    """Create one local, private follow-up for an already delivered copy notice."""
+    if not enabled("v3.automation") or not enabled("v3.activity"):
+        abort(404)
+    if not has_feature(g.user, "projects"):
+        abort(403)
+    if (request.mimetype != "application/x-www-form-urlencoded" or not request.content_length
+            or request.headers.get("Transfer-Encoding")):
+        abort(400)
+    if request.content_length > 1024:
+        abort(413)
+    ids = request.form.getlist("notice_id")
+    if (set(request.form) - {"_csrf_token", "notice_id"} or len(ids) != 1
+            or not re.fullmatch(r"[a-f0-9]{64}", ids[0])):
+        abort(400)
+    root = current_app.config["DOCUMENT_ROOT"]
+    actor = str(g.user["username"])
+    try:
+        notice = ActivityStore(root).find_for_actor(ids[0], actor)
+        if not notice or not (
+            (notice.event_type == PEER_NOTICE and notice.source == "workflow.peer_notice")
+            or (notice.event_type in NOTICE_EVENTS.values() and notice.source == ACTION)
+        ):
+            abort(404)
+        operation = hashlib.sha256(
+            f"copy-notice-task:{g.user['id']}:{notice.event_id}".encode()
+        ).hexdigest()
+        task = TodoStore(root).add(
+            "Kopie prüfen / Review copy", actor, {"description": notice.occurred_at},
+            automation_operation_id=operation, require_private_default=True,
+        )
+    except TodoPrivateListRequired:
+        flash("Eine private, nicht archivierte persönliche Aufgabenliste ist erforderlich."
+              if g.language != "en" else "An unarchived, private personal task list is required.")
+        return redirect(url_for("v3_automation.index"), code=303)
+    except (OSError, sqlite3.Error, ValueError) as exc:
+        current_app.logger.warning("Could not create copy follow-up: %s", type(exc).__name__)
+        abort(503)
+    if task.get("deleted"):
+        flash("Die bereits angelegte Aufgabe wurde gelöscht und wird nicht erneut angelegt."
+              if g.language != "en" else "The original task was deleted and will not be recreated.")
+        return redirect(url_for("v3_automation.index"), code=303)
+    return redirect(url_for("tasks.board", _anchor=f"task-{task['id']}"), code=303)
+
+
+@bp.post("/peer-notices")
+@login_required
+def peer_notices_consent():
+    root = current_app.config["DOCUMENT_ROOT"]
+    if not feature_on(root):
+        abort(404)
+    grants = PeerNoticeGrants(root)
+    if request.form.get("operation") == "grant":
+        if not has_feature(g.user, "sync"):
+            abort(403)
+        try:
+            peer = permitted_peer(root, request.form.get("peer", ""), "receive")
+        except (ValueError, PermissionError):
+            abort(403)
+        grants.grant(peer["peer_id"], g.user)
+    elif request.form.get("operation") == "revoke":
+        grant = request.form.get("grant", "")
+        if not DEST.fullmatch(grant):
+            abort(400)
+        grants.revoke(grant, g.user)
+    else:
+        abort(400)
+    return redirect(url_for("v3_automation.index"), code=303)
+
+
+@bp.post("/peer-copy-rule")
+@login_required
+def create_peer_copy_rule():
+    root = current_app.config["DOCUMENT_ROOT"]
+    if not peer_jobs.available(root):
+        abort(404)
+    if not has_feature(g.user, "sync"):
+        abort(403)
+    source = request.form.get("source")
+    event_type = {"browser": COPY_EVENT, "job": JOB_EVENT_NAME}.get(source)
+    mode = request.form.get("operation", "save")
+    if mode not in {"preview", "save"}:
+        abort(400)
+    language = getattr(g, "language", "")
+    kind = (("Copy job" if source == "job" else "Document copy") if language == "en"
+            else ("Kopierjob" if source == "job" else "Dokumentkopie"))
+    try:
+        peer = permitted_peer(root, request.form.get("peer", ""), "send")
+        delay, deadline = request.form.get("delay", ""), request.form.get("deadline", "")
+        destination, zone = request.form.get("destination", ""), request.form.get("zone", "")
+        if (event_type is None or not DEST.fullmatch(destination)
+                or delay not in set(map(str, peer_jobs.DELAYS))
+                or deadline not in {*map(str, peer_jobs.DEADLINES), peer_jobs.DAY_END}):
+            raise ValueError("invalid peer copy notice rule")
+        delay_seconds = int(delay)
+        deadline_value = peer_jobs.DAY_END if deadline == peer_jobs.DAY_END else int(deadline)
+        timing = peer_jobs.copy_rule_timing(delay_seconds, deadline_value, zone)
+        actor = str(g.user["username"])
+        if mode == "preview":
+            now = datetime.now(timezone.utc).replace(microsecond=0)
+            ready, expiry = action_window(timing, now)
+            local_zone = ZoneInfo(zone)
+            return _render_index(actor, peer_preview={
+                "rule": {"peer": peer["peer_id"], "destination": destination, "source": source,
+                         "delay": delay_seconds, "deadline": deadline_value, "zone": zone},
+                "name": f"{kind} → {peer['label']}",
+                "at": now.astimezone(local_zone), "ready": ready.astimezone(local_zone),
+                "expires": expiry.astimezone(local_zone), "missed": window_status(ready, expiry, now) == "window_missed",
+            })
+        peer_jobs.save_rule(
+            root, actor, peer["peer_id"], destination, event_type,
+            delay=delay_seconds, deadline=deadline_value, zone=zone, name=f"{kind} → {peer['label']}",
+        )
+    except PermissionError:
+        abort(403)
+    except ValueError:
+        flash("Invalid copy notification settings." if language == "en" else "Ungültige Einstellungen für Kopiermeldungen.")
+    except (OSError, sqlite3.Error) as exc:
+        current_app.logger.warning("Could not save peer copy rule: %s", type(exc).__name__)
+        abort(503)
+    else:
+        flash("Peer copy notifications enabled." if language == "en" else "Kopiermeldungen an die Instanz aktiviert.")
+    return redirect(url_for("v3_automation.index"), code=303)
+
+
+@bp.post("/copy-notice")
+@login_required
+def create_copy_notice():
+    if not enabled("v3.automation") or not enabled("v3.activity"):
+        abort(404)
+    actor = str(g.user["username"])
+    language = getattr(g, "language", "")
+    source = request.form.get("source", "browser")
+    item = {
+        "browser": (COPY_EVENT, "Document copied", "Dokument kopiert"),
+        "job": (JOB_EVENT_NAME, "Copy job completed", "Kopierjob abgeschlossen"),
+    }.get(source)
+    delay_value = request.form.get("delay", "0")
+    if item is None or delay_value not in {str(value) for value in TIMER_PRESETS}:
+        abort(400)
+    delay = int(delay_value)
+    if delay and not enabled("v3.jobs"):
+        abort(409)
+    event, name_en, name_de = item
+    try:
+        enable_copy_notice_preset(_store(), actor, name_en if language == "en" else name_de, event, delay=delay)
+        flash("Local copy notifications enabled." if language == "en" else "Lokale Kopiermeldungen aktiviert.")
+    except (OSError, sqlite3.Error) as exc:
+        current_app.logger.warning("Could not save copy notification preset: %s", type(exc).__name__)
+        flash("Could not save notifications." if language == "en" else "Kopiermeldungen konnten nicht gespeichert werden.")
+    return redirect(url_for("v3_automation.index"))
 
 
 @bp.post("")

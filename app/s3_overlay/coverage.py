@@ -86,6 +86,7 @@ PERSISTENCE_COVERAGE = {
     "v2.master_keys": "excluded:master encryption key profiles",
     "v2.jobs": "excluded:internal storage processing jobs and recovery state",
     "v3_jobs": "excluded:background queue state is internal operational metadata",
+    "workflow_peer_notices": "excluded:per-account peer delivery grants are private authorization state",
     "v3_inbox": "excluded:ingest pipeline state is internal workflow metadata",
     "v2.vault_payload_store": "excluded:encrypted vault payloads",
     "v2.overlay": "excluded:storage overlay migration state",
