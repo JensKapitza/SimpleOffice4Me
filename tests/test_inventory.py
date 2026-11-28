@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from flask import Flask, url_for
 
+from app import app
 from app.inventory import (
     InventoryEnrichmentStore,
     _advance_due,
@@ -22,6 +23,7 @@ from app.inventory import (
     record_inventory_task_completion,
 )
 from app.object_store import ObjectStore
+from tests.http_api_fixture import PublicHttpTestCase
 
 
 class InventoryBookTests(unittest.TestCase):
@@ -166,6 +168,27 @@ class InventoryBookTests(unittest.TestCase):
             self.assertIsNotNone(found)
             self.assertEqual(created["object_id"], found["object_id"])
 
+    def test_nfc_uid_finds_old_payload_suffix_and_hex_variants_without_rewriting(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = ObjectStore(Path(temp))
+            legacy = "04:66:a2:ff | https://example.invalid/metadata"
+            created = store.create(
+                {"name": "Legacy NFC tag", "type": "object", "fields": "nfc_id=" + legacy}, "tester",
+            )
+            with patch("app.inventory._objects", return_value=store):
+                found = _find_exact("", "0466A2FF")
+                self.assertEqual(created["object_id"], found["object_id"])
+                self.assertEqual(legacy, found["fields"]["nfc_id"])
+                self.assertEqual(created["object_id"], _find_exact("", "04-66-a2-ff")["object_id"])
+                self.assertIsNone(_find_exact("", "0466A200"))
+                self.assertIsNone(_find_exact("", "https://example.invalid/metadata"))
+
+    def test_nfc_uid_normalizes_hex_without_overwriting_manual_values(self):
+        from app.inventory import _object_fields
+
+        self.assertEqual("0044AABB", _object_fields({"nfc_id": "00-44-aa-bb"}, "")["nfc_id"])
+        self.assertEqual("TAG-123", _object_fields({"nfc_id": "TAG-123"}, "")["nfc_id"])
+
     def test_metadata_http_client_rejects_unknown_host_before_network_access(self):
         with self.assertRaisesRegex(ValueError, "Metadatenquelle"):
             _http_json("https://example.com/books")
@@ -290,6 +313,71 @@ class InventoryBookTests(unittest.TestCase):
         template = (Path(__file__).parents[1] / "templates" / "tasks" / "board.html").read_text(encoding="utf-8")
         self.assertNotIn('name="csrf_token"', template)
         self.assertIn('name="_csrf_token"', template)
+
+
+class InventoryFindRouteTests(PublicHttpTestCase):
+    def test_exact_barcode_wins_over_earlier_legacy_nfc(self):
+        store = ObjectStore(app.config["DOCUMENT_ROOT"])
+        legacy_uid = "03:60:00:29:14:52"
+        tag = store.create(
+            {"name": "Existing NFC item", "type": "object", "fields": f"nfc_id={legacy_uid}"}, "owner",
+        )
+        code = "036000291452"
+        saved = self.client.post(
+            "/inventory/items", data={"title": "New barcode item", "item_type": "object", "barcode": code},
+            headers=self._csrf_headers(self.client, "/inventory"),
+        )
+        self.assertEqual(302, saved.status_code, saved.data)
+        self.assertTrue(saved.location.startswith("/inventory/"), saved.location)
+
+        query = {"identifier": code, "nfc": code}
+        result = self.client.get("/inventory/find", query_string=query)
+        self.assertEqual(200, result.status_code)
+        self.assertEqual(saved.location, result.json["url"])
+        item = self.client.get(result.json["url"])
+        self.assertEqual(200, item.status_code)
+        self.assertIn("New barcode item", item.get_data(as_text=True))
+
+        # The NFC control sends the UID alone and still finds the original record.
+        nfc_result = self.client.get("/inventory/find", query_string={"nfc": code})
+        self.assertEqual(200, nfc_result.status_code)
+        self.assertEqual(tag["object_id"], nfc_result.json["object_id"])
+        self.assertEqual(legacy_uid, store.object(tag["object_id"])["fields"]["nfc_id"])
+        self.assertEqual(302, app.test_client().get("/inventory/find", query_string=query).status_code)
+
+
+    def test_private_nfc_finder_returns_reviewable_matches_only(self):
+        from app.db import get_db
+
+        store = ObjectStore(app.config["DOCUMENT_ROOT"])
+        for index in range(22):
+            store.create({"name": f"Matched {index}", "type": "object",
+                          "fields": "nfc_id=00:aa:bb:cd | https://example.invalid/old"}, "owner")
+        store.create({"name": "Other barcode", "type": "object", "identifier": "00AABBCD"}, "owner")
+        path = "/inventory/nfc-find"
+        csrf = self._csrf_headers(self.client, "/inventory")
+        self.assertEqual(403, self.client.post(path, json={"uid": "00-Aa-Bb-Cd"}).status_code)
+        result = self.client.post(path, headers=csrf, json={"uid": "00-Aa-Bb-Cd"})
+        self.assertEqual(200, result.status_code, result.data)
+        self.assertEqual("private, no-store", result.headers["Cache-Control"])
+        self.assertEqual("no-referrer", result.headers["Referrer-Policy"])
+        self.assertTrue(result.json["limited"])
+        self.assertEqual(20, len(result.json["matches"]))
+        self.assertNotIn(b"example.invalid", result.data)
+        self.assertNotIn(b"Other barcode", result.data)
+        self.assertEqual(400, self.client.post(path, headers=csrf, json={"uid": "https://example.invalid"}).status_code)
+        self.assertEqual(413, self.client.post(path, headers=csrf, json={"uid": "a" * 513}).status_code)
+        self._register(self.client, "restricted-reader")
+        restricted = app.test_client()
+        self._login(restricted, "restricted-reader")
+        denied_csrf = self._csrf_headers(restricted, "/inventory")
+        with app.app_context():
+            db = get_db()
+            user_id = db.execute("SELECT id FROM user WHERE username=?", ("restricted-reader",)).fetchone()[0]
+            db.execute("""INSERT INTO user_permission(user_id, feature, enabled, updated_at)
+                          VALUES(?, 'documents', 0, CURRENT_TIMESTAMP)""", (user_id,))
+            db.commit()
+        self.assertEqual(403, restricted.post(path, headers=denied_csrf, json={"uid": "00AABBCD"}).status_code)
 
 
 if __name__ == "__main__":

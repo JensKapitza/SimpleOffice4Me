@@ -59,9 +59,7 @@
     holdBarcode: EN ? 'Hold the barcode in front of the camera …' : 'Barcode vor die Kamera halten …', holdQr: EN ? 'Hold the QR code in front of the camera; enter EAN/barcodes manually.' : 'QR-Code vor die Kamera halten; EAN/Barcodes bitte manuell eingeben.',
     isbnFound: (code) => EN ? `ISBN recognized: ${code}. Loading book data …` : `ISBN erkannt: ${code}. Lade Buchdaten …`, barcodeFoundPhoto: (value) => EN ? `Barcode recognized: ${value}. No ISBN – please take a photo, analysis starts automatically.` : `Barcode erkannt: ${value}. Kein ISBN – bitte ein Foto aufnehmen, die Analyse startet automatisch.`,
     barcodeFound: (value) => EN ? `Barcode recognized: ${value}` : `Barcode erkannt: ${value}`, camDenied: EN ? 'Camera access denied. Please check the browser permission.' : 'Kamerazugriff verweigert. Bitte Berechtigung im Browser prüfen.',
-    camFailed: EN ? 'Could not open the camera. Please check permissions or camera.' : 'Kamera konnte nicht geöffnet werden. Bitte Berechtigungen oder Kamera prüfen.', nfcUnsupported: EN ? 'Web NFC is not supported. The NFC value can be entered manually.' : 'Web NFC wird nicht unterstützt. NFC-Wert kann manuell eingetragen werden.',
-    nfcHold: EN ? 'Hold the NFC tag to the phone …' : 'NFC-Tag an das Handy halten …', nfcRead: EN ? 'NFC read.' : 'NFC wurde gelesen.',
-    nfcFailed: EN ? 'Could not read NFC.' : 'NFC konnte nicht gelesen werden.',
+    camFailed: EN ? 'Could not open the camera. Please check permissions or camera.' : 'Kamera konnte nicht geöffnet werden. Bitte Berechtigungen oder Kamera prüfen.',
   };
 
   const root = document.getElementById('inventory-app');
@@ -406,10 +404,11 @@
     if (!findInput) return;
     const raw = cleanText(findInput.value); if (!raw) { findInput.focus(); return; }
     const localMatches = localFinderMatches(raw); renderFinderMatches(localMatches, raw);
-    const canonicalIsbn = normalizeIsbn(raw); const query = canonicalIsbn || raw.replace(/^#\s*/, '').trim();
+    const nfcQuery = raw.replace(/^#\s*/, '').trim();
+    const query = normalizeIsbn(raw) || nfcQuery;
     if (finderAbort) finderAbort.abort(); finderAbort = new AbortController(); findInput.setAttribute('aria-busy', 'true'); setStatus(STR.searchingInventory(raw), 'primary');
     try {
-      const response = await fetch(`${urls.find}?identifier=${encodeURIComponent(query)}&nfc=${encodeURIComponent(query)}`, { headers: { Accept: 'application/json' }, cache: 'no-store', signal: finderAbort.signal });
+      const response = await fetch(`${urls.find}?identifier=${encodeURIComponent(query)}&nfc=${encodeURIComponent(nfcQuery)}`, { headers: { Accept: 'application/json' }, cache: 'no-store', signal: finderAbort.signal });
       const data = await safeJson(response);
       if (response.ok && data.found && data.url && navigateLocal(data.url)) return;
       const numeric = raw.replace(/^#\s*/, '').trim();
@@ -429,10 +428,36 @@
     } finally { findInput.removeAttribute('aria-busy'); }
   };
 
+  let tagProbe;
+  const cancelTagProbe = () => { tagProbe?.abort(); tagProbe = undefined; };
+  const probeTagDuplicate = async (value) => {
+    cancelTagProbe();
+    const helper = window.SimpleOfficeInventoryNfc;
+    const uid = helper?.normalizeUid?.(value);
+    const endpoint = root.dataset.nfcFindUrl;
+    const token = form?.querySelector('input[name="_csrf_token"]')?.value;
+    if (!uid || !endpoint || !token || !helper?.requestMatches || document.hidden) return;
+    const own = new AbortController();
+    tagProbe = own;
+    const timeout = setTimeout(() => own.abort(), 8000);
+    try {
+      const {matches} = await helper.requestMatches({endpoint, token, uid, signal: own.signal});
+      const first = matches[0];
+      if (tagProbe === own && !own.signal.aborted && !document.hidden && first && nfc?.value === value && !nfcControls?.isScanning()) {
+        setStatus(STR.duplicateFound(first.display_id || '', first.name || ''), 'warning');
+      }
+    } catch (_error) {} finally {
+      clearTimeout(timeout);
+      if (tagProbe === own) tagProbe = undefined;
+    }
+  };
+  nfc?.addEventListener('input', cancelTagProbe);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) cancelTagProbe(); });
   const duplicateProbe = async (value, source) => {
+    if (source === 'nfc') return probeTagDuplicate(value);
     const raw = cleanText(value); if (!raw || !urls.find) return; const query = normalizeIsbn(raw) || raw;
     try {
-      const response = await fetch(`${urls.find}?identifier=${encodeURIComponent(source === 'nfc' ? '' : query)}&nfc=${encodeURIComponent(source === 'nfc' ? query : '')}`, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+      const response = await fetch(`${urls.find}?identifier=${encodeURIComponent(query)}`, { headers: { Accept: 'application/json' }, cache: 'no-store' });
       const data = await safeJson(response); if (response.ok && data.found) setStatus(STR.duplicateFound(data.display_id || '', data.name || ''), 'warning');
     } catch (_error) {}
   };
@@ -510,7 +535,7 @@
   isbn?.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); lookup(); } });
   isbn?.addEventListener('blur', () => duplicateProbe(isbn.value, 'identifier'));
   barcode?.addEventListener('blur', () => duplicateProbe(barcode.value, 'identifier'));
-  nfc?.addEventListener('blur', () => duplicateProbe(nfc.value, 'nfc'));
+
   lookupButton?.addEventListener('click', lookup); $('clear-book-data')?.addEventListener('click', clearBookMetadata);
   $('book-mode')?.addEventListener('click', () => { type.value = 'book'; objectTypeWasAutoBook = false; updateMode(); isbn.focus(); });
   $('object-mode')?.addEventListener('click', () => { type.value = 'object'; objectTypeWasAutoBook = false; updateMode(); title.focus(); });
@@ -950,21 +975,19 @@
     } catch (error) { if (generation !== cameraGeneration) return; stopCamera(); setStatus(error?.name === 'NotAllowedError' ? STR.camDenied : STR.camFailed, 'danger'); }
   });
 
-  $('scan-nfc')?.addEventListener('click', async () => {
-    if (!('NDEFReader' in window)) { setStatus(STR.nfcUnsupported, 'warning'); nfc?.focus(); return; }
-    try {
-      const reader = new NDEFReader(); await reader.scan(); setStatus(STR.nfcHold, 'primary');
-      reader.addEventListener('reading', (event) => {
-        const parts = []; if (event.serialNumber) parts.push(event.serialNumber);
-        for (const record of event.message.records) { try { if (record.data) parts.push(new TextDecoder(record.encoding || 'utf-8').decode(record.data)); } catch (_error) {} }
-        nfc.value = parts.filter(Boolean).join(' | ').slice(0, 240); setStatus(STR.nfcRead, 'success'); duplicateProbe(nfc.value, 'nfc');
-      }, { once: true });
-    } catch (_error) { setStatus(STR.nfcFailed, 'danger'); }
+  const nfcControls = window.SimpleOfficeInventoryNfc?.bindControls?.({
+    nfc, nfcButton: $('scan-nfc'), keyboardButton: $('nfc-keyboard'), form,
+    page: document, english: EN, setStatus, duplicateProbe,
   });
-
+  if (!nfcControls) {
+    // An older cached NFC helper must not break the rest of inventory or submit on Enter.
+    nfc?.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' && !event.isComposing) event.preventDefault();
+    });
+  }
   form?.addEventListener('submit', () => { rememberLocation(); if (saveButton) { saveButton.disabled = true; saveButton.setAttribute('aria-busy', 'true'); saveButton.textContent = STR.saving; } });
   window.addEventListener('online', updateConnectivity); window.addEventListener('offline', updateConnectivity);
   window.addEventListener('resize', syncActionBarInset); window.visualViewport?.addEventListener('resize', syncActionBarInset); window.visualViewport?.addEventListener('scroll', syncActionBarInset);
-  window.addEventListener('pagehide', () => { stopCamera(); const old = photoPreview?.dataset.objectUrl; if (old) URL.revokeObjectURL(old); });
+  window.addEventListener('pagehide', () => { nfcControls?.cancel(); stopCamera(); const old = photoPreview?.dataset.objectUrl; if (old) URL.revokeObjectURL(old); });
   prepareMarketplaceUi(); syncActionBarInset(); updateConnectivity(); updateMode(); if (isbn && cleanText(isbn.value)) updateBookLinks(normalizeIsbn(isbn.value));
 })();

@@ -114,3 +114,65 @@ python -m pip install -e '.[test,web-export]'
 python -m playwright install --with-deps --no-shell chromium
 SIMPLEOFFICE_INTAKE_BROWSER_REQUIRED=1 python -m unittest -v tests.test_inventory_intake_browser
 ```
+
+## NFC-Kennung im Inventar erfassen
+
+- In **Inventar** bei **NFC lesen** einen einzelnen Tag ans Android-Gerät halten.
+  Die APK liest nur die Tag-Kennung, kein NDEF, keine Karteninhalte und keine Links.
+  Bei deaktiviertem NFC erscheint ein Hinweis. Erneutes Antippen bricht den Scan
+  ab; ohne Ergebnis endet er nach 15 Sekunden. Im Browser braucht dieser Weg
+  Web-NFC-Unterstützung und kann je nach Gerät nur NDEF-Tags mit UID erkennen.
+- Am Laptop einen USB-NFC-Leser im **Tastaturmodus / USB-HID** verwenden und seine
+  Ausgabe auf die **hexadezimale UID** stellen. Im Formular auf **USB-NFC-Leser**
+  klicken, dann den Tag auf den Leser legen. Eine abschließende Eingabetaste
+  übernimmt die UID, speichert aber nicht. Ohne Sondergerät ist das NFC-Feld
+  weiter manuell nutzbar. Ein reiner PC/SC-Leser oder eine automatische
+  Weiterleitung vom Handy zum Laptop ist nicht Bestandteil dieses Wegs.
+- Vor dem Speichern den Treffer prüfen. Der Scan füllt nur das Feld; er legt
+  kein Objekt an. Vorhandene NFC-Datensätze mit der früheren Form
+  `UID | Inhalt` bleiben über ihre UID auffindbar. In der allgemeinen
+  Inventarsuche hat ein exakter Barcode- oder ISBN-Treffer Vorrang, falls
+  die gleiche Zeichenfolge auch als UID vorkommt. Die automatische Prüfung
+  im NFC-Feld sucht gezielt nach gültigen Hex-UIDs und überträgt sie wie die
+  separate NFC-Suche nur im privaten POST-Body. UIDs sind keine
+  Authentifizierung; Tags mit wechselnder oder nicht lesbarer UID sind keine
+  verlässlichen Inventaretiketten.
+
+
+## Vorhandenen NFC-Tag finden
+
+Die Suche und die Erfassung zeigen denselben konkreten Hinweis, wenn NFC
+ausgeschaltet ist, das Gerät keinen Direktleser bietet, die Browserfreigabe
+fehlt oder der Tag keine Kennung liefert. Ein Zeitlimit ist vom bewussten
+Abbruch zu unterscheiden. Bei fehlendem Direktleser bleibt die Suche per
+Kennung bzw. USB-Leser verfügbar; der Fokus springt zur Eingabe.
+
+Unter **Inventar → Vorhandenen NFC-Tag finden** die Kennung eingeben, den
+USB-Leser im Tastaturmodus einsetzen oder in einer unterstützten Android-App
+bzw. einem Web-NFC-Browser **Tag lesen** wählen. Die Treffer bleiben auf der
+Seite; erst ein Klick öffnet den ausgewählten Gegenstand. Mehrfach vergebene
+Tags zeigen bis zu 20 Titel und Standorte statt einen beliebigen Treffer zu
+öffnen. Die Suche ändert weder den Katalog noch das separate Erfassungsformular.
+Die neue Suchmaske überträgt die Tag-Kennung per privatem Formular-POST,
+nicht in der URL, und wertet keine Daten vom Tag als Links oder Anweisungen
+aus. NFC-Tags ersetzen weder Zugriffsrechte noch Identitätsnachweise.
+
+### Android-Abnahme ohne aktiven NFC-Leser
+
+Die Android-CI startet die installierte Debug-APK in einem frischen
+Android-15-Emulator. Der Test öffnet das Inventar, verwendet die echte
+Android-Schnittstelle für **Tag lesen** und prüft die Rückmeldung bei
+fehlendem oder deaktiviertem NFC. Anschließend bestätigt er die Suche per
+eingegebener Testkennung, ohne das Erfassungsformular zu verändern.
+
+Für die lokale Wiederholung muss ein unbenutzter Wegwerf-AVD das ARM64-APK
+ausführen können. Falls das Image NFC bereitstellt, schalte es dort vor dem
+Test aus. Verwende nicht dein bestehendes Gerät oder einen AVD mit Nutzdaten.
+
+```sh
+python -m pip install --require-hashes -r requirements-ci-tools.txt -r requirements-ci-browser.txt
+bash tools/run_android_nfc_fallback_acceptance.sh android/apk/app/build/outputs/apk/debug/app-debug.apk emulator-5564
+```
+
+Erst `simpleoffice_nfc_native_fallback=pass` bestätigt den Lauf. Er prüft
+nicht das Lesen eines physischen Tags oder den Anschluss eines USB-Lesers.
