@@ -208,6 +208,29 @@ class DataLoggerWebTest(unittest.TestCase):
         channel = response.headers["Location"].rsplit("/", 1)[-1]
         self.assertEqual(404, self.reader.get(f"/datalogger/channels/{channel}").status_code)
 
+    def test_availability_event_history_uses_the_channel_acl(self):
+        store = DataLoggerStore(app.config["DOCUMENT_ROOT"])
+        channel = store.create_channel("Private sensor", "owner")
+        form = {"kind": "http_json", "source_name": "Synthetic Pico", "json_path": "nodes.room_a.available",
+                "track_availability": "1"}
+        saved = self.owner.post(f"/datalogger/channels/{channel}/sources", data=form)
+        self.assertEqual(302, saved.status_code)
+        source = store.sources(channel)[0]["source_id"]
+        with patch("app.datalogger_store.utc_now", return_value="2026-11-27T00:00:01+00:00"):
+            store.add_pico_availability_sample(channel, source, 1)
+        with patch("app.datalogger_store.utc_now", return_value="2026-11-27T00:00:02+00:00"):
+            store.add_pico_availability_sample(channel, source, 0)
+        url = f"/datalogger/channels/{channel}"
+        self.assertEqual(404, self.reader.get(url).status_code)
+        page = BeautifulSoup(self.owner.get(url).data, "html.parser")
+        history = page.select_one('[aria-labelledby="pico-availability-title"]')
+        self.assertIn("Nicht erreichbar", history.get_text())
+        self.assertIn("Synthetic Pico", history.get_text())
+        store.update_channel(channel, "owner", readers=["reader"])
+        shared = self.reader.get(url)
+        self.assertEqual(200, shared.status_code)
+        self.assertIn(b"Nicht erreichbar", shared.data)
+
     def test_diagnosis_same_range_in_ui_and_exports(self):
         store = DataLoggerStore(app.config['DOCUMENT_ROOT'])
         channel_id = store.create_channel('Speicher frei', 'owner', unit='B')
