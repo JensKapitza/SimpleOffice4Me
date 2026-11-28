@@ -82,8 +82,11 @@ in diesem Tab** ausdrücklich ein und prüfe die Ausgabe mit **Ton testen**.
 Die Auswahl verändert keine Regeln und erzeugt keine zusätzliche Meldung.
 Beim Ändern der Auswahl, Tabwechsel, Verlassen der Seite, Offlinegehen oder
 Ende der Sitzung schaltet sich der Ton ab. Alte Meldungen werden nicht
-nachvertont. Eine Betriebssystem- oder Hintergrundbenachrichtigung ist das
-nicht.
+nachvertont. Meldungen gekoppelter Instanzen bleiben auch nach ihrem
+ursprünglichen Ablauf oder ohne gespeicherte Frist sichtbar, jedoch stumm.
+Eine langsame Verbindung verlängert das Tonfenster nicht. Bereits offene
+Tabs nach einem Update neu laden. Das ist keine
+Betriebssystem- oder Hintergrundbenachrichtigung.
 
 Mit **Sichtbare Meldungen als gelesen markieren** quittierst du nur die
 gerade angezeigten Einträge. Nach der bestätigten Antwort aktualisiert die
