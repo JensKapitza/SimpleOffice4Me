@@ -132,6 +132,10 @@ final class AndroidSmsImportController {
     }
 
     private void confirmed(Request request) {
+        // The Android permission activity can pause us before AlertDialog's
+        // asynchronously posted dismissal. The already accepted prompt no
+        // longer owns this request and must not emit a competing cancellation.
+        dialog = null;
         if (!resumed || !current(request)) {
             send(state("cancelled"));
             return;
@@ -300,7 +304,11 @@ final class AndroidSmsImportController {
         resumed = value;
         if (resumed) {
             resumeAfterPermission();
-        } else if (!asking && !permissionReturned && pending != null) {
+        } else if (asking || permissionReturned) {
+            // System permission UI legitimately pauses this activity. Its
+            // actual result is handled only after our own page resumes.
+            return;
+        } else if (pending != null) {
             AndroidSmsDeviceImport.finish(lease);
             complete(pending, state("cancelled"));
         } else if (dialog != null) {
