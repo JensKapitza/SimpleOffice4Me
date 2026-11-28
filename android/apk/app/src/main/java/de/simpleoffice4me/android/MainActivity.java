@@ -157,6 +157,8 @@ public class MainActivity extends Activity {
     private AndroidManagedSync managedSync;
     private boolean mainFrameLoadFailed;
     private boolean bundledBackendReady;
+    private boolean motionResumed;
+    private AndroidMotionPage motionPage;
     private String pendingBarcodeResult;
     private String pendingBarcodeStatus;
     private String pendingAudioTargets;
@@ -256,6 +258,8 @@ public class MainActivity extends Activity {
 
         deviceSourcePreview = new AndroidDeviceSourcePreview(this, this::isDeviceSourcePage);
         managedSync = new AndroidManagedSync(this, this::isDeviceSourcePage, this::showManagedSyncStatus);
+        motionPage = new AndroidMotionPage(this, () -> motionResumed && bundledBackendReady
+                && !mainFrameLoadFailed && localPageVisible);
         webView.addJavascriptInterface(new NativeBridge(), "SimpleOfficeAndroid");
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
@@ -333,6 +337,7 @@ public class MainActivity extends Activity {
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
+                motionPage.clear();
                 if (smsShareDialog != null) smsShareDialog.dismiss();
                 intakeBarcode.onLoadStarted();
                 // Default-deny every navigation until a locally served speech page loads.
@@ -373,6 +378,7 @@ public class MainActivity extends Activity {
                         view.getSettings().setMediaPlaybackRequiresUserGesture(!isLocalSpeechPage(url));
                         intakeBarcode.onLoadFinished(view, url);
                         bindOfflineSpeechSettings(view, url);
+                        motionPage.bind(view, url, nativeBridgeToken);
                     }
                     injectPendingShareUi(view, url);
                     offerSharedSms(view, url);
@@ -387,6 +393,7 @@ public class MainActivity extends Activity {
             public void doUpdateVisitedHistory(WebView view, String url, boolean isReload) {
                 super.doUpdateVisitedHistory(view, url, isReload);
                 intakeBarcode.onHistory(url, isReload);
+                if (isReload || !AndroidMotionPage.URL.equals(url)) motionPage.clear();
                 if (isReload || !isNfcInventoryPage(url)) {
                     nfcPageEpoch++;
                     stopNfcReader();
@@ -398,6 +405,7 @@ public class MainActivity extends Activity {
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 super.onReceivedError(view, request, error);
                 if (request.isForMainFrame()) {
+                    motionPage.clear();
                     nfcPageEpoch++;
                     intakeBarcode.onLoadFailed();
                     offlineSpeechSettingsNonce = "";
@@ -419,6 +427,7 @@ public class MainActivity extends Activity {
                     WebResourceResponse errorResponse) {
                 super.onReceivedHttpError(view, request, errorResponse);
                 if (request.isForMainFrame()) {
+                    motionPage.clear();
                     intakeBarcode.onLoadFailed();
                     offlineSpeechSettingsNonce = "";
                 }
@@ -1108,6 +1117,18 @@ public class MainActivity extends Activity {
     }
 
     private final class NativeBridge {
+        @JavascriptInterface
+        public String requestMotion(String bridgeToken, String nonce, String kind, String csrf) {
+            if (!bridgeAllowed(bridgeToken) || !AndroidMotionPage.URL.equals(currentWebViewUrl)
+                    || nonce == null || nonce.length() != 36
+                    || !("acceleration".equals(kind) || "angular_speed".equals(kind))
+                    || !AndroidDeviceSourcePreview.isCsrf(csrf)) return "blocked";
+            mainHandler.post(() -> {
+                if (bridgeAllowed(bridgeToken) && motionPage != null) motionPage.requested(nonce, kind, csrf);
+            });
+            return "pending";
+        }
+
         @JavascriptInterface
         public String syncManagedSource(String token, String source, String csrf, String selected) {
             if (!bridgeAllowed(token) || !deviceSourcePageReady
@@ -2080,6 +2101,8 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
+        motionResumed = false;
+        if (motionPage != null) motionPage.clear();
         if (webView != null && bundledBackendReady && !mainFrameLoadFailed && isLocalUrl(webView.getUrl())) {
             webView.evaluateJavascript("window.dispatchEvent(new Event('simpleoffice:speech-stop'));", null);
         }
@@ -2106,6 +2129,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        motionResumed = true;
         offlineSpeechResumed = true;
         nfcResumed = true;
         if (bundledBackendReady) AndroidOfflineSpeech.onResume(offlineSpeechOwner, getApplicationContext());
@@ -2122,7 +2146,10 @@ public class MainActivity extends Activity {
                     webPermissionFlow.denyPending();
                 } else {
                     flushPendingBarcodeResult();
-                    if (bundledBackendReady && !mainFrameLoadFailed) bindOfflineSpeechSettings(webView, webView.getUrl());
+                    if (bundledBackendReady && !mainFrameLoadFailed) {
+                        bindOfflineSpeechSettings(webView, webView.getUrl());
+                        if (motionPage != null) motionPage.bind(webView, webView.getUrl(), nativeBridgeToken);
+                    }
                     injectPendingShareUi(webView, webView.getUrl());
                 }
             }
@@ -2154,6 +2181,8 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        motionResumed = false;
+        if (motionPage != null) motionPage.close();
         if (smsShareDialog != null) smsShareDialog.dismiss();
         offlineSpeechResumed = false;
         offlineSpeechSettingsNonce = "";

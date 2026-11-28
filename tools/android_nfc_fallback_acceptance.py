@@ -8,7 +8,7 @@ import re
 import subprocess
 import time
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeout, sync_playwright
 
 from tools.android_emulator_smoke import _adb
 
@@ -51,7 +51,21 @@ def webview_port(serial):
     raise AssertionError("No app WebView became available over the exact ADB socket")
 
 
+def wait_native_nfc(page, *, timeout=15000):
+    # DOMContentLoaded makes the form visible before MainActivity's
+    # onPageFinished callback installs the native WebView shim.
+    page.wait_for_function(
+        """() => document.readyState === 'complete'
+            && typeof window.SimpleOfficeNativeNfc?.start === 'function'""",
+        polling=100,
+        timeout=timeout,
+    )
+
+
 def verify(page):
+    console_errors, script_errors = [], []
+    page.on("console", lambda message: console_errors.append(True) if message.type == "error" else None)
+    page.on("pageerror", lambda _error: script_errors.append(True))
     page.wait_for_url(f"{ORIGIN}/**", timeout=120000)
     page.goto(f"{ORIGIN}/inventory", wait_until="domcontentloaded")
     panel = page.locator("#inventory-nfc-find")
@@ -59,7 +73,22 @@ def verify(page):
     status = panel.locator("[data-nfc-find-status]")
     uid = panel.locator("#nfc-find-uid")
     button.wait_for(state="visible")
-    assert page.evaluate("() => typeof window.SimpleOfficeNativeNfc?.start === 'function'"), "Missing native bridge"
+    try:
+        wait_native_nfc(page)
+    except PlaywrightTimeout as error:
+        try:
+            state = page.evaluate("""() => ({
+                complete: document.readyState === 'complete',
+                local: location.origin === 'http://127.0.0.1:8765',
+                page: location.pathname === '/inventory',
+                native: typeof window.SimpleOfficeAndroid === 'object',
+                shim: typeof window.SimpleOfficeNativeNfc?.start === 'function',
+            })""")
+        except PlaywrightError:
+            state = {}
+        print("Android NFC readiness:", state, "console_errors=", len(console_errors),
+              "script_errors=", len(script_errors), flush=True)
+        raise AssertionError("Native NFC bridge did not become ready on the inventory page") from error
     requests = []
 
     def seen(request):

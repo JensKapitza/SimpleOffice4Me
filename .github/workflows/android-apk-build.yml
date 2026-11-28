@@ -18,6 +18,11 @@ on:
       - 'templates/optional_setup/**'
       # Inventory runs in the bundled WebView, including browser-only NFC changes.
       - 'app/inventory.py'
+      - 'app/datalogger.py'
+      - 'app/datalogger_store.py'
+      - 'templates/datalogger/**'
+      - 'static/js/android_datalogger_motion.js'
+      - 'tools/android_motion_acceptance.py'
       - 'static/js/inventory*.js'
       - 'templates/inventory/**'
       - 'tools/*android_nfc_fallback_acceptance*'
@@ -433,21 +438,32 @@ jobs:
             'tools/*android_nfc_fallback_acceptance*' \
             'android/apk/app/src/main/java/de/simpleoffice4me/android/MainActivity.java' \
             '.github/workflows/android-apk-build.yml' 'requirements-ci-browser.txt')"
-          if [[ -n "$changed" ]]; then echo 'needed=true' >> "$GITHUB_OUTPUT"; fi
+          motion="$(git diff --name-only HEAD^1 HEAD -- \
+            'app/datalogger.py' 'app/datalogger_store.py' 'static/js/android_datalogger_motion.js' \
+            'templates/datalogger/**' 'tools/android_motion_acceptance.py' \
+            'android/apk/app/src/main/java/de/simpleoffice4me/android/AndroidMotion*.java' \
+            'android/apk/app/src/main/java/de/simpleoffice4me/android/MainActivity.java')"
+          if [[ -n "$changed" || -n "$motion" ]]; then echo 'needed=true' >> "$GITHUB_OUTPUT"; fi
+          if [[ -n "$motion" ]]; then echo 'motion=true' >> "$GITHUB_OUTPUT"; fi
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         if: steps.nfc-fallback.outputs.needed == 'true'
         with:
           python-version: '3.12'
 
-      - name: Android inventory NFC fallback on real WebView
+      - name: Android inventory NFC fallback and requested motion acceptance on real WebView
         if: steps.nfc-fallback.outputs.needed == 'true'
-        timeout-minutes: 18
+        timeout-minutes: 22
         shell: bash
+        env:
+          MOTION_ACCEPTANCE: ${{ steps.nfc-fallback.outputs.motion }}
         run: |
+          set -euo pipefail
           python -m pip install --require-hashes -r requirements-ci-tools.txt -r requirements-ci-browser.txt
+          args=()
+          if [[ "$MOTION_ACCEPTANCE" == true ]]; then args=("" --motion); fi
           bash tools/run_android_nfc_fallback_acceptance.sh \
-            android/apk/app/build/outputs/apk/debug/app-debug.apk
+            android/apk/app/build/outputs/apk/debug/app-debug.apk "${args[@]}"
 
       - name: Check whether Android SMS backup acceptance is affected
         id: sms-backup-acceptance
