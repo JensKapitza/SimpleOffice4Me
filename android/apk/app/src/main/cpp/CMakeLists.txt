@@ -51,6 +51,11 @@ pinned_source(ocr_cpu google cpu_features v0.10.1 d3b2440fcfc25fe8e6d0d4a85f06d6
 add_subdirectory("${ocr_lept_SOURCE_DIR}" "${ocr_lept_BINARY_DIR}" EXCLUDE_FROM_ALL)
 add_subdirectory("${ocr_cpu_SOURCE_DIR}" "${ocr_cpu_BINARY_DIR}" EXCLUDE_FROM_ALL)
 add_library(CpuFeatures::ndk_compat ALIAS ndk_compat)
+# Tesseract unconditionally generates a build-tree package export. Register
+# the static compatibility target in its own export, as Leptonica does for
+# its target, so that Tesseract can refer to it without changing either library.
+export(TARGETS ndk_compat FILE "${CMAKE_CURRENT_BINARY_DIR}/OcrCpuCompatTargets.cmake"
+    NAMESPACE CpuFeatures::)
 
 # Use the targets in this build, never Android runner/host libraries.
 set(Leptonica_DIR "${CMAKE_CURRENT_BINARY_DIR}/ocr-config")
