@@ -7,9 +7,12 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import build_opener, ProxyHandler
 
+from app import app
 from app.datalogger_collectors import collect_http, CollectionError
 from app.datalogger_store import DataLoggerStore
+from app.settings_store import SettingsStore
 from examples.serial.pico_gateway import sensor_link as wire
+from tests.http_api_fixture import PublicHttpTestCase
 from tools.datalogger_worker import run
 
 
@@ -165,3 +168,104 @@ class PicoSensorGatewayTest(unittest.TestCase):
         for value in (True, float("nan"), float("inf")):
             handler = wire.sensor_handler("room_a", lambda: value)
             self.assertEqual((503, {"online": False}), handler(b"/reading"))
+
+
+class PicoSetupHttpTest(PublicHttpTestCase):
+    url = "/datalogger/serial/pico-setup"
+
+    def test_admin_form_sets_up_two_actual_nodes_and_can_add_availability_later(self):
+        root = app.config["DOCUMENT_ROOT"]
+        store = DataLoggerStore(root)
+        a = LocalEndpoint(wire.sensor_handler("room_a", lambda: 21.5))
+        self.addCleanup(a.close)
+        b = LocalEndpoint(wire.sensor_handler("room_b", lambda: 19.75))
+        self.addCleanup(b.close)
+        gateway = LocalEndpoint(wire.gateway_handler((
+            ("room_a", "127.0.0.1", a.port), ("room_b", "127.0.0.1", b.port),
+        ), cache_ms=0))
+        self.addCleanup(gateway.close)
+        page = self.client.get("/datalogger/serial")
+        self.assertIn(b'action="/datalogger/serial/pico-setup"', page.data)
+        headers = self._csrf_headers(self.client, "/datalogger/serial")
+        fields = {"gateway_ip": "127.0.0.1", "port": str(gateway.port), "unit": "°C"}
+        response = self.client.post(self.url, data=fields, headers=headers)
+        self.assertEqual((303, "/datalogger/"), (response.status_code, response.location))
+        existing = store.channels_for("owner")
+        self.assertEqual(2, len(existing))
+        self.assertEqual({"°C"}, {row["unit"] for row in existing})
+        self.assertEqual([], store.channels_for("another-account"))
+        self.assertTrue(all(not store.samples(row["channel_id"]) for row in existing))
+        run(root, once=True)
+        self.assertEqual({21.5, 19.75}, {store.samples(row["channel_id"])[0]["value"] for row in existing})
+        existing_source, = store.sources(existing[0]["channel_id"])
+        store.set_source_enabled(existing_source["source_id"], "owner", False)
+        for _ in range(2):
+            self.assertEqual(303, self.client.post(
+                self.url, data={**fields, "availability": "1", "unit": "unchanged"}, headers=headers,
+            ).status_code)
+        all_channels = store.channels_for("owner")
+        self.assertEqual(4, len(all_channels))
+        self.assertEqual(0, store.sources(existing[0]["channel_id"])[0]["enabled"])
+        matches = [row for row in all_channels if not row["unit"]]
+        self.assertEqual(2, len(matches))
+        run(root, once=True)
+        for row in matches:
+            source, = store.sources(row["channel_id"])
+            self.assertTrue(json.loads(source["config"])["track_availability"])
+            self.assertEqual(1.0, store.samples(row["channel_id"])[0]["value"])
+
+    def test_checks_authority_csrf_and_explicit_allowlist_before_writing(self):
+        root = app.config["DOCUMENT_ROOT"]
+        token = self._csrf_headers(self.client, "/datalogger/serial")
+        valid = {"gateway_ip": "127.0.0.1", "port": "8080"}
+        self.assertEqual(403, self.client.post(self.url, data=valid).status_code)
+        self._register(self.client, "reader")
+        reader = app.test_client()
+        self._login(reader, "reader")
+        self.assertNotIn(self.url.encode(), reader.get("/datalogger/serial").data)
+        self.assertEqual(403, reader.post(
+            self.url, data=valid, headers=self._csrf_headers(reader, "/datalogger/serial"),
+        ).status_code)
+        for changed in ({"gateway_ip": "192.168.40.61"}, {"gateway_ip": "8.8.8.8"},
+                        {"gateway_ip": "169.254.169.254"}, {"gateway_ip": "127.0.0.1/x"},
+                        {"port": "65536"}, {"availability": "yes"}, {"unit": "x" * 41}):
+            with self.subTest(fields=changed):
+                response = self.client.post(self.url, headers=token, data={**valid, **changed})
+                self.assertEqual(303, response.status_code)
+                self.assertEqual("/datalogger/serial#pico-setup", response.location)
+        self.assertEqual(400, self.client.post(self.url, headers=token, data={
+            **valid, "gateway_ip": ["127.0.0.1", "192.168.40.61"],
+        }).status_code)
+        self.assertEqual([], DataLoggerStore(root).channels_for("owner"))
+
+    def test_allowlisted_gateway_is_configured_without_contacting_it(self):
+        root = app.config["DOCUMENT_ROOT"]
+        ip = "192.168.40.61"
+        SettingsStore(root).save({"datalogger": {"allowed_hosts": [ip]}}, "owner")
+        headers = self._csrf_headers(self.client, "/datalogger/serial")
+        with patch("app.datalogger_collectors.socket.getaddrinfo", side_effect=AssertionError("unexpected lookup")):
+            reply = self.client.post(self.url, data={"gateway_ip": ip}, headers=headers)
+        self.assertEqual((303, "/datalogger/"), (reply.status_code, reply.location))
+        store = DataLoggerStore(root)
+        channels = store.channels_for("owner")
+        self.assertEqual(2, len(channels))
+        for channel in channels:
+            source, = store.sources(channel["channel_id"])
+            self.assertEqual(f"http://{ip}:8080/status", json.loads(source["config"])["url"])
+            self.assertEqual([], store.samples(channel["channel_id"]))
+        self.assertEqual([ip], SettingsStore(root).settings()["datalogger"]["allowed_hosts"])
+
+    def test_failed_provisioning_does_not_leave_partial_channels(self):
+        store = DataLoggerStore(app.config["DOCUMENT_ROOT"])
+        audit = store._event
+        failures = [None, RuntimeError("synthetic transaction interruption")]
+
+        def fail_on_second(*args, **kwargs):
+            failure = failures.pop(0)
+            if failure:
+                raise failure
+            return audit(*args, **kwargs)
+
+        with patch.object(store, "_event", side_effect=fail_on_second), self.assertRaises(RuntimeError):
+            store.provision_pico_example("owner", "http://127.0.0.1:8080/status", "")
+        self.assertEqual([], store.channels_for("owner"))

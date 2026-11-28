@@ -227,6 +227,46 @@ class DataLoggerStore:
                 self._event(db, actor, 'server_preset_created', 'channel', channel_id, detail={'metric': metric})
         return channel_id
 
+    def provision_pico_example(self, actor, gateway_url, unit, *, availability=False):
+        """Provision private channels and fixed sources together; never re-enable an existing source."""
+        identity = uuid.uuid5(uuid.NAMESPACE_URL, f"simpleoffice:datalogger:pico:v1:{actor}:{gateway_url}")
+        entries = [("room_a", "A", "value"), ("room_b", "B", "value")]
+        if availability:
+            entries.extend((node, label, "available") for node, label, _ in tuple(entries))
+        now = utc_now()
+        created = 0
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            for node, label, kind in entries:
+                channel = uuid.uuid5(identity, f"{node}:{kind}")
+                channel_id = str(channel)
+                cfg = {"url": gateway_url, "json_path": f"nodes.{node}.{kind}", "timeout": 5}
+                name = f"Pico-Knoten {label}"
+                metric_unit = unit
+                if kind == "available":
+                    name = f"{name} erreichbar"
+                    metric_unit = ""
+                    cfg["track_availability"] = True
+                name += f" · {gateway_url.removeprefix('http://').removesuffix('/status')}"
+                result = db.execute(
+                    """INSERT INTO metric_channel VALUES(?,?,?,?,?,?,?,?,?,?)
+                       ON CONFLICT(channel_id) DO NOTHING""",
+                    (channel_id, name, "Voreinstellung für das Pico-Gateway.", metric_unit, "#0d6efd",
+                     actor, "[]", "[]", now, now),
+                )
+                if not result.rowcount:
+                    continue
+                source_id = str(uuid.uuid5(channel, "source"))
+                db.execute(
+                    """INSERT INTO metric_source(source_id,channel_id,name,kind,config,interval_seconds,
+                                                 enabled,next_run_at,created_at,updated_at)
+                       VALUES(?,?,?,'http_json',?,60,1,?,?,?)""",
+                    (source_id, channel_id, "Pico-Gateway", json.dumps(cfg, sort_keys=True), now, now, now),
+                )
+                self._event(db, actor, "pico_preset_created", "channel", channel_id, detail={"metric": kind})
+                created += 1
+        return created
+
     def sources(self, channel_id):
         with self.connect() as db:
             return db.execute("SELECT * FROM metric_source WHERE channel_id=? ORDER BY name", (channel_id,)).fetchall()

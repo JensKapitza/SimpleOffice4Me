@@ -118,11 +118,18 @@ ausgetauscht.
    verwendet für ausgehende LAN-Verbindungen meist die LAN-IP des Hosts.
    Bei 403 die tatsächlich am Gateway sichtbare Absender-IP prüfen; die
    Freigabe nicht auf andere Geräte oder ganze Netze ausweiten.
-   Zwei
-   Messkanäle anlegen, jeweils die Quelle **HTTP/JSON-Sensor** mit derselben
-   URL und den Pfaden **nodes.room_a.value** und **nodes.room_b.value**
-   konfigurieren, zunächst im 60-Sekunden-Takt. SimpleOffice fragt nur das
-   Gateway ab. Die Knoten schicken ihren Wert auf dessen Anfrage.
+   Als Admin unter **Datenlogger → Serielles Terminal → Pico-Gateway schnell
+   einrichten** die feste IPv4-Adresse, den Port und bei Bedarf die Einheit
+   eingeben. **Pico-Kanäle anlegen** erstellt zwei private Messkanäle mit dem
+   60-Sekunden-Takt und optional zwei getrennte Verfügbarkeitskanäle.
+   Erneutes Einrichten derselben Adresse und Ports belässt bestehende Kanäle
+   sowie deaktivierte Quellen unverändert. Das Formular ändert die Hostliste
+   nicht und kontaktiert kein Gerät unmittelbar; der Worker prüft die
+   Erlaubnis weiterhin bei jeder Abfrage. Für vorhandene oder anders
+   benannte Kanäle können die **HTTP/JSON-Sensor**-Quellen mit
+   **nodes.room_a.value** und **nodes.room_b.value** weiterhin manuell
+   zugeordnet werden. SimpleOffice fragt nur das Gateway ab. Die Knoten
+   schicken ihren Wert auf dessen Anfrage.
 5. Für einen separaten Verfügbarkeitsverlauf nutze zusätzlich
    **nodes.room_a.available** und **nodes.room_b.available** als eigene
    HTTP/JSON-Kanäle. Der Wert ist `1` für eine gültige Antwort und `0`,

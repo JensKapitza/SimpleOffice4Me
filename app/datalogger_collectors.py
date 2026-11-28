@@ -58,7 +58,7 @@ def validate_sensor_allowed_hosts(value: object) -> list[str]:
     return normalize_sensor_allowed_hosts(value)
 
 
-def _stored_allowed_hosts(document_root: object) -> list[str]:
+def read_sensor_allowed_hosts(document_root: object) -> list[str]:
     """Read persisted allowed hosts; fail closed to the loopback default."""
     if document_root is None:
         return list(DEFAULT_SENSOR_ALLOWED_HOSTS)
@@ -243,7 +243,7 @@ def collect_http(config, document_root=None):
     parsed = urlsplit(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username is not None or parsed.password is not None:
         raise CollectionError("url_invalid")
-    if parsed.hostname.casefold() not in _stored_allowed_hosts(document_root):
+    if parsed.hostname.casefold() not in read_sensor_allowed_hosts(document_root):
         raise CollectionError("host_denied")
     try:
         addresses = socket.getaddrinfo(parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)

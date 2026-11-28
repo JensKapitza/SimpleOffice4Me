@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ipaddress import IPv4Address, IPv4Network
 import json
 import math
 import sqlite3
@@ -22,6 +23,7 @@ from .datalogger_store import (
 from .datalogger_collectors import (
     DEFAULT_SENSOR_ALLOWED_HOSTS,
     MAX_SENSOR_SECRET_CHARS,
+    read_sensor_allowed_hosts,
     validate_sensor_allowed_hosts,
 )
 from .datalogger_reporting import EXPORT_ROWS, csv_content, date_window, summarize, summary_pdf
@@ -38,6 +40,9 @@ LINUX_METRICS = {
 }
 FILE_METRICS = {"count", "total_bytes", "mtime"}
 PAGE_SIZES = {50, 100, 250}
+_PICO_LOCAL_NETWORKS = tuple(IPv4Network(block) for block in (
+    "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8",
+))
 SERVER_PRESETS = {
     'uptime_seconds': ('Laufzeit seit Systemstart', 's', 'Linux /proc/uptime. Container können die Laufzeit des Hosts anzeigen.'),
     'disk_free_bytes': ('Freier Speicher für Dokumente', 'B', 'Freie Kapazität im Dateisystem der Dokumentwurzel.'),
@@ -127,6 +132,46 @@ def serial_terminal():
         f"camera=(), microphone=(), geolocation=(), display-capture=(), serial={serial}"
     )
     return response
+
+
+@bp.post("/serial/pico-setup")
+@login_required
+def setup_pico_example():
+    if not is_admin():
+        abort(403)
+    if set(request.form) - {"_csrf_token", "gateway_ip", "port", "unit", "availability"}:
+        abort(400)
+    if any(len(request.form.getlist(key)) != 1 for key in request.form):
+        abort(400)
+    address = request.form.get("gateway_ip", "").strip()
+    port = request.form.get("port", "8080").strip()
+    unit = request.form.get("unit", "").strip()
+    availability = request.form.get("availability")
+    try:
+        if len(address) > 15 or len(port) > 5 or not port.isascii() or not port.isdecimal():
+            raise ValueError
+        host = IPv4Address(address)
+        port_number = int(port)
+        if (not any(host in network for network in _PICO_LOCAL_NETWORKS)
+                or not 1 <= port_number <= 65535 or len(unit) > 40 or any(ord(char) < 32 for char in unit)
+                or availability not in (None, "1")):
+            raise ValueError
+    except ValueError:
+        flash("Gib eine lokale IPv4-Adresse, einen gültigen Port und eine kurze Einheit ein.", "warning")
+        return redirect(url_for("datalogger.serial_terminal", _anchor="pico-setup"), code=303)
+
+    if str(host) not in read_sensor_allowed_hosts(current_app.config["DOCUMENT_ROOT"]):
+        flash("Erlaube die Gateway-IP zuerst in den Datenlogger-Einstellungen.", "warning")
+        return redirect(url_for("datalogger.serial_terminal", _anchor="pico-setup"), code=303)
+    try:
+        created = _store().provision_pico_example(g.user["username"], f"http://{host}:{port_number}/status",
+                                                  unit, availability=availability == "1")
+    except (OSError, sqlite3.Error) as exc:
+        current_app.logger.warning("Pico setup failed: %s", type(exc).__name__)
+        abort(503)
+    flash(f"{created} Pico-Kanäle angelegt. Der Datendienst beginnt mit der Messung."
+          if created else "Diese Pico-Kanäle sind schon eingerichtet und bleiben unverändert.", "success")
+    return redirect(url_for("datalogger.index"), code=303)
 
 
 @bp.post('/server-presets/<metric>')

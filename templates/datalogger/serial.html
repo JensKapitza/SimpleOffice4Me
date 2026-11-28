@@ -52,9 +52,27 @@
   </section>
   <script defer src="{{ url_for('static', filename='js/serial-terminal.js') }}"></script>
   {% endif %}
-  <details class="mb-4">
+  <details id="pico-setup" class="mb-4" open>
     <summary>Zwei WLAN-Sensoren über ein Gateway verbinden</summary>
     <p>Zwei Pico-W-Knoten liefern Messwerte an einen dritten Pico W. SimpleOffice liest Werte und auf Wunsch die Erreichbarkeit über dieselbe Gateway-URL aus.</p>
+    {% if can_manage_settings %}
+    <form method="post" action="{{ url_for('datalogger.setup_pico_example') }}" class="border rounded p-3 mb-3">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <fieldset>
+        <legend class="h6">Pico-Gateway schnell einrichten</legend>
+        <p class="small">Zuerst die IP des Gateways in den <a href="{{ url_for('datalogger.settings') }}">Datenlogger-Einstellungen</a> erlauben. Das Formular legt private Messkanäle für <code>room_a</code> und <code>room_b</code> an. Der getrennte Datendienst fragt <code>/status</code> je Kanal im Minutentakt ab.</p>
+        <div class="d-flex flex-wrap gap-2 mb-2">
+          <label>Gateway-IP <input class="form-control" name="gateway_ip" type="text" inputmode="decimal" placeholder="192.168.1.30" maxlength="15" required></label>
+          <label>Port <input class="form-control" name="port" type="number" min="1" max="65535" value="8080" required></label>
+          <label>Einheit (optional) <input class="form-control" name="unit" type="text" placeholder="z. B. °C" maxlength="40"></label>
+        </div>
+        <label class="form-check mb-2"><input class="form-check-input" name="availability" type="checkbox" value="1"> Verfügbarkeit beider Knoten mit erfassen</label>
+        <button class="btn btn-primary" type="submit">Pico-Kanäle anlegen</button>
+        <p class="small mt-2 mb-0">Bereits eingerichtete Kanäle werden nicht dupliziert oder wieder eingeschaltet. Das Formular erteilt keine Netzwerkfreigabe und programmiert keine Boards.</p>
+      </fieldset>
+    </form>
+    {% endif %}
+    <p class="small">Für vorhandene oder anders benannte Kanäle gibt es die manuelle Zuordnung:</p>
     <ol>
       <li>Die Sensorbeispiele aus <code>examples/serial/pico_gateway</code> auf die drei Boards übertragen.</li>
       <li>In den Worker-Einstellungen nur die IP des Gateways zulassen.</li>
