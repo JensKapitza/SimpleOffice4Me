@@ -17,6 +17,11 @@ import android.provider.ContactsContract.RawContacts;
 import android.provider.ContactsContract.Data;
 import android.provider.ContactsContract.CommonDataKinds.StructuredName;
 
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -42,6 +47,7 @@ public final class ManagedContactsProviderAcceptance extends Instrumentation {
         try {
             verify(getTargetContext());
             result.putString("simpleoffice_contacts_provider", "pass");
+            result.putString("simpleoffice_contacts_bulk_resume", "pass");
             ManagedCalendarProviderAcceptance.verify(getTargetContext(), getUiAutomation());
             result.putString("simpleoffice_calendar_provider", "pass");
             finish(Activity.RESULT_OK, result);
@@ -97,6 +103,64 @@ public final class ManagedContactsProviderAcceptance extends Instrumentation {
                     "Resync did not preserve the existing raw contact");
             require(LOCAL_NAME.equals(displayName(resolver, localId)), "Unrelated local contact changed");
         }
+        verifyBulkResume(context, resolver, account, localId);
+    }
+
+    private static void verifyBulkResume(Context context, ContentResolver resolver, Account account, long localId)
+            throws Exception {
+        final int total = 131;
+        JSONArray input = new JSONArray();
+        for (int i = 0; i < total; i++) {
+            input.put(new JSONObject().put("id", "bulk-" + i).put("name", "Synthetic Bulk Contact " + i));
+        }
+        var snapshot = AndroidManagedContacts.prepare(input);
+        AtomicInteger authorizedChecks = new AtomicInteger();
+        boolean interrupted = false;
+        try {
+            AndroidManagedContacts.sync(context, snapshot, () -> authorizedChecks.incrementAndGet() <= 34);
+        } catch (IOException canceled) {
+            interrupted = "Contact sync cancelled".equals(canceled.getMessage());
+        }
+        require(interrupted, "Expected an authorized bulk write to stop when its scope expired");
+        Map<String, BulkRow> partial = bulkRows(resolver, account);
+        require(!partial.isEmpty() && partial.size() < total, "Cancellation did not leave an incomplete safe prefix");
+        require(!partial.containsKey("bulk-130"), "Canceled bulk job continued writing to the final record");
+        require(LOCAL_NAME.equals(displayName(resolver, localId)), "Canceled bulk job changed the unrelated local contact");
+
+        require(AndroidManagedContacts.sync(context, snapshot, () -> true) == total,
+                "Bulk retry did not account for the complete snapshot");
+        Map<String, BulkRow> complete = bulkRows(resolver, account);
+        require(complete.size() == total, "Bulk retry missed or duplicated contacts");
+        for (int i = 0; i < total; i++) {
+            require(complete.containsKey("bulk-" + i), "Bulk retry missed a source identifier");
+        }
+        for (var entry : partial.entrySet()) {
+            require(entry.getValue().equals(complete.get(entry.getKey())), "Retry changed an already correct contact");
+        }
+        require("Synthetic Bulk Contact 130".equals(displayName(resolver, complete.get("bulk-130").id())),
+                "Final bulk contact is not published by Android");
+        require(AndroidManagedContacts.sync(context, snapshot, () -> true) == total,
+                "Repeated bulk sync did not account for all contacts");
+        require(complete.equals(bulkRows(resolver, account)), "Repeated bulk sync changed Android rows or versions");
+        require(LOCAL_NAME.equals(displayName(resolver, localId)), "Bulk sync changed the unrelated local contact");
+    }
+
+    private record BulkRow(long id, int version) {}
+
+    private static Map<String, BulkRow> bulkRows(ContentResolver resolver, Account account) {
+        Map<String, BulkRow> result = new HashMap<>();
+        String scope = RawContacts.ACCOUNT_NAME + "=? AND " + RawContacts.ACCOUNT_TYPE + "=? AND "
+                + RawContacts.SOURCE_ID + " LIKE ? AND " + RawContacts.DELETED + "=0";
+        try (Cursor rows = resolver.query(RawContacts.CONTENT_URI,
+                new String[]{RawContacts.SOURCE_ID, RawContacts._ID, RawContacts.VERSION},
+                scope, new String[]{account.name, account.type, "bulk-%"}, null)) {
+            require(rows != null, "Android bulk contact query did not return a cursor");
+            while (rows.moveToNext()) {
+                BulkRow prior = result.put(rows.getString(0), new BulkRow(rows.getLong(1), rows.getInt(2)));
+                require(prior == null, "Multiple Android raw contacts share a bulk source ID");
+            }
+        }
+        return result;
     }
 
     private static int sync(Context context, String name, boolean allowed) throws Exception {

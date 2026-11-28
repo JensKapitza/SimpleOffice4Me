@@ -76,7 +76,10 @@ Kontaktfreigabe, eine synthetische Übernahme, zwei Wiederholungen nach
 einer Namensänderung und einen unveränderten Kontakt außerhalb des
 SimpleOffice-Kontos. Der Test liest veröffentlichte Android-Kontakte aus dem
 Systemanbieter und verwendet den echten SimpleOffice-Writer. Er prüft
-zusätzlich Kalender-Vorkommen vor und nach der Zeitumstellung,
+zusätzlich den Abbruch und Wiederanlauf einer synthetischen Übernahme mit
+131 Kontakten. Bereits fertige Teilschritte behalten beim Wiederholen ihre
+Android-Zeilen und Versionen, und ein unabhängiger Kontakt bleibt unberührt.
+Für den Kalender prüft er Vorkommen vor und nach der Zeitumstellung,
 eine verschobene und abgesagte Instanz, einen Schaltgeburtstag und ein
 unberührtes fremdes Kalenderereignis. WebView-Dialog und die Oberfläche einer
 bestimmten Android-App bleiben separate Tests.
@@ -94,7 +97,8 @@ bash tools/run_android_contacts_provider_acceptance.sh \
   emulator-5554
 ```
 
-Nur die zwei `INSTRUMENTATION_RESULT`-Werte
-`simpleoffice_contacts_provider=pass` und `simpleoffice_calendar_provider=pass`
-zusammen mit `INSTRUMENTATION_CODE: -1` gelten als bestanden. Der bisherige
+Nur die drei `INSTRUMENTATION_RESULT`-Werte
+`simpleoffice_contacts_provider=pass`, `simpleoffice_contacts_bulk_resume=pass`
+und `simpleoffice_calendar_provider=pass` zusammen mit
+`INSTRUMENTATION_CODE: -1` gelten als bestanden. Der bisherige
 APK-Pakettest allein belegt keinen Android-Lauf.
