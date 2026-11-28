@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import threading
 import unittest
 from urllib.parse import urlsplit
@@ -110,5 +111,51 @@ class InventoryNfcBrowserTests(PublicHttpTestCase):
                 self.assertEqual(200, native.value.status)
                 expect(page.locator("[data-nfc-find-results] a")).to_have_count(2)
                 self.assertEqual(origin + "/inventory", page.url)
+
+                responses = []
+                page.on("request", lambda request: responses.append(request)
+                        if urlsplit(request.url).path == "/inventory/nfc-find" else None)
+                page.evaluate("""() => {
+                    window.nfcStatusFixture = 'disabled';
+                    window.SimpleOfficeNativeNfc.start = id => {
+                        window.currentNfcRequest = id;
+                        const state = window.nfcStatusFixture;
+                        if (state === 'waiting') return 'ok';
+                        if (state === 'timeout' || state === 'no-id') {
+                            setTimeout(() => window.dispatchEvent(new CustomEvent('simpleoffice:nfc', {
+                                detail: {requestId: id, state}
+                            })), 0);
+                            return 'ok';
+                        }
+                        return state;
+                    };
+                }""")
+                status = page.locator("[data-nfc-find-status]")
+                for state, wording in (
+                    ("disabled", r"Enable NFC|NFC in den Android-Einstellungen"),
+                    ("unavailable", r"No direct NFC reader|Kein NFC-Direktleser"),
+                    ("denied", r"permission was denied|Freigabe wurde .*verweigert"),
+                    ("no-id", r"did not provide an NFC ID|keine NFC-ID geliefert"),
+                    ("timeout", r"No tag read|Kein Tag gelesen"),
+                ):
+                    with self.subTest(state=state):
+                        page.evaluate("value => window.nfcStatusFixture = value", state)
+                        button.click()
+                        expect(status).to_have_text(re.compile(wording))
+                        expect(finder).to_have_value("04AA12FF")
+                        self.assertIsNone(button.get_attribute("aria-busy"))
+                        if state == "unavailable":
+                            expect(finder).to_be_focused()
+                page.evaluate("window.nfcStatusFixture = 'waiting'")
+                button.click()
+                expect(button).to_have_attribute("aria-busy", "true")
+                button.click()
+                expect(status).to_have_text(re.compile(r"scan cancelled|Scan abgebrochen"))
+                page.evaluate("""() => window.dispatchEvent(new CustomEvent('simpleoffice:nfc', {
+                    detail: {requestId: window.currentNfcRequest, state:'ok', serial:'ABCD'}
+                }))""")
+                expect(finder).to_have_value("04AA12FF")
+                self.assertEqual([], responses)
+                expect(page.locator("#nfc-id")).to_have_value("04AA12FF")
             finally:
                 browser.close()

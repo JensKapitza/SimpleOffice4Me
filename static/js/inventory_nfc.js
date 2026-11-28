@@ -21,6 +21,33 @@
     if (!Array.isArray(data.matches) || data.matches.length > 20) throw new Error('invalid lookup');
     return data;
   };
+  const scanFailureText = (code, english, timedOut = false) => {
+    const messages = {
+      unavailable: ['No direct NFC reader is available. Enter the tag ID or use a USB reader in keyboard mode.',
+                    'Kein NFC-Direktleser verfügbar. Gib die Tag-Kennung ein oder verwende einen USB-Leser im Tastaturmodus.'],
+      disabled: ['Enable NFC in Android settings and try again.', 'NFC in den Android-Einstellungen einschalten und erneut versuchen.'],
+      denied: ['NFC permission was denied in the browser. You can enter the ID instead.',
+               'Die NFC-Freigabe wurde im Browser verweigert. Du kannst die Kennung stattdessen eingeben.'],
+      busy: ['Another NFC scan is already active.', 'Ein anderer NFC-Scan läuft bereits.'],
+      'no-id': ['This tag did not provide an NFC ID.', 'Dieser Tag hat keine NFC-ID geliefert.'],
+      timeout: ['No tag read. Select NFC to try again.', 'Kein Tag gelesen. Zum Wiederholen erneut auf NFC klicken.'],
+      abort: ['NFC scan cancelled.', 'NFC-Scan abgebrochen.'],
+      failed: ['Could not read the NFC ID. You can enter it instead.',
+               'NFC-ID konnte nicht gelesen werden. Du kannst die Kennung stattdessen eingeben.'],
+    };
+    const key = code === 'abort' && timedOut ? 'timeout' : code;
+    return (Object.hasOwn(messages, key) ? messages[key] : messages.failed)[english ? 0 : 1];
+  };
+  const browserFailure = (reason) => {
+    switch (reason?.name) {
+      case 'NotAllowedError':
+      case 'SecurityError': return 'denied';
+      case 'NotSupportedError': return 'unavailable';
+      case 'AbortError': return 'abort';
+      default: return 'failed';
+    }
+  };
+
   const scan = ({signal}) => new Promise((resolve, reject) => {
     const adapter = window.SimpleOfficeNativeNfc;
     const Reader = window.NDEFReader;
@@ -68,11 +95,11 @@
         reader.addEventListener('reading', onReading);
         reader.addEventListener('readingerror', onError);
         Promise.resolve(reader.scan({signal: controller.signal})).catch((err) => {
-          finish(err?.name === 'NotAllowedError' ? 'denied' : 'failed');
+          finish(browserFailure(err));
         });
       }
-    } catch (_error) {
-      finish('failed');
+    } catch (failure) {
+      finish(adapter ? 'failed' : browserFailure(failure));
     }
   });
 
@@ -81,15 +108,8 @@
     if (nfcButton) nfcButton.disabled = false;
     if (keyboardButton) keyboardButton.disabled = false;
     const STR = {
-      nfcUnsupported: EN ? 'No NFC scan available here. Use the Android app, a USB NFC reader in keyboard mode, or enter the ID.' : 'Hier ist kein NFC-Direktscan verfügbar. Android-App, USB-NFC-Leser im Tastaturmodus oder manuelle Eingabe verwenden.',
       nfcHold: EN ? 'Hold the NFC tag to the phone. Select NFC again to cancel.' : 'NFC-Tag ans Handy halten. Zum Abbrechen erneut auf NFC klicken.',
       nfcRead: EN ? 'NFC ID entered. Review and save the form.' : 'NFC-ID übernommen. Formular prüfen und speichern.',
-      nfcFailed: EN ? 'Could not read the NFC ID.' : 'NFC-ID konnte nicht gelesen werden.',
-      nfcDisabled: EN ? 'Enable NFC in Android settings and try again.' : 'NFC in den Android-Einstellungen einschalten und erneut versuchen.',
-      nfcDenied: EN ? 'NFC permission was denied in the browser.' : 'NFC-Freigabe im Browser wurde verweigert.',
-      nfcNoId: EN ? 'This tag did not provide an NFC ID.' : 'Dieser Tag hat keine NFC-ID geliefert.',
-      nfcTimeout: EN ? 'No tag read. Select NFC to try again.' : 'Kein Tag gelesen. Zum Wiederholen erneut auf NFC klicken.',
-      nfcCancelled: EN ? 'NFC scan cancelled.' : 'NFC-Scan abgebrochen.',
       nfcKeyboard: EN ? 'Hold the tag to the USB reader. Its ID appears in this field.' : 'Tag an den USB-Leser halten. Seine UID erscheint in diesem Feld.',
       nfcKeyboardInvalid: EN ? 'No valid ID. Set the USB reader to send the tag ID in hexadecimal.' : 'Ungültige ID. USB-Leser so einstellen, dass er die Tag-UID als Hexadezimalwert ausgibt.',
     };
@@ -147,14 +167,8 @@
       try {
         applyNfc(await scan({signal: controller.signal}));
       } catch (error) {
-        const messages = {
-          busy: EN ? 'Another NFC scan is already active.' : 'Ein anderer NFC-Scan läuft bereits.',
-          unavailable: STR.nfcUnsupported, disabled: STR.nfcDisabled, denied: STR.nfcDenied,
-          'no-id': STR.nfcNoId, timeout: STR.nfcTimeout, abort: timedOut ? STR.nfcTimeout : STR.nfcCancelled,
-        };
         if (!session.quiet) {
-          const message = Object.hasOwn(messages, error?.code) ? messages[error.code] : STR.nfcFailed;
-          setStatus(message, 'warning');
+          setStatus(scanFailureText(error?.code, EN, timedOut), 'warning');
           if (error?.code === 'unavailable') nfc.focus();
         }
       } finally {
@@ -189,7 +203,10 @@
     const cancelScan = () => {
       const old = scanning;
       scanning = undefined;
-      old?.abort();
+      if (old) {
+        button.removeAttribute('aria-busy');
+        old.abort();
+      }
     };
 
     const find = async () => {
@@ -234,27 +251,37 @@
     refreshReader();
     window.addEventListener('simpleoffice:native-ready', () => queueMicrotask(refreshReader));
     button.addEventListener('click', async () => {
-      if (scanning) { cancelScan(); speak('Scan cancelled.', 'Lesen abgebrochen.'); return; }
+      if (scanning) { cancelScan(); status.textContent = scanFailureText('abort', english); return; }
       clear();
       const own = new AbortController();
       scanning = own;
-      const timeout = setTimeout(() => own.abort(), 15000);
+      let timedOut = false;
+      button.setAttribute('aria-busy', 'true');
+      const timeout = setTimeout(() => { timedOut = true; own.abort(); }, 15000);
       speak('Hold the tag near the device. Click again to cancel.', 'Tag ans Gerät halten. Erneut klicken zum Abbrechen.');
       try {
         const uid = await scan({signal: own.signal});
         if (scanning === own && !page.hidden) { uidField.value = uid; void find(); }
       } catch (error) {
         if (scanning === own && !page.hidden) {
-          if (error?.code === 'busy') speak('Another NFC scan is active.', 'Ein anderer NFC-Scan läuft bereits.');
-          else speak('No tag was read. You can enter the ID instead.', 'Kein Tag gelesen. Du kannst die Kennung auch eingeben.');
+          status.textContent = scanFailureText(error?.code, english, timedOut);
+          if (error?.code === 'unavailable') uidField.focus();
         }
       } finally {
         clearTimeout(timeout);
-        if (scanning === own) scanning = undefined;
+        if (scanning === own) {
+          scanning = undefined;
+          button.removeAttribute('aria-busy');
+        }
       }
     });
     page.addEventListener('visibilitychange', () => {
-      if (page.hidden) { cancelScan(); lookup?.abort(); lookup = undefined; }
+      if (page.hidden) {
+        if (scanning) status.textContent = scanFailureText('abort', english);
+        cancelScan();
+        lookup?.abort();
+        lookup = undefined;
+      }
     });
     window.addEventListener('pagehide', () => { cancelScan(); lookup?.abort(); lookup = undefined; });
     panel.hidden = false;

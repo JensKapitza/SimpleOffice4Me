@@ -204,3 +204,16 @@ test('two controls cannot reserve the NFC reader at the same time', async () => 
   readers[1].dispatchEvent(reading('DEAD'));
   assert.equal(await second, 'DEAD');
 });
+
+test('Web NFC errors carry actionable reason codes and release the reader', async () => {
+  const {window, helper} = setup();
+  for (const [name, code] of [
+    ['NotAllowedError', 'denied'], ['SecurityError', 'denied'],
+    ['NotSupportedError', 'unavailable'], ['AbortError', 'abort'], ['UnknownError', 'failed'],
+  ]) {
+    window.NDEFReader = class extends EventTarget {
+      scan() { return Promise.reject(Object.assign(new Error('browser fixture'), {name})); }
+    };
+    await assert.rejects(helper.scan({signal: new AbortController().signal}), {code});
+  }
+});

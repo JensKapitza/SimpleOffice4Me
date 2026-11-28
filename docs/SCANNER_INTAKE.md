@@ -133,6 +133,12 @@ SIMPLEOFFICE_INTAKE_BROWSER_REQUIRED=1 python -m unittest -v tests.test_inventor
 
 ## Vorhandenen NFC-Tag finden
 
+Die Suche und die Erfassung zeigen denselben konkreten Hinweis, wenn NFC
+ausgeschaltet ist, das Gerät keinen Direktleser bietet, die Browserfreigabe
+fehlt oder der Tag keine Kennung liefert. Ein Zeitlimit ist vom bewussten
+Abbruch zu unterscheiden. Bei fehlendem Direktleser bleibt die Suche per
+Kennung bzw. USB-Leser verfügbar; der Fokus springt zur Eingabe.
+
 Unter **Inventar → Vorhandenen NFC-Tag finden** die Kennung eingeben, den
 USB-Leser im Tastaturmodus einsetzen oder in einer unterstützten Android-App
 bzw. einem Web-NFC-Browser **Tag lesen** wählen. Die Treffer bleiben auf der
