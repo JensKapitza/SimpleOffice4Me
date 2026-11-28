@@ -70,6 +70,15 @@ file(WRITE "${CpuFeaturesNdkCompat_DIR}/CpuFeaturesNdkCompatConfig.cmake"
 # A fixed CMake 3.22.1 avoids trying to execute Tesseract's optional TIFF
 # detection program on the build host while cross-compiling.
 add_subdirectory("${ocr_core_SOURCE_DIR}" "${ocr_core_BINARY_DIR}" EXCLUDE_FROM_ALL)
+# Both upstream projects generate config_auto.h. Tesseract's original
+# include order places Leptonica's generated path first when combined in
+# one build. Ensure its sources see their own codec and legacy settings.
+target_include_directories(libtesseract BEFORE PRIVATE "${ocr_core_BINARY_DIR}")
+file(STRINGS "${ocr_core_BINARY_DIR}/config_auto.h" ocr_legacy_off
+    REGEX "^#define DISABLED_LEGACY_ENGINE( |$)")
+if(NOT ocr_legacy_off)
+    message(FATAL_ERROR "The Android Tesseract build must disable the legacy engine")
+endif()
 
 add_library(simpleoffice_ocr SHARED android_photo_ocr.cpp)
 target_compile_features(simpleoffice_ocr PRIVATE cxx_std_17)
