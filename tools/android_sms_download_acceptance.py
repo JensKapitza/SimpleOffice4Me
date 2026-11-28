@@ -97,6 +97,7 @@ class Device:
         allowed = {
             "launcher-created", "local-choice-present", "account-picker", "account-picker-returned",
             "clearing-session", "cleared-session", "assets-ready", "python-ready", "python-start-returned",
+            "python-module-loading", "python-module-loaded", "before-python-start",
             "http-ready", "bootstrap-failed", "open-navigation", "launcher-destroyed",
             "navigation-creating", "navigation-created",
         }
@@ -107,6 +108,19 @@ class Device:
                   flush=True)
         except (OSError, subprocess.SubprocessError):
             print("Debug startup milestones: unavailable", flush=True)
+        try:
+            python_allowed = {"python-entry", "environment-ready", "symbols-ready", "rust-ready",
+                              "flask-imported", "routes-ready", "backend-listening"}
+            log = self.adb("logcat", "-d", "-s", "python.stdout:I")
+            events = [line.split("SO4ME_PY_START ", 1)[1].strip() for line in log.splitlines()
+                      if "SO4ME_PY_START " in line]
+            print("Debug Python milestones:",
+                  " ".join(item for item in events if item in python_allowed) or "none", flush=True)
+            exit_info = self.adb("shell", "dumpsys", "activity", "exit-info", APP)
+            reasons = re.findall(r"\breason=([0-9]{1,3})\b", exit_info)
+            print("Android package exit reasons:", " ".join(reasons[:6]) or "none", flush=True)
+        except (OSError, subprocess.SubprocessError):
+            print("Debug Python milestones or exit reasons unavailable", flush=True)
 
     def diagnose_startup(self, probe):
         """Report fixed phases, never a raw hierarchy, response, cookie or credential."""

@@ -182,14 +182,19 @@ public final class BootstrapActivity extends Activity {
                 if (!Python.isStarted()) Python.start(new AndroidPlatform(this));
                 startupStage("python-ready");
                 String bootstrapToken = UUID.randomUUID().toString() + UUID.randomUUID();
+                startupStage("python-module-loading");
                 PyObject module = Python.getInstance().getModule("android_runtime");
+                startupStage("python-module-loaded");
+                String lanAddresses = AndroidLanNetwork.localIpv4Addresses();
+                startupStage("before-python-start");
                 module.callAttr(
                         "start",
                         runtimeRoot.getAbsolutePath(),
                         BuildConfig.ERROR_REPORT_URL,
                         accountEmail == null ? "" : accountEmail,
                         bootstrapToken,
-                        AndroidLanNetwork.localIpv4Addresses());
+                        lanAddresses,
+                        BuildConfig.DEBUG);
                 showStatus("Lokales Benutzerkonto wird vorbereitet …", true);
                 startupStage("python-start-returned");
                 waitForBackend();
