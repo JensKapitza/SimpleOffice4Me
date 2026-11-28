@@ -148,3 +148,23 @@ Tags zeigen bis zu 20 Titel und Standorte statt einen beliebigen Treffer zu
 Die neue Suchmaske überträgt die Tag-Kennung per privatem Formular-POST,
 nicht in der URL, und wertet keine Daten vom Tag als Links oder Anweisungen
 aus. NFC-Tags ersetzen weder Zugriffsrechte noch Identitätsnachweise.
+
+### Android-Abnahme ohne aktiven NFC-Leser
+
+Die Android-CI startet die installierte Debug-APK in einem frischen
+Android-15-Emulator. Der Test öffnet das Inventar, verwendet die echte
+Android-Schnittstelle für **Tag lesen** und prüft die Rückmeldung bei
+fehlendem oder deaktiviertem NFC. Anschließend bestätigt er die Suche per
+eingegebener Testkennung, ohne das Erfassungsformular zu verändern.
+
+Für die lokale Wiederholung muss ein unbenutzter Wegwerf-AVD das ARM64-APK
+ausführen können. Falls das Image NFC bereitstellt, schalte es dort vor dem
+Test aus. Verwende nicht dein bestehendes Gerät oder einen AVD mit Nutzdaten.
+
+```sh
+python -m pip install --require-hashes -r requirements-ci-tools.txt -r requirements-ci-browser.txt
+bash tools/run_android_nfc_fallback_acceptance.sh android/apk/app/build/outputs/apk/debug/app-debug.apk emulator-5564
+```
+
+Erst `simpleoffice_nfc_native_fallback=pass` bestätigt den Lauf. Er prüft
+nicht das Lesen eines physischen Tags oder den Anschluss eines USB-Lesers.

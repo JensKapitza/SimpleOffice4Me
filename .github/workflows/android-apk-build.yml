@@ -14,6 +14,8 @@ on:
       - 'app/inventory.py'
       - 'static/js/inventory*.js'
       - 'templates/inventory/**'
+      - 'tools/*android_nfc_fallback_acceptance*'
+      - 'requirements-ci-browser.txt'
       - 'licenses/MEDIAPIPE-APACHE-2.0.txt'
       - 'requirements-ci-tools.txt'
       - 'requirements-ci-android-apk.in'
@@ -78,6 +80,8 @@ jobs:
       SIMPLEOFFICE_ANDROID_WHEEL_DIR: ${{ github.workspace }}/android/apk/app/wheelhouse
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
 
       - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
         with:
@@ -410,3 +414,30 @@ jobs:
           path: artifacts/android/*
           if-no-files-found: error
           retention-days: 14
+
+      - name: Check whether NFC fallback acceptance is affected
+        id: nfc-fallback
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only HEAD^1 HEAD -- \
+            'app/inventory.py' 'static/js/inventory_nfc.js' 'templates/inventory/**' \
+            'tools/*android_nfc_fallback_acceptance*' \
+            'android/apk/app/src/main/java/de/simpleoffice4me/android/MainActivity.java' \
+            '.github/workflows/android-apk-build.yml' 'requirements-ci-browser.txt')"
+          if [[ -n "$changed" ]]; then echo 'needed=true' >> "$GITHUB_OUTPUT"; fi
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: steps.nfc-fallback.outputs.needed == 'true'
+        with:
+          python-version: '3.12'
+
+      - name: Android inventory NFC fallback on real WebView
+        if: steps.nfc-fallback.outputs.needed == 'true'
+        timeout-minutes: 18
+        shell: bash
+        run: |
+          python -m pip install --require-hashes -r requirements-ci-tools.txt -r requirements-ci-browser.txt
+          bash tools/run_android_nfc_fallback_acceptance.sh \
+            android/apk/app/build/outputs/apk/debug/app-debug.apk
