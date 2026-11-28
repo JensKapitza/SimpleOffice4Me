@@ -28,7 +28,7 @@ class MotionTargetSelectionTest(unittest.TestCase):
         for activities in (
             f"  topResumedActivity=ActivityRecord{{ t0 {APP}/.BootstrapActivity }}",
             f"  Hist #0: ActivityRecord{{ t0 {APP}/.NavigationActivity }}",
-            f"  topResumedActivity=ActivityRecord{{ t0 other.example/.NavigationActivity }}",
+            "  topResumedActivity=ActivityRecord{ t0 other.example/.NavigationActivity }",
             f"  topResumedActivity=ActivityRecord{{ t0 {APP}/.NavigationActivityOther }}",
         ):
             self.assertFalse(navigation_is_resumed(activities))
