@@ -201,12 +201,39 @@ def main():
         assert not source_page.select('[data-next-attempt], [data-delivery-state="peer_unreachable"], [data-delivery-state="retry_due"]')
         rows = source_page.select('[data-delivery-state="delivered"]')
         assert len(rows) == 2 and any(": 2" in row.get_text() for row in rows)
+        # An offline destination that comes back after the original deadline
+        # must not receive a delayed notice, even with a fresh worker process.
+        form = source_page.select_one(f'form[action="{create}"]')
+        src.submit(form, {"peer": b, "destination": grant, "source": "job", "delay": "0",
+                          "deadline": "10", "zone": "UTC"})
+        destination_server.close()
+        _copy(root / a, tls, a, "synthetic-workflow-run-offline-expired")
+        waiting = src.page("/automation-v3").select_one('[data-delivery-state="peer_queued"]')
+        assert waiting is not None, "Short-window copy was not queued"
+        deadline = datetime.fromisoformat(waiting.select_one("time")["datetime"])
+        remaining = (deadline - datetime.now(timezone.utc)).total_seconds()
+        assert 0 < remaining <= 10, "Unexpected test action window"
+        time.sleep(remaining + 1)
+        dst, _ = destination_server.enter_context(
+            fixture.instance(root / b, b, tls, context, destination_password, bearer, port=destination_port),
+        )
+        _work(root / a, tls)
+        source_page = src.page("/automation-v3")
+        missed, = source_page.select('[data-delivery-state="window_missed"]')
+        assert ": 1" in missed.get_text(), "Worker did not consume the expired job"
+        assert not source_page.select('[data-next-attempt]')
+        assert len(source_page.select('[data-delivery-state="delivered"]')) == 2
+        assert inbox_identity(json.loads(dst.request("/automation-v3/copy-notices"))["notices"]) == inbox_identity(target)
+
+        form = source_page.select_one(f'form[action="{create}"]')
+        src.submit(form, {"peer": b, "destination": grant, "source": "job", "delay": "0",
+                          "deadline": "120", "zone": "Europe/Berlin"})
         _copy(root / a, tls, a, "synthetic-workflow-run-revoked")
         dst.page(consent, fields={"operation": "revoke", "grant": grant, "_csrf_token": dst.csrf("/automation-v3")})
         _work(root / a, tls)
         assert src.page("/automation-v3").select_one('[data-delivery-state="denied"]')
         assert inbox_identity(json.loads(dst.request("/automation-v3/copy-notices"))["notices"]) == inbox_identity(target)
-        print("PASS: real copy triggers durable peer job; paired HTTPS delivery, replay, end-of-day offline recovery, private read receipt, one manual personal task and revoke verified")
+        print("PASS: real copy triggers durable peer job; paired HTTPS delivery, replay, end-of-day offline recovery, expired offline delivery suppressed, private read receipt, one manual personal task and revoke verified")
 
 
 
