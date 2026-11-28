@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-from http.client import HTTPConnection
+from http.client import HTTPConnection, HTTPException
 import json
 import re
 import subprocess
@@ -50,13 +50,49 @@ class Device:
         return wait_for(locate, label, seconds)
 
     def forwarded_socket(self):
-        def locate():
-            pid = self.adb("shell", "pidof", APP).split()[0]
-            name = f"webview_devtools_remote_{pid}"
-            return name if name in self.adb("shell", "cat", "/proc/net/unix") else None
+        # Android restricts /proc/net/unix to privileged callers. Ask adb to
+        # forward the exact known WebView socket instead and probe it over TCP.
+        seen_process = False
 
-        name = wait_for(locate, "debug WebView socket", 90)
-        return self.adb("forward", "tcp:0", f"localabstract:{name}")
+        def locate():
+            nonlocal seen_process
+            pid = self.adb("shell", "pidof", APP).split()[0]
+            if not pid.isdecimal():
+                return None
+            seen_process = True
+            port = int(self.adb("forward", "tcp:0", f"localabstract:webview_devtools_remote_{pid}"))
+            ready = False
+            try:
+                connection = HTTPConnection("127.0.0.1", port, timeout=3)
+                try:
+                    connection.request("GET", "/json/list")
+                    response = connection.getresponse()
+                    if response.status == 200:
+                        targets = json.loads(response.read(65536))
+                        ready = any(item.get("type") == "page" for item in targets)
+                finally:
+                    connection.close()
+                return port if ready else None
+            except (OSError, HTTPException, ValueError):
+                return None
+            finally:
+                if not ready:
+                    self.adb("forward", "--remove", f"tcp:{port}")
+
+        try:
+            return wait_for(locate, "debug WebView target through adb", 120)
+        except AssertionError as error:
+            details = "App process exists" if seen_process else "App process did not stay alive"
+            print(details, flush=True)
+            # Only report failure classes from the fresh synthetic emulator.
+            try:
+                log = self.adb("logcat", "-b", "crash", "-d", "-t", "80")
+                exception_types = set(re.findall(r"\b(?:[a-zA-Z]+\.)+[A-Za-z]+(?:Exception|Error)\b", log))
+                if exception_types:
+                    print("Android crash classes:", ", ".join(sorted(exception_types)), flush=True)
+            except (OSError, subprocess.SubprocessError):
+                print("Android crash buffer unavailable", flush=True)
+            raise error
 
 
 def wait_for(action, label, seconds):
@@ -105,21 +141,12 @@ def system_save(node):
 def verify_backup(device):
     if device.adb("shell", "getprop", "ro.hardware") not in {"ranchu", "goldfish"}:
         raise AssertionError("This acceptance runs on an Android emulator only")
-    device.adb("shell", "am", "start", "-n", f"{APP}/.MainActivity")
+    result = device.adb("shell", "am", "start", "-W", "-n", f"{APP}/.MainActivity", timeout=45)
+    if "Status: ok" not in result:
+        raise AssertionError("Android did not start the SimpleOffice activity")
     port = device.forwarded_socket()
     try:
-        url = f"http://127.0.0.1:{int(port)}"
-        def cdp_ready():
-            connection = HTTPConnection("127.0.0.1", int(port), timeout=3)
-            try:
-                connection.request("GET", "/json/version")
-                response = connection.getresponse()
-                if response.status != 200:
-                    return None
-                return json.loads(response.read(8192)).get("webSocketDebuggerUrl")
-            finally:
-                connection.close()
-        wait_for(cdp_ready, "CDP endpoint", 15)
+        url = f"http://127.0.0.1:{port}"
         with sync_playwright() as playwright:
             browser = playwright.chromium.connect_over_cdp(url, timeout=15000)
             page, = browser.contexts[0].pages
