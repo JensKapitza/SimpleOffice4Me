@@ -22,18 +22,21 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 /** Foreground-only, explicit SimpleOffice-to-Android synchronization. */
 final class AndroidManagedSync {
-    static final int PERMISSION_REQUEST = 708;
+    static final int PERMISSION_REQUEST = 709;
     private static final int MAX_BYTES = 440_000;
     private final Activity activity;
     private final BooleanSupplier currentPage;
+    private final Consumer<String> feedback;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private volatile boolean resumed;
     private volatile long generation;
     private volatile boolean closed;
     private boolean busy;
+    private boolean resumeNotice;
     private AlertDialog confirmation;
     private Prepared pending;
 
@@ -46,9 +49,10 @@ final class AndroidManagedSync {
     private static final String CHANGED = "Die Daten oder Freigaben haben sich geändert. Bitte öffne eine neue Vorschau. "
             + "Diese Übertragung hat noch nichts auf Android geschrieben.";
 
-    AndroidManagedSync(Activity activity, BooleanSupplier currentPage) {
+    AndroidManagedSync(Activity activity, BooleanSupplier currentPage, Consumer<String> feedback) {
         this.activity = activity;
         this.currentPage = currentPage;
+        this.feedback = feedback;
     }
 
     void open(String source, String csrf, String userAgent, String calendarIds) {
@@ -103,6 +107,7 @@ final class AndroidManagedSync {
 
     private void prepare(Request request) {
         busy = true;
+        message("Vorschau wird geladen. Android wurde noch nicht verändert.");
         executor.execute(() -> {
             Prepared result = null;
             String error = "Vorschau nicht verfügbar. Prüfe Anmeldung und Auswahl.";
@@ -147,16 +152,22 @@ final class AndroidManagedSync {
     }
 
     private void showPreview(Prepared preview) {
+        message("Vorschau bereit. Prüfe die Auswahl im Dialog.");
         String scope = "contacts".equals(preview.request.source)
                 ? preview.count + " Kontakte"
                 : AndroidManagedSyncPreview.calendarScope(preview.count, preview.request.calendarNames);
         confirmation = new AlertDialog.Builder(activity).setTitle("Android-Abgleich prüfen")
                 .setMessage(scope + "\n\nDiese Auswahl kann ins eigene SimpleOffice-Konto auf diesem Gerät übernommen werden. "
                         + "Es wurde noch nichts geschrieben. Andere Konten bleiben unverändert.")
-                .setNegativeButton("Abbrechen", null)
+                .setNegativeButton("Abbrechen", (dialog, button) -> previewCanceled())
                 .setPositiveButton("Übernehmen", (dialog, button) -> startOrAsk(preview)).create();
+        confirmation.setOnCancelListener(ignored -> previewCanceled());
         confirmation.setOnDismissListener(ignored -> confirmation = null);
         confirmation.show();
+    }
+
+    private void previewCanceled() {
+        message("Vorschau abgebrochen. Android wurde nicht verändert.");
     }
 
     private void startOrAsk(Prepared preview) {
@@ -167,6 +178,7 @@ final class AndroidManagedSync {
         else {
             pending = preview;
             permissionReturned = false;
+            message("Warte auf die Android-Berechtigung.");
             try {
                 activity.requestPermissions(permissions(request.source), PERMISSION_REQUEST);
             } catch (IllegalStateException | SecurityException unavailable) {
@@ -214,6 +226,7 @@ final class AndroidManagedSync {
     private void submit(Prepared preview) {
         Request request = preview.request;
         busy = true;
+        message("Android-Abgleich läuft. Lass diese Ansicht geöffnet.");
         executor.execute(() -> {
             String text;
             try {
@@ -311,21 +324,29 @@ final class AndroidManagedSync {
     }
 
     private void message(String text) {
-        if (resumed && !closed && currentPage.getAsBoolean())
-            new AlertDialog.Builder(activity).setTitle("Android-Abgleich").setMessage(text)
-                    .setPositiveButton("Schließen", null).show();
+        if (resumed && !closed && currentPage.getAsBoolean()) feedback.accept(text);
     }
 
     void onPageChanged() {
-        generation++; pending = null; permissionReturned = false;
+        generation++; pending = null; permissionReturned = false; resumeNotice = false;
         if (confirmation != null) confirmation.dismiss();
     }
 
     void onPause() {
         resumed = false;
-        if (pending == null) generation++;
+        if (pending == null) {
+            resumeNotice = resumeNotice || busy || confirmation != null;
+            generation++;
+        }
         if (confirmation != null) confirmation.dismiss();
     }
-    void onResume() { resumed = true; resumePermission(); }
+    void onResume() {
+        resumed = true;
+        if (resumeNotice) {
+            resumeNotice = false;
+            message("Abgleich unterbrochen. Starte bei Bedarf erneut; bereits übernommene Einträge bleiben erhalten.");
+        }
+        resumePermission();
+    }
     void close() { closed = true; onPageChanged(); executor.shutdownNow(); }
 }

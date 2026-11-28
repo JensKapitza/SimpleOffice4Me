@@ -47,6 +47,7 @@ class AndroidDeviceSourceTests(PublicHttpTestCase):
         page = self.mobile.get(PAGE, base_url=ORIGIN, headers=APK)
         self.assertEqual(200, page.status_code)
         self.assertEqual("no-store", page.headers["Cache-Control"])
+        self.assertIn(b'data-managed-sync-status role="status" aria-live="polite" aria-atomic="true"', page.data)
         for source in ("calendar", "contacts"):
             self.assertIn(f'data-device-source="{source}" disabled', page.get_data(as_text=True))
             response = self.gate(source)
@@ -72,6 +73,7 @@ class AndroidDeviceSourceTests(PublicHttpTestCase):
             self.assertEqual(200, page.status_code)
             self.assertNotIn(b"data-device-source=", page.data)
             self.assertNotIn(b'id="android-device-sources"', page.data)
+            self.assertNotIn(b"data-managed-sync-status", page.data)
         self.assertEqual(404, self.gate("contacts", headers={"User-Agent": "Desktop Browser"}).status_code)
         self.assertEqual(404, self.gate("contacts", headers={"X-Forwarded-For": "192.0.2.21"}).status_code)
 

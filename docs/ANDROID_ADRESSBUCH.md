@@ -39,6 +39,11 @@ Die Vorschau gilt zwei Minuten. Vor dem Schreiben prüft die APK die aktuelle
 Kontokennung und Datenrevision erneut. Bei Änderungen, Wechsel der Ansicht
 oder Ablauf ist eine neue Vorschau nötig. Abbrechen verändert nichts.
 
+Unter **Mit Android abgleichen** bleibt der Status auf der geöffneten Seite
+sichtbar: Vorschau, Android-Freigabe, laufender Abgleich, Ergebnis oder Abbruch.
+Der Status ist kein gespeichertes Protokoll und enthält keine Kontakt- oder
+Termindetails. Die eigentliche Bestätigung wird weiterhin separat angezeigt.
+
 Ein manueller Kontaktabgleich lädt bis zu 1.000 sichtbare Kontakte in
 Seiten zu je 25. Die App verlangt dieselbe Kontokennung und dieselbe Revision
 für alle Seiten und beginnt erst nach vollständiger Prüfung mit der

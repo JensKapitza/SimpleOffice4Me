@@ -24,6 +24,7 @@
   <section class="card my-3 p-3" aria-labelledby="managed-sync-title">
     <h2 class="h5" id="managed-sync-title">{{ 'Copy to Android' if g.language == 'en' else 'Mit Android abgleichen' }}</h2>
     <p>{{ 'SimpleOffice copies selected data into its own account on this device. No second app is needed. Android changes are not written back.' if g.language == 'en' else 'SimpleOffice übernimmt ausgewählte Daten ins eigene Konto auf diesem Gerät. Keine Zusatz-App erforderlich. Änderungen aus Android werden nicht zurückgeschrieben.' }}</p>
+    <p class="mb-2 small" data-managed-sync-status role="status" aria-live="polite" aria-atomic="true">{{ 'No transfer started.' if g.language == 'en' else 'Noch kein Abgleich gestartet.' }}</p>
     {% if 'contacts' in sources %}
     <button type="button" class="btn btn-outline-primary" data-managed-source="contacts" disabled>{{ 'Preview contacts for sync' if g.language == 'en' else 'Kontaktabgleich prüfen' }}</button>
     <p class="small text-secondary mb-2">{{ 'Up to 1,000 contacts per manual sync. Keep this page open during transfer.' if g.language == 'en' else 'Bis zu 1.000 Kontakte pro manuellem Abgleich. Lass die Seite während der Übertragung offen.' }}</p>

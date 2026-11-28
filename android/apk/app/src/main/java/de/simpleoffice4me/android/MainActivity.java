@@ -249,7 +249,7 @@ public class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) settings.setSafeBrowsingEnabled(true);
 
         deviceSourcePreview = new AndroidDeviceSourcePreview(this, this::isDeviceSourcePage);
-        managedSync = new AndroidManagedSync(this, this::isDeviceSourcePage);
+        managedSync = new AndroidManagedSync(this, this::isDeviceSourcePage, this::showManagedSyncStatus);
         webView.addJavascriptInterface(new NativeBridge(), "SimpleOfficeAndroid");
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
@@ -675,8 +675,17 @@ public class MainActivity extends Activity {
                 + "const ids=kind==='calendar'?Array.from(deviceSources.querySelectorAll('[data-managed-calendar]:checked'),item=>({id:item.value,name:item.dataset.calendarLabel||item.value})):[];"
                 + "const csrf=document.querySelector('meta[name=csrf-token]')?.content||'';"
                 + "if(window.SimpleOfficeAndroid.syncManagedSource(bridgeToken,kind,csrf,JSON.stringify(ids))!=='pending')"
-                + "state.textContent='Android-Abgleich ist nicht verfügbar.';"
+                + "{const target=deviceSources.querySelector('[data-managed-sync-status]');"
+                + "if(target)target.textContent=en?'Android sync is not available.':'Android-Abgleich ist nicht verfügbar.';}"
                 + "});});}";
+    }
+
+    private void showManagedSyncStatus(String text) {
+        if (!isDeviceSourcePage()) return;
+        webView.evaluateJavascript("(()=>{if(location.href!=="
+                + JSONObject.quote(AndroidDeviceSourcePreview.PAGE) + ")return;"
+                + "const status=document.querySelector('#android-device-sources [data-managed-sync-status]');"
+                + "if(status)status.textContent=" + JSONObject.quote(text) + ";})();", null);
     }
 
     private static String googleDriveUiShim() {
