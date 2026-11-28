@@ -161,6 +161,28 @@ läuft. „Bereitgestellt“ bestätigt einen Eintrag im Zielkonto, nicht das
 Zwischenstände verfügbar. Kein Hintergrund-Push, keine Systemtöne,
 keine harte Echtzeit und keine Fernsteuerung.
 
+### Kopiermeldung als persönliche Aufgabe weiterverfolgen
+
+Bei **Automation 3.0 → Lokale Kopiermeldungen** öffnet **Aufgabe
+anlegen/öffnen** das normale Aufgabenboard. Der erste Klick legt eine
+Aufgabe mit festem Titel und Zeitpunkt der Meldung in der privaten,
+nicht archivierten persönlichen Standardliste an. Ein erneuter Klick
+öffnet dieselbe Aufgabe, auch nach einem Neustart. Eine bewusst gelöschte
+Aufgabe wird darüber nicht erneut angelegt. Eine freigegebene oder
+archivierte Standardliste wird nicht als Ersatz verwendet.
+
+Der Knopf funktioniert für eigene Browser-Kopien, Kopierjobs und
+zugestellte Kopiermeldungen gekoppelter Instanzen. Allein der Empfang
+erzeugt keine Aufgabe. Die Aktion prüft die Anmeldung, das Aufgabenrecht
+und die Zugehörigkeit der gespeicherten Meldung. Sie übernimmt keine
+Dateiinhalte, Namen oder Befehle vom Absender und markiert die Meldung
+nicht als gelesen.
+
+**English:** Use **Create/open follow-up task** on a copy notice to create
+one local task or reopen it. This takes a deliberate click and an
+unarchived, unshared personal list. A notice cannot trigger a task by
+itself, and a deleted task is not restored by a retry.
+
 Der reproduzierbare Test mit zwei gewöhnlichen, isolierten HTTPS-Instanzen
 nutzt echtes Pairing, Webformular, Kopierjob, mehrfach neu gestarteten
 Worker und Zielserver sowie den Widerruf:

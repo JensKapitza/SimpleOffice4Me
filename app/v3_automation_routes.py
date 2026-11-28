@@ -12,6 +12,7 @@ from flask import Blueprint, abort, current_app, flash, g, jsonify, make_respons
 
 from .access_control import has_feature
 from .auth import login_required
+from .todo_store import TodoPrivateListRequired, TodoStore
 from .v3_activity import ActivityStore
 from .v3_automation import AutomationEngine, AutomationStore, default_action_registry
 from .v3_capabilities import enabled
@@ -20,7 +21,7 @@ from .workflow_peer_notices import DEST, PEER_NOTICE, PeerNoticeGrants, feature_
 from .federation_store import FederationStore
 from . import workflow_peer_notice_jobs as peer_jobs
 from .v3_copy_notices import (
-    COPY_EVENT, JOB_EVENT_NAME, JOB_NOTICE, NOTICE_EVENTS, PRESET, TIMER_PRESETS, enable_copy_notice_preset,
+    ACTION, COPY_EVENT, JOB_EVENT_NAME, JOB_NOTICE, NOTICE_EVENTS, PRESET, TIMER_PRESETS, enable_copy_notice_preset,
     is_local_copy_notice_rule, recent_copy_notices,
 )
 
@@ -154,6 +155,7 @@ def _render_index(actor: str, *, preview=None, peer_preview=None):
         preview=preview,
         peer_preview=peer_preview,
         copy_notices_enabled=enabled("v3.activity"),
+        copy_notice_tasks_enabled=has_feature(g.user, "projects"),
         copy_notice_timer_enabled=enabled("v3.jobs"),
         copy_notice_delays=copy_notice_delays,
         copy_job_notice_type=JOB_NOTICE,
@@ -215,6 +217,53 @@ def mark_copy_notices_read():
     except (OSError, sqlite3.Error):
         abort(503)
     return "", 204
+
+
+@bp.post("/copy-notices/task")
+@login_required
+def create_copy_notice_task():
+    """Create one local, private follow-up for an already delivered copy notice."""
+    if not enabled("v3.automation") or not enabled("v3.activity"):
+        abort(404)
+    if not has_feature(g.user, "projects"):
+        abort(403)
+    if (request.mimetype != "application/x-www-form-urlencoded" or not request.content_length
+            or request.headers.get("Transfer-Encoding")):
+        abort(400)
+    if request.content_length > 1024:
+        abort(413)
+    ids = request.form.getlist("notice_id")
+    if (set(request.form) - {"_csrf_token", "notice_id"} or len(ids) != 1
+            or not re.fullmatch(r"[a-f0-9]{64}", ids[0])):
+        abort(400)
+    root = current_app.config["DOCUMENT_ROOT"]
+    actor = str(g.user["username"])
+    try:
+        notice = ActivityStore(root).find_for_actor(ids[0], actor)
+        if not notice or not (
+            (notice.event_type == PEER_NOTICE and notice.source == "workflow.peer_notice")
+            or (notice.event_type in NOTICE_EVENTS.values() and notice.source == ACTION)
+        ):
+            abort(404)
+        operation = hashlib.sha256(
+            f"copy-notice-task:{g.user['id']}:{notice.event_id}".encode()
+        ).hexdigest()
+        task = TodoStore(root).add(
+            "Kopie prüfen / Review copy", actor, {"description": notice.occurred_at},
+            automation_operation_id=operation, require_private_default=True,
+        )
+    except TodoPrivateListRequired:
+        flash("Eine private, nicht archivierte persönliche Aufgabenliste ist erforderlich."
+              if g.language != "en" else "An unarchived, private personal task list is required.")
+        return redirect(url_for("v3_automation.index"), code=303)
+    except (OSError, sqlite3.Error, ValueError) as exc:
+        current_app.logger.warning("Could not create copy follow-up: %s", type(exc).__name__)
+        abort(503)
+    if task.get("deleted"):
+        flash("Die bereits angelegte Aufgabe wurde gelöscht und wird nicht erneut angelegt."
+              if g.language != "en" else "The original task was deleted and will not be recreated.")
+        return redirect(url_for("v3_automation.index"), code=303)
+    return redirect(url_for("tasks.board", _anchor=f"task-{task['id']}"), code=303)
 
 
 @bp.post("/peer-notices")

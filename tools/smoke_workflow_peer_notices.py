@@ -136,6 +136,24 @@ def main():
         assert len(target) == 1 and target[0]["kind"] == "peer"
         assert set(target[0]) == {"id", "kind", "at"}
         assert not json.loads(src.request("/automation-v3/copy-notices"))["notices"]
+        # A verified delivery is not an instruction to create a task.
+        task_title = "Kopie prüfen / Review copy"
+        def matching_tasks(browser):
+            cards = browser.page("/tasks/").select('article[id^="task-"] > div > strong')
+            return [card for card in cards if card.get_text(strip=True) == task_title]
+
+        assert not matching_tasks(dst)
+        task_form = dst.page("/automation-v3").select_one(
+            f'[data-notice-id="{target[0]["id"]}"] form[action="/automation-v3/copy-notices/task"]',
+        )
+        assert task_form is not None
+        for _ in range(2):
+            dst.submit(task_form, {"notice_id": target[0]["id"]})
+        assert len(matching_tasks(dst)) == 1
+        assert not matching_tasks(src)
+        initial_task_id = matching_tasks(dst)[0].find_parent("article")["id"]
+        initial_notice_id = target[0]["id"]
+
         # Ensure this exercise includes a genuinely longer window, even around UTC midnight.
         now = datetime.now(timezone.utc)
         zone = "UTC" if now.hour < 23 else "Pacific/Honolulu"
@@ -163,6 +181,12 @@ def main():
         _work(root / a, tls)
         target = json.loads(dst.request("/automation-v3/copy-notices"))["notices"]
         assert len(target) == 2 and len({row["id"] for row in target}) == 2
+        previous = dst.page("/automation-v3").select_one(
+            f'[data-notice-id="{initial_notice_id}"] form[action="/automation-v3/copy-notices/task"]',
+        )
+        assert previous is not None
+        dst.submit(previous, {"notice_id": initial_notice_id})
+        assert [card.find_parent("article")["id"] for card in matching_tasks(dst)] == [initial_task_id]
         receipt = "/automation-v3/copy-notices/read"
         dst.request(receipt, data=json.dumps({"ids": [target[0]["id"]]}).encode(),
                     headers={"Content-Type": "application/json", "X-CSRF-Token": dst.csrf("/automation-v3")})
@@ -178,7 +202,7 @@ def main():
         _work(root / a, tls)
         assert src.page("/automation-v3").select_one('[data-delivery-state="denied"]')
         assert json.loads(dst.request("/automation-v3/copy-notices"))["notices"] == target
-        print("PASS: real copy triggers durable peer job; paired HTTPS delivery, replay, end-of-day offline recovery, private read receipt and revoke verified")
+        print("PASS: real copy triggers durable peer job; paired HTTPS delivery, replay, end-of-day offline recovery, private read receipt, one manual personal task and revoke verified")
 
 
 

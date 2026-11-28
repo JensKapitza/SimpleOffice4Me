@@ -13,6 +13,7 @@
   const initialRows = Array.from(list.querySelectorAll('[data-notice-id]'));
   let visibleIds = initialRows.map(row => row.dataset.noticeId);
   let seenIds = new Set(initialRows.filter(row => row.dataset.noticeRead === '1').map(row => row.dataset.noticeId));
+  const taskTemplate = pane.querySelector('[data-copy-task-template]');
   const readButton = pane.querySelector('[data-copy-read-button]');
   const token = pane.querySelector('[data-copy-read-token]')?.value;
   let marking;
@@ -155,6 +156,11 @@
       instant.dateTime = item.at;
       instant.textContent = item.at;
       li.append(pane.dataset[item.kind === 'peer' ? 'peerLabel' : (item.kind === 'job' ? 'jobLabel' : 'browserLabel')], ' · ', instant, ' · ', status);
+      if (taskTemplate?.content) {
+        const taskForm = taskTemplate.content.cloneNode(true);
+        taskForm.querySelector('[name="notice_id"]').value = item.id;
+        li.append(taskForm);
+      }
       return li;
     });
     if (!entries.length) {

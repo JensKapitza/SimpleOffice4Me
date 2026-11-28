@@ -1,5 +1,12 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% macro copy_notice_task_form(notice_id='') %}
+<form method="post" action="{{ url_for('v3_automation.create_copy_notice_task') }}" class="d-inline ms-1">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="notice_id" value="{{ notice_id }}">
+  <button class="btn btn-sm btn-outline-secondary py-0" type="submit">{{ 'Create/open follow-up task' if g.language == 'en' else 'Aufgabe anlegen/öffnen' }}</button>
+</form>
+{% endmacro %}
 {% block body %}
 <main id="main-content" class="container-xl py-4">
   <h1 class="h2 mb-1">Automation 3.0</h1>
@@ -74,9 +81,14 @@
       <p class="visually-hidden" role="status" aria-live="polite" data-copy-notice-announcement></p>
       <input type="hidden" data-copy-read-token value="{{ csrf_token() }}">
       <button type="button" class="btn btn-sm btn-outline-secondary mb-2" data-copy-read-button hidden>{{ 'Mark visible notices as read' if g.language == 'en' else 'Sichtbare Meldungen als gelesen markieren' }}</button>
+      {% if copy_notice_tasks_enabled %}
+      <template data-copy-task-template>
+        {{ copy_notice_task_form() }}
+      </template>
+      {% endif %}
       <ul class="mb-0" data-copy-notice-list>
         {% for notice in copy_notices %}
-          <li data-notice-id="{{ notice.event_id }}" data-notice-read="{{ '1' if notice.event_id in read_notices else '0' }}">{% if notice.event_type == peer_notice_type %}{{ 'Copy notice from a paired instance' if g.language == 'en' else 'Kopiermeldung einer gekoppelten Instanz' }}{% elif notice.event_type == copy_job_notice_type %}{{ 'Copy job completed' if g.language == 'en' else 'Kopierjob abgeschlossen' }}{% else %}{{ 'Document copied' if g.language == 'en' else 'Dokument kopiert' }}{% endif %} · <time datetime="{{ notice.occurred_at }}">{{ notice.occurred_at }}</time> · <span class="small text-secondary">{{ ('Read' if g.language == 'en' else 'Gelesen') if notice.event_id in read_notices else ('Unread' if g.language == 'en' else 'Ungelesen') }}</span></li>
+          <li data-notice-id="{{ notice.event_id }}" data-notice-read="{{ '1' if notice.event_id in read_notices else '0' }}">{% if notice.event_type == peer_notice_type %}{{ 'Copy notice from a paired instance' if g.language == 'en' else 'Kopiermeldung einer gekoppelten Instanz' }}{% elif notice.event_type == copy_job_notice_type %}{{ 'Copy job completed' if g.language == 'en' else 'Kopierjob abgeschlossen' }}{% else %}{{ 'Document copied' if g.language == 'en' else 'Dokument kopiert' }}{% endif %} · <time datetime="{{ notice.occurred_at }}">{{ notice.occurred_at }}</time> · <span class="small text-secondary">{{ ('Read' if g.language == 'en' else 'Gelesen') if notice.event_id in read_notices else ('Unread' if g.language == 'en' else 'Ungelesen') }}</span>{% if copy_notice_tasks_enabled %}{{ copy_notice_task_form(notice.event_id) }}{% endif %}</li>
         {% else %}
           <li>{{ 'No notifications yet.' if g.language == 'en' else 'Noch keine Meldungen.' }}</li>
         {% endfor %}

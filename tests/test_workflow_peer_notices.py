@@ -9,6 +9,7 @@ from app.federation_peer_auth import headers
 from app.federation_store import FederationStore
 from app.federation_trust_store import FederationTrustStore
 from app.settings_store import SettingsStore
+from app.todo_store import TodoStore
 from app.v3_activity import ActivityStore
 from app.v3_automation_timing import timing_envelope
 from app.workflow_peer_notices import PATH, PEER_NOTICE
@@ -96,6 +97,52 @@ class WorkflowPeerNoticeTests(_WorkflowPeerNoticeFixture):
         self.assertEqual([first.event_id], updated["seen"])
         self.assertEqual({first.event_id, late.event_id}, {row["id"] for row in updated["notices"]})
         self.assertEqual(2, len(store.list(actor="owner", event_type=PEER_NOTICE)))
+
+    def test_confirmed_paired_notice_can_create_exactly_one_private_followup(self):
+        grant = self._grant()
+        self.assertEqual("delivered", self._send(grant).json["status"])
+        notice, = self._notice_rows()
+        values = {"notice_id": notice.event_id}
+        todos = TodoStore(self.root)
+        url = "/automation-v3/copy-notices/task"
+        self.assertEqual([], todos.items("owner"))
+        self.assertEqual(405, self.client.get(url).status_code)
+        self.assertEqual(403, self.client.post(url, data=values).status_code)
+        self.assertEqual(400, self.client.post(url, data={**values, "title": "not accepted"},
+                                               headers=self.csrf).status_code)
+        self.assertEqual(413, self.client.post(url, data={"notice_id": "x" * 1500}, headers=self.csrf).status_code)
+        unrelated = ActivityStore(self.root).record(PEER_NOTICE, "owner", event_id="3" * 64, source="fixture.other")
+        self.assertEqual(404, self.client.post(url, data={"notice_id": unrelated.event_id},
+                                               headers=self.csrf).status_code)
+        self._register(self.client, "other")
+        other = app.test_client()
+        self._login(other, "other")
+        self.assertEqual(404, other.post(url, data=values, headers=self._csrf_headers(other)).status_code)
+        self.assertEqual([], todos.items("owner"))
+        default_id = todos.default_list_id("owner")
+        todos.create_list({"name": "Personal"}, "owner", list_id=default_id)
+        todos.update_list(default_id, {"permissions": {"other": ["read"]}}, "owner")
+        shared = self.client.post(url, data=values, headers=self.csrf, follow_redirects=True)
+        self.assertIn("private personal task list", shared.get_data(as_text=True))
+        self.assertEqual([], todos.items("owner"))
+        todos.update_list(default_id, {"permissions": {}}, "owner")
+        destinations = set()
+        for _ in range(2):
+            opened = self.client.post(url, data=values, headers=self.csrf)
+            self.assertEqual(303, opened.status_code)
+            self.assertEqual("private, no-store", opened.headers["Cache-Control"])
+            destinations.add(opened.location)
+        task, = todos.items("owner")
+        self.assertEqual({f"/tasks/#task-{task['id']}"}, destinations)
+        self.assertEqual(notice.occurred_at, task["description"])
+        self.assertEqual([], todos.items("other"))
+        self.assertEqual([], self.client.get("/automation-v3/copy-notices").json.get("seen", []))
+
+        todos.soft_delete(task["id"], "owner")
+        deleted = self.client.post(url, data=values, headers=self.csrf, follow_redirects=True)
+        self.assertIn("will not be recreated", deleted.get_data(as_text=True))
+        self.assertEqual([], todos.items("owner"))
+        self.assertEqual([task["id"]], [row["id"] for row in todos.items("owner", include_deleted=True)])
 
     def test_expired_early_and_revoked_do_not_create_notices(self):
         grant = self._grant()

@@ -16,7 +16,9 @@ from app.document_store import DocumentStore
 from app.federation_store import FederationStore
 from app.federation_trust_store import FederationTrustStore
 from app.settings_store import SettingsStore
+from app.todo_store import TodoStore
 from app.v3_activity import ActivityStore
+from app.v3_copy_notices import NOTICE
 from app.workflow_peer_notices import PEER_NOTICE
 
 
@@ -146,6 +148,18 @@ class CopyNoticeSoundBrowserTest(unittest.TestCase):
         source.select_option("all")
         self.assertEqual("false", button.get_attribute("aria-pressed"))
         self.assertTrue(preview.is_disabled())
+
+        tasks = TodoStore(root)
+        self.assertEqual([], tasks.items("owner"))
+        recorded, = ActivityStore(root).list(actor="owner", event_type=NOTICE)
+        local_notice = page.locator(f'[data-copy-notice-list] [data-notice-id="{recorded.event_id}"]')
+        with page.expect_response(lambda response: response.url.endswith("/copy-notices/task")) as followup:
+            local_notice.locator('button[type="submit"]').click()
+        self.assertEqual(303, followup.value.status)
+        page.wait_for_url("**/tasks/#task-*")
+        task, = tasks.items("owner")
+        self.assertEqual("Kopie prüfen / Review copy", task["title"])
+        self.assertTrue(page.locator(f"#task-{task['id']}").is_visible())
 
     def _verify_delivery_preview(self, page, origin, root):
         from app.v3_automation import AutomationStore
