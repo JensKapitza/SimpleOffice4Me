@@ -10,7 +10,6 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
-from secrets import token_urlsafe
 from defusedxml import ElementTree
 
 from playwright.sync_api import sync_playwright
@@ -109,11 +108,21 @@ def wait_for(action, label, seconds):
     raise AssertionError(f"Timed out waiting for {label}")
 
 
-def auth_form(page, path, password):
-    page.goto(f"{LOCAL}/auth/{path}", wait_until="domcontentloaded")
-    page.locator("#username").fill("so4me_fixture")
-    page.locator("#password").fill(password)
-    page.locator("#password").locator("xpath=ancestor::form").locator("button[type=submit]").click()
+def finish_native_bootstrap(device):
+    """Choose the existing offline fallback, without linking a Google account."""
+    def startup_node(node):
+        label = (node.get("text") or "").casefold()
+        if node.get("package") == APP:
+            return (node.get("class") == "android.webkit.WebView"
+                    or "lokale python-laufzeit" in label or "lokales benutzerkonto" in label)
+        return (node.get("package") in {"android", "com.android.settings", "com.google.android.gms"}
+                and any(text in label for text in ("choose an account", "add account", "konto hinzufügen",
+                                                  "konto für simpleoffice4me")))
+
+    ready = device.wait_node(startup_node, "offline first-launch choice", 60)
+    if ready.get("package") != APP:
+        device.adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    print("Android launcher reached local account setup", flush=True)
 
 
 def seed(page, selected=DESIRED):
@@ -141,9 +150,11 @@ def system_save(node):
 def verify_backup(device):
     if device.adb("shell", "getprop", "ro.hardware") not in {"ranchu", "goldfish"}:
         raise AssertionError("This acceptance runs on an Android emulator only")
-    result = device.adb("shell", "am", "start", "-W", "-n", f"{APP}/.MainActivity", timeout=45)
+    result = device.adb("shell", "am", "start", "-W", "-a", "android.intent.action.MAIN",
+                        "-c", "android.intent.category.LAUNCHER", "-n", f"{APP}/.BootstrapActivity", timeout=45)
     if "Status: ok" not in result:
         raise AssertionError("Android did not start the SimpleOffice activity")
+    finish_native_bootstrap(device)
     port = device.forwarded_socket()
     try:
         url = f"http://127.0.0.1:{port}"
@@ -152,9 +163,6 @@ def verify_backup(device):
             page, = browser.contexts[0].pages
             page.set_default_timeout(20000)
             page.wait_for_url(f"{LOCAL}/**", timeout=150000)
-            password = token_urlsafe(20)
-            auth_form(page, "register", password)
-            auth_form(page, "login", password)
             page.goto(f"{LOCAL}/communication/sms", wait_until="domcontentloaded")
             seed(page)
             seed(page, OTHER)
@@ -190,7 +198,7 @@ def verify_backup(device):
                                  separators=(",", ":")).encode()
             assert data["sha256"] == hashlib.sha256(payload).hexdigest(), "Backup checksum mismatch"
             records = data["payload"]["records"]
-            assert data["payload"]["owner"] == "so4me_fixture", "Backup owner mismatch"
+            assert data["payload"]["owner"] == "android", "Backup does not belong to the native offline account"
             assert len(records) == 1 and records[0]["body"] == DESIRED, "Backup selection mismatch"
             print("simpleoffice_sms_native_backup=pass")
     finally:
