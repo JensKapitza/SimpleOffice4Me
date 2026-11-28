@@ -151,6 +151,14 @@ if (pythonRuntimeVersion != expectedPythonVersion) {
 android {
     namespace 'de.simpleoffice4me.android'
     compileSdk 36
+    ndkVersion '28.2.13676358'
+
+    externalNativeBuild {
+        cmake {
+            path file('src/main/cpp/CMakeLists.txt')
+            version '3.22.1'
+        }
+    }
 
     defaultConfig {
         applicationId 'de.simpleoffice4me.android'
@@ -163,6 +171,12 @@ android {
 
         ndk {
             abiFilters androidAbi
+        }
+        externalNativeBuild {
+            cmake {
+                arguments '-DANDROID_STL=c++_static'
+                targets 'simpleoffice_ocr'
+            }
         }
     }
 
@@ -201,6 +215,7 @@ android {
     sourceSets {
         main {
             assets.srcDir "$buildDir/generated/simpleofficeAssets"
+            assets.srcDir "$buildDir/generated/simpleofficeOcrAssets"
             res.srcDir "$buildDir/generated/simpleofficeLogoRes"
         }
     }
@@ -274,10 +289,12 @@ tasks.register('syncSimpleOfficeAssets', Sync) {
         include 'tools/**'
         // The optional Finger magic installer refuses to run without this notice.
         include 'licenses/MEDIAPIPE-APACHE-2.0.txt'
+        include 'licenses/android-ocr/**'
         include 'simpleoffice_*.py'
         include 'pyproject.toml'
         exclude '**/__pycache__/**'
         exclude '**/*.pyc'
+        exclude 'tools/prepare_android_ocr_models.py'
     }
     doLast {
         def architecture = androidAbi == 'armeabi-v7a' ? 'ARM32' : androidAbi == 'arm64-v8a' ? 'ARM64' : androidAbi
@@ -321,6 +338,20 @@ gradle.taskGraph.whenReady { graph ->
 }
 
 preBuild.dependsOn syncSimpleOfficeAssets
+
+tasks.register('prepareSimpleOfficeOcrModels', Exec) {
+    def script = file('../../../tools/prepare_android_ocr_models.py')
+    def modelDirectory = layout.buildDirectory.dir('generated/simpleofficeOcrAssets/android-ocr/tessdata')
+    inputs.file(script)
+    outputs.dir(modelDirectory)
+    commandLine((System.getenv('CHAQUOPY_BUILD_PYTHON') ?: 'python3'), script.absolutePath,
+        '--output', modelDirectory.get().asFile.absolutePath)
+}
+tasks.register('copySimpleOfficeOcrModelLicense', Copy) {
+    from '../../../licenses/TESSDATA-FAST-APACHE-2.0.txt'
+    into layout.buildDirectory.dir('generated/simpleofficeOcrAssets/android-ocr/licenses')
+}
+preBuild.dependsOn prepareSimpleOfficeOcrModels, copySimpleOfficeOcrModelLicense
 
 // Derive all density-specific launcher bitmaps from the canonical project logo.
 tasks.register('generateSimpleOfficeLauncherIcons') {

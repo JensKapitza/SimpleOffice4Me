@@ -59,7 +59,9 @@ def verify(page):
     status = panel.locator("[data-nfc-find-status]")
     uid = panel.locator("#nfc-find-uid")
     button.wait_for(state="visible")
-    assert page.evaluate("() => typeof window.SimpleOfficeNativeNfc?.start === 'function'"), "Missing native bridge"
+    page.wait_for_function(
+        "() => document.visibilityState === 'visible' && typeof window.SimpleOfficeNativeNfc?.start === 'function'"
+    )
     requests = []
 
     def seen(request):
@@ -88,12 +90,19 @@ def verify(page):
 def main():
     cli = argparse.ArgumentParser(description=__doc__)
     cli.add_argument("--serial", required=True)
+    cli.add_argument("--photo-ocr", action="store_true", help="Also verify bundled photo OCR offline")
     args = cli.parse_args()
     serial = args.serial
     if not re.fullmatch(r"emulator-\d+", serial):
         cli.error("Only a fresh disposable emulator serial is accepted")
     if _adb("shell", "getprop", "ro.hardware", serial=serial).strip() not in {"ranchu", "goldfish"}:
         cli.error("Android hardware is not an emulator")
+    if args.photo_ocr:
+        _adb("shell", "cmd", "connectivity", "airplane-mode", "enable", serial=serial, timeout=15)
+        _adb("shell", "svc", "wifi", "disable", serial=serial, timeout=15)
+        _adb("shell", "svc", "data", "disable", serial=serial, timeout=15)
+        if _adb("shell", "settings", "get", "global", "airplane_mode_on", serial=serial, timeout=15).strip() != "1":
+            raise AssertionError("Android must be in airplane mode before first app launch")
     launch = _adb("shell", "am", "start", "-W", "-a", "android.intent.action.MAIN",
                   "-c", "android.intent.category.LAUNCHER", "-n", f"{APP}/.BootstrapActivity",
                   serial=serial, timeout=45)
@@ -105,8 +114,20 @@ def main():
             browser = runtime.chromium.connect_over_cdp(
                 f"http://127.0.0.1:{port}", no_defaults=True, timeout=15000,
             )
-            page, = browser.contexts[0].pages
+            pages = browser.contexts[0].pages
+            if len(pages) != 1:
+                pages = [p for p in pages if p.url.startswith(ORIGIN + "/") and
+                         p.evaluate("() => document.visibilityState === 'visible' && document.hasFocus()")]
+            if len(pages) != 1:
+                raise AssertionError("Exactly one active bundled WebView is required")
+            page = pages[0]
             page.set_default_timeout(25000)
+            page.wait_for_url(f"{ORIGIN}/**", timeout=120000)
+            if args.photo_ocr:
+                from tools.android_photo_ocr_acceptance import verify as verify_photo_ocr
+
+                verify_photo_ocr(page)
+                print("simpleoffice_android_native_photo_ocr_offline=pass", flush=True)
             verify(page)
     finally:
         _adb("forward", "--remove", f"tcp:{port}", serial=serial, timeout=5)

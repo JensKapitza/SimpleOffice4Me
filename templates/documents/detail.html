@@ -331,6 +331,8 @@
   <span data-photo-ocr-status="recognized">{{ 'Text recognized' if g.language == 'en' else 'Text erkannt' }} · {{ document.ocr_text|length }} {{ 'characters' if g.language == 'en' else 'Zeichen' }}</span>
 {% elif completed_ocr %}
   <span data-photo-ocr-status="empty">{{ 'OCR found no readable text. For an unclear image, try a sharper photo.' if g.language == 'en' else 'Die Texterkennung hat keinen lesbaren Text gefunden. Bei einem unscharfen Bild hilft eine schärfere Aufnahme.' }}</span>
+{% elif current_ocr_source and analysis.ocr_status == 'unavailable' and image_ocr_on_device %}
+  <span data-photo-ocr-status="unavailable">{{ 'On-device OCR could not run. Try again or use a smaller image.' if g.language == 'en' else 'Die Texterkennung auf diesem Gerät konnte nicht laufen. Versuche es erneut oder verwende ein kleineres Bild.' }}</span>
 {% elif current_ocr_source and analysis.ocr_status == 'unavailable' %}
   <span data-photo-ocr-status="unavailable">{{ 'OCR could not run. Check Tesseract and its language packs on the server.' if g.language == 'en' else 'Die Texterkennung konnte nicht laufen. Prüfe Tesseract und die Sprachpakete auf dem Server.' }}</span>
 {% else %}

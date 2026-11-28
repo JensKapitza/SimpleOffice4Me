@@ -45,13 +45,23 @@ Wenn die Dateiauswahl der APK keine Kamera anbietet, nimm das Foto zuerst mit
 der Android-Kamera auf und wähle es anschließend aus. Die APK verwendet den
 Android-Dateidialog; die Kameraoption hängt vom Gerät und der gewählten App ab.
 
-PDF-Seiten kann die APK mit Androids PDF-Renderer anzeigen. Das sagt noch nichts
-über die Verfügbarkeit von Texterkennung, PDF-Umwandlung oder Piper aus.
-Poppler, Tesseract und Piper samt Sprachmodell werden von der Standard-APK
-nicht mitgeliefert. Für die Foto-OCR braucht das gewählte Backend eine verfügbare
-lokale OCR-Engine, für PDF-OCR außerdem die benötigten PDF-Werkzeuge und für
-Piper zusätzlich ein lokal konfiguriertes Sprachmodell. Ein separat
-installierter Termux-Server ist ebenfalls eine andere Instanz.
+### Foto-Texterkennung auf dem Handy
+
+Öffne ein importiertes Bild unter **Dokumente → Bildanalyse → OCR ausführen**.
+Die Standard-APK bringt Tesseract und die Sprachmodelle Deutsch und Englisch
+mit. Die Texterkennung und Suche funktionieren auch im Flugmodus. Weder
+Termux noch ein externer Server oder ein Modelldownload auf dem Handy sind
+erforderlich. Ein Treffer erscheint beim Bild und in der Dokumentensuche;
+das Originalbild wird nicht geändert. Ist ein erneuter Lauf nicht möglich,
+bleibt das frühere Ergebnis für unveränderte Bilddaten erhalten.
+
+Die App verarbeitet Fotos einzeln; maximal 64 MiB und 24 Millionen Quellpixel,
+für die Erkennung heruntergerechnet auf höchstens 2.800 Pixel je Kante.
+Ein unscharfes, sehr großes oder nicht unterstütztes Bild kann eine geeignete
+kleinere Aufnahme benötigen. Die APK kann PDFs mit Androids PDF-Renderer
+anzeigen; dieser Schritt rüstet **keine** PDF-OCR, PDF-Umwandlung oder Piper-
+Installation nach. Ein separat installierter Termux-Server ist eine andere
+Instanz.
 
 ### Lokale Sprachausgabe in der APK
 

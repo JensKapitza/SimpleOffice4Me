@@ -138,6 +138,10 @@ jobs:
           chmod 600 "$keystore"
           test -s "$keystore"
 
+      - name: Install pinned Android OCR native build tools
+        shell: bash
+        run: sdkmanager 'ndk;28.2.13676358' 'cmake;3.22.1'
+
       - name: Build signed release APK
         working-directory: android/apk
         env:
@@ -146,6 +150,9 @@ jobs:
           SIMPLEOFFICE_RELEASE_KEY_ALIAS: simpleoffice-release
           SIMPLEOFFICE_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
         run: gradle --no-daemon testDebugUnitTest assembleRelease
+
+      - name: Verify packaged native Tesseract, language models and licenses
+        run: python -m tools.check_android_photo_ocr_apk android/apk/app/build/outputs/apk/release/app-release.apk
 
       - name: Verify release signature, fingerprint and ABI
         shell: bash

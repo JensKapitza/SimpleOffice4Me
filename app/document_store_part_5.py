@@ -355,7 +355,9 @@ class _DocumentStorePart5:
                 raise RuntimeError(f"office document extraction failed: {exc}") from exc
         return "", "unsupported"
 
-    def _apply_image_analysis(self, path: Path, metadata: dict[str, Any], force: bool = False) -> None:
+    def _apply_image_analysis(
+        self, path: Path, metadata: dict[str, Any], force: bool = False, *, run_ocr: bool = True,
+    ) -> None:
         """Keep analysis local; failures are recorded with the document, not hidden."""
         current = metadata.get("image_analysis")
         if not force and isinstance(current, dict) and current.get("source_sha256") == metadata.get("sha256"):
@@ -391,16 +393,23 @@ class _DocumentStorePart5:
         except (OSError, ValueError, SyntaxError) as exc:
             analysis["metadata_error"] = str(exc)
 
+        if run_ocr:
+            self._recognize_photo(path, metadata, analysis)
+        else:
+            analysis["ocr_status"] = "deferred_bulk_upload"
+        metadata["image_analysis"] = analysis
+        metadata["tags"] = sorted({*metadata.get("tags", []), *generated_tags}, key=str.casefold)
+
+    def _recognize_photo(self, path: Path, metadata: dict[str, Any], analysis: dict[str, Any]) -> None:
+        from . import android_image_ocr
         from .ocr_preprocessing import photo_ocr_input
 
         try:
-            with photo_ocr_input(path) as source:
-                try:
+            if android_image_ocr.configured():
+                ocr_text = android_image_ocr.recognize(path)
+            else:
+                with photo_ocr_input(path) as source:
                     ocr_text = self._image_ocr(source)
-                except (OSError, RuntimeError) as exc:
-                    if source == path:
-                        raise
-                    raise RuntimeError("Local OCR failed for the prepared grayscale PNG.") from exc
             metadata["ocr_text"] = ocr_text
             analysis["ocr_status"] = "completed"
             analysis["ocr_characters"] = len(ocr_text)
@@ -415,8 +424,6 @@ class _DocumentStorePart5:
             else:
                 metadata.pop("ocr_text", None)
                 analysis["ocr_status"] = "unavailable"
-        metadata["image_analysis"] = analysis
-        metadata["tags"] = sorted({*metadata.get("tags", []), *generated_tags}, key=str.casefold)
 
     def refresh_document_analysis(
         self,

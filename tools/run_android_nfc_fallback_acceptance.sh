@@ -80,4 +80,6 @@ tadb shell svc power stayon true
 tadb shell settings put system screen_off_timeout 1800000
 tadb shell input keyevent KEYCODE_WAKEUP
 tadb shell wm dismiss-keyguard
-timeout 280 python -m tools.android_nfc_fallback_acceptance --serial "$serial"
+extra=()
+if [[ "${SIMPLEOFFICE_ANDROID_VERIFY_PHOTO_OCR:-}" == true ]]; then extra+=(--photo-ocr); fi
+timeout 400 python -m tools.android_nfc_fallback_acceptance --serial "$serial" "${extra[@]}"
