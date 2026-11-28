@@ -38,6 +38,10 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+def pico_example_namespace(actor, gateway_url):
+    return uuid.uuid5(uuid.NAMESPACE_URL, f"simpleoffice:datalogger:pico:v1:{actor}:{gateway_url}")
+
+
 class DataLoggerStore:
     def __init__(self, document_root: str | Path):
         self.root = Path(document_root).resolve()
@@ -229,7 +233,7 @@ class DataLoggerStore:
 
     def provision_pico_example(self, actor, gateway_url, unit, *, availability=False):
         """Provision private channels and fixed sources together; never re-enable an existing source."""
-        identity = uuid.uuid5(uuid.NAMESPACE_URL, f"simpleoffice:datalogger:pico:v1:{actor}:{gateway_url}")
+        identity = pico_example_namespace(actor, gateway_url)
         entries = [("room_a", "A", "value"), ("room_b", "B", "value")]
         if availability:
             entries.extend((node, label, "available") for node, label, _ in tuple(entries))
@@ -266,6 +270,22 @@ class DataLoggerStore:
                 self._event(db, actor, "pico_preset_created", "channel", channel_id, detail={"metric": kind})
                 created += 1
         return created
+
+    def pico_source_observations(self, actor):
+        """Read bounded wizard-created source results, not manually entered channel values."""
+        with self.connect() as db:
+            return db.execute(
+                """SELECT c.channel_id,c.unit,c.owner,m.source_id,m.config,m.enabled,m.interval_seconds,
+                          m.last_run_at,m.last_status,m.last_error_code,s.value,s.measured_at
+                     FROM metric_channel c JOIN metric_source m ON m.channel_id=c.channel_id
+                     LEFT JOIN metric_sample s ON s.sample_id=(
+                        SELECT last.sample_id FROM metric_sample last
+                         WHERE last.channel_id=c.channel_id AND last.source_id=m.source_id
+                         ORDER BY last.sample_id DESC LIMIT 1)
+                    WHERE c.owner=? AND m.kind='http_json' AND m.name='Pico-Gateway'
+                    ORDER BY c.created_at DESC,c.channel_id LIMIT 64""",
+                (actor,),
+            ).fetchall()
 
     def sources(self, channel_id):
         with self.connect() as db:

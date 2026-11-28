@@ -130,6 +130,11 @@ ausgetauscht.
    **nodes.room_a.value** und **nodes.room_b.value** weiterhin manuell
    zugeordnet werden. SimpleOffice fragt nur das Gateway ab. Die Knoten
    schicken ihren Wert auf dessen Anfrage.
+   Nach dem Speichern zeigt **Status deiner Pico-Gateways** die aufgezeichneten
+   Abfragen je Kanal. „Knoten nicht erreichbar“ stammt aus einer gültigen
+   Gateway-Antwort. „Gateway nicht abrufbar“ ist dagegen ein Abfragefehler und
+   beweist keinen Knotenausfall. Bei Pause, fehlender Freigabe oder überfälliger
+   Abfrage bleibt der letzte gültige Wert mit seiner Zeit als Verlauf sichtbar.
 5. Für einen separaten Verfügbarkeitsverlauf nutze zusätzlich
    **nodes.room_a.available** und **nodes.room_b.available** als eigene
    HTTP/JSON-Kanäle. Der Wert ist `1` für eine gültige Antwort und `0`,

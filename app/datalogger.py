@@ -26,6 +26,7 @@ from .datalogger_collectors import (
     read_sensor_allowed_hosts,
     validate_sensor_allowed_hosts,
 )
+from .datalogger_pico_status import pico_status
 from .datalogger_reporting import EXPORT_ROWS, csv_content, date_window, summarize, summary_pdf
 from .db import get_db
 from .local_device_access import direct_loopback_request
@@ -121,8 +122,14 @@ def serial_terminal():
         username = g.user["username"]
         admin = is_admin()
         channels = [row for row in store.channels_for(username, admin) if store.can_edit(row, username, admin)]
+    try:
+        gateways = pico_status(_store(), g.user["username"], current_app.config["DOCUMENT_ROOT"])
+    except (OSError, sqlite3.Error, ValueError) as exc:
+        current_app.logger.warning("Pico status unavailable: %s", type(exc).__name__)
+        gateways = None
     response = make_response(render_template(
         "datalogger/serial.html", serial_allowed=local, channels=channels, can_manage_settings=is_admin(),
+        pico_gateways=gateways,
     ))
     response.headers["Cache-Control"] = "private, no-store"
     response.headers["Referrer-Policy"] = "no-referrer"
@@ -171,7 +178,7 @@ def setup_pico_example():
         abort(503)
     flash(f"{created} Pico-Kanäle angelegt. Der Datendienst beginnt mit der Messung."
           if created else "Diese Pico-Kanäle sind schon eingerichtet und bleiben unverändert.", "success")
-    return redirect(url_for("datalogger.index"), code=303)
+    return redirect(url_for("datalogger.serial_terminal", _anchor="pico-status"), code=303)
 
 
 @bp.post('/server-presets/<metric>')

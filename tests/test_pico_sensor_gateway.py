@@ -10,6 +10,7 @@ from urllib.request import build_opener, ProxyHandler
 from app import app
 from app.datalogger_collectors import collect_http, CollectionError
 from app.datalogger_store import DataLoggerStore
+from app.datalogger_pico_status import pico_status
 from app.settings_store import SettingsStore
 from examples.serial.pico_gateway import sensor_link as wire
 from tests.http_api_fixture import PublicHttpTestCase
@@ -189,13 +190,16 @@ class PicoSetupHttpTest(PublicHttpTestCase):
         headers = self._csrf_headers(self.client, "/datalogger/serial")
         fields = {"gateway_ip": "127.0.0.1", "port": str(gateway.port), "unit": "°C"}
         response = self.client.post(self.url, data=fields, headers=headers)
-        self.assertEqual((303, "/datalogger/"), (response.status_code, response.location))
+        self.assertEqual((303, "/datalogger/serial#pico-status"), (response.status_code, response.location))
         existing = store.channels_for("owner")
         self.assertEqual(2, len(existing))
         self.assertEqual({"°C"}, {row["unit"] for row in existing})
         self.assertEqual([], store.channels_for("another-account"))
         self.assertTrue(all(not store.samples(row["channel_id"]) for row in existing))
+        status = lambda: self.client.get("/datalogger/serial").get_data(as_text=True)
+        self.assertEqual(2, status().count('data-pico-source-state="pending"'))
         run(root, once=True)
+        self.assertEqual(2, status().count('data-pico-source-state="ok"'))
         self.assertEqual({21.5, 19.75}, {store.samples(row["channel_id"])[0]["value"] for row in existing})
         existing_source, = store.sources(existing[0]["channel_id"])
         store.set_source_enabled(existing_source["source_id"], "owner", False)
@@ -213,6 +217,19 @@ class PicoSetupHttpTest(PublicHttpTestCase):
             source, = store.sources(row["channel_id"])
             self.assertTrue(json.loads(source["config"])["track_availability"])
             self.assertEqual(1.0, store.samples(row["channel_id"])[0]["value"])
+        self.assertEqual(2, status().count('data-pico-source-state="online"'))
+        self.assertEqual(1, status().count('data-pico-source-state="paused"'))
+        a.close()
+        due = (datetime.now(timezone.utc) + timedelta(seconds=180)).isoformat()
+        with patch("app.datalogger_store.utc_now", return_value=due):
+            run(root, once=True)
+        self.assertEqual(1, status().count('data-pico-source-state="offline"'))
+        gateway.close()
+        due = (datetime.now(timezone.utc) + timedelta(seconds=300)).isoformat()
+        with patch("app.datalogger_store.utc_now", return_value=due):
+            run(root, once=True)
+        self.assertEqual(3, status().count('data-pico-source-state="gateway_error"'))
+        self.assertNotIn('data-pico-source-state="offline"', status())
 
     def test_checks_authority_csrf_and_explicit_allowlist_before_writing(self):
         root = app.config["DOCUMENT_ROOT"]
@@ -245,7 +262,7 @@ class PicoSetupHttpTest(PublicHttpTestCase):
         headers = self._csrf_headers(self.client, "/datalogger/serial")
         with patch("app.datalogger_collectors.socket.getaddrinfo", side_effect=AssertionError("unexpected lookup")):
             reply = self.client.post(self.url, data={"gateway_ip": ip}, headers=headers)
-        self.assertEqual((303, "/datalogger/"), (reply.status_code, reply.location))
+        self.assertEqual((303, "/datalogger/serial#pico-status"), (reply.status_code, reply.location))
         store = DataLoggerStore(root)
         channels = store.channels_for("owner")
         self.assertEqual(2, len(channels))
@@ -254,6 +271,31 @@ class PicoSetupHttpTest(PublicHttpTestCase):
             self.assertEqual(f"http://{ip}:8080/status", json.loads(source["config"])["url"])
             self.assertEqual([], store.samples(channel["channel_id"]))
         self.assertEqual([ip], SettingsStore(root).settings()["datalogger"]["allowed_hosts"])
+
+    def test_status_uses_only_owned_wizard_sources_and_flags_stale_observations(self):
+        root = app.config["DOCUMENT_ROOT"]
+        store = DataLoggerStore(root)
+        store.provision_pico_example("owner", "http://127.0.0.1:8080/status", "°C")
+        store.provision_pico_example("another-account", "http://127.0.0.1:8081/status", "")
+        fake = store.create_channel("Manual lookalike", "owner")
+        store.add_source(fake, "owner", "http_json", "Pico-Gateway", {
+            "url": "http://127.0.0.1:8082/status", "json_path": "nodes.room_a.value",
+        })
+        data = pico_status(store, "owner", root)
+        self.assertEqual({"127.0.0.1:8080"}, set(data))
+        record = data["127.0.0.1:8080"]["room_a"]["value"]
+        source, = store.sources(record["channel"])
+        store.add_sample(record["channel"], 21.0, "system:datalogger", source_id=source["source_id"])
+        store.add_sample(record["channel"], 999.0, "owner")
+        store.finish_source(source["source_id"], "ok")
+        future = datetime.now(timezone.utc) + timedelta(days=1)
+        stale = pico_status(store, "owner", root, now=future)["127.0.0.1:8080"]["room_a"]["value"]
+        self.assertEqual("stale", stale["state"])
+        self.assertEqual(21.0, stale["value"])
+        SettingsStore(root).save({"datalogger": {"allowed_hosts": ["localhost"]}}, "owner")
+        denied = pico_status(store, "owner", root)["127.0.0.1:8080"]["room_a"]["value"]
+        self.assertEqual("blocked", denied["state"])
+        self.assertEqual(21.0, denied["value"])
 
     def test_failed_provisioning_does_not_leave_partial_channels(self):
         store = DataLoggerStore(app.config["DOCUMENT_ROOT"])
