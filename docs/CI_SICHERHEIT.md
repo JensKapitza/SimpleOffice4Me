@@ -1,9 +1,10 @@
 # Automatische Tests und Abhängigkeitsprüfung
 
-SimpleOffice4Me prüft jeden Push und Pull Request automatisch. Die Prüfung
-kompiliert alle Python-Module und führt die vollständige Unittest-Suite auf
-den produktiven Runtimes Python 3.11 und 3.14 aus. Python 3.15 läuft zusätzlich
-als nicht blockierender Versuch. Installierte Python-Pakete werden mit
+SimpleOffice4Me prüft Pushes und Pull Requests automatisch. Bei Pushes läuft
+die vollständige Python-Matrix mit den produktiven Versionen 3.11 und 3.14
+sowie experimentell mit 3.15. Pull Requests haben ein eigenes
+3.14-Regressionsgate und führen die vollständige Suite zusätzlich unter 3.15
+als nicht blockierenden Versuch aus. Installierte Python-Pakete werden mit
 `pip-audit` auf bekannte Schwachstellen geprüft. Vorabversionen bleiben
 gesperrt; Python 3.10 wird nicht mehr unterstützt. Die
 [Runtime-Policy](PYTHON_RUNTIME_SUPPORT.md) beschreibt die Mindestversion.
@@ -12,7 +13,8 @@ gesperrt; Python 3.10 wird nicht mehr unterstützt. Die
 
 - Der Workflow besitzt ausschließlich Leserechte auf Repository-Inhalte.
 - GitHub Actions sind auf vollständige Commit-SHAs festgelegt.
-- Ein Lauf wird nach spätestens 15 Minuten beendet.
+- Die vollständigen Python-Suiten haben pro Job ein Zeitlimit von 30 Minuten.
+  Andere Jobs haben eigene Zeitlimits; das Browser-Gate beispielsweise 45 Minuten.
 - Dependabot erstellt nur Pull Requests. Updates werden nicht automatisch
   zusammengeführt.
 - Fehlgeschlagene Prüfungen müssen vor einem Release untersucht werden.
