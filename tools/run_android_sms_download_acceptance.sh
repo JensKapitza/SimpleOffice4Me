@@ -6,6 +6,16 @@ set -euo pipefail
 apk=${1:?path to the debug APK required}
 serial=${2:-}
 test -f "$apk"
+module=tools.android_sms_download_acceptance
+case "${SIMPLEOFFICE_SMS_ACCEPTANCE_MODE:-selection}" in
+  selection) ;;
+  range) module=tools.android_sms_range_acceptance ;;
+  *) echo 'Unknown SMS acceptance mode' >&2; exit 2 ;;
+esac
+if [[ "$module" == tools.android_sms_range_acceptance && -n "$serial" ]]; then
+  echo 'Range mode needs two clean CI-owned AVDs' >&2
+  exit 2
+fi
 
 sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
 if [[ -n "$sdk" && -x "$sdk/platform-tools/adb" ]]; then
@@ -119,10 +129,10 @@ launch_fresh_avd() {
 umask 077
 fixture="$ANDROID_USER_HOME/simpleoffice-sms-backup.json"
 launch_fresh_avd 'simpleoffice-sms-export' 5560
-timeout 360 python -m tools.android_sms_download_acceptance --adb "$adb_bin" --serial "$serial" --save-fixture "$fixture"
+timeout 360 python -m "$module" --adb "$adb_bin" --serial "$serial" --save-fixture "$fixture"
 stop_avd
 launch_fresh_avd 'simpleoffice-sms-recovery' 5562
 # Only the file produced by the first AVD crosses to the second, never app state.
 adb_for_test shell mkdir -p /sdcard/Download
 adb_for_test push "$fixture" /sdcard/Download/simpleoffice-sms-backup.json
-timeout 360 python -m tools.android_sms_download_acceptance --adb "$adb_bin" --serial "$serial" --restore
+timeout 360 python -m "$module" --adb "$adb_bin" --serial "$serial" --restore

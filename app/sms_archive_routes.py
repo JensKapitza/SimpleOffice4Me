@@ -209,6 +209,49 @@ def export():
     return redirect(url_for("sms_archive.download_export", ticket=ticket), code=303)
 
 
+@bp.route("/backup-range", methods=["GET", "POST"])
+@login_required
+def backup_range():
+    if request.method == "GET":
+        return render_template("sms_archive/backup_range.html")
+    if any(len(request.form.getlist(key)) != 1 for key in ("date_from", "date_to", "stage")):
+        abort(400)
+    stage = request.form["stage"]
+    if stage not in {"preview", "save"}:
+        abort(400)
+    if len(request.form.getlist("snapshot")) != (1 if stage == "save" else 0):
+        abort(400)
+    start, end = request.form["date_from"], request.form["date_to"]
+    context = {"start": start[:10], "end": end[:10]}
+
+    def invalid(message, status=422):
+        return render_template("sms_archive/backup_range.html", error=message, **context), status
+
+    try:
+        first = _archive_day(start)
+        last = _archive_day(end, end=True)
+        if first is None or last is None or first > last:
+            raise ValueError("invalid range")
+    except ValueError:
+        return invalid(_language("Wähle zwei gültige Daten in UTC.", "Choose two valid UTC dates."))
+    try:
+        archive = _archive()
+        if stage == "preview":
+            result = archive.preview_range_export(first, last)
+            return render_template("sms_archive/backup_range.html", preview=result, **context)
+        ticket = archive.prepare_range_export(first, last, request.form["snapshot"], csrf_token())
+    except ArchiveConflict:
+        return invalid(_language("Die Auswahl hat sich geändert. Erstelle eine neue Vorschau.",
+                                 "The selection changed. Make a new preview."), 409)
+    except (ArchiveIntegrityError, OSError, sqlite3.Error) as exc:
+        current_app.logger.warning("SMS range backup unavailable: %s", type(exc).__name__)
+        abort(503)
+    except ValueError:
+        return invalid(_language("Der Zeitraum ist leer oder zu groß, oder die Vorschau fehlt.",
+                                 "The range is empty or too large, or the preview is missing."))
+    return redirect(url_for("sms_archive.download_export", ticket=ticket), code=303)
+
+
 @bp.get("/export/<ticket>")
 @login_required
 def download_export(ticket):

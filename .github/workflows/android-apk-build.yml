@@ -13,6 +13,7 @@ on:
       - 'app/sms_archive_store.py'
       - 'templates/sms_archive/**'
       - 'tools/android_sms_download_acceptance.py'
+      - 'tools/android_sms_range_acceptance.py'
       - 'tools/run_android_sms_download_acceptance.sh'
       - 'static/js/optional-setup-progress.js'
       - 'templates/optional_setup/**'
@@ -476,6 +477,32 @@ jobs:
           python -m pip install --require-hashes -r requirements-ci-tools.txt -r requirements-ci-browser.txt
           bash tools/run_android_sms_download_acceptance.sh \
             android/apk/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Check whether SMS range recovery is affected
+        id: sms-range
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only HEAD^1 HEAD -- \
+            'app/sms_archive_routes.py' 'app/sms_archive_store.py' 'templates/sms_archive/**' \
+            'tools/android_sms_range_acceptance.py' 'tools/android_sms_download_acceptance.py' \
+            'tools/run_android_sms_download_acceptance.sh' '.github/workflows/android-apk-build.yml')"
+          if [[ -n "$changed" ]]; then echo 'needed=true' >> "$GITHUB_OUTPUT"; fi
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: steps.sms-range.outputs.needed == 'true'
+        with:
+          python-version: '3.12'
+
+      - name: Verify Android SMS range backup and recovery on two disposable emulators
+        if: steps.sms-range.outputs.needed == 'true'
+        timeout-minutes: 22
+        env:
+          SIMPLEOFFICE_SMS_ACCEPTANCE_MODE: range
+        run: |
+          python -m pip install --require-hashes -r requirements-ci-tools.txt -r requirements-ci-browser.txt
+          bash tools/run_android_sms_download_acceptance.sh android/apk/app/build/outputs/apk/debug/app-debug.apk
 
       - name: Check whether the Android contacts acceptance is affected
         id: contacts-acceptance
