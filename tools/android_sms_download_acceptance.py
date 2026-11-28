@@ -48,17 +48,64 @@ class Device:
             return next((node for node in self.nodes() if predicate(node)), None)
         return wait_for(locate, label, seconds)
 
+    def diagnose_startup(self, probe):
+        """Report fixed phases, never a raw hierarchy, response, cookie or credential."""
+        print("DevTools probe:", probe, flush=True)
+        try:
+            activities = self.adb("shell", "dumpsys", "activity", "activities")
+            resumed = next((line for line in activities.splitlines()
+                            if "ResumedActivity" in line or "mResumedActivity" in line), "")
+            phase = next((name for name in ("BootstrapActivity", "NavigationActivity")
+                          if APP + "/." + name in resumed), "other-or-unknown")
+            print("Resumed activity:", phase, flush=True)
+        except (OSError, subprocess.SubprocessError):
+            print("Resumed activity: unavailable", flush=True)
+        try:
+            statuses = [node.get("text", "") for node in self.nodes() if node.get("package") == APP]
+            details = next((item for item in statuses if item.startswith("Start fehlgeschlagen:")), "")
+            if details:
+                error = re.search(r"\b(?:ModuleNotFoundError|ImportError|AttributeError|ConnectException|"
+                                  r"IllegalStateException|OSError|TypeError|UnsatisfiedLinkError)\b", details)
+                module = re.search(r"No module named ['\"]([a-zA-Z_][a-zA-Z0-9_.]{0,90})['\"]", details)
+                status_code = re.search(r"\bHTTP ([1-5][0-9]{2})\b", details)
+                stage = next((name for fragment, name in (
+                    ("Backend antwortet nicht", "backend-response"),
+                    ("Sitzung konnte nicht", "native-session"),
+                    ("Konto konnte nicht", "native-account"),
+                    ("dlopen failed", "native-linker"),
+                ) if fragment in details), "unknown")
+                print("Native startup failure:", stage, error[0] if error else "other",
+                      "missing-module=" + module[1] if module else "",
+                      "http=" + status_code[1] if status_code else "", flush=True)
+            else:
+                for prefix, stage in (("Android-Konto", "account-selection"), ("Lokale Programmdateien", "assets"),
+                                      ("Lokale Python-Laufzeit", "python"), ("Lokales Benutzerkonto", "account")):
+                    if any(item.startswith(prefix) for item in statuses):
+                        print("Visible startup phase:", stage, flush=True)
+                        break
+        except (OSError, subprocess.SubprocessError, ElementTree.ParseError):
+            print("Visible startup phase: unavailable", flush=True)
+        try:
+            webview = self.adb("shell", "dumpsys", "webviewupdate")
+            version = re.search(r"Current WebView package[^:]*:\s*\(([a-zA-Z0-9_.]+),\s*([0-9.]+)\)", webview)
+            if version:
+                print("WebView provider:", version[1], version[2], flush=True)
+        except (OSError, subprocess.SubprocessError):
+            print("WebView provider: unavailable", flush=True)
+
     def forwarded_socket(self):
         # Android restricts /proc/net/unix to privileged callers. Ask adb to
         # forward the exact known WebView socket instead and probe it over TCP.
         seen_process = False
+        probe = "no-pid"
 
         def locate():
-            nonlocal seen_process
+            nonlocal seen_process, probe
             pid = self.adb("shell", "pidof", APP).split()[0]
             if not pid.isdecimal():
                 return None
             seen_process = True
+            probe = "adb-forward"
             port = int(self.adb("forward", "tcp:0", f"localabstract:webview_devtools_remote_{pid}"))
             ready = False
             try:
@@ -66,13 +113,16 @@ class Device:
                 try:
                     connection.request("GET", "/json/list")
                     response = connection.getresponse()
+                    probe = f"HTTP-{response.status}"
                     if response.status == 200:
                         targets = json.loads(response.read(65536))
                         ready = any(item.get("type") == "page" for item in targets)
+                        probe = "valid-page" if ready else "no-WebView-target"
                 finally:
                     connection.close()
                 return port if ready else None
-            except (OSError, HTTPException, ValueError):
+            except (OSError, HTTPException, ValueError) as error:
+                probe = type(error).__name__
                 return None
             finally:
                 if not ready:
@@ -83,6 +133,7 @@ class Device:
         except AssertionError as error:
             details = "App process exists" if seen_process else "App process did not stay alive"
             print(details, flush=True)
+            self.diagnose_startup(probe)
             # Only report failure classes from the fresh synthetic emulator.
             try:
                 log = self.adb("logcat", "-b", "crash", "-d", "-t", "80")
