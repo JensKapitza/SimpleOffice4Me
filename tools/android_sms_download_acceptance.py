@@ -259,6 +259,7 @@ def seed(page, selected=DESIRED):
     page.locator("#sms-manual-zone").select_option("UTC")
     page.locator("#sms-manual-confirm").check()
     page.locator('form[action="/communication/sms/manual"] button[type=submit]').click()
+    page.locator('form[action="/communication/sms/export"] li').filter(has_text=selected).wait_for()
 
 
 def select_backup(page):
@@ -287,8 +288,12 @@ def verify_backup(device):
     try:
         url = f"http://127.0.0.1:{port}"
         with sync_playwright() as playwright:
-            browser = playwright.chromium.connect_over_cdp(url, timeout=15000)
+            # Android WebView does not implement browser-wide download context
+            # management. The default Playwright override would fail to attach and
+            # must never replace the actual Android DownloadListener/picker.
+            browser = playwright.chromium.connect_over_cdp(url, no_defaults=True, timeout=15000)
             page, = browser.contexts[0].pages
+            print("Android WebView CDP attached without download overrides", flush=True)
             page.set_default_timeout(20000)
             page.wait_for_url(f"{LOCAL}/**", timeout=150000)
             page.goto(f"{LOCAL}/communication/sms", wait_until="domcontentloaded")
@@ -296,11 +301,13 @@ def verify_backup(device):
             seed(page, OTHER)
             export = page.locator('form[action="/communication/sms/export"]')
             assert export.locator("input[name=selected]").count() == 2, "Both fixture SMS must be archived"
+            print("Android WebView archived both synthetic messages", flush=True)
             select_backup(page)
             device.wait_node(system_save, "Android document picker")
             device.adb("shell", "input", "keyevent", "KEYCODE_BACK")
             device.wait_node(lambda node: node.get("package") == APP, "return from canceled picker")
             device.adb("shell", "test", "!", "-e", TARGET)
+            print("Android document picker canceled without creating a file", flush=True)
             select_backup(page)
             save = device.wait_node(system_save, "Android document picker after retry")
             # Fresh DocumentsUI normally starts on Downloads for a create-document
