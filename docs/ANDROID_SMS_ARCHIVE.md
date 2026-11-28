@@ -48,8 +48,9 @@ Nachrichten-App kein Teilen anbietet, funktioniert Kopieren und Einfügen
 weiterhin. Die APK fordert dazu weder SMS- noch Speicherzugriff an und liest
 keine Anhänge, den Gesprächsverlauf oder die Zwischenablage.
 
-Es gibt weiterhin keine Verbindung zur SMS-Datenbank des Handys und
-keinen Import beliebiger Android-Backups. Die Zwischenablage wird nie
+Die Standard-APK und das manuelle Teilen haben keinen Zugriff auf die
+SMS-Datenbank des Handys. Beliebige Android-Backups werden nicht unterstützt.
+Die Zwischenablage wird nie
 von SimpleOffice automatisch gelesen. Suchbegriffe werden
 per Formular gesendet statt in URL oder Serverprotokoll geschrieben.
 Sitzung, Funktionsrecht und CSRF werden nach dem üblichen Verfahren geprüft.
@@ -70,8 +71,8 @@ aktuellen angemeldeten Sitzung. Er enthält weder SMS-Text noch Eintragsnummern.
   unabhängiges Archiv muss dieser Stamm auf einem Server oder sonst außerhalb
   des privaten APK-Speichers liegen. Die Existenz einer SQLite-Datei im
   APK-Speicher allein belegt kein unabhängiges Backup.
-- Archiviert werden bewusst ausgewählte SMS (Eingang/Ausgang), maximal 50
-  je Transaktion. Der Schlüssel enthält den Eigentümer, eine stabile zufällige
+- Bei manueller Auswahl oder Sicherung werden bewusst ausgewählte SMS
+  (Eingang/Ausgang) verarbeitet, maximal 50 je Transaktion. Der Schlüssel enthält den Eigentümer, eine stabile zufällige
   Gerätezuordnung und die SMS-Provider-ID. Dieselbe Zeile derselben Zuordnung
   ist idempotent. Eine später neu belegte Provider-ID mit abweichendem Inhalt
   erscheint als Konflikt und überschreibt nichts. Nach einer Neuinstallation
@@ -150,3 +151,23 @@ bash tools/run_android_sms_download_acceptance.sh android/apk/app/build/outputs/
 
 Der vollständige Lauf mit zwei frischen Emulatoren ist Teil des Android-CI-Jobs.
 Ein grüner Exportmarker allein bestätigt noch nicht die Wiederherstellung.
+
+## Direkter Geräteimport in einer ausdrücklich freigegebenen APK
+
+In einer entsprechend gebauten APK findest du den Import unter **Kommunikation → SMS-Archiv → SMS vom Handy importieren**. Optional kannst du einen UTC-Zeitraum eingrenzen. Tippe auf **SMS-Vorschau** und bestätige den nativen Dialog. Beim ersten Mal fragt Android ggf. zusätzlich nach Lesezugriff. Die Vorschau zeigt die Anzahl neuer und bereits archivierter Nachrichten für den gewählten Zeitraum. Sie speichert nichts. Erst **Geprüfte SMS archivieren** und die separate native Bestätigung übernehmen die geprüfte Auswahl in das private lokale Archiv des angemeldeten Kontos. Veränderte, fehlende oder neu hinzugekommene Provider-Zeilen sowie geänderte Archivzahlen erfordern eine neue Vorschau. Die Vorschau ist fünf Minuten gültig. Bei einem erneuten Import werden identische Provider-Zeilen nicht dupliziert. RCS, MMS, Entwürfe und Nachrichten anderer Android-Profile gehören nicht zum Import. Die Nachrichten-App bleibt unverändert; dieser Einstieg versendet oder löscht nichts.
+
+Für einen Installationskanal, der die Android-Freigabe unterstützt, lässt sich die **optionale APK** mit `SIMPLEOFFICE_ANDROID_DEVICE_SMS=1` bauen (aus dem bestehenden Android-Build-Verzeichnis mit dem üblichen Wheel- und Signatur-Setup: `SIMPLEOFFICE_ANDROID_DEVICE_SMS=1 gradle --no-daemon :app:assembleRelease`). Ohne die Option enthält die APK **kein** `READ_SMS`. Unter Android 10+ ist [READ_SMS als „hard restricted“ eingestuft](https://developer.android.com/reference/android/Manifest.permission#READ_SMS): Der Installationskanal muss die Berechtigung zulassen, und der Nutzer muss sie erteilen. Ein Download oder Sideload allein garantiert das nicht. Diese Variante ist nicht für Google Play vorgesehen: Die [Play-Regeln zu SMS-Berechtigungen](https://support.google.com/googleplay/android-developer/answer/10208820) verlangen Eignung und Freigabe. Das private Archiv ersetzt keine Wiederherstellung in den ursprünglichen Android-Nachrichtenanbieter. SimpleOffice wird dabei nicht zur Standard-SMS-App. Fällt der Direktimport weg, bleiben manuelles Teilen und die Archiv-Sicherung verfügbar.
+
+Für signierte Testverteilung bietet der manuell auf `main` gestartete Workflow
+**Android APK release (signed)** die standardmäßig abgewählte Option
+`device_sms_import`. Sein getrennt benanntes Artefakt endet auf
+`-SMS-IMPORT.apk`; normale und Tag-Releases bleiben ohne SMS-Leserecht.
+Die APK verwendet dieselbe App-ID und Signatur. Erfordert der Installationskanal
+eine Neuinstallation, sichere und prüfe das Archiv zuerst außerhalb der App.
+Nicht deinstallieren, um eine Berechtigung zu erzwingen.
+
+Pro Vorgang sind höchstens 1.000 SMS und 2 MiB Nachrichtentext einschließlich Absender erlaubt. Bei Überschreitung schlägt der gesamte Vorgang ohne Teilimport fehl: Wähle einen kleineren Datumsbereich. Ein Konflikt mit einem bereits archivierten Datensatz wird ebenfalls vollständig zurückgerollt. Eine lokale zufällige Installationskennung trennt Android-Provider-IDs von manuellen Einträgen und von anderen Installationen. Eine Neuinstallation verwirft diese lokale Identität, sodass ein importiertes Archiv aus einer früheren Installation nicht anhand der Provider-ID dedupliziert werden kann. Bewahre Sicherungen wie bisher außerhalb der App an einem geschützten, verschlüsselten Ort auf.
+
+Sicherheitsgrenzen: Nur die exakt lokale, eingebettete Archivansicht bekommt einen Main-Frame-Kanal. Die native Freigabe stellt eine einmalige, nicht für JavaScript sichtbare Leseberechtigung für den aktuellen Vorgang aus. Der feste Loopback-Aufruf übergibt nur Zeitraum, Aktion, opaque Vorschau-ID, Anmeldecookie, CSRF-Token und Vorgangsberechtigung. Für die Vorschau verbleiben nur Prüfsumme, Anzahl und Sitzungsgeltungsbereich vorübergehend im Prozessspeicher. Der HTTP-Handler prüft das Konto und liest den Android-Provider danach im selben Prozess über Chaquopy; SMS-Inhalte und Absender werden weder im Bridge-Aufruf noch in dessen HTTP-Anfrage oder -Antwort übertragen. Die normale authentifizierte Archivansicht bleibt zum Anzeigen und Durchsuchen zuständig. Fehler enthalten keine Provider-Texte. Navigation oder Hintergrundwechsel widerrufen die Freigabe für noch nicht abgeschlossene Lesevorgänge. Eine bereits atomar begonnene Archivschreiboperation bleibt vollständig oder wird zurückgerollt.
+
+Prüfung: `python -m unittest -q tests.test_android_sms_device_import tests.test_sms_archive_store tests.test_sms_archive_routes`. Der Android-PR-Workflow prüft das Standardmanifest und startet die optionale APK mit `tools/run_android_sms_device_import_acceptance.sh` auf einem frischen API-35-AVD. Er speist eine künstliche SMS über den Emulator ein, benutzt den echten Launcher, die eingebettete Archivseite und die Android-Berechtigungsdialoge und kontrolliert Ablehnen, Erlauben, Vorschau ohne Schreibzugriff, ausdrücklich bestätigte Archivierung, Wiederholung und Neustart. Der Test greift nicht auf vorhandene Geräte oder echte SMS zu.

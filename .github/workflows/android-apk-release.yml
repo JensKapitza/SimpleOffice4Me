@@ -10,6 +10,11 @@ name: Android APK release (signed)
 
 on:
   workflow_dispatch:
+    inputs:
+      device_sms_import:
+        description: 'Build the optional signed SMS-read variant for an authorized installer (not Google Play)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -33,6 +38,7 @@ jobs:
     needs: native-wheels
     runs-on: ubuntu-24.04
     env:
+      SIMPLEOFFICE_ANDROID_DEVICE_SMS: ${{ inputs.device_sms_import && '1' || '0' }}
       SIMPLEOFFICE_ANDROID_ABI: arm64-v8a
       SIMPLEOFFICE_ANDROID_PYTHON: '3.14'
       SIMPLEOFFICE_ANDROID_WHEEL_DIR: ${{ github.workspace }}/android/apk/app/wheelhouse
@@ -48,6 +54,10 @@ jobs:
           set -euo pipefail
           if [[ "$GITHUB_REF" != "refs/heads/main" && "$GITHUB_REF" != refs/tags/v* ]]; then
             echo "Signed release builds are allowed only from main or version tags." >&2
+            exit 1
+          fi
+          if [[ "$SIMPLEOFFICE_ANDROID_DEVICE_SMS" == 1 && "$GITHUB_REF" != refs/heads/main ]]; then
+            echo "The SMS-read variant is not a tag or standard distribution artifact." >&2
             exit 1
           fi
           git fetch --no-tags origin main:refs/remotes/origin/main
@@ -172,8 +182,24 @@ jobs:
             echo "APK contains native libraries for an unexpected ABI" >&2
             exit 1
           fi
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          test -n "$AAPT" && test -x "$AAPT"
+          "$AAPT" dump permissions "$APK" > /tmp/release-apk-permissions.txt
+          if grep -Eq 'android\.permission\.(WRITE_SMS|SEND_SMS|RECEIVE_SMS|RECEIVE_MMS)' /tmp/release-apk-permissions.txt; then
+            echo "Unexpected SMS write, send, or receive permission." >&2
+            exit 1
+          fi
+          if [[ "$SIMPLEOFFICE_ANDROID_DEVICE_SMS" == 1 ]]; then
+            grep -F 'android.permission.READ_SMS' /tmp/release-apk-permissions.txt
+          elif grep -F 'android.permission.READ_SMS' /tmp/release-apk-permissions.txt; then
+            echo "The standard release APK must not request SMS access." >&2
+            exit 1
+          fi
           mkdir -p artifacts/android
           VERSIONED_OUTPUT="SimpleOffice4Me-Android-arm64-RELEASE-${SIMPLEOFFICE_BUILD_DATE}-${SIMPLEOFFICE_BUILD_SEQUENCE}.apk"
+          if [[ "$SIMPLEOFFICE_ANDROID_DEVICE_SMS" == 1 ]]; then
+            VERSIONED_OUTPUT="${VERSIONED_OUTPUT%.apk}-SMS-IMPORT.apk"
+          fi
           cp "$APK" "artifacts/android/${VERSIONED_OUTPUT}"
           sha256sum "artifacts/android/${VERSIONED_OUTPUT}" > "artifacts/android/${VERSIONED_OUTPUT}.sha256"
 
@@ -185,7 +211,7 @@ jobs:
       - name: Upload signed release APK
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: simpleoffice4me-android-release-signed
+          name: ${{ inputs.device_sms_import && 'simpleoffice4me-android-release-signed-sms-import' || 'simpleoffice4me-android-release-signed' }}
           path: artifacts/android/*
           if-no-files-found: error
           retention-days: 90

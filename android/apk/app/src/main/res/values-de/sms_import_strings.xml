@@ -1,0 +1,7 @@
+<resources>
+    <string name="sms_device_import_title">SMS vom Handy importieren</string>
+    <string name="sms_device_import_confirm">Die geprüfte Auswahl in deinem privaten SimpleOffice-Archiv speichern? Auf dem Handy wird nichts geändert, gelöscht oder versendet.</string>
+    <string name="sms_device_import_action">SMS importieren</string>
+    <string name="sms_device_preview_action">SMS-Vorschau</string>
+    <string name="sms_device_preview_confirm">Empfangene und gesendete SMS im gewählten Zeitraum lesen und neue sowie bereits archivierte SMS zählen? Es wird nichts gespeichert. Android kann nach dem Lesezugriff fragen.</string>
+</resources>

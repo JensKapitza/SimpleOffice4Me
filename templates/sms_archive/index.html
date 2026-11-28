@@ -1,11 +1,14 @@
 {% extends "layout.html" %}
 {% set en = g.language == 'en' %}
 {% block title %}{{ 'SMS archive' if en else 'SMS-Archiv' }} · SimpleOffice4Me{% endblock %}
+{% block script %}
+  {% if device_import %}<script src="{{ url_for('static', filename='js/android_sms_device_import.js') }}" defer></script>{% endif %}
+{% endblock %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
 <main id="main-content" class="container-lg py-4">
   <h1 class="h2">{{ 'SMS archive' if en else 'SMS-Archiv' }}</h1>
-  <p>{{ 'Private archive and backup. This page does not read or delete messages on your phone.' if en else 'Privates Archiv mit Sicherung. Diese Seite liest oder löscht keine SMS auf deinem Handy.' }}</p>
+  <p>{{ 'Private archive and backup. Archiving never deletes messages on your phone.' if en else 'Privates Archiv mit Sicherung. Beim Archivieren werden keine SMS auf deinem Handy gelöscht.' }}</p>
   {% for message in get_flashed_messages() %}
   <p class="alert alert-info" role="status" aria-live="polite">{{ message }}</p>
   {% endfor %}
@@ -16,6 +19,7 @@
     <a class="btn btn-outline-primary" href="#sms-manual">{{ 'Add copied message' if en else 'Kopierte SMS hinzufügen' }}</a>
     <a class="btn btn-outline-secondary" href="#sms-restore">{{ 'Restore backup' if en else 'Sicherung wiederherstellen' }}</a>
   </div>
+  {% if device_import %}{% include "sms_archive/_device_import.html" %}{% endif %}
   <section class="mb-4" aria-labelledby="sms-search-title">
     <h2 class="h5" id="sms-search-title">{{ 'Search archived messages' if en else 'Archivierte Nachrichten suchen' }}</h2>
     <form method="post" action="{{ url_for('sms_archive.index') }}">

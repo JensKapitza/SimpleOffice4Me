@@ -182,6 +182,32 @@ def _refresh_android_speech() -> bool:
     return bool(_android_speech_class().refresh())
 
 
+def _android_sms_import_class():
+    from java import jclass
+
+    return jclass("de.simpleoffice4me.android.AndroidSmsDeviceImport")
+
+
+def _read_android_sms(lease: str, first: int, last: int):
+    # The provider lease stays in the same APK process. Message bodies never
+    # appear in a WebView bridge, browser request, or native HTTP response.
+    try:
+        raw = str(_android_sms_import_class().read(lease, first, last))
+        if len(raw) > 16 * 1024 * 1024:
+            return "too_many", []
+        data = json.loads(raw)
+        return data["state"], data.get("records", [])
+    except Exception as exc:
+        raise RuntimeError("Native SMS provider failed: " + type(exc).__name__) from None
+
+
+def _android_sms_lease_active(lease: str) -> bool:
+    try:
+        return bool(_android_sms_import_class().active(lease))
+    except Exception as exc:
+        raise RuntimeError("Native SMS consent check failed: " + type(exc).__name__) from None
+
+
 def _serve() -> None:
     assert _SERVER is not None
     _SERVER.serve_forever(poll_interval=0.25)
@@ -277,6 +303,16 @@ def start(
             ANDROID_PRIVATE_SPEECH_STATUS=_android_speech_status,
             ANDROID_PRIVATE_SPEECH_REFRESH=_refresh_android_speech,
             ANDROID_PRIVATE_SPEECH_SETTINGS=True,
+        )
+    try:
+        sms_enabled = _android_sms_import_class().enabled()
+    except Exception as exc:
+        app.logger.warning("Optional Android SMS import unavailable: %s", type(exc).__name__)
+        sms_enabled = False
+    if sms_enabled:
+        app.config.update(
+            ANDROID_PRIVATE_SMS_READER=_read_android_sms,
+            ANDROID_PRIVATE_SMS_LEASE_ACTIVE=_android_sms_lease_active,
         )
     app.config["TEMPLATES_AUTO_RELOAD"] = False
     app.config["MAX_CONTENT_LENGTH"] = min(int(app.config["MAX_CONTENT_LENGTH"]), 256 * 1024 * 1024)
