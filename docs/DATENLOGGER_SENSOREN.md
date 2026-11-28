@@ -98,6 +98,28 @@ Bearbeitende dürfen Werte und Quellen ändern; Lesende sehen Verlauf und Export
   administrativ `sudo sensors-detect`; `sensors -j` zeigt die verwendbaren
   JSON-Pfade. SimpleOffice führt ausschließlich `sensors -j` ohne Shell aus.
 
+### Android: eine Bewegung messen und speichern
+
+In der APK unter **Datenlogger → Android-Bewegung messen** zeigt die Seite an,
+ob Beschleunigungssensor und Gyroskop auf dem Gerät verfügbar sind. Tippe auf
+einen Sensor, um genau eine frische Messung zu sehen. Beschleunigung umfasst
+die Schwerkraft (m/s²), Drehgeschwindigkeit wird in rad/s angezeigt. Beide Werte
+sind gerichtungslose Beträge, keine Achsen, keine GPS-Daten und kein Verlauf.
+
+Erst **Messwert speichern** legt den Wert im ausgewählten, bearbeitbaren Kanal
+passender Einheit ab. Verwende bei Bedarf „Messkanal anlegen“ mit `m/s²` oder
+`rad/s`. Der Kanal nutzt die Speicherzeit und behandelt dies als manuelle
+Beobachtung, nicht als Hardware-Attest. Wenn die App in den Hintergrund wechselt,
+verwirft sie die ungespeicherte Vorschau. Es gibt keinen Dienst im Hintergrund
+und keine zusätzliche Manifest-Berechtigung oder Föderationsfreigabe.
+
+Der APK-Workflow prüft die Sensorvorschau und das Speichern in einem
+eigens dafür gestarteten Android-Emulator mit seiner virtuellen Sensorhardware. Das ersetzt
+keine Messung auf einem physischen Telefon. Der Prüflauf kann in einer frischen
+CI-AVD mit `bash tools/run_android_nfc_fallback_acceptance.sh <debug.apk> "" --motion`
+nachgestellt werden; außerhalb von CI ist anstelle der leeren Zeichenkette eine
+frische Android-Emulator-Seriennummer anzugeben.
+
 ## Prozess-, Fehler- und Ausfallverhalten
 
 `tools.datalogger_worker` läuft getrennt und niedrig priorisiert. Langsame

@@ -1,0 +1,34 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container py-4">
+  <a href="{{ url_for('datalogger.index') }}">Zurück zum Datenlogger</a>
+  <h1 class="mt-2">Android-Bewegung messen</h1>
+  <p>Eine Einzelmessung sehen und bei Bedarf in einem passenden Kanal speichern. Der Kanal nutzt die Speicherzeit. Es werden weder Standort noch Bewegungsverlauf erfasst.</p>
+  <div data-android-motion aria-labelledby="motion-sensors">
+    <h2 id="motion-sensors" class="h5">Sensoren</h2>
+    <input type="hidden" data-motion-csrf value="{{ csrf_token() }}">
+    <p data-motion-status role="status" aria-live="polite">Die native Messung benötigt die Android-App.</p>
+    <div class="d-flex flex-wrap gap-2 mb-3">
+      <button type="button" class="btn btn-outline-primary" data-motion-kind="acceleration" disabled>Beschleunigung (m/s², mit Schwerkraft)</button>
+      <button type="button" class="btn btn-outline-primary" data-motion-kind="angular_speed" disabled>Drehgeschwindigkeit (rad/s)</button>
+    </div>
+    {% if channels %}
+    <form method="post" data-motion-save action="{{ url_for('datalogger.android_motion') }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="kind">
+      <input type="hidden" name="value">
+      <label for="motion-channel" class="form-label">Messkanal</label>
+      <select class="form-select mb-2" id="motion-channel" name="channel_id" required disabled>
+        <option value="">Passenden Kanal auswählen</option>
+        {% for channel in channels %}<option value="{{ channel.channel_id }}" data-unit="{{ channel.unit }}">{{ channel.name }} ({{ channel.unit }})</option>{% endfor %}
+      </select>
+      <button class="btn btn-primary" type="submit" disabled>Messwert speichern</button>
+    </form>
+    {% else %}
+    <p>Zum Speichern brauchst du einen bearbeitbaren Kanal mit der Einheit <strong>m/s²</strong> oder <strong>rad/s</strong>.</p>
+    {% endif %}
+  </div>
+</main>
+<script src="{{ url_for('static', filename='js/android_datalogger_motion.js') }}" defer></script>
+{% endblock %}
