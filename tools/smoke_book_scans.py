@@ -246,9 +246,17 @@ def exercise_mixed_intake(browser):
     row = next(item for item in recognized["evidence"] if item["field"] == "manufacturer")
     assert row["label"] == "OCR" and row["value"] == "Synthetic Pencil"
     selected = action(recognized, "choose", source_id=row["source_id"])
+
+    def review_text(field):
+        card = browser.page(path).select_one(f"#draft-{second['id']}")
+        return card.select_one(f'[data-intake-review-field="{field}"]').get_text(" ", strip=True)
+
+    assert "Synthetic Pencil OCR" in review_text("manufacturer")
     saved = action(selected, "confirm", title="Synthetic Pencil Fixture", kind="object")
     assert saved["state"] == "confirmed"
     assert saved["confirmed"]["fields"]["manufacturer"] == "Synthetic Pencil"
+    assert "Synthetic Pencil OCR" in review_text("manufacturer")
+    assert "Synthetic Pencil Fixture Manuell" in review_text("title")
     assert action(selected, "confirm", title="Unexpected duplicate", kind="object")["confirmed"] == saved["confirmed"]
     assert "In Prüfung" in browser.page(path).select_one(f"#draft-{first['id']}").get_text(" ", strip=True)
     print("Verified mixed intake: ordered private captures, OCR evidence, explicit local save and idempotent replay.")

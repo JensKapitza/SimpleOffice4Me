@@ -307,8 +307,11 @@ def _save_confirmed(entry, state, fields):
                 abort(404)
             item = _objects().object(previous["object_id"])
             outcome = {"object_id": item["object_id"], "notices": [
-                "Bereits gespeichert. Foto und Standort ggf. in der Inventarakte prüfen."
+                "Bereits gespeichert. Die bestätigten Angaben sind in der Inventarakte verfügbar."
             ]}
+            # A saved inventory receipt can survive a failed inbox write. The
+            # retried form does not prove which sources were originally used.
+            snapshot = {"fields": {}, "sources": {}, "source_snapshot": False}
         else:
             original = _store().media_path(token, actor) if entry.get("original") else None
             with original.open("rb") if original is not None else nullcontext() as stream:
@@ -321,9 +324,9 @@ def _save_confirmed(entry, state, fields):
             outcome = response.get_json()
             if response.status_code != 200 or not outcome.get("saved"):
                 raise ValueError("Der Entwurf konnte nicht bestätigt werden.")
+            snapshot = {"fields": manual, "sources": dict(state["selected"]), "source_snapshot": True}
     state["confirmed"] = {
-        "object_id": outcome["object_id"], "notices": outcome.get("notices", []),
-        "fields": manual, "sources": dict(state["selected"]),
+        "object_id": outcome["object_id"], "notices": outcome.get("notices", []), **snapshot,
     }
     state["revision"] += 1
 

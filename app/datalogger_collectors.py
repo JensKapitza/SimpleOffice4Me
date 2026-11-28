@@ -14,6 +14,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from .datalogger_store import tracks_pico_availability
+
 MAX_HTTP_BYTES = 1024 * 1024
 
 _LOGGER = logging.getLogger(__name__)
@@ -56,7 +58,7 @@ def validate_sensor_allowed_hosts(value: object) -> list[str]:
     return normalize_sensor_allowed_hosts(value)
 
 
-def _stored_allowed_hosts(document_root: object) -> list[str]:
+def read_sensor_allowed_hosts(document_root: object) -> list[str]:
     """Read persisted allowed hosts; fail closed to the loopback default."""
     if document_root is None:
         return list(DEFAULT_SENSOR_ALLOWED_HOSTS)
@@ -241,7 +243,7 @@ def collect_http(config, document_root=None):
     parsed = urlsplit(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username is not None or parsed.password is not None:
         raise CollectionError("url_invalid")
-    if parsed.hostname.casefold() not in _stored_allowed_hosts(document_root):
+    if parsed.hostname.casefold() not in read_sensor_allowed_hosts(document_root):
         raise CollectionError("host_denied")
     try:
         addresses = socket.getaddrinfo(parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)
@@ -283,7 +285,10 @@ def collect_http(config, document_root=None):
         data = json.loads(body)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise CollectionError("json_invalid") from exc
-    return _number(json_path(data, str(config.get("json_path", "value"))))
+    value = json_path(data, str(config.get("json_path", "value")))
+    if tracks_pico_availability(config) and (type(value) not in (int, float) or value not in (0, 1)):
+        raise CollectionError("availability_invalid")
+    return _number(value)
 
 
 def collect_lm_sensors(config):

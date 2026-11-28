@@ -6,6 +6,7 @@ import json
 import logging
 import math
 import os
+import re
 import sqlite3
 import threading
 import uuid
@@ -24,8 +25,21 @@ _LEGACY_POLL_WARNING_LOCK = threading.Lock()
 _LEGACY_POLL_WARNING_EMITTED = False
 
 
+def pico_availability_path(config):
+    path = config.get("json_path", "") if isinstance(config, dict) else ""
+    return isinstance(path, str) and bool(re.fullmatch(r"nodes\.[a-z0-9_]{1,24}\.available", path))
+
+
+def tracks_pico_availability(config):
+    return isinstance(config, dict) and config.get("track_availability") is True and pico_availability_path(config)
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def pico_example_namespace(actor, gateway_url):
+    return uuid.uuid5(uuid.NAMESPACE_URL, f"simpleoffice:datalogger:pico:v1:{actor}:{gateway_url}")
 
 
 class DataLoggerStore:
@@ -67,12 +81,15 @@ class DataLoggerStore:
                   UNIQUE(channel_id, source_id, measured_at)
                 );
                 CREATE INDEX IF NOT EXISTS sample_channel_time ON metric_sample(channel_id, measured_at DESC);
+                CREATE INDEX IF NOT EXISTS sample_source_latest ON metric_sample(channel_id, source_id, sample_id DESC);
                 CREATE TABLE IF NOT EXISTS metric_event (
                   event_id INTEGER PRIMARY KEY AUTOINCREMENT, occurred_at TEXT NOT NULL, actor TEXT NOT NULL,
                   action TEXT NOT NULL, target_type TEXT NOT NULL, target_id TEXT NOT NULL,
                   outcome TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '{}'
                 );
                 CREATE INDEX IF NOT EXISTS event_target ON metric_event(target_type, target_id, occurred_at DESC);
+                CREATE INDEX IF NOT EXISTS event_pico_state ON metric_event(target_id, event_id DESC)
+                  WHERE target_type='channel' AND action IN ('pico_available', 'pico_unavailable');
                 -- Keep these database bounds aligned with the constants above.
                 CREATE TABLE IF NOT EXISTS metric_setting (
                   setting_id INTEGER PRIMARY KEY CHECK(setting_id=1),
@@ -214,6 +231,62 @@ class DataLoggerStore:
                 self._event(db, actor, 'server_preset_created', 'channel', channel_id, detail={'metric': metric})
         return channel_id
 
+    def provision_pico_example(self, actor, gateway_url, unit, *, availability=False):
+        """Provision private channels and fixed sources together; never re-enable an existing source."""
+        identity = pico_example_namespace(actor, gateway_url)
+        entries = [("room_a", "A", "value"), ("room_b", "B", "value")]
+        if availability:
+            entries.extend((node, label, "available") for node, label, _ in tuple(entries))
+        now = utc_now()
+        created = 0
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            for node, label, kind in entries:
+                channel = uuid.uuid5(identity, f"{node}:{kind}")
+                channel_id = str(channel)
+                cfg = {"url": gateway_url, "json_path": f"nodes.{node}.{kind}", "timeout": 5}
+                name = f"Pico-Knoten {label}"
+                metric_unit = unit
+                if kind == "available":
+                    name = f"{name} erreichbar"
+                    metric_unit = ""
+                    cfg["track_availability"] = True
+                name += f" · {gateway_url.removeprefix('http://').removesuffix('/status')}"
+                result = db.execute(
+                    """INSERT INTO metric_channel VALUES(?,?,?,?,?,?,?,?,?,?)
+                       ON CONFLICT(channel_id) DO NOTHING""",
+                    (channel_id, name, "Voreinstellung für das Pico-Gateway.", metric_unit, "#0d6efd",
+                     actor, "[]", "[]", now, now),
+                )
+                if not result.rowcount:
+                    continue
+                source_id = str(uuid.uuid5(channel, "source"))
+                db.execute(
+                    """INSERT INTO metric_source(source_id,channel_id,name,kind,config,interval_seconds,
+                                                 enabled,next_run_at,created_at,updated_at)
+                       VALUES(?,?,?,'http_json',?,60,1,?,?,?)""",
+                    (source_id, channel_id, "Pico-Gateway", json.dumps(cfg, sort_keys=True), now, now, now),
+                )
+                self._event(db, actor, "pico_preset_created", "channel", channel_id, detail={"metric": kind})
+                created += 1
+        return created
+
+    def pico_source_observations(self, actor):
+        """Read bounded wizard-created source results, not manually entered channel values."""
+        with self.connect() as db:
+            return db.execute(
+                """SELECT c.channel_id,c.unit,c.owner,m.source_id,m.config,m.enabled,m.interval_seconds,
+                          m.last_run_at,m.last_status,m.last_error_code,s.value,s.measured_at
+                     FROM metric_channel c JOIN metric_source m ON m.channel_id=c.channel_id
+                     LEFT JOIN metric_sample s ON s.sample_id=(
+                        SELECT last.sample_id FROM metric_sample last
+                         WHERE last.channel_id=c.channel_id AND last.source_id=m.source_id
+                         ORDER BY last.sample_id DESC LIMIT 1)
+                    WHERE c.owner=? AND m.kind='http_json' AND m.name='Pico-Gateway'
+                    ORDER BY c.created_at DESC,c.channel_id LIMIT 64""",
+                (actor,),
+            ).fetchall()
+
     def sources(self, channel_id):
         with self.connect() as db:
             return db.execute("SELECT * FROM metric_source WHERE channel_id=? ORDER BY name", (channel_id,)).fetchall()
@@ -240,6 +313,48 @@ class DataLoggerStore:
         with self.connect() as db:
             db.execute("INSERT OR IGNORE INTO metric_sample(channel_id,source_id,measured_at,value,metadata) VALUES(?,?,?,?,?)", (channel_id, source_id, when, number, json.dumps(metadata or {}, ensure_ascii=False)))
             self._event(db, actor, "sample_recorded", "channel", channel_id, detail={"source_id": source_id or "manual"})
+
+    def add_pico_availability_sample(self, channel_id, source_id, value):
+        """Persist one trusted poll's observation and any change in a single transaction."""
+        if type(value) not in (int, float) or value not in (0, 1):
+            raise ValueError("invalid numeric sensor availability")
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            src = db.execute(
+                "SELECT enabled, config FROM metric_source WHERE source_id=? AND channel_id=? AND kind='http_json'",
+                (source_id, channel_id),
+            ).fetchone()
+            if not src or not src["enabled"] or not tracks_pico_availability(json.loads(src["config"])):
+                return False
+            previous = db.execute(
+                """SELECT value FROM metric_sample WHERE channel_id=? AND source_id=?
+                   ORDER BY sample_id DESC LIMIT 1""",
+                (channel_id, source_id),
+            ).fetchone()
+            sample = db.execute(
+                """INSERT OR IGNORE INTO metric_sample(channel_id,source_id,measured_at,value)
+                   VALUES(?,?,?,?)""",
+                (channel_id, source_id, utc_now(), value),
+            )
+            if not sample.rowcount:
+                return True
+            actor = "system:datalogger"
+            detail = {"source_id": source_id}
+            self._event(db, actor, "sample_recorded", "channel", channel_id, detail=detail)
+            if previous and previous["value"] in (0, 1) and previous["value"] != value:
+                change = "pico_available" if value == 1 else "pico_unavailable"
+                self._event(db, actor, change, "channel", channel_id, detail=detail)
+            return True
+
+    def pico_availability_changes(self, channel_id):
+        with self.connect() as db:
+            rows = db.execute(
+                """SELECT occurred_at, action, detail FROM metric_event
+                   WHERE target_type='channel' AND target_id=? AND action IN ('pico_available', 'pico_unavailable')
+                   ORDER BY event_id DESC LIMIT 20""", (channel_id,),
+            ).fetchall()
+        return [{"occurred_at": row["occurred_at"], "available": row["action"] == "pico_available",
+                 "source_id": json.loads(row["detail"])["source_id"]} for row in rows]
 
     @staticmethod
     def _sample_range_clause(start, end) -> tuple[str, tuple]:

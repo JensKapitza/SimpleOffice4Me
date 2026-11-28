@@ -27,7 +27,15 @@ keinen externen Internetdienst.
   auswählen, nichts erfinden oder nicht abgeglichene Buchausgaben verbinden.
 
 Nur zwei konkret gegengeprüfte Katalogtreffer derselben Ausgabe können sich feldweise ergänzen. Ältere oder unvollständige Abgleiche müssen dafür erneut geprüft werden. Ein beschrifteter OCR-Widerspruch setzt die Katalogkarte auf Rückfrage, auch wenn der Katalog zuerst geladen wurde. Beide Quellen bleiben sichtbar; unbeschriftete OCR-Zeilen bleiben Hinweise. Bei Bedarf eine Quelle wählen oder
-manuell entscheiden. Erst **Als neues Exemplar lokal speichern** legt das
+manuell entscheiden. Die Kachel zeigt den gewählten Titel mit seiner Herkunft.
+Sobald du eine Quelle auswählst, zeigt **Aktuell zur Übernahme ausgewählt**
+die gespeicherten Entwurfswerte mit Quellenhinweisen. Eine KI-Angabe zeigt
+zusätzlich ihre vorhandenen Belege. Die manuellen Eingabefelder bleiben
+unverändert. Nach dem Speichern bleiben die bestätigten Entwurfsangaben
+und ihre Herkunft an der Karte sichtbar. Fehlt ein verifizierter Quellenstand,
+etwa bei einem älteren oder wiederhergestellten Beleg, bleibt der
+Inventareintrag erreichbar, ohne die Herkunft zu behaupten.
+Erst **Als neues Exemplar lokal speichern** legt das
 Inventarobjekt an, ohne es für die Föderation freizugeben. Die Erfassung als
 Inventargegenstand und der gesonderte PDF-Buchscan mit ausdrücklicher
 Empfängerfreigabe sind zwei verschiedene Vorgänge.
