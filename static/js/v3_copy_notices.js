@@ -107,7 +107,10 @@
     }
   };
   testSound?.addEventListener('click', playTone);
-  const audible = item => {
+  const audible = (item, elapsed) => {
+    // A peer budget is measured against the receiver's clock. Charge the entire
+    // fetch duration to it, so a slow response cannot revive an expired notice.
+    if (item.kind === 'peer' && !(item.alert_for_ms > elapsed + 150)) return false;
     const at = Date.parse(item.at);
     const age = Date.now() - at;
     const group = item.kind === 'peer' ? 'peer' : 'local';
@@ -143,7 +146,7 @@
       timer = setTimeout(refresh, delay);
     }
   };
-  const render = (rows, announce, read = new Set()) => {
+  const render = (rows, announce, read = new Set(), requestStarted = performance.now()) => {
     const ids = rows.map(item => item.id);
     const newRows = rows.filter(item => !visibleIds.includes(item.id) && !read.has(item.id));
     if (ids.length === visibleIds.length && ids.every((id, index) =>
@@ -180,12 +183,13 @@
     seenIds = read;
     updateReadButton();
     announcement.textContent = announce && newRows.length ? pane.dataset.newLabel : '';
-    if (announce && newRows.some(audible)) playTone();
+    if (announce && newRows.some(item => audible(item, performance.now() - requestStarted))) playTone();
   };
   const refresh = async () => {
     timer = undefined;
     if (!active || stopped || document.hidden || navigator.onLine === false || controller) return;
     const own = new AbortController();
+    const requestStarted = performance.now();
     controller = own;
     const requestTimeout = setTimeout(() => own.abort(), TIMEOUT);
     let delay = REFRESH;
@@ -215,12 +219,14 @@
       const rows = payload?.notices;
       if (!Array.isArray(rows) || rows.length > 10 || !rows.every(item => (
         item && typeof item.id === 'string' && /^[a-f0-9]{64}$/.test(item.id) &&
-        ['browser', 'job', 'peer'].includes(item.kind) && typeof item.at === 'string' && !Number.isNaN(Date.parse(item.at))
+        ['browser', 'job', 'peer'].includes(item.kind) && typeof item.at === 'string' && !Number.isNaN(Date.parse(item.at)) &&
+        (item.alert_for_ms === undefined || (item.kind === 'peer' &&
+          Number.isInteger(item.alert_for_ms) && item.alert_for_ms > 0 && item.alert_for_ms <= 20000))
       ))) throw new Error('copy notice response invalid');
       const read = payload.seen === undefined ? [] : payload.seen;
       if (!Array.isArray(read) || read.length > 10 || !read.every(id => rows.some(row => row.id === id)))
         throw new Error('copy notice receipt invalid');
-      render(rows, true, new Set(read));
+      render(rows, true, new Set(read), requestStarted);
     } catch (_error) {
       delay = BACKOFF; // Keep the current list during transient failures.
     } finally {

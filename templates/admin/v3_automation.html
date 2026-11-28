@@ -246,6 +246,6 @@
   {% endif %}
 </main>
 {% if enabled and copy_notices_enabled %}
-<script src="{{ url_for('static', filename='js/v3_copy_notices.js', v=app_build.version) }}" defer></script>
+<script src="{{ url_for('static', filename='js/v3_copy_notices.js', v=app_build.version, notice_schema=2) }}" defer></script>
 {% endif %}
 {% endblock %}

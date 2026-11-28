@@ -180,7 +180,13 @@ def receive_notice(root, peer, payload, *, clock=_now):
         status = received_window_status(timing, clock(), uncertainty_seconds=1)
         if status != "ready":
             return status
-        activities.record(PEER_NOTICE, account, event_id=key, source="workflow.peer_notice")
+        canonical_window = {
+            field: utc_instant(timing[field]).isoformat()
+            for field in ("requested_at", "not_before", "expires_at")
+        }
+        canonical_window["origin_timezone"] = timing["origin_timezone"]
+        activities.record(PEER_NOTICE, account, event_id=key, source="workflow.peer_notice",
+                          metadata={"delivery_window": canonical_window})
         return "delivered"
 
 

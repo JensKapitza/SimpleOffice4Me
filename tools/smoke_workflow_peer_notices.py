@@ -65,6 +65,24 @@ with app.app_context():
     assert result.returncode == 0, result.stderr
 
 
+def _prepare_browser_copy(root, tls, speaker):
+    code = """
+from io import BytesIO
+import os
+from pathlib import Path
+from app.document_store import DocumentStore
+root = Path(os.environ["SIMPLEOFFICE_DOCUMENT_ROOT"])
+(root / "synthetic-copies").mkdir()
+item = DocumentStore(root).import_upload(
+    BytesIO(b"synthetic browser copy"), "synthetic-copy-private.txt", %r,
+)
+print(item["document_id"])
+""" % speaker
+    result = _cli(root, tls, ["-c", code])
+    assert result.returncode == 0, result.stderr
+    return result.stdout.splitlines()[-1]
+
+
 def _copy(root, tls, speaker, run_id):
     (root / "documents" / ".simpleoffice-meta" / "notes.json").write_text(run_id, encoding="utf8")
     args = ["-m", "flask", "--app", "app", "run-replications", "--actor", speaker,
@@ -134,7 +152,11 @@ def main():
         assert result.stdout.splitlines()[-1] == "duplicate"
         target = json.loads(dst.request("/automation-v3/copy-notices"))["notices"]
         assert len(target) == 1 and target[0]["kind"] == "peer"
-        assert set(target[0]) == {"id", "kind", "at"}
+        assert set(target[0]) == {"id", "kind", "at", "alert_for_ms"}
+        assert 0 < target[0]["alert_for_ms"] <= 20_000
+        def inbox_identity(rows):
+            return [{key: row[key] for key in ("id", "kind", "at")} for row in rows]
+
         assert not json.loads(src.request("/automation-v3/copy-notices"))["notices"]
         # A verified delivery is not an instruction to create a task.
         task_title = "Kopie prüfen / Review copy"
@@ -191,18 +213,76 @@ def main():
         dst.request(receipt, data=json.dumps({"ids": [target[0]["id"]]}).encode(),
                     headers={"Content-Type": "application/json", "X-CSRF-Token": dst.csrf("/automation-v3")})
         destination_feed = json.loads(dst.request("/automation-v3/copy-notices"))
-        assert destination_feed["seen"] == [target[0]["id"]] and destination_feed["notices"] == target
+        assert destination_feed["seen"] == [target[0]["id"]] and inbox_identity(destination_feed["notices"]) == inbox_identity(target)
         assert not json.loads(src.request("/automation-v3/copy-notices")).get("seen")
         source_page = src.page("/automation-v3")
         assert not source_page.select('[data-next-attempt], [data-delivery-state="peer_unreachable"], [data-delivery-state="retry_due"]')
         rows = source_page.select('[data-delivery-state="delivered"]')
         assert len(rows) == 2 and any(": 2" in row.get_text() for row in rows)
+        # An offline destination that comes back after the original deadline
+        # must not receive a delayed notice, even with a fresh worker process.
+        form = source_page.select_one(f'form[action="{create}"]')
+        src.submit(form, {"peer": b, "destination": grant, "source": "job", "delay": "0",
+                          "deadline": "10", "zone": "UTC"})
+        destination_server.close()
+        _copy(root / a, tls, a, "synthetic-workflow-run-offline-expired")
+        waiting = src.page("/automation-v3").select_one('[data-delivery-state="peer_queued"]')
+        assert waiting is not None, "Short-window copy was not queued"
+        deadline = datetime.fromisoformat(waiting.select_one("time")["datetime"])
+        remaining = (deadline - datetime.now(timezone.utc)).total_seconds()
+        assert 0 < remaining <= 10, "Unexpected test action window"
+        time.sleep(remaining + 1)
+        dst, _ = destination_server.enter_context(
+            fixture.instance(root / b, b, tls, context, destination_password, bearer, port=destination_port),
+        )
+        _work(root / a, tls)
+        source_page = src.page("/automation-v3")
+        missed, = source_page.select('[data-delivery-state="window_missed"]')
+        assert ": 1" in missed.get_text(), "Worker did not consume the expired job"
+        assert not source_page.select('[data-next-attempt]')
+        assert len(source_page.select('[data-delivery-state="delivered"]')) == 2
+        assert inbox_identity(json.loads(dst.request("/automation-v3/copy-notices"))["notices"]) == inbox_identity(target)
+
+        form = source_page.select_one(f'form[action="{create}"]')
+        src.submit(form, {"peer": b, "destination": grant, "source": "job", "delay": "0",
+                          "deadline": "120", "zone": "Europe/Berlin"})
         _copy(root / a, tls, a, "synthetic-workflow-run-revoked")
         dst.page(consent, fields={"operation": "revoke", "grant": grant, "_csrf_token": dst.csrf("/automation-v3")})
         _work(root / a, tls)
         assert src.page("/automation-v3").select_one('[data-delivery-state="denied"]')
-        assert json.loads(dst.request("/automation-v3/copy-notices"))["notices"] == target
-        print("PASS: real copy triggers durable peer job; paired HTTPS delivery, replay, end-of-day offline recovery, private read receipt, one manual personal task and revoke verified")
+        assert inbox_identity(json.loads(dst.request("/automation-v3/copy-notices"))["notices"]) == inbox_identity(target)
+        # Exercise the actual document UI route too, not just the job event.
+        consent_form = dst.page(consent, fields={"operation": "grant", "peer": a,
+                                     "_csrf_token": dst.csrf("/automation-v3")})
+        manual_grant = consent_form.select_one('input[name=grant]')["value"]
+        form = src.page("/automation-v3").select_one(f'form[action="{create}"]')
+        src.submit(form, {"peer": b, "destination": manual_grant, "source": "browser", "delay": "0",
+                          "deadline": "120", "zone": "Europe/Berlin"})
+        doc_id = _prepare_browser_copy(root / a, tls, a)
+        detail = src.page(f"/documents/{doc_id}")
+        form = detail.select_one(f'form[action="/documents/{doc_id}/copy"]')
+        assert form is not None, "Document copy form missing"
+        src.submit(form, {"destination_folder": "synthetic-copies", "_csrf_token":
+                          detail.select_one('meta[name="csrf-token"]')["content"]})
+        copied = root / a / "documents" / "synthetic-copies" / "synthetic-copy-private.txt"
+        assert copied.read_bytes() == b"synthetic browser copy"
+        assert len(src.page("/automation-v3").select('[data-delivery-state="peer_queued"]')) == 1
+        # A second click collides with the existing target; no new action may run.
+        src.submit(form, {"destination_folder": "synthetic-copies", "_csrf_token":
+                          detail.select_one('meta[name="csrf-token"]')["content"]})
+        assert len(src.page("/automation-v3").select('[data-delivery-state="peer_queued"]')) == 1
+        _work(root / a, tls)
+        _work(root / a, tls)
+        assert len(src.page("/automation-v3").select('[data-delivery-state="delivered"]')) == 3
+        body = dst.request("/automation-v3/copy-notices")
+        manual_inbox = json.loads(body)["notices"]
+        assert len(manual_inbox) == 3
+        previous_ids = {row["id"] for row in target}
+        new, = [row for row in manual_inbox if row["id"] not in previous_ids]
+        assert new["kind"] == "peer" and set(new) == {"id", "kind", "at", "alert_for_ms"}
+        assert doc_id.encode() not in body and b"synthetic-copy-private.txt" not in body
+        print("simpleoffice_manual_copy_peer_notice=pass", flush=True)
+        print("PASS: real copy triggers durable peer job; paired HTTPS delivery, replay, end-of-day offline recovery, expired offline delivery suppressed, private read receipt, one manual personal task and revoke verified")
 
 
 
