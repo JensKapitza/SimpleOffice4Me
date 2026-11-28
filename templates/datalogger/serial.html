@@ -1,0 +1,132 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container py-4" data-serial-terminal data-local="{{ '1' if serial_allowed else '0' }}">
+  <a href="{{ url_for('datalogger.index') }}">Datenlogger</a>
+  <h1>Serielles Terminal</h1>
+  <p>Verbinde einen COM-Port, USB-Seriell-Adapter oder ein Board mit diesem Rechner. Rohdaten bleiben im Browser. Nur ausdrücklich gespeicherte Messwerte gehen an den Datenlogger.</p>
+  <p data-status role="status" aria-live="polite">{{ 'Bereit zur Portauswahl.' if serial_allowed else 'Stecke das Gerät am Rechner an und öffne SimpleOffice dort über localhost. Über eine Netzwerk- oder Proxyverbindung ist der Portzugriff deaktiviert.' }}</p>
+  {% if serial_allowed %}
+  <noscript><p>Das Terminal benötigt JavaScript.</p></noscript>
+  <fieldset class="mb-3" data-settings disabled>
+    <legend class="h5">Port einstellen</legend>
+    <div class="d-flex flex-wrap gap-2 align-items-end">
+      <label>Baudrate <input class="form-control" type="number" data-baud min="50" max="3000000" value="9600" required></label>
+      <label>Datenbits <select class="form-select" data-bits><option selected>8</option><option>7</option></select></label>
+      <label>Parität <select class="form-select" data-parity><option value="none">Keine</option><option value="even">Gerade</option><option value="odd">Ungerade</option></select></label>
+      <label>Stoppbits <select class="form-select" data-stopbits><option selected>1</option><option>2</option></select></label>
+      <label>Flusskontrolle <select class="form-select" data-flow><option value="none">Keine</option><option value="hardware">RTS/CTS</option></select></label>
+      <button class="btn btn-primary" type="button" data-connect>Port auswählen</button>
+    </div>
+  </fieldset>
+  <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+    <button class="btn btn-outline-secondary" type="button" data-disconnect disabled>Port trennen</button>
+    <button class="btn btn-outline-primary" type="button" data-capture disabled>Mitschnitt starten</button>
+    <button class="btn btn-outline-primary" type="button" data-export disabled>Mitschnitt als JSONL speichern</button>
+    <button class="btn btn-outline-secondary" type="button" data-clear disabled>Mitschnitt leeren</button>
+    <span data-capture-status role="status" aria-live="polite">Kein Mitschnitt. Limit: 4 MiB Nutzdaten.</span>
+  </div>
+  <label class="d-block mb-3">Empfangene Daten (letzter Ausschnitt)
+    <textarea class="form-control font-monospace" data-output readonly rows="10" spellcheck="false"></textarea>
+  </label>
+  <form method="get" class="d-flex flex-wrap gap-2 align-items-end mb-4" data-send-form>
+    <label>Nachricht <input class="form-control font-monospace" data-input required maxlength="8192" autocomplete="off" spellcheck="false"></label>
+    <label>Format <select class="form-select" data-format><option value="text">UTF-8-Text</option><option value="hex">Hex-Bytes</option></select></label>
+    <label>Zeilenende <select class="form-select" data-ending><option value="none">Keins</option><option value="lf">LF</option><option value="cr">CR</option><option value="crlf">CRLF</option></select></label>
+    <button class="btn btn-outline-primary" type="submit" disabled data-send>Senden</button>
+  </form>
+  <section class="mb-4" aria-labelledby="serial-measurement">
+    <h2 id="serial-measurement" class="h5">Messwert übernehmen</h2>
+    <p>Das Board sendet pro Zeile <code>SO4M,21.5</code>. Der letzte gültige Wert erscheint hier. Wähle den Zielkanal passend zur Einheit und speichere den Wert bei Bedarf.</p>
+    <p>Letzter Wert: <output data-value>–</output></p>
+    {% if channels %}
+    <form method="post" target="_blank" rel="noopener" action="{{ url_for('datalogger.add_serial_sample') }}" class="d-flex flex-wrap gap-2 align-items-end" data-sample-form>
+      <label>Messkanal <select class="form-select" name="channel_id">
+        {% for channel in channels %}<option value="{{ channel.channel_id }}">{{ channel.name }}{% if channel.unit %} ({{ channel.unit }}){% endif %}</option>{% endfor %}
+      </select></label>
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="value" data-sample>
+      <button class="btn btn-outline-primary" type="submit" disabled data-save>Messwert speichern (neuer Tab)</button>
+    </form>
+    {% else %}<p>Lege zuerst einen eigenen Messkanal an oder lass dir Schreibrechte geben.</p>{% endif %}
+  </section>
+  <script defer src="{{ url_for('static', filename='js/serial-terminal.js') }}"></script>
+  {% endif %}
+  <details id="pico-setup" class="mb-4" open>
+    <summary>Zwei WLAN-Sensoren über ein Gateway verbinden</summary>
+    <p>Zwei Pico-W-Knoten liefern Messwerte an einen dritten Pico W. SimpleOffice liest Werte und auf Wunsch die Erreichbarkeit über dieselbe Gateway-URL aus.</p>
+    {% if can_manage_settings %}
+    <form method="post" action="{{ url_for('datalogger.setup_pico_example') }}" class="border rounded p-3 mb-3">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <fieldset>
+        <legend class="h6">Pico-Gateway schnell einrichten</legend>
+        <p class="small">Zuerst die IP des Gateways in den <a href="{{ url_for('datalogger.settings') }}">Datenlogger-Einstellungen</a> erlauben. Das Formular legt private Messkanäle für <code>room_a</code> und <code>room_b</code> an. Der getrennte Datendienst fragt <code>/status</code> je Kanal im Minutentakt ab.</p>
+        <div class="d-flex flex-wrap gap-2 mb-2">
+          <label>Gateway-IP <input class="form-control" name="gateway_ip" type="text" inputmode="decimal" placeholder="192.168.1.30" maxlength="15" required></label>
+          <label>Port <input class="form-control" name="port" type="number" min="1" max="65535" value="8080" required></label>
+          <label>Einheit (optional) <input class="form-control" name="unit" type="text" placeholder="z. B. °C" maxlength="40"></label>
+        </div>
+        <label class="form-check mb-2"><input class="form-check-input" name="availability" type="checkbox" value="1"> Verfügbarkeit beider Knoten mit erfassen</label>
+        <button class="btn btn-primary" type="submit">Pico-Kanäle anlegen</button>
+        <p class="small mt-2 mb-0">Bereits eingerichtete Kanäle werden nicht dupliziert oder wieder eingeschaltet. Das Formular erteilt keine Netzwerkfreigabe und programmiert keine Boards.</p>
+      </fieldset>
+    </form>
+    {% endif %}
+    <p class="small">Für vorhandene oder anders benannte Kanäle gibt es die manuelle Zuordnung:</p>
+    <ol>
+      <li>Die Sensorbeispiele aus <code>examples/serial/pico_gateway</code> auf die drei Boards übertragen.</li>
+      <li>In den Worker-Einstellungen nur die IP des Gateways zulassen.</li>
+      <li>Dieselbe Gateway-URL mit <code>/status</code> in beiden Quellen eintragen. Für Kanal A den Pfad <code>nodes.room_a.value</code>, für B <code>nodes.room_b.value</code> verwenden.</li>
+      <li>Für den Verfügbarkeitsverlauf die optionalen Pfade als eigene Kanäle eintragen. <code>1</code> bedeutet erreichbar, <code>0</code> nicht erreichbar. Der eigentliche Messwert fehlt bei einem Ausfall.</li>
+    </ol>
+    <div class="table-responsive"><table class="table table-sm">
+      <caption>JSON-Pfade für Messwerte und Verfügbarkeit</caption>
+      <thead><tr><th scope="col">Knoten</th><th scope="col">Messwert</th><th scope="col">Verfügbarkeit</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">A</th><td><code>nodes.room_a.value</code></td><td><code>nodes.room_a.available</code></td></tr>
+        <tr><th scope="row">B</th><td><code>nodes.room_b.value</code></td><td><code>nodes.room_b.available</code></td></tr>
+      </tbody>
+    </table></div>
+  </details>
+  <section class="mb-4" id="pico-status" aria-labelledby="pico-status-title">
+    <h2 id="pico-status-title" class="h5">Status deiner Pico-Gateways</h2>
+    <p class="small text-secondary">Letzte aufgezeichnete Abfragen, kein Live-Test. Zeitangaben in UTC. Bei Ausfall oder Pause bleibt der letzte gültige Messwert als Verlauf sichtbar.</p>
+    {% if pico_gateways is none %}
+      <p role="status">Der Pico-Status konnte nicht geladen werden.</p>
+    {% elif not pico_gateways %}
+      <p>Für dieses Konto wurden noch keine Pico-Gateways über das Formular eingerichtet.</p>
+    {% endif %}
+    {% set labels = {'paused': 'Quelle pausiert', 'blocked': 'Gateway-IP nicht freigegeben',
+                     'pending': 'Wartet auf erste Messung', 'stale': 'Abfrage überfällig',
+                     'gateway_error': 'Gateway nicht abrufbar', 'missing': 'Knotenwert fehlt',
+                     'invalid': 'Antwort nicht auswertbar', 'ok': 'Messwert empfangen',
+                     'online': 'Knoten erreichbar', 'offline': 'Knoten nicht erreichbar'} %}
+    {% for gateway, nodes in (pico_gateways or {})|dictsort %}
+      <h3 class="h6">{{ gateway }}</h3>
+      <div class="table-responsive mb-3">
+        <table class="table table-sm">
+          <caption>Letzter Stand je Kanal für {{ gateway }}</caption>
+          <thead><tr><th scope="col">Knoten und Kanal</th><th scope="col">Abfragestatus</th><th scope="col">Letzter gültiger Wert</th></tr></thead>
+          <tbody>
+          {% for node, metrics in nodes|dictsort %}
+          {% for kind, metric in metrics|dictsort %}
+            <tr data-pico-source-state="{{ metric.state }}">
+              <th scope="row"><a href="{{ url_for('datalogger.channel', channel_id=metric.channel) }}">{{ node }} · {{ 'Verfügbarkeit' if kind == 'available' else 'Messwert' }}</a></th>
+              <td>{{ labels[metric.state] }}{% if metric.poll_time %}<br><time datetime="{{ metric.poll_time }}">{{ metric.poll_time|replace('T', ' ') }}</time>{% endif %}</td>
+              <td>{% if metric.sample_time %}{{ metric.value }} {{ metric.unit }}<br><time datetime="{{ metric.sample_time }}">{{ metric.sample_time|replace('T', ' ') }}</time>{% else %}Noch kein Wert{% endif %}</td>
+            </tr>
+          {% endfor %}
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endfor %}
+  </section>
+  <section aria-labelledby="local-print-scan">
+    <h2 id="local-print-scan" class="h5">Drucker und Dokumentenscanner</h2>
+    <p>Für einen USB- oder Netzwerkdrucker verwende die eingerichtete Druckerwarteschlange. Bei einem älteren Scanner scanne mit dem vorhandenen Treiber in eine PDF- oder Bilddatei und importiere sie anschließend.</p>
+    {% if can_manage_settings %}<a class="btn btn-outline-secondary" href="{{ url_for('admin.printer_settings') }}">Drucker einrichten</a>{% endif %}
+    <a class="btn btn-outline-secondary" href="{{ url_for('documents.index') }}#capture-first">Scandateien übernehmen</a>
+  </section>
+</main>
+{% endblock %}

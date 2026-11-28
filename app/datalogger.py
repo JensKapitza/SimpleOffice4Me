@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from ipaddress import IPv4Address, IPv4Network
 import json
 import math
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
+from uuid import UUID
 
-from flask import Blueprint, Response, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, Response, abort, current_app, flash, g, jsonify, make_response, redirect, render_template, request, url_for
 
 from .access_control import is_admin
 from .auth import login_required
@@ -16,14 +18,18 @@ from .datalogger_store import (
     MAX_POLL_INTERVAL_SECONDS,
     MIN_POLL_INTERVAL_SECONDS,
     DataLoggerStore,
+    pico_availability_path,
 )
 from .datalogger_collectors import (
     DEFAULT_SENSOR_ALLOWED_HOSTS,
     MAX_SENSOR_SECRET_CHARS,
+    read_sensor_allowed_hosts,
     validate_sensor_allowed_hosts,
 )
+from .datalogger_pico_status import pico_status
 from .datalogger_reporting import EXPORT_ROWS, csv_content, date_window, summarize, summary_pdf
 from .db import get_db
+from .local_device_access import direct_loopback_request
 from .settings_store import SettingsStore
 from .system_management import platform_kind
 
@@ -35,6 +41,9 @@ LINUX_METRICS = {
 }
 FILE_METRICS = {"count", "total_bytes", "mtime"}
 PAGE_SIZES = {50, 100, 250}
+_PICO_LOCAL_NETWORKS = tuple(IPv4Network(block) for block in (
+    "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8",
+))
 SERVER_PRESETS = {
     'uptime_seconds': ('Laufzeit seit Systemstart', 's', 'Linux /proc/uptime. Container können die Laufzeit des Hosts anzeigen.'),
     'disk_free_bytes': ('Freier Speicher für Dokumente', 'B', 'Freie Kapazität im Dateisystem der Dokumentwurzel.'),
@@ -62,6 +71,8 @@ def _read_channel(channel_id):
 
 
 def _source_config(kind, form):
+    if kind != "http_json" and form.get("track_availability") == "1":
+        raise ValueError("Pico-Zustandswechsel brauchen eine HTTP/JSON-Quelle.")
     if kind == "linux":
         metric = str(form.get("metric", "")).strip() or "load1"
         if metric not in LINUX_METRICS:
@@ -73,9 +84,14 @@ def _source_config(kind, form):
             raise ValueError(f"Unbekannte Datei-Messgröße: {metric}. Erlaubt: {', '.join(sorted(FILE_METRICS))}.")
         return {"metric": metric, "path": (str(form.get("path", "")).strip() or ".")[:500], "recursive": form.get("recursive") == "1", "max_entries": 100000}
     if kind == "http_json":
-        return {"url": form.get("url", "")[:1000], "json_path": (form.get("json_path", "") or "value")[:300], "timeout": 5,
-                "header_name": form.get("header_name", "Authorization")[:80],
-                "header_secret": str(form.get("header_secret", ""))[:MAX_SENSOR_SECRET_CHARS]}
+        config = {"url": form.get("url", "")[:1000], "json_path": (form.get("json_path", "") or "value")[:300], "timeout": 5,
+                  "header_name": form.get("header_name", "Authorization")[:80],
+                  "header_secret": str(form.get("header_secret", ""))[:MAX_SENSOR_SECRET_CHARS]}
+        if form.get("track_availability") == "1":
+            if not pico_availability_path(config):
+                raise ValueError("Für Pico-Zustandswechsel nutze den Pfad nodes.KNOTEN.available.")
+            config["track_availability"] = True
+        return config
     if kind == "lm_sensors": return {"json_path": form.get("json_path", "")[:300]}
     raise ValueError("Unbekannter Quellentyp.")
 
@@ -94,6 +110,75 @@ def index():
         server_presets=SERVER_PRESETS if is_admin() and platform_kind() == 'linux' else {},
         stale_hints=suggest_stale_channels(series),
     )
+
+
+@bp.get("/serial")
+@login_required
+def serial_terminal():
+    local = direct_loopback_request()
+    channels = []
+    if local:
+        store = _store()
+        username = g.user["username"]
+        admin = is_admin()
+        channels = [row for row in store.channels_for(username, admin) if store.can_edit(row, username, admin)]
+    try:
+        gateways = pico_status(_store(), g.user["username"], current_app.config["DOCUMENT_ROOT"])
+    except (OSError, sqlite3.Error, ValueError) as exc:
+        current_app.logger.warning("Pico status unavailable: %s", type(exc).__name__)
+        gateways = None
+    response = make_response(render_template(
+        "datalogger/serial.html", serial_allowed=local, channels=channels, can_manage_settings=is_admin(),
+        pico_gateways=gateways,
+    ))
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Robots-Tag"] = "noindex, nofollow"
+    serial = "(self)" if local else "()"
+    response.headers["Permissions-Policy"] = (
+        f"camera=(), microphone=(), geolocation=(), display-capture=(), serial={serial}"
+    )
+    return response
+
+
+@bp.post("/serial/pico-setup")
+@login_required
+def setup_pico_example():
+    if not is_admin():
+        abort(403)
+    if set(request.form) - {"_csrf_token", "gateway_ip", "port", "unit", "availability"}:
+        abort(400)
+    if any(len(request.form.getlist(key)) != 1 for key in request.form):
+        abort(400)
+    address = request.form.get("gateway_ip", "").strip()
+    port = request.form.get("port", "8080").strip()
+    unit = request.form.get("unit", "").strip()
+    availability = request.form.get("availability")
+    try:
+        if len(address) > 15 or len(port) > 5 or not port.isascii() or not port.isdecimal():
+            raise ValueError
+        host = IPv4Address(address)
+        port_number = int(port)
+        if (not any(host in network for network in _PICO_LOCAL_NETWORKS)
+                or not 1 <= port_number <= 65535 or len(unit) > 40 or any(ord(char) < 32 for char in unit)
+                or availability not in (None, "1")):
+            raise ValueError
+    except ValueError:
+        flash("Gib eine lokale IPv4-Adresse, einen gültigen Port und eine kurze Einheit ein.", "warning")
+        return redirect(url_for("datalogger.serial_terminal", _anchor="pico-setup"), code=303)
+
+    if str(host) not in read_sensor_allowed_hosts(current_app.config["DOCUMENT_ROOT"]):
+        flash("Erlaube die Gateway-IP zuerst in den Datenlogger-Einstellungen.", "warning")
+        return redirect(url_for("datalogger.serial_terminal", _anchor="pico-setup"), code=303)
+    try:
+        created = _store().provision_pico_example(g.user["username"], f"http://{host}:{port_number}/status",
+                                                  unit, availability=availability == "1")
+    except (OSError, sqlite3.Error) as exc:
+        current_app.logger.warning("Pico setup failed: %s", type(exc).__name__)
+        abort(503)
+    flash(f"{created} Pico-Kanäle angelegt. Der Datendienst beginnt mit der Messung."
+          if created else "Diese Pico-Kanäle sind schon eingerichtet und bleiben unverändert.", "success")
+    return redirect(url_for("datalogger.serial_terminal", _anchor="pico-status"), code=303)
 
 
 @bp.post('/server-presets/<metric>')
@@ -217,9 +302,14 @@ def channel(channel_id):
         day = date.fromisoformat(error['measured_at'][:10])
         error['before'] = (day - timedelta(days=1)).isoformat()
         error['after'] = (day + timedelta(days=1)).isoformat()
+    sources = store.sources(channel_id)
+    source_names = {source["source_id"]: source["name"] for source in sources}
+    changes = store.pico_availability_changes(channel_id)
+    for change in changes:
+        change["source_name"] = source_names.get(change.pop("source_id"), "Ehemalige Quelle")
     return render_template(
         "datalogger/channel.html", channel=channel, samples=samples, chart_samples=chart_samples,
-        sources=store.sources(channel_id), can_edit=store.can_edit(channel, g.user["username"], is_admin()), users=_users(),
+        sources=sources, availability_changes=changes, can_edit=store.can_edit(channel, g.user["username"], is_admin()), users=_users(),
         page=page, pages=pages, per_page=per_page, total_samples=total,
         linux_metrics=sorted(LINUX_METRICS), file_metrics=sorted(FILE_METRICS),
         start_day=start_day, end_day=end_day, latest=latest, errors=errors,
@@ -304,9 +394,35 @@ def update_channel(channel_id):
 @bp.post("/channels/<channel_id>/samples")
 @login_required
 def add_sample(channel_id):
-    try: _store().add_sample(channel_id, request.form.get("value", ""), g.user["username"], measured_at=request.form.get("measured_at") or None, admin=is_admin())
-    except PermissionError: abort(403)
-    except (ValueError, TypeError): flash("Ungültiger Messwert oder Zeitstempel.")
+    return _record_sample(channel_id, measured_at=request.form.get("measured_at") or None)
+
+
+@bp.post("/serial/samples")
+@login_required
+def add_serial_sample():
+    if not direct_loopback_request():
+        abort(403)
+    selected = request.form.getlist("channel_id")
+    if len(selected) != 1 or len(selected[0]) != 36:
+        abort(400)
+    channel_id = selected[0]
+    try:
+        canonical_id = str(UUID(channel_id))
+    except ValueError:
+        abort(400)
+    if channel_id != canonical_id:
+        abort(400)
+    return _record_sample(channel_id)
+
+
+def _record_sample(channel_id, *, measured_at=None):
+    try:
+        _store().add_sample(channel_id, request.form.get("value", ""), g.user["username"],
+                            measured_at=measured_at, admin=is_admin())
+    except PermissionError:
+        abort(403)
+    except (ValueError, TypeError):
+        flash("Ungültiger Messwert oder Zeitstempel.")
     return redirect(url_for("datalogger.channel", channel_id=channel_id))
 
 
