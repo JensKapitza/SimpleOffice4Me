@@ -11,7 +11,7 @@ from flask import Blueprint, Response, abort, current_app, flash, g, redirect, r
 from .auth import login_required
 from .security_controls import csrf_token
 from .sms_archive_store import (
-    ArchiveConflict, ArchiveIntegrityError, MANUAL_SOURCE, MAX_BACKUP_BYTES, MAX_RECORDS, SmsArchive, manual_message,
+    ArchiveConflict, ArchiveIntegrityError, ArchiveInvalidBackup, MANUAL_SOURCE, MAX_BACKUP_BYTES, MAX_RECORDS, SmsArchive, manual_message,
 )
 
 bp = Blueprint("sms_archive", __name__, url_prefix="/communication/sms")
@@ -25,7 +25,7 @@ def limit_request() -> None:
     """Limit body size and type before the common CSRF check reads the form."""
     if request.blueprint != bp.name or request.method != "POST":
         return
-    upload = request.endpoint == "sms_archive.restore"
+    upload = request.endpoint in {"sms_archive.restore", "sms_archive.verify_backup"}
     limit = MAX_BACKUP_BYTES + 64 * 1024 if upload else (
         52 * 1024 if request.endpoint == "sms_archive.add_manual" else 12 * 1024
     )
@@ -275,15 +275,38 @@ def mail_draft():
     )
 
 
-@bp.post("/restore")
-@login_required
-def restore():
+def _backup_file() -> bytes:
     files = request.files.getlist("backup")
-    if len(files) != 1 or not files[0].filename or request.form.get("confirm") != "1":
+    if len(files) != 1 or not files[0].filename:
         abort(400)
     data = files[0].stream.read(MAX_BACKUP_BYTES + 1)
     if len(data) > MAX_BACKUP_BYTES:
         abort(413)
+    return data
+
+
+@bp.route("/verify", methods=["GET", "POST"])
+@login_required
+def verify_backup():
+    if request.method == "GET":
+        return render_template("sms_archive/verify.html")
+    data = _backup_file()
+    try:
+        result = _archive().verify_backup(data)
+    except (ArchiveInvalidBackup, ArchiveConflict):
+        return render_template("sms_archive/verify.html", invalid=True), 422
+    except (ArchiveIntegrityError, OSError, sqlite3.Error) as exc:
+        current_app.logger.warning("SMS backup verification unavailable: %s", type(exc).__name__)
+        abort(503)
+    return render_template("sms_archive/verify.html", result=result)
+
+
+@bp.post("/restore")
+@login_required
+def restore():
+    if request.form.get("confirm") != "1":
+        abort(400)
+    data = _backup_file()
     try:
         count = _archive().restore(data)
     except ArchiveIntegrityError:

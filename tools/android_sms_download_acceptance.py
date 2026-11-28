@@ -395,18 +395,18 @@ def system_file(node):
     return node.get("package") in DOCS_UI and node.get("text") == BACKUP_NAME
 
 
-def choose_recovery_file(page, device):
-    upload = page.locator("#sms-backup")
+def choose_recovery_file(page, device, *, input_id="sms-backup", purpose="restore"):
+    upload = page.locator(f"#{input_id}")
     # After restore's 303 the flash and the input may render before Android
     # has finished presenting the new WebView document. Wait for the same
     # local page's native onPageFinished shim (no bridge call is needed).
     page.wait_for_load_state("load")
-    page.wait_for_function("""() => {
-        const file = document.querySelector("#sms-backup");
+    page.wait_for_function("""id => {
+        const file = document.getElementById(id);
         return document.visibilityState === "visible" && document.readyState === "complete"
             && typeof window.SimpleOfficeFolderImport?.count === "function"
             && file && !file.disabled && file.files.length === 0;
-    }""")
+    }""", arg=input_id)
     # Record only whether WebView received a trusted user click and whether
     # it was prevented. No filenames, form values, URLs, or session material.
     upload.evaluate("""input => {
@@ -420,17 +420,17 @@ def choose_recovery_file(page, device):
     # Do not replace Android's WebChromeClient picker with set_input_files.
     upload.click(no_wait_after=True)
     try:
-        device.wait_node(lambda node: node.get("package") in DOCS_UI, "Android restore document picker")
+        device.wait_node(lambda node: node.get("package") in DOCS_UI, f"Android {purpose} document picker")
     except AssertionError:
         try:
             signals = page.evaluate("() => window.simpleOfficeTestFileClick")
         except PlaywrightError:
             signals = None
         if isinstance(signals, list) and len(signals) == 2 and all(type(v) is bool for v in signals):
-            print(f"Android restore input click: trusted={signals[0]} prevented={signals[1]}", flush=True)
+            print(f"Android {purpose} input click: trusted={signals[0]} prevented={signals[1]}", flush=True)
         else:
-            print("Android restore input click: not observed", flush=True)
-        device.foreground("restore document picker not observed")
+            print(f"Android {purpose} input click: not observed", flush=True)
+        device.foreground(f"{purpose} document picker not observed")
         raise
     choices = device.nodes()
     selected = next((node for node in choices if system_file(node)), None)
@@ -445,14 +445,41 @@ def choose_recovery_file(page, device):
             ))
         selected = device.wait_node(system_file, "transferred backup in the native document list")
     device.click(selected)
-    page.wait_for_function("name => document.querySelector('#sms-backup')?.files[0]?.name === name",
-                           arg=BACKUP_NAME)
+    page.wait_for_function(
+        "([id, name]) => document.getElementById(id)?.files[0]?.name === name",
+        arg=[input_id, BACKUP_NAME],
+    )
+
+
+def check_saved_file(page, device, *, matching, missing):
+    check_path = "/communication/sms/verify"
+    archive_url = f"{LOCAL}/communication/sms"
+    page.locator(f'a[href="{check_path}"]').click()
+    page.wait_for_url(f"{LOCAL}{check_path}")
+    choose_recovery_file(page, device, input_id="sms-verify-file", purpose="verify")
+    with page.expect_response(
+        lambda response: response.url == f"{LOCAL}{check_path}" and response.request.method == "POST",
+    ) as submitted:
+        page.locator(f'form[action="{check_path}"] button[type=submit]').click()
+    assert submitted.value.status == 200, "Native verify-only did not accept the selected file"
+    for label, expected in {"matching": matching, "missing": missing, "conflicting": 0}.items():
+        value = page.locator(f"[data-backup-{label}]")
+        value.wait_for()
+        assert value.inner_text().strip() == str(expected), f"Native verify-only {label} count did not match"
+    text = page.locator("main").inner_text()
+    assert DESIRED not in text and OTHER not in text and BACKUP_NAME not in text
+    page.locator('main a[href="/communication/sms"]').click()
+    page.wait_for_url(archive_url)
+    page.locator("#sms-backup").wait_for()
+    print(f"Android native verify-only: matching={matching} missing={missing} conflicting=0", flush=True)
 
 
 def verify_restore(device):
     with archive_page(device) as page:
         contents = page.locator('form[action="/communication/sms/export"] li')
         assert contents.count() == 0, "Recovery emulator archive was not empty"
+        check_saved_file(page, device, matching=0, missing=1)
+        assert contents.count() == 0, "Verify-only unexpectedly imported into the empty archive"
         for restored in (1, 0):
             choose_recovery_file(page, device)
             page.locator("#sms-confirm").check()
@@ -471,6 +498,10 @@ def verify_restore(device):
             assert contents.filter(has_text=OTHER).count() == 0, "Unselected record unexpectedly restored"
             print(f"Android native restore: imported {restored}; one selected record present", flush=True)
         print("simpleoffice_sms_native_restore=pass")
+        check_saved_file(page, device, matching=1, missing=0)
+        assert contents.count() == 1 and contents.filter(has_text=DESIRED).count() == 1
+        assert contents.filter(has_text=OTHER).count() == 0
+        print("simpleoffice_sms_native_verify_only=pass")
 
 
 def main():

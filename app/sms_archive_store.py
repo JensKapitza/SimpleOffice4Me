@@ -34,6 +34,10 @@ class ArchiveIntegrityError(ValueError):
     """The archive database or backup could not be verified."""
 
 
+class ArchiveInvalidBackup(ArchiveIntegrityError):
+    """The selected recovery file is invalid or belongs to another account."""
+
+
 def _canonical(value) -> bytes:
     return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
@@ -297,10 +301,10 @@ class SmsArchive:
         payload = {"version": _VERSION, "owner": self.owner, "records": self.selected(keys)}
         return _canonical({"payload": payload, "sha256": _digest(_canonical(payload))})
 
-    def restore(self, backup: bytes) -> int:
-        """Verify a selected recovery file, then restore without overwriting any entry."""
+    def _recovery_records(self, backup: bytes) -> list[dict]:
+        """Decode only a bounded, checksummed recovery file for this account."""
         if type(backup) is not bytes or len(backup) > MAX_BACKUP_BYTES:
-            raise ArchiveIntegrityError("Invalid SMS archive recovery file size")
+            raise ArchiveInvalidBackup("Invalid SMS archive recovery file size")
         try:
             envelope = json.loads(backup, object_pairs_hook=_unique_json_fields)
             if type(envelope) is not dict or envelope.keys() != {"payload", "sha256"}:
@@ -316,5 +320,20 @@ class SmsArchive:
             if not records or not hmac.compare_digest(digest, _digest(_canonical(payload))):
                 raise ValueError
         except (TypeError, ValueError, RecursionError):
-            raise ArchiveIntegrityError("Invalid or mismatched SMS archive recovery file") from None
-        return self.append(records)
+            raise ArchiveInvalidBackup("Invalid or mismatched SMS archive recovery file") from None
+        unique = {}
+        for record in records:
+            key = (record["source"], record["provider_id"])
+            if unique.setdefault(key, record) != record:
+                raise ArchiveConflict("Recovery contains conflicting records for the same SMS")
+        return list(unique.values())
+
+    def verify_backup(self, backup: bytes) -> dict[str, int]:
+        """Check a selected file against a read-only owned archive snapshot."""
+        states = self.states(self._recovery_records(backup))
+        return {"matching": states.count("archived"), "missing": states.count("unarchived"),
+                "conflicting": states.count("conflict")}
+
+    def restore(self, backup: bytes) -> int:
+        """Restore valid records without overwriting any existing entry."""
+        return self.append(self._recovery_records(backup))

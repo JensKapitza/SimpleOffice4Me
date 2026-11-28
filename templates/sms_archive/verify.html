@@ -1,0 +1,30 @@
+{% extends "layout.html" %}
+{% set en = g.language == 'en' %}
+{% block title %}{{ 'Check an SMS backup' if en else 'SMS-Sicherung prüfen' }} · SimpleOffice4Me{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-lg py-4">
+  <a href="{{ url_for('sms_archive.index') }}">{{ 'Back to the SMS archive' if en else 'Zurück zum SMS-Archiv' }}</a>
+  <h1 class="h2 mt-2">{{ 'Check an SMS backup' if en else 'SMS-Sicherung prüfen' }}</h1>
+  <p>{{ 'Choose a saved backup file from this account. This checks the file and compares it with your archive. It does not import anything.' if en else 'Wähle eine gespeicherte Sicherungsdatei dieses Kontos. SimpleOffice prüft die Datei und vergleicht sie mit deinem Archiv. Es wird nichts importiert.' }}</p>
+  {% if invalid %}
+  <p class="alert alert-warning" role="alert">{{ 'The backup is invalid, internally conflicting or does not belong to this account. Nothing was imported.' if en else 'Die Sicherung ist ungültig, widersprüchlich oder gehört nicht zu diesem Konto. Es wurde nichts importiert.' }}</p>
+  {% elif result is defined %}
+  <section aria-labelledby="sms-verify-result" class="alert {{ 'alert-warning' if result.conflicting else 'alert-info' }}">
+    <h2 id="sms-verify-result" class="h5">{{ 'Backup file read and checksum matched' if en else 'Datei gelesen und Prüfsumme bestätigt' }}</h2>
+    <dl class="mb-0">
+      <dt>{{ 'Identical in the archive' if en else 'Identisch im Archiv' }}</dt><dd data-backup-matching>{{ result.matching }}</dd>
+      <dt>{{ 'Not in this archive' if en else 'Nicht in diesem Archiv' }}</dt><dd data-backup-missing>{{ result.missing }}</dd>
+      <dt>{{ 'Conflicting with the archive' if en else 'Abweichend vom Archiv' }}</dt><dd data-backup-conflicting>{{ result.conflicting }}</dd>
+    </dl>
+    <p class="mb-0">{{ 'No messages were imported or changed. Keep the file outside the app; this check only applies to the selected file.' if en else 'Keine Nachricht wurde importiert oder geändert. Bewahre die Datei außerhalb der App auf. Die Prüfung gilt nur für diese Datei.' }}</p>
+  </section>
+  {% endif %}
+  <form method="post" enctype="multipart/form-data" action="{{ url_for('sms_archive.verify_backup') }}">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <label for="sms-verify-file" class="form-label">{{ 'Saved SMS backup file' if en else 'Gespeicherte SMS-Sicherungsdatei' }}</label>
+    <input id="sms-verify-file" class="form-control mb-2" type="file" name="backup" accept=".json,application/json" required>
+    <button class="btn btn-primary" type="submit">{{ 'Check file without importing' if en else 'Datei prüfen, ohne zu importieren' }}</button>
+  </form>
+</main>
+{% endblock %}
