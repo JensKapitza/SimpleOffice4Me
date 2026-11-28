@@ -95,10 +95,14 @@ def verify_save(page, channel):
     assert submitted.value.status == 303, "The explicit Save did not complete"
     page.wait_for_url(f"{ORIGIN}/datalogger/channels/{channel}")
     page.reload(wait_until="domcontentloaded")
+    verify_saved_sample(page, channel, magnitude)
+    return magnitude
+
+
+def verify_saved_sample(page, channel, magnitude):
     row, = samples(page, channel)
     assert row["value"] == magnitude and row["source_kind"] == "manual", "Wrong saved observation"
     assert row["metadata"] == {"observation": "acceleration"}, "Unexpected stored motion metadata"
-    print("simpleoffice_android_motion_native=pass", flush=True)
 
 
 def main():
@@ -113,7 +117,21 @@ def main():
         channel = verify_pause(page, serial)
     launch(serial)
     with android_page(serial) as page:
-        verify_save(page, channel)
+        magnitude = verify_save(page, channel)
+        status = open_motion(page)
+        capture(page, status)
+        page.locator("#motion-channel").select_option(channel)
+        expect(page.locator('[data-motion-save] button[type="submit"]')).to_be_enabled()
+        verify_saved_sample(page, channel, magnitude)
+    _adb("shell", "am", "force-stop", APP, serial=serial)
+    launch(serial)
+    with android_page(serial) as page:
+        open_motion(page)
+        expect(page.locator('[data-motion-save] button[type="submit"]')).to_be_disabled()
+        expect(page.locator('[data-motion-save] [name="value"]')).to_have_value("")
+        verify_saved_sample(page, channel, magnitude)
+    print("Android motion: cold restart keeps exactly one committed sample and discards the unsaved preview", flush=True)
+    print("simpleoffice_android_motion_native=pass", flush=True)
 
 
 def choose_foreground(candidates):
