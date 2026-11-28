@@ -17,6 +17,7 @@ from .datalogger_store import (
     DEFAULT_POLL_INTERVAL_SECONDS,
     MAX_POLL_INTERVAL_SECONDS,
     MIN_POLL_INTERVAL_SECONDS,
+    MOTION_OBSERVATIONS,
     DataLoggerStore,
     pico_availability_path,
 )
@@ -107,9 +108,59 @@ def index():
     return render_template(
         "datalogger/index.html", channels=channels, series=series,
         can_manage_settings=is_admin(),
+        show_android_motion=direct_loopback_request() and "SimpleOffice4Me-Android/" in request.user_agent.string,
         server_presets=SERVER_PRESETS if is_admin() and platform_kind() == 'linux' else {},
         stale_hints=suggest_stale_channels(series),
     )
+
+
+@bp.route("/android-motion", methods=["GET", "POST"])
+@login_required
+def android_motion():
+    if not direct_loopback_request():
+        abort(403)
+    store = _store()
+    actor, admin = g.user["username"], is_admin()
+    if request.method == "POST":
+        if request.mimetype != "application/x-www-form-urlencoded" or not request.content_length:
+            abort(400)
+        if request.content_length > 1024:
+            abort(413)
+        fields = {"channel_id", "kind", "value"}
+        if set(request.form) - (fields | {"_csrf_token"}) or not fields <= set(request.form):
+            abort(400)
+        if any(len(request.form.getlist(key)) != 1 for key in request.form):
+            abort(400)
+        channel_id, kind, value = (request.form[key] for key in ("channel_id", "kind", "value"))
+        try:
+            if len(channel_id) != 36 or str(UUID(channel_id)) != channel_id or not 1 <= len(value) <= 48:
+                abort(400)
+            store.add_motion_observation(channel_id, kind, value, actor, admin=admin)
+        except PermissionError:
+            abort(403)
+        except (TypeError, ValueError, OverflowError):
+            abort(422, "Der Messwert oder die Kanaleinheit passt nicht.")
+        flash("Bewegungsmesswert gespeichert.")
+        response = redirect(url_for("datalogger.channel", channel_id=channel_id), code=303)
+    else:
+        units = {unit for unit, _ in MOTION_OBSERVATIONS.values()}
+        channels = [channel for channel in store.channels_for(actor, admin)
+                    if channel["unit"] in units and store.can_edit(channel, actor, admin)]
+        response = make_response(render_template("datalogger/android_motion.html", channels=channels))
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Frame-Options"] = "DENY"
+    return response
+
+
+@bp.post("/android-motion/authorize")
+@login_required
+def authorize_android_motion():
+    if not direct_loopback_request():
+        abort(403)
+    if request.content_length not in (0, None) or request.headers.get("Transfer-Encoding"):
+        abort(400)
+    return "", 204, {"Cache-Control": "private, no-store"}
 
 
 @bp.get("/serial")

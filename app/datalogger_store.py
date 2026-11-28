@@ -38,6 +38,12 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+MOTION_OBSERVATIONS = {
+    "acceleration": ("m/s²", 2000.0),
+    "angular_speed": ("rad/s", 100.0),
+}
+
+
 def pico_example_namespace(actor, gateway_url):
     return uuid.uuid5(uuid.NAMESPACE_URL, f"simpleoffice:datalogger:pico:v1:{actor}:{gateway_url}")
 
@@ -311,8 +317,29 @@ class DataLoggerStore:
         when = measured_at or utc_now()
         datetime.fromisoformat(when.replace("Z", "+00:00"))
         with self.connect() as db:
-            db.execute("INSERT OR IGNORE INTO metric_sample(channel_id,source_id,measured_at,value,metadata) VALUES(?,?,?,?,?)", (channel_id, source_id, when, number, json.dumps(metadata or {}, ensure_ascii=False)))
-            self._event(db, actor, "sample_recorded", "channel", channel_id, detail={"source_id": source_id or "manual"})
+            self._write_sample(db, channel_id, source_id, when, number, metadata, actor)
+
+    def add_motion_observation(self, channel_id, kind, value, actor, *, admin=False):
+        """Record a deliberately submitted observation, not an attested device measurement."""
+        if kind not in MOTION_OBSERVATIONS:
+            raise ValueError("Unbekannter Bewegungssensor.")
+        unit, bound = MOTION_OBSERVATIONS[kind]
+        number = float(value)
+        if not math.isfinite(number) or not 0 <= number <= bound:
+            raise ValueError("Ungültiger Messwert.")
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            channel = db.execute("SELECT * FROM metric_channel WHERE channel_id=?", (channel_id,)).fetchone()
+            if channel is None or not self.can_edit(channel, actor, admin):
+                raise PermissionError
+            if channel["unit"] != unit:
+                raise ValueError("Die Einheit des Kanals passt nicht zum Messwert.")
+            self._write_sample(db, channel_id, None, utc_now(), number, {"observation": kind}, actor)
+
+    def _write_sample(self, db, channel_id, source_id, when, number, metadata, actor):
+        db.execute("INSERT OR IGNORE INTO metric_sample(channel_id,source_id,measured_at,value,metadata) VALUES(?,?,?,?,?)",
+                   (channel_id, source_id, when, number, json.dumps(metadata or {}, ensure_ascii=False)))
+        self._event(db, actor, "sample_recorded", "channel", channel_id, detail={"source_id": source_id or "manual"})
 
     def add_pico_availability_sample(self, channel_id, source_id, value):
         """Persist one trusted poll's observation and any change in a single transaction."""
