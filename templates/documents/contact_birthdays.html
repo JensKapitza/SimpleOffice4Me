@@ -1,10 +1,20 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
+{% macro source(contact) -%}
+  {% set provider = contact.get('source', {}).get('provider') %}
+  <span class="small text-secondary">{% if provider %}Kontaktquelle: {{ provider }}{% else %}Kontaktquelle nicht hinterlegt{% endif %}</span>
+{%- endmacro %}
 <main id="main-content" class="container py-4">
   <a href="{{ url_for('documents.contacts') }}">Zurück zu Kontakte</a>
   <h1>Geburtstage verwalten</h1>
   <p>Nach Monat und Tag sortiert. Ohne bekanntes Jahr bleibt das Datum unvollständig. Hinweise markieren mögliche Dubletten; nichts wird automatisch zusammengeführt.</p>
+  <nav aria-label="Geburtstage filtern" class="d-flex flex-wrap gap-2 mb-3">
+    <a class="btn btn-outline-secondary{% if not review_only %} active{% endif %}"
+       href="{{ url_for('documents.contact_birthdays') }}"{% if not review_only %} aria-current="page"{% endif %}>Alle Geburtstage</a>
+    <a class="btn btn-outline-secondary{% if review_only %} active{% endif %}"
+       href="{{ url_for('documents.contact_birthdays', view='review') }}"{% if review_only %} aria-current="page"{% endif %}>Zu prüfen ({{ warning_count }})</a>
+  </nav>
   {% if rows %}
   <div class="table-responsive">
   <table class="table align-middle">
@@ -12,22 +22,23 @@
     <thead><tr><th scope="col">Kontakt</th><th scope="col">Geburtstag</th><th scope="col">Prüfung</th></tr></thead>
     <tbody>{% for contact, conflicts in rows %}
       <tr>
-        <td><a href="{{ url_for('documents.contact_detail', contact_id=contact.contact_id) }}">{{ contact.fields.display_name }}</a></td>
+        <td><a href="{{ url_for('documents.contact_detail', contact_id=contact.contact_id) }}">{{ contact.fields.display_name }}</a><div>{{ source(contact) }}</div></td>
         <td>{{ contact.fields.birthday }}{% if contact.fields.birthday.startswith('--') %} <span class="text-secondary">(Jahr unbekannt)</span>{% endif %}</td>
         <td>{% if conflicts %}
           <strong><span aria-hidden="true">!</span> Geburtstag prüfen</strong>
           <ul class="mb-0">{% for other in conflicts %}
-            <li><a href="{{ url_for('documents.contact_detail', contact_id=other.contact_id) }}">{{ other.fields.display_name }}</a>: {{ other.fields.birthday }}</li>
+            <li><a href="{{ url_for('documents.contact_detail', contact_id=other.contact_id) }}">{{ other.fields.display_name }}</a>: {{ other.fields.birthday }} · {{ source(other) }}</li>
           {% endfor %}</ul>
         {% else %}–{% endif %}</td>
       </tr>
     {% endfor %}</tbody>
   </table></div>
+  {% elif review_only %}<p>Keine widersprüchlichen Geburtstage gefunden.</p>
   {% else %}<p>Keine Geburtstage gespeichert. Öffne einen Kontakt, um ein Datum einzutragen.</p>{% endif %}
   {% if last > 1 %}<nav aria-label="Geburtstagsseiten" class="d-flex gap-3">
-    {% if page > 1 %}<a rel="prev" aria-label="Vorherige Geburtstagsseite" href="{{ url_for('documents.contact_birthdays', page=page - 1) }}">Vorherige Seite</a>{% endif %}
+    {% if page > 1 %}<a rel="prev" aria-label="Vorherige Geburtstagsseite" href="{{ url_for('documents.contact_birthdays', page=page - 1, view=('review' if review_only else none)) }}">Vorherige Seite</a>{% endif %}
     <span>Seite {{ page }} von {{ last }}</span>
-    {% if page < last %}<a rel="next" aria-label="Nächste Geburtstagsseite" href="{{ url_for('documents.contact_birthdays', page=page + 1) }}">Nächste Seite</a>{% endif %}
+    {% if page < last %}<a rel="next" aria-label="Nächste Geburtstagsseite" href="{{ url_for('documents.contact_birthdays', page=page + 1, view=('review' if review_only else none)) }}">Nächste Seite</a>{% endif %}
   </nav>{% endif %}
 </main>
 {% endblock %}

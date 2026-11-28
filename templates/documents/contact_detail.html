@@ -20,10 +20,10 @@
   {% if birthday_conflicts %}
   <section class="border border-warning rounded p-3 mb-3" aria-labelledby="birthday-review">
     <h2 class="h5" id="birthday-review"><span aria-hidden="true">!</span> Geburtstag prüfen</h2>
-    <p>Hier eingetragen: <strong>{{ contact.fields.birthday }}</strong>. Bei möglichen Dubletten sind andere Daten gespeichert:</p>
+    <p>Hier eingetragen: <strong>{{ contact.fields.birthday }}</strong> · Kontaktquelle: {{ contact.get('source', {}).get('provider') or 'nicht hinterlegt' }}. Bei möglichen Dubletten sind andere Daten gespeichert:</p>
     <ul class="mb-1">
       {% for other in birthday_conflicts %}
-      <li><a href="{{ url_for('documents.contact_detail', contact_id=other.contact_id) }}">{{ other.fields.display_name }}</a>: {{ other.fields.birthday }}{% if other.get('source', {}).get('provider') %} · {{ other.source.provider }}{% endif %}</li>
+      <li><a href="{{ url_for('documents.contact_detail', contact_id=other.contact_id) }}">{{ other.fields.display_name }}</a>: {{ other.fields.birthday }} · Kontaktquelle: {{ other.get('source', {}).get('provider') or 'nicht hinterlegt' }}</li>
       {% endfor %}
     </ul>
     <p class="small mb-0">Prüfe die Person und korrigiere den falschen Eintrag oder wähle den richtigen Kontakt im <a href="{{ url_for('contact_audit.duplicates') }}">Dublettenvergleich</a> aus. Gleiche Namen allein führen nicht zu einem Hinweis.</p>
