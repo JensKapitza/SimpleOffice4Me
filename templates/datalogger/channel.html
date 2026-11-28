@@ -52,6 +52,18 @@
       <a class="btn btn-outline-secondary" href="{{ url_for('datalogger.data', channel_id=channel.channel_id, start_day=start_day, end_day=end_day) }}">Messwerte als JSON</a>
     </div>
   </div></section>
+  {% if availability_changes %}
+  <section class="card mb-4" aria-labelledby="pico-availability-title"><div class="card-body">
+    <h2 class="h5" id="pico-availability-title">Letzte Zustandswechsel der Pico-Knoten</h2>
+    <p class="text-secondary">Nur nach einem tatsächlich empfangenen Gateway-Status. Ausfall des Gateways oder fehlende Messungen erscheinen als Erfassungsfehler.</p>
+    <ul class="list-group list-group-flush">
+      {% for change in availability_changes %}<li class="list-group-item px-0">
+        <strong>{{ change.source_name }}</strong> · {{ 'Wieder erreichbar' if change.available else 'Nicht erreichbar' }}
+        · <time datetime="{{ change.occurred_at }}">{{ change.occurred_at }}</time>
+      </li>{% endfor %}
+    </ul>
+  </div></section>
+  {% endif %}
   <section class="card mb-4"><div class="card-body">
     <h2 class="h5">Protokollierte Erfassungsfehler</h2>
     <p class="text-secondary">Die letzten 20 Fehler im Zeitraum. Ältere Fehler vor der Protokollierung und ausgefallene Worker werden dadurch nicht rückwirkend erfasst.</p>
@@ -90,6 +102,8 @@
           <label class="visually-hidden" for="source-url">URL</label>
           <input id="source-url" name="url" class="form-control mt-1" placeholder="http://sensor.local/status">
         </div>
+        <label class="form-label d-block"><input type="checkbox" name="track_availability" value="1" aria-describedby="pico-source-help"> Pico-Zustandswechsel protokollieren</label>
+        <p id="pico-source-help" class="small text-secondary">Optional für HTTP/JSON mit Pfad <code>nodes.room_a.available</code> oder <code>nodes.room_b.available</code>.</p>
         <label class="form-label w-100">Optionaler HTTP-Header-Token<input name="header_secret" type="password" autocomplete="new-password" class="form-control" placeholder="Token (wird im Sensor gespeichert, nie angezeigt)"></label>
         <label><input type="checkbox" name="recursive" value="1" checked> Unterordner einbeziehen</label><button type="submit" class="btn btn-primary d-block mt-2">Quelle speichern</button>
       </form>
