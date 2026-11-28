@@ -13,6 +13,29 @@ from tests.http_api_fixture import PublicHttpTestCase
 
 @unittest.skipUnless(importlib.util.find_spec("playwright"), "install the optional browser test dependency")
 class AndroidMotionBrowserTest(PublicHttpTestCase):
+    def test_nfc_gate_waits_for_delayed_top_level_shim(self):
+        from playwright.sync_api import Error, sync_playwright
+        from tools.android_nfc_fallback_acceptance import wait_native_nfc
+        from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+        with sync_playwright() as pw:
+            try:
+                browser = pw.chromium.launch(executable_path=os.environ.get("SIMPLEOFFICE_TEST_CHROMIUM") or None)
+            except Error as exc:
+                if "Executable doesn't exist" in str(exc):
+                    self.skipTest("install Playwright Chromium")
+                raise
+            with browser:
+                page = browser.new_page()
+                page.set_content("<button>Visible</button>")
+                with self.assertRaises(PlaywrightTimeout):
+                    wait_native_nfc(page, timeout=200)
+                self.assertTrue(page.locator("button").is_visible())
+                page.evaluate("""() => {
+                    setTimeout(() => { window.SimpleOfficeNativeNfc = {start() {}}; }, 275);
+                }""")
+                wait_native_nfc(page, timeout=3000)
+
     def test_preview_does_not_store_before_trusted_save(self):
         from playwright.sync_api import Error, sync_playwright
 
