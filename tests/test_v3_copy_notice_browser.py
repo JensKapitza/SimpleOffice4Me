@@ -3,6 +3,7 @@ import importlib.util
 from io import BytesIO
 import os
 from pathlib import Path
+from secrets import token_urlsafe
 from tempfile import TemporaryDirectory
 import threading
 import unittest
@@ -12,6 +13,8 @@ from werkzeug.serving import make_server
 from app import app
 from app.db import ensure_auth_database
 from app.document_store import DocumentStore
+from app.federation_store import FederationStore
+from app.federation_trust_store import FederationTrustStore
 from app.settings_store import SettingsStore
 from app.v3_activity import ActivityStore
 from app.workflow_peer_notices import PEER_NOTICE
@@ -47,7 +50,17 @@ class CopyNoticeSoundBrowserTest(unittest.TestCase):
             try:
                 with app.app_context():
                     ensure_auth_database()
-                SettingsStore(root).save({"v3": {"v3.activity": True, "v3.automation": True}}, "owner")
+                SettingsStore(root).save({"v3": {
+                    "v3.activity": True, "v3.automation": True, "v3.federation": True, "v3.jobs": True,
+                }}, "owner")
+                with app.app_context():
+                    FederationStore(root).save_peer(
+                        "preview-peer", "Preview Peer", "https://example.invalid", token_urlsafe(30),
+                        policy={"data_classes": {"workflow_notices": {"send": True}}},
+                    )
+                    FederationTrustStore(root).set_trust(
+                        "preview-peer", trust_level="NORMAL", verification="VERIFIED_MUTUAL",
+                    )
                 client = app.test_client()
                 credentials = {"username": "owner", "password": "synthetic-tone-only"}
                 client.post("/auth/register", data=credentials)
@@ -63,6 +76,7 @@ class CopyNoticeSoundBrowserTest(unittest.TestCase):
                 try:
                     context.add_cookies([{"name": cookie_name, "value": cookie.value, "url": origin}])
                     self._verify(context.new_page(), origin, root)
+                    self._verify_delivery_preview(context.new_page(), origin, root)
                 finally:
                     context.close()
             finally:
@@ -132,3 +146,30 @@ class CopyNoticeSoundBrowserTest(unittest.TestCase):
         source.select_option("all")
         self.assertEqual("false", button.get_attribute("aria-pressed"))
         self.assertTrue(preview.is_disabled())
+
+    def _verify_delivery_preview(self, page, origin, root):
+        from app.v3_automation import AutomationStore
+        from app.v3_jobs import JobStore
+
+        rules = AutomationStore(root)
+        jobs = JobStore(root)
+        existing_ids = {rule.rule_id for rule in rules.list("owner")}
+        existing_jobs = jobs.list()
+        page.goto(origin + "/automation-v3", wait_until="domcontentloaded")
+        page.locator("#copy-send-destination").fill("b" * 32)
+        page.locator("#copy-send-source").select_option("job")
+        page.locator("#copy-send-delay").select_option("30")
+        page.locator("#copy-send-deadline").select_option("600")
+        page.locator("#copy-send-zone").fill("Europe/Berlin")
+        page.locator('button[name="operation"][value="preview"]').click()
+        page.wait_for_selector("[data-peer-rule-preview]")
+        self.assertEqual(3, page.locator("[data-peer-rule-preview] time").count())
+        self.assertEqual("job", page.locator("#copy-send-source").input_value())
+        self.assertEqual("600", page.locator("#copy-send-deadline").input_value())
+        self.assertEqual(existing_ids, {rule.rule_id for rule in rules.list("owner")})
+        self.assertEqual(existing_jobs, jobs.list())
+        page.locator('button[name="operation"][value="save"]').click()
+        page.wait_for_url(origin + "/automation-v3")
+        added, = [rule for rule in rules.list("owner") if rule.rule_id not in existing_ids]
+        self.assertEqual("document.copy_job_completed", added.trigger["name"])
+        self.assertEqual(existing_jobs, jobs.list())

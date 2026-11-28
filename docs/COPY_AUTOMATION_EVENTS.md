@@ -137,8 +137,14 @@ Bei längeren Fristen sind 30 Sekunden Wartezeit möglich. Für „Tagesende“
 müssen beide Instanzen diese Funktion unterstützen; mit älteren Empfängern
 verwende die kurze Frist. Kopierjobs benötigen weiterhin den expliziten
 `--notify-account` beim geplanten Aufruf. Der Hintergrunddienst von oben
-muss auf der Senderseite laufen. Das erneute Speichern derselben Kombination
-aus Auslöser, Peer und Zielkennung aktualisiert die vorhandene Regel.
+muss auf der Senderseite laufen. **Zustellfenster prüfen** zeigt anhand
+einer Beispielkopie jetzt den frühesten Versuch und die Frist in der
+gewählten Absenderzeitzone. Kurz vor Mitternacht warnt die Vorschau, wenn
+die Wartezeit das Fenster bereits verpasst. Sie speichert nichts,
+stellt nichts zu und prüft keine Erreichbarkeit oder Empfängerfreigabe.
+**Senderegel speichern** ist der separate Schritt. Erneutes Speichern
+derselben Kombination aus Auslöser, Peer und Zielkennung aktualisiert
+die vorhandene Regel.
 
 Das Kopieren selbst wartet nicht auf Netzwerk oder Empfänger. Ein
 Hintergrundauftrag speichert die ursprüngliche UTC-Zeit, IANA-Absenderzone

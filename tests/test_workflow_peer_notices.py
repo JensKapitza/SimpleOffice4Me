@@ -195,6 +195,51 @@ class WorkflowPeerNoticeRuleTests(_WorkflowPeerNoticeFixture):
         states = {row["status"] for row in AutomationStore(self.root).logs("owner")}
         self.assertEqual({"peer_queued", "peer_unreachable", "delivered"}, states)
 
+    def test_local_delivery_preview_preserves_form_without_saving_or_contacting_peer(self):
+        from unittest.mock import patch
+        from bs4 import BeautifulSoup
+        from app.v3_automation import AutomationStore
+        from app.v3_jobs import JobStore
+
+        utc_near_midnight = datetime(2026, 11, 28, 22, 59, 45, tzinfo=timezone.utc)
+        fields = {**self.form, "source": "job", "delay": "30", "deadline": "end_of_day", "operation": "preview"}
+        url = "/automation-v3/peer-copy-rule"
+        self.assertEqual(403, self.client.post(url, data=fields).status_code)
+        with patch("app.v3_automation_routes.datetime") as clock, patch(
+            "app.workflow_peer_notice_jobs.send_notice", side_effect=AssertionError("unexpected network"),
+        ) as delivery:
+            clock.now.return_value = utc_near_midnight
+            response = self.client.post(url, headers=self.csrf, data=fields)
+            delivery.assert_not_called()
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("private, no-store", response.headers["Cache-Control"])
+        self.assertEqual("no-referrer", response.headers["Referrer-Policy"])
+        soup = BeautifulSoup(response.data, "html.parser")
+        sample = soup.select_one("[data-peer-rule-preview]")
+        self.assertIsNotNone(sample)
+        self.assertEqual(
+            ["2026-11-28T23:59:45+01:00", "2026-11-29T00:00:15+01:00", "2026-11-29T00:00:00+01:00"],
+            [tag["datetime"] for tag in sample.select("time")],
+        )
+        self.assertIsNotNone(sample.select_one(".fw-bold"))
+        self.assertEqual("30", soup.select_one("#copy-send-delay option[selected]")["value"])
+        self.assertEqual("end_of_day", soup.select_one("#copy-send-deadline option[selected]")["value"])
+        self.assertEqual("job", soup.select_one("#copy-send-source option[selected]")["value"])
+        self.assertEqual(self.form["destination"], soup.select_one("#copy-send-destination")["value"])
+        self.assertEqual([], AutomationStore(self.root).list("owner"))
+        self.assertEqual([], JobStore(self.root).list())
+        self.assertEqual([], ActivityStore(self.root).list())
+        self.assertEqual(403, self.client.post(url, headers=self.csrf,
+                                               data={**fields, "peer": "peer-b"}).status_code)
+        for bad in ({"zone": "Invalid/Zone"}, {"deadline": "10"}, {"destination": "bad"}, {"source": "bad"}):
+            checked = self.client.post(url, headers=self.csrf, data={**fields, **bad})
+            self.assertEqual(303, checked.status_code)
+        self.assertEqual([], AutomationStore(self.root).list("owner"))
+        self.assertEqual(303, self.client.post(url, headers=self.csrf,
+                                               data={**fields, "operation": "save"}).status_code)
+        self.assertEqual(1, len(AutomationStore(self.root).list("owner")))
+        self.assertEqual([], JobStore(self.root).list())
+
     def test_expired_window_and_changed_rule_do_not_contact_peer(self):
         from unittest.mock import patch
         from app.v3_automation import AutomationStore

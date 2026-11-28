@@ -111,6 +111,7 @@
     </form>
     {% endfor %}
     {% if peer_notice_options.send %}
+    {% set draft = peer_preview.rule if peer_preview else {} %}
     <form method="post" action="{{ url_for('v3_automation.create_peer_copy_rule') }}" class="mt-3 border-top pt-3">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <h3 class="h6">{{ 'Send automatic copy notices' if g.language == 'en' else 'Automatische Kopiermeldungen senden' }}</h3>
@@ -118,24 +119,40 @@
       <div class="row g-2">
         <div class="col-md-4"><label for="copy-send-peer" class="form-label">{{ 'Target instance' if g.language == 'en' else 'Zielinstanz' }}</label>
           <select id="copy-send-peer" name="peer" class="form-select" required>
-            {% for item in peer_notice_options.send %}<option value="{{ item.peer_id }}">{{ item.label }}</option>{% endfor %}
+            {% for item in peer_notice_options.send %}<option value="{{ item.peer_id }}"{% if draft.peer is defined and draft.peer == item.peer_id %} selected{% endif %}>{{ item.label }}</option>{% endfor %}
           </select></div>
         <div class="col-md-4"><label for="copy-send-destination" class="form-label">{{ 'Destination ID' if g.language == 'en' else 'Zielkennung' }}</label>
-          <input id="copy-send-destination" name="destination" class="form-control" required pattern="[0-9a-f]{32}" minlength="32" maxlength="32" autocomplete="off" spellcheck="false"></div>
+          <input id="copy-send-destination" name="destination" class="form-control" required pattern="[0-9a-f]{32}" minlength="32" maxlength="32" autocomplete="off" spellcheck="false" value="{{ draft.destination|default('') }}"></div>
         <div class="col-md-4"><label for="copy-send-source" class="form-label">{{ 'Trigger' if g.language == 'en' else 'Auslöser' }}</label>
           <select id="copy-send-source" name="source" class="form-select">
             <option value="browser">{{ 'Document copied' if g.language == 'en' else 'Dokument kopiert' }}</option>
-            <option value="job">{{ 'Copy job completed' if g.language == 'en' else 'Kopierjob abgeschlossen' }}</option>
+            <option value="job"{% if draft.source|default('') == 'job' %} selected{% endif %}>{{ 'Copy job completed' if g.language == 'en' else 'Kopierjob abgeschlossen' }}</option>
           </select></div>
         <div class="col-md-4"><label for="copy-send-delay" class="form-label">{{ 'Wait after copy' if g.language == 'en' else 'Wartezeit nach Kopie' }}</label>
-          <select id="copy-send-delay" name="delay" class="form-select">{% for s in peer_notice_options.delays %}<option value="{{ s }}">{{ s }} s</option>{% endfor %}</select></div>
+          <select id="copy-send-delay" name="delay" class="form-select">{% for s in peer_notice_options.delays %}<option value="{{ s }}"{% if draft.delay|default(0) == s %} selected{% endif %}>{{ s }} s</option>{% endfor %}</select></div>
         <div class="col-md-4"><label for="copy-send-deadline" class="form-label">{{ 'Delivery deadline' if g.language == 'en' else 'Zustellfrist' }}</label>
-          <select id="copy-send-deadline" name="deadline" class="form-select">{% for s in peer_notice_options.deadlines %}<option value="{{ s }}"{% if s == 120 %} selected{% endif %}>{{ s }} s</option>{% endfor %}<option value="end_of_day">{{ 'End of day in the sender time zone' if g.language == 'en' else 'Tagesende in der Absenderzeitzone' }}</option></select></div>
+          <select id="copy-send-deadline" name="deadline" class="form-select">{% for s in peer_notice_options.deadlines %}<option value="{{ s }}"{% if s == draft.deadline|default(120) %} selected{% endif %}>{{ s }} s</option>{% endfor %}<option value="end_of_day"{% if draft.deadline|default(120) == 'end_of_day' %} selected{% endif %}>{{ 'End of day in the sender time zone' if g.language == 'en' else 'Tagesende in der Absenderzeitzone' }}</option></select></div>
         <div class="col-md-4"><label for="copy-send-zone" class="form-label">{{ 'Sender time zone' if g.language == 'en' else 'Absenderzeitzone' }}</label>
-          <input id="copy-send-zone" name="zone" class="form-control" required value="{{ peer_notice_options.zone }}" maxlength="80" placeholder="Europe/Berlin"></div>
+          <input id="copy-send-zone" name="zone" class="form-control" required value="{{ draft.zone|default(peer_notice_options.zone) }}" maxlength="80" placeholder="Europe/Berlin"></div>
       </div>
-      <button type="submit" class="btn btn-outline-primary mt-2">{{ 'Save sending rule' if g.language == 'en' else 'Senderegel speichern' }}</button>
+      <button type="submit" name="operation" value="preview" class="btn btn-outline-secondary mt-2">{{ 'Preview delivery window' if g.language == 'en' else 'Zustellfenster prüfen' }}</button>
+      <button type="submit" name="operation" value="save" class="btn btn-outline-primary mt-2">{{ 'Save sending rule' if g.language == 'en' else 'Senderegel speichern' }}</button>
     </form>
+    {% if peer_preview %}
+    <section class="border rounded p-3 mt-3" aria-labelledby="peer-rule-preview" data-peer-rule-preview>
+      <h4 id="peer-rule-preview" class="h6">{{ 'Delivery window if the copy happened now' if g.language == 'en' else 'Zustellfenster, wenn die Kopie jetzt passiert' }}</h4>
+      <p>{{ peer_preview.name }} · {{ peer_preview.rule.zone }}</p>
+      <ul>
+        {% for title, stamp in [(('Example copy' if g.language == 'en' else 'Beispielkopie'), peer_preview.at),
+                                 (('Earliest attempt' if g.language == 'en' else 'Frühester Versuch'), peer_preview.ready),
+                                 (('Deadline' if g.language == 'en' else 'Ablauf'), peer_preview.expires)] %}
+        <li>{{ title }}: <time datetime="{{ stamp.isoformat() }}">{{ stamp.strftime('%Y-%m-%d %H:%M:%S %Z') }}</time></li>
+        {% endfor %}
+      </ul>
+      {% if peer_preview.missed %}<p class="fw-bold">{{ 'For this copy the delay reaches or passes the deadline.' if g.language == 'en' else 'Für diese Kopie erreicht oder überschreitet die Wartezeit die Frist.' }}</p>{% endif %}
+      <p class="small mb-0">{{ 'Nothing was saved or sent. This does not check whether the recipient is online or has approved delivery.' if g.language == 'en' else 'Nichts wurde gespeichert oder gesendet. Die Vorschau prüft weder Erreichbarkeit noch die Freigabe beim Empfänger.' }}</p>
+    </section>
+    {% endif %}
     {% endif %}
   </section>
   {% endif %}

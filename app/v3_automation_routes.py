@@ -6,6 +6,8 @@ import hashlib
 import re
 import secrets
 import sqlite3
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from flask import Blueprint, abort, current_app, flash, g, jsonify, make_response, redirect, render_template, request, url_for
 
 from .access_control import has_feature
@@ -13,6 +15,7 @@ from .auth import login_required
 from .v3_activity import ActivityStore
 from .v3_automation import AutomationEngine, AutomationStore, default_action_registry
 from .v3_capabilities import enabled
+from .v3_automation_timing import action_window, window_status
 from .workflow_peer_notices import DEST, PEER_NOTICE, PeerNoticeGrants, feature_on, permitted_peer
 from .federation_store import FederationStore
 from . import workflow_peer_notice_jobs as peer_jobs
@@ -123,7 +126,7 @@ def _notice_inbox(actor, *, strict=False):
         return [], set()
 
 
-def _render_index(actor: str, *, preview=None):
+def _render_index(actor: str, *, preview=None, peer_preview=None):
     store = _store()
     rules = store.list(actor)
     manual_check_rule_ids = (
@@ -149,6 +152,7 @@ def _render_index(actor: str, *, preview=None):
         rules=rules,
         logs=store.logs(actor, limit=50),
         preview=preview,
+        peer_preview=peer_preview,
         copy_notices_enabled=enabled("v3.activity"),
         copy_notice_timer_enabled=enabled("v3.jobs"),
         copy_notice_delays=copy_notice_delays,
@@ -248,20 +252,38 @@ def create_peer_copy_rule():
         abort(403)
     source = request.form.get("source")
     event_type = {"browser": COPY_EVENT, "job": JOB_EVENT_NAME}.get(source)
+    mode = request.form.get("operation", "save")
+    if mode not in {"preview", "save"}:
+        abort(400)
     language = getattr(g, "language", "")
     kind = (("Copy job" if source == "job" else "Document copy") if language == "en"
             else ("Kopierjob" if source == "job" else "Dokumentkopie"))
     try:
         peer = permitted_peer(root, request.form.get("peer", ""), "send")
         delay, deadline = request.form.get("delay", ""), request.form.get("deadline", "")
-        if (delay not in set(map(str, peer_jobs.DELAYS))
+        destination, zone = request.form.get("destination", ""), request.form.get("zone", "")
+        if (event_type is None or not DEST.fullmatch(destination)
+                or delay not in set(map(str, peer_jobs.DELAYS))
                 or deadline not in {*map(str, peer_jobs.DEADLINES), peer_jobs.DAY_END}):
-            raise ValueError("invalid time window")
+            raise ValueError("invalid peer copy notice rule")
+        delay_seconds = int(delay)
+        deadline_value = peer_jobs.DAY_END if deadline == peer_jobs.DAY_END else int(deadline)
+        timing = peer_jobs.copy_rule_timing(delay_seconds, deadline_value, zone)
+        actor = str(g.user["username"])
+        if mode == "preview":
+            now = datetime.now(timezone.utc).replace(microsecond=0)
+            ready, expiry = action_window(timing, now)
+            local_zone = ZoneInfo(zone)
+            return _render_index(actor, peer_preview={
+                "rule": {"peer": peer["peer_id"], "destination": destination, "source": source,
+                         "delay": delay_seconds, "deadline": deadline_value, "zone": zone},
+                "name": f"{kind} → {peer['label']}",
+                "at": now.astimezone(local_zone), "ready": ready.astimezone(local_zone),
+                "expires": expiry.astimezone(local_zone), "missed": window_status(ready, expiry, now) == "window_missed",
+            })
         peer_jobs.save_rule(
-            root, str(g.user["username"]), peer["peer_id"], request.form.get("destination", ""), event_type,
-            delay=int(delay), deadline=peer_jobs.DAY_END if deadline == peer_jobs.DAY_END else int(deadline),
-            zone=request.form.get("zone", ""),
-            name=f"{kind} → {peer['label']}",
+            root, actor, peer["peer_id"], destination, event_type,
+            delay=delay_seconds, deadline=deadline_value, zone=zone, name=f"{kind} → {peer['label']}",
         )
     except PermissionError:
         abort(403)

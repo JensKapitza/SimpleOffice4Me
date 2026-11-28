@@ -49,7 +49,7 @@ def _account(root, name):
     return [account["id"], account["auth_version"]]
 
 
-def _timing(delay, deadline, zone):
+def copy_rule_timing(delay, deadline, zone):
     if type(delay) is not int or delay not in DELAYS:
         raise ValueError("invalid delay for peer notice")
     if deadline == DAY_END:
@@ -73,7 +73,7 @@ def _action(rule, event_type):
         return None
     try:
         deadline = DAY_END if timing.get("end_of_day") is True else timing.get("within_seconds")
-        return action if timing == _timing(timing.get("delay_seconds"), deadline, timing.get("timezone")) else None
+        return action if timing == copy_rule_timing(timing.get("delay_seconds"), deadline, timing.get("timezone")) else None
     except ValueError:
         return None
 
@@ -86,7 +86,7 @@ def save_rule(root, owner, peer, destination, event_type, *, delay, deadline, zo
         raise ValueError("invalid peer copy notice rule")
     store = AutomationStore(root)
     action = {"type": ACTION, "payload": {"peer": peer, "destination": destination},
-              "timing": _timing(delay, deadline, zone)}
+              "timing": copy_rule_timing(delay, deadline, zone)}
     lock_id = hashlib.sha256(owner.encode()).hexdigest()
     with exclusive_file_lock(store.path.parent / f".peer-copy-rule-{lock_id}.lock"):
         for rule in store.list(owner):
