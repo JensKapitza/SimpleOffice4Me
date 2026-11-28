@@ -60,9 +60,6 @@ jobs:
     uses: ./.github/workflows/android-native-wheels.yml
 
   apk:
-    permissions:
-      contents: read
-      actions: read
     name: APK ${{ matrix.label }}
     needs: native-wheels
     runs-on: ubuntu-24.04
@@ -436,7 +433,6 @@ jobs:
           python-version: '3.12'
 
       - name: Verify real WebView SMS backup through Android system picker
-        id: sms-native-acceptance
         if: steps.sms-backup-acceptance.outputs.needed == 'true'
         timeout-minutes: 22
         shell: bash
@@ -444,42 +440,3 @@ jobs:
           python -m pip install --require-hashes -r requirements-ci-tools.txt -r requirements-ci-browser.txt
           bash tools/run_android_sms_download_acceptance.sh \
             android/apk/app/build/outputs/apk/debug/app-debug.apk
-
-
-      # Temporary diagnostic: fixed artifact, same repository, same emulator
-      # image and a fresh device. A passing control never makes a failed gate green.
-      - name: Download the fixed pre-change SMS APK for cold-start comparison
-        id: sms-baseline
-        if: failure() && steps.sms-native-acceptance.outcome == 'failure' && github.event.pull_request.number == 1365
-        continue-on-error: true
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          artifact-ids: '15238047156'
-          digest-mismatch: error
-          github-token: ${{ github.token }}
-          repository: JensKapitza/SimpleOffice4Me
-          run-id: '46083041424'
-          path: ${{ runner.temp }}/simpleoffice-sms-baseline
-
-      - name: Compare cold startup with the fixed pre-change APK
-        if: failure() && steps.sms-baseline.outcome == 'success'
-        timeout-minutes: 12
-        continue-on-error: true
-        env:
-          SMS_ACCEPTANCE_STARTUP_ONLY: '1'
-        shell: bash
-        run: |
-          set -euo pipefail
-          apk="$RUNNER_TEMP/simpleoffice-sms-baseline/SimpleOffice4Me-Android-arm64-20261127-2701.apk"
-          if [[ ! -f "$apk" ]]; then
-            echo 'The verified baseline artifact does not contain the expected versioned APK.' >&2
-            exit 1
-          fi
-          apksigner=$(find "${ANDROID_HOME}/build-tools" -name apksigner -type f | sort -V | tail -1)
-          signers=$("$apksigner" verify --print-certs "$apk")
-          if ! grep -Fq 'd0904ee926e133acb34042b842e847a219f1fcb3c05a24d43d56c4e109d3e3a0' <<<"$signers"; then
-            echo 'The baseline APK has an unexpected signing certificate.' >&2
-            exit 1
-          fi
-          echo 'Fixed baseline APK verified; starting independent control emulator.'
-          bash tools/run_android_sms_download_acceptance.sh "$apk"

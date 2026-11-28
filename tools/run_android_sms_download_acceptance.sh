@@ -19,9 +19,10 @@ if [[ -z "$serial" ]]; then
     exit 2
   fi
   test -n "${sdk:?Android SDK not installed}"
-  image='system-images;android-30;google_apis;x86_64'
+  # API 30's ARM translation crashed natively for both the current and
+  # pre-change APK. Keep the full check and use an Android 15 image.
+  image='system-images;android-35;google_apis;x86_64'
   port=5560
-  if [[ "${SMS_ACCEPTANCE_STARTUP_ONLY:-0}" == 1 ]]; then port=5562; fi
   serial="emulator-$port"
   if [[ ! -r /dev/kvm || ! -w /dev/kvm ]]; then
     sudo chown "$(id -u):$(id -g)" /dev/kvm
@@ -89,6 +90,10 @@ adb_for_test shell svc power stayon true
 adb_for_test shell settings put system screen_off_timeout 1800000
 adb_for_test shell input keyevent KEYCODE_WAKEUP
 adb_for_test shell wm dismiss-keyguard
-flags=()
-if [[ "${SMS_ACCEPTANCE_STARTUP_ONLY:-0}" == 1 ]]; then flags+=(--startup-only); fi
-timeout 360 python -m tools.android_sms_download_acceptance --adb "$adb_bin" --serial "$serial" "${flags[@]}"
+api="$(adb_for_test shell getprop ro.build.version.sdk | tr -d '\r')"
+printf 'Android acceptance image: API %s, ABIs %s\n' "$api" "$abis"
+if [[ -n "${emulator_pid:-}" && "$api" != 35 ]]; then
+  echo 'Unexpected SDK level for this acceptance run.' >&2
+  exit 2
+fi
+timeout 360 python -m tools.android_sms_download_acceptance --adb "$adb_bin" --serial "$serial"
