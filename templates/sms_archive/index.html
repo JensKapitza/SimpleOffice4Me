@@ -29,7 +29,8 @@
       </div>
     </form>
     {% if messages %}
-    <form method="post" action="{{ url_for('sms_archive.export') }}" class="mt-3">
+    {# A file response leaves this page alive, including after a canceled native picker. #}
+    <form method="post" action="{{ url_for('sms_archive.export') }}" class="mt-3" data-allow-multiple-submit="true">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <ul class="list-group mb-3">
         {% for sms in messages %}
