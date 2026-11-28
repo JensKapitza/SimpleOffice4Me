@@ -76,7 +76,10 @@
     hint.id = `so-length-counter-${counterId}`;
     hint.setAttribute("aria-live", "polite");
     const update = () => { hint.textContent = `${control.value.length}/${control.maxLength}`; };
-    control.insertAdjacentElement("afterend", hint);
+    // Keep block-level helper text outside implicit labels. Inserting after
+    // a control wrapped by <label> would make a <div> its invalid child.
+    const anchor = control.closest("label") || control;
+    anchor.insertAdjacentElement("afterend", hint);
     const describedBy = new Set((control.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean));
     describedBy.add(hint.id);
     control.setAttribute("aria-describedby", Array.from(describedBy).join(" "));
