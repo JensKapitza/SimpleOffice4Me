@@ -65,9 +65,9 @@ function setup(initial = [], enableAudio = false) {
   }
   const navigator = {onLine: true};
   const timers = new Map(), pending = [];
-  let serial = 0;
+  let serial = 0, monotonic = 0;
   runInNewContext(src, {
-    window, document, navigator, AbortController,
+    window, document, navigator, AbortController, performance: {now: () => monotonic},
     setTimeout(fn, delay) { timers.set(++serial, {fn, delay}); return serial; },
     clearTimeout(id) { timers.delete(id); },
     fetch(url, options) { return new Promise((resolve, reject) => pending.push({url, options, resolve, reject})); },
@@ -87,7 +87,8 @@ function setup(initial = [], enableAudio = false) {
     await promise;
   };
   return {list, status, readStatus, readButton, timers, pending, document, window, navigator, tick, start, answer,
-    sounds, soundButton, soundStatus, audioControls, sourceSelect, testSound, closeCount: () => closed};
+    sounds, soundButton, soundStatus, audioControls, sourceSelect, testSound, closeCount: () => closed,
+    advance: ms => { monotonic += ms; }};
 }
 
 const good = (...notices) => ({ok: true, status: 200, json: async () => ({enabled: true, notices})});
@@ -193,7 +194,7 @@ test('disabling the capability clears the old list without trying again', async 
   assert.equal(c.timers.size, 0);
 });
 
-const peer = (letter, time = new Date()) => ({id: letter.repeat(64), kind: 'peer', at: time.toISOString()});
+const peer = (letter, time = new Date()) => ({id: letter.repeat(64), kind: 'peer', at: time.toISOString(), alert_for_ms: 20_000});
 
 test('fresh paired notice sounds once after explicit opt-in and not for old or local results', async () => {
   const c = setup([], true);
@@ -260,4 +261,19 @@ test('local and combined selection only sound for unread matching events after a
   await new Promise(setImmediate);
   await c.answer(good(local, peer('d'), peer('e')), c.start(5000));
   assert.deepEqual(c.sounds, [660, 660, 660]);
+});
+
+test('expired, legacy and slow paired notices remain visible but silent', async () => {
+  const c = setup([], true);
+  c.soundButton.dispatchEvent(new Event('click'));
+  await new Promise(setImmediate);
+  const legacy = {...peer('b'), alert_for_ms: undefined};
+  const late = {...peer('c'), alert_for_ms: 1000};
+  const first = c.start(5000);
+  c.advance(900); // Not enough time remains to play the full tone.
+  await c.answer(good(legacy, late), first);
+  assert.deepEqual(c.list.rows.map(row => row.dataset.noticeId), [legacy.id, late.id]);
+  assert.deepEqual(c.sounds, []);
+  await c.answer(good(legacy, late, peer('d')), c.start(5000));
+  assert.deepEqual(c.sounds, [660]);
 });
