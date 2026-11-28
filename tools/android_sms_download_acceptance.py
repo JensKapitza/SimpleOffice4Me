@@ -122,11 +122,36 @@ class Device:
         except (OSError, subprocess.SubprocessError):
             print("Debug Python milestones or exit reasons unavailable", flush=True)
 
+    @staticmethod
+    def app_native_crash_libraries(log):
+        crash = re.escape(f">>> {APP} <<<")
+        starts = list(re.finditer(crash, log))
+        if not starts:
+            return []
+        lines = log[starts[-1].end():].splitlines()[:90]
+        libraries = []
+        for line in lines:
+            if ">>> " in line and " <<<" in line:
+                break
+            frame = re.search(r"#[0-9]{2}\s+pc\s+[0-9a-f]+\s+\S*/([a-zA-Z0-9_.+-]{1,100}\.so)\b", line)
+            if frame and frame[1] not in libraries:
+                libraries.append(frame[1])
+        return libraries[:8]
+
+    def native_crash_summary(self):
+        try:
+            log = self.adb("logcat", "-b", "crash", "-d", "-s", "DEBUG:F")
+            libraries = self.app_native_crash_libraries(log)
+            print("Android app native crash libraries:", " ".join(libraries) or "none captured", flush=True)
+        except (OSError, subprocess.SubprocessError):
+            print("Android app native crash libraries: unavailable", flush=True)
+
     def diagnose_startup(self, probe):
         """Report fixed phases, never a raw hierarchy, response, cookie or credential."""
         print("DevTools probe:", probe, flush=True)
         self.foreground("at timeout")
         self.startup_milestones()
+        self.native_crash_summary()
         self.backend_probe()
         try:
             statuses = [node.get("text", "") for node in self.nodes() if node.get("package") == APP]

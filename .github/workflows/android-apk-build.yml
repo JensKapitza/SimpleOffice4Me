@@ -470,8 +470,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          apk="$RUNNER_TEMP/simpleoffice-sms-baseline/SimpleOffice4Me-Android-arm64.apk"
-          test -f "$apk"
+          apk="$RUNNER_TEMP/simpleoffice-sms-baseline/SimpleOffice4Me-Android-arm64-20261127-2701.apk"
+          if [[ ! -f "$apk" ]]; then
+            echo 'The verified baseline artifact does not contain the expected versioned APK.' >&2
+            exit 1
+          fi
           apksigner=$(find "${ANDROID_HOME}/build-tools" -name apksigner -type f | sort -V | tail -1)
-          "$apksigner" verify --print-certs "$apk" | grep -Fq 'd0904ee926e133acb34042b842e847a219f1fcb3c05a24d43d56c4e109d3e3a0'
+          signers=$("$apksigner" verify --print-certs "$apk")
+          if ! grep -Fq 'd0904ee926e133acb34042b842e847a219f1fcb3c05a24d43d56c4e109d3e3a0' <<<"$signers"; then
+            echo 'The baseline APK has an unexpected signing certificate.' >&2
+            exit 1
+          fi
+          echo 'Fixed baseline APK verified; starting independent control emulator.'
           bash tools/run_android_sms_download_acceptance.sh "$apk"
