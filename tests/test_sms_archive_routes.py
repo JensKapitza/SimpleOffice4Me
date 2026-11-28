@@ -89,8 +89,23 @@ class SmsArchiveRoutesTests(PublicHttpTestCase):
         self.assertEqual(self._upload(self.client, self.csrf, export.data, confirmed=False).status_code, 400)
         before = SmsArchive(restored_root, "owner").page()
         self.assertEqual([], before)
+
+        def check_recovery_file():
+            response = self.client.post(
+                self.base + "/verify",
+                data={"backup": (BytesIO(export.data), "saved-sms.json")}, headers=self.csrf,
+            )
+            self.assertEqual(200, response.status_code)
+            from bs4 import BeautifulSoup
+            result = BeautifulSoup(response.data, "html.parser")
+            return tuple(result.select_one(f"[data-backup-{key}]").get_text(strip=True)
+                         for key in ("matching", "missing", "conflicting"))
+
+        self.assertEqual(("0", "1", "0"), check_recovery_file())
+        self.assertEqual([], SmsArchive(restored_root, "owner").page())
         for _ in range(2):
             self.assertEqual(self._upload(self.client, self.csrf, export.data).status_code, 200)
+        self.assertEqual(("1", "0", "0"), check_recovery_file())
         self.assertEqual([self.first], SmsArchive(restored_root, "owner").page())
         self.assertEqual(2, len(SmsArchive(self.root, "owner").page()))
 
@@ -141,6 +156,43 @@ class SmsArchiveRoutesTests(PublicHttpTestCase):
         self.assertEqual(400, invalid.status_code)
         duplicate = self.client.post(self.base, data={"direction": ["sent", "inbox"]}, headers=self.csrf)
         self.assertEqual(400, duplicate.status_code)
+
+    def test_backup_verification_reports_owned_matches_missing_and_conflict_without_import(self):
+        from bs4 import BeautifulSoup
+
+        archive = SmsArchive(self.root, "owner")
+        private_payload = "Do not display this file text"
+        additional = {**self.second, "provider_id": 3, "body": private_payload}
+        external_root = self.root.parent / "backup-source"
+        source = SmsArchive(external_root, "owner")
+        source.append([self.first, {**self.second, "body": "Different archived body"}, additional])
+        backup = source.export([(self.source, i) for i in range(1, 4)])
+        route = self.base + "/verify"
+        def upload(data):
+            return {"backup": (BytesIO(data), "private-file-name.json")}
+        before = archive.page()
+        self.assertEqual(403, self.client.post(route, data=upload(backup)).status_code)
+        checked = self.client.post(route, data=upload(backup), headers=self.csrf)
+        self.assertEqual(200, checked.status_code)
+        self.assertEqual("private, no-store", checked.headers["Cache-Control"])
+        html = checked.get_data(as_text=True)
+        soup = BeautifulSoup(html, "html.parser")
+        for key in ("matching", "missing", "conflicting"):
+            self.assertEqual("1", soup.select_one(f"[data-backup-{key}]").get_text(strip=True))
+        self.assertNotIn(private_payload, html)
+        self.assertNotIn("private-file-name", html)
+        self.assertEqual(before, archive.page())
+        invalid = self.client.post(route, data=upload(backup.replace(b"Different", b"Modified")), headers=self.csrf)
+        self.assertEqual(422, invalid.status_code)
+        self.assertNotIn("data-backup-matching", invalid.get_data(as_text=True))
+
+        self._register(self.client, "other")
+        other = app.test_client()
+        self._login(other, "other")
+        refused = other.post(route, data=upload(backup), headers=self._csrf_headers(other, route))
+        self.assertEqual(422, refused.status_code)
+        self.assertEqual([], SmsArchive(self.root, "other").page())
+        self.assertEqual(before, archive.page())
 
     def test_other_account_cannot_list_export_or_restore_owner_messages(self):
         backup = self._download().data

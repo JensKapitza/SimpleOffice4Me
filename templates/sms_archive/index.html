@@ -14,6 +14,7 @@
   {% else %}
   <div class="d-flex flex-wrap gap-2 mb-3">
     <a class="btn btn-outline-primary" href="#sms-manual">{{ 'Add copied message' if en else 'Kopierte SMS hinzufügen' }}</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('sms_archive.verify_backup') }}">{{ 'Check a backup file' if en else 'Sicherungsdatei prüfen' }}</a>
     <a class="btn btn-outline-secondary" href="#sms-restore">{{ 'Restore backup' if en else 'Sicherung wiederherstellen' }}</a>
   </div>
   <section class="mb-4" aria-labelledby="sms-search-title">
@@ -62,7 +63,7 @@
           <div class="form-check">
             <input class="form-check-input" type="checkbox" name="selected" id="sms-row-{{ loop.index }}" value="{{ sms.source }}:{{ sms.provider_id }}">
             <label class="form-check-label" for="sms-row-{{ loop.index }}">
-              <span class="badge text-bg-secondary">{{ 'Archived' if en else 'Archiviert' }}</span>
+              <span class="badge text-bg-secondary">{{ 'In SimpleOffice' if en else 'In SimpleOffice archiviert' }}</span>
               {% if sms.manual_entry %}<span>{{ 'Manually added' if en else 'Manuell hinzugefügt' }}</span>{% endif %}
               <span>{{ ('Received' if en else 'Empfangen') if sms.direction == 'inbox' else ('Sent' if en else 'Gesendet') }}</span>
               <strong>{{ sms.address }}</strong>

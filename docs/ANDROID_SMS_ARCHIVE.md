@@ -20,7 +20,12 @@ stay out of URLs. Backups and drafts still include only selected messages.
 
 1. Markiere die gewünschten Nachrichten und wähle **Auswahl sichern**.
 2. Bewahre die Datei verschlüsselt und außerhalb der App auf.
-3. Wähle unter **Sicherung wiederherstellen** eine Sicherung desselben
+3. Optional: Wähle **Sicherungsdatei prüfen**, um die tatsächlich gespeicherte
+   Datei später wieder zu öffnen, ohne Nachrichten zu importieren. Die App
+   prüft Dateiformat, Konto und Prüfsumme und zählt identische, fehlende und
+   abweichende Einträge; sie zeigt keine Inhalte der Datei an. Das prüft nur
+   die gerade ausgewählte Datei, nicht alle früheren Sicherungen.
+4. Wähle unter **Sicherung wiederherstellen** eine Sicherung desselben
    SimpleOffice-Kontos aus und bestätige den Import. Bereits vorhandene
    Nachrichten bleiben unverändert. Eine abweichend wiederverwendete ID
    bricht den Import der gesamten Auswahl ab.
