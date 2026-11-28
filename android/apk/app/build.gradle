@@ -156,6 +156,7 @@ android {
         applicationId 'de.simpleoffice4me.android'
         minSdk 24
         targetSdk 36
+        testInstrumentationRunner 'de.simpleoffice4me.android.ManagedContactsProviderAcceptance'
         versionCode appVersionCode
         versionName appVersionName
         buildConfigField 'String', 'ERROR_REPORT_URL', "\"${escapedErrorReportUrl}\""

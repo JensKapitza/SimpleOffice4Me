@@ -16,6 +16,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from .contact_birthdays import birthday_conflict, normal_birthday
 from .contact_store import ContactStore
 from .document_store import atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
@@ -284,7 +285,10 @@ class ContactManagement:
             left, right = self._collapse(target_fields.get(field)), self._collapse(source_fields.get(field))
             if not right or self._norm_text(left) == self._norm_text(right):
                 continue
-            result.append({"field": field, "left": left, "right": right, "kind": "conflict" if left else "addition"})
+            kind = "conflict" if left else "addition"
+            if field == "birthday" and normal_birthday(left) and normal_birthday(right) and not birthday_conflict(left, right):
+                kind = "compatible"
+            result.append({"field": field, "left": left, "right": right, "kind": kind})
         target_addresses = {self._norm_address(row.get("value")) for row in target.get("addresses", [])}
         for row in source.get("addresses", []):
             address = self._collapse(row.get("value"))
@@ -344,7 +348,7 @@ class ContactManagement:
         if phones_l and phones_r and not phones_l.intersection(phones_r):
             conflicts += 1
         birthday_l, birthday_r = self._norm_text(lf.get("birthday")), self._norm_text(rf.get("birthday"))
-        if birthday_l and birthday_r and birthday_l != birthday_r:
+        if birthday_conflict(birthday_l, birthday_r):
             conflicts += 1
         if conflicts:
             score -= min(30, conflicts * 10)
@@ -693,6 +697,11 @@ class ContactManagement:
         for key, value in source_fields.items():
             if not str(key).startswith("vcard_") and str(value).strip() and not str(merged.get(key, "")).strip():
                 merged[key] = value
+
+        old_date = normal_birthday(merged.get("birthday", ""))
+        new_date = normal_birthday(source_fields.get("birthday", ""))
+        if old_date.startswith("--") and new_date and not new_date.startswith("--") and not birthday_conflict(old_date, new_date):
+            merged["birthday"] = new_date
 
         raw_lines: list[str] = []
         raw_seen: set[str] = set()
