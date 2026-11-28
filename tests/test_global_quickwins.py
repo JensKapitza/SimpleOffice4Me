@@ -54,16 +54,25 @@ class GlobalQuickWinsBrowserTests(PublicHttpTestCase):
                     ('[name="unit"]', "Einheit", 40),
                 ):
                     control = page.locator(selector)
-                    hint = page.locator(f"{selector} + .so-length-counter")
-                    hint.wait_for(timeout=5_000)
-                    self.assertEqual("SPAN", hint.evaluate("(el) => el.tagName"))
-                    self.assertEqual("block", hint.evaluate("(el) => getComputedStyle(el).display"))
+                    page.wait_for_function(
+                        "selector => { const el = document.querySelector(selector); "
+                        "const anchor = el?.closest('label') || el; "
+                        "return anchor?.nextElementSibling?.classList.contains('so-length-counter'); }",
+                        arg=selector,
+                        timeout=5_000,
+                    )
+                    hint = control.evaluate_handle("(el) => (el.closest('label') || el).nextElementSibling")
+                    hint.wait_for_element_state("visible", timeout=5_000)
+                    self.assertEqual("DIV", hint.evaluate("(el) => el.tagName"))
+                    self.assertIn("so-length-counter", hint.get_attribute("class").split())
                     self.assertEqual("polite", hint.get_attribute("aria-live"))
                     self.assertIn(hint.get_attribute("id"), control.get_attribute("aria-describedby").split())
-                    self.assertIn(name, control.evaluate("(el) => el.labels[0].textContent"))
+                    accessible_label = control.evaluate("(el) => el.labels[0].textContent")
+                    self.assertIn(name, accessible_label)
+                    self.assertNotIn(hint.inner_text(), accessible_label)
                     control.fill("42")
                     self.assertEqual(f"2/{maximum}", hint.inner_text())
-                self.assertEqual(0, page.locator("main[data-serial-terminal] label div.so-length-counter").count())
+                self.assertEqual(0, page.locator("main[data-serial-terminal] label .so-length-counter").count())
             finally:
                 browser.close()
                 server.shutdown()

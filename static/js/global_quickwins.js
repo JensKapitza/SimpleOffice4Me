@@ -71,13 +71,14 @@
     if (control.maxLength <= 0 || control.type === "password" || control.dataset.soLengthCounter === "1") return;
     control.dataset.soLengthCounter = "1";
     counterId += 1;
-    // A wrapped input puts the counter inside its label, which allows phrasing content only.
-    const hint = document.createElement("span");
-    hint.className = "d-block form-text text-end so-length-counter";
+    // Keep the live counter out of implicit labels so it cannot change the field name.
+    const hint = document.createElement("div");
+    hint.className = "form-text text-end so-length-counter";
     hint.id = `so-length-counter-${counterId}`;
     hint.setAttribute("aria-live", "polite");
     const update = () => { hint.textContent = `${control.value.length}/${control.maxLength}`; };
-    control.insertAdjacentElement("afterend", hint);
+    const anchor = control.closest("label") || control;
+    anchor.insertAdjacentElement("afterend", hint);
     const describedBy = new Set((control.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean));
     describedBy.add(hint.id);
     control.setAttribute("aria-describedby", Array.from(describedBy).join(" "));
