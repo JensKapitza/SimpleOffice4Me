@@ -77,6 +77,13 @@ class Device:
         except (OSError, subprocess.SubprocessError):
             print(f"Android {label}: foreground unavailable", flush=True)
 
+    def download_phases(self):
+        allowed = {"picker-opened", "picker-unavailable", "picker-canceled", "picker-confirmed",
+                   "picker-result-incomplete", "busy"}
+        log = self.adb("logcat", "-d", "-s", "SO4MEDownload:I")
+        events = [line.rsplit(": ", 1)[-1] for line in log.splitlines() if ": " in line]
+        return [event for event in events if event in allowed]
+
     def backend_probe(self):
         port = None
         try:
@@ -262,11 +269,35 @@ def seed(page, selected=DESIRED):
     page.locator('form[action="/communication/sms/export"] li').filter(has_text=selected).wait_for()
 
 
-def select_backup(page):
+def select_backup(page, label):
     form = page.locator('form[action="/communication/sms/export"]')
     form.locator("li").filter(has_text=DESIRED).locator("input[name=selected]").check()
-    # The WebView runs the real authenticated form navigation and DownloadListener.
-    form.evaluate("form => form.requestSubmit(form.querySelector('button[type=submit]'))")
+    # Tap the actual submit control. Assert the real POST before waiting for the
+    # native picker, without printing the ticket, cookies or request content.
+    with page.expect_response(
+        lambda response: response.url == f"{LOCAL}/communication/sms/export"
+        and response.request.method == "POST",
+    ) as submitted:
+        form.locator("button[type=submit]:not([formaction])").click(no_wait_after=True)
+    status = submitted.value.status
+    assert status == 303, f"Backup form did not prepare an export during {label}: HTTP {status}"
+    print(f"Android backup form: {label} returned HTTP 303", flush=True)
+
+
+def pull_complete_backup(device):
+    with tempfile.TemporaryDirectory() as temp:
+        path = Path(temp) / "backup.json"
+
+        def read():
+            device.adb("shell", "test", "-s", TARGET)
+            device.adb("pull", TARGET, str(path))
+            try:
+                return json.loads(path.read_bytes())
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                # The provider creates the destination before the stream finishes.
+                return None
+
+        return wait_for(read, "complete JSON from the native backup", 45)
 
 
 def system_save(node):
@@ -302,13 +333,14 @@ def verify_backup(device):
             export = page.locator('form[action="/communication/sms/export"]')
             assert export.locator("input[name=selected]").count() == 2, "Both fixture SMS must be archived"
             print("Android WebView archived both synthetic messages", flush=True)
-            select_backup(page)
+            select_backup(page, "initial selection")
             device.wait_node(system_save, "Android document picker")
             device.adb("shell", "input", "keyevent", "KEYCODE_BACK")
             device.wait_node(lambda node: node.get("package") == APP, "return from canceled picker")
+            wait_for(lambda: "picker-canceled" in device.download_phases(), "native cancellation result", 15)
             device.adb("shell", "test", "!", "-e", TARGET)
             print("Android document picker canceled without creating a file", flush=True)
-            select_backup(page)
+            select_backup(page, "retry after cancellation")
             save = device.wait_node(system_save, "Android document picker after retry")
             # Fresh DocumentsUI normally starts on Downloads for a create-document
             # intent; use its navigation drawer if it shows another location.
@@ -324,11 +356,7 @@ def verify_backup(device):
                     ))
                     save = device.wait_node(system_save, "Save in Downloads")
             device.click(save)
-            wait_for(lambda: device.adb("shell", "test", "-s", TARGET) == "", "nonempty native backup", 45)
-            with tempfile.TemporaryDirectory() as temp:
-                path = Path(temp) / "backup.json"
-                device.adb("pull", TARGET, str(path))
-                data = json.loads(path.read_bytes())
+            data = pull_complete_backup(device)
             payload = json.dumps(data["payload"], ensure_ascii=False, sort_keys=True,
                                  separators=(",", ":")).encode()
             assert data["sha256"] == hashlib.sha256(payload).hexdigest(), "Backup checksum mismatch"
@@ -337,6 +365,10 @@ def verify_backup(device):
             assert len(records) == 1 and records[0]["body"] == DESIRED, "Backup selection mismatch"
             print("simpleoffice_sms_native_backup=pass")
     finally:
+        try:
+            print("Android native download phases:", " ".join(device.download_phases()) or "none", flush=True)
+        except (OSError, subprocess.SubprocessError):
+            print("Android native download phases: unavailable", flush=True)
         device.adb("forward", "--remove", f"tcp:{port}")
 
 

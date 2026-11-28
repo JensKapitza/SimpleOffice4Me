@@ -8,6 +8,7 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.webkit.CookieManager;
 import android.webkit.URLUtil;
 import android.widget.Toast;
@@ -23,7 +24,9 @@ import java.util.concurrent.Executors;
 
 /** Save authenticated local WebView downloads through Android's Storage Access Framework. */
 final class AndroidDownloadHandler {
-    static final int SAVE_DOCUMENT_REQUEST = 704;
+    // Activity results share MainActivity's request namespace.
+    static final int SAVE_DOCUMENT_REQUEST = 708;
+    private static final String DEBUG_TAG = "SO4MEDownload";
     private static final int BUFFER_SIZE = 64 * 1024;
 
     private final Activity activity;
@@ -42,6 +45,7 @@ final class AndroidDownloadHandler {
             return true;
         }
         if (pending != null) {
+            debugStage("busy");
             Toast.makeText(activity, "Bitte den laufenden Download zuerst abschließen.", Toast.LENGTH_SHORT).show();
             return true;
         }
@@ -54,8 +58,10 @@ final class AndroidDownloadHandler {
         save.putExtra(Intent.EXTRA_TITLE, filename);
         try {
             activity.startActivityForResult(save, SAVE_DOCUMENT_REQUEST);
+            debugStage("picker-opened");
         } catch (ActivityNotFoundException error) {
             pending = null;
+            debugStage("picker-unavailable");
             Toast.makeText(activity, "Keine Android-Dateiverwaltung zum Speichern verfügbar.", Toast.LENGTH_LONG).show();
         }
         return true;
@@ -66,8 +72,10 @@ final class AndroidDownloadHandler {
         PendingDownload download = pending;
         pending = null;
         if (download == null || resultCode != Activity.RESULT_OK || data == null || data.getData() == null) {
+            debugStage(resultCode == Activity.RESULT_CANCELED ? "picker-canceled" : "picker-result-incomplete");
             return true;
         }
+        debugStage("picker-confirmed");
         Uri destination = data.getData();
         if (!"content".equalsIgnoreCase(destination.getScheme())) {
             Toast.makeText(activity, "Unsicheres Speicherziel wurde abgelehnt.", Toast.LENGTH_LONG).show();
@@ -77,6 +85,10 @@ final class AndroidDownloadHandler {
         String cookie = CookieManager.getInstance().getCookie(download.url);
         executor.execute(() -> downloadTo(download, destination, cookie));
         return true;
+    }
+
+    private static void debugStage(String phase) {
+        if (BuildConfig.DEBUG) Log.i(DEBUG_TAG, phase);
     }
 
     void close() {
