@@ -79,7 +79,6 @@ def _configure_environment(
     error_report_url: str = "",
     account_email: str = "",
     bootstrap_token: str = "",
-    lan_addresses: str = "",
 ) -> None:
     os.chdir(runtime_root)
     if str(runtime_root) not in sys.path:
@@ -94,8 +93,6 @@ def _configure_environment(
     os.environ["SIMPLEOFFICE_OSM_INDEX"] = "0"
     os.environ["SIMPLEOFFICE_DATALOGGER"] = "0"
     os.environ["SIMPLEOFFICE_MCP"] = "0"
-    _configure_lan_addresses(lan_addresses)
-
     email = str(account_email or "").strip().casefold()
     token = str(bootstrap_token or "").strip()
     if len(email) > 320 or any(character.isspace() for character in email):
@@ -228,15 +225,18 @@ def start(
         # and must not clear a valid bootstrap identity.
         if bootstrap_token:
             _configure_environment(
-                root, error_report_url, account_email, bootstrap_token, lan_addresses
+                root, error_report_url, account_email, bootstrap_token
             )
+            _configure_lan_addresses(lan_addresses)
         elif lan_addresses:
             _configure_lan_addresses(lan_addresses)
         return True
 
     _configure_environment(
-        root, error_report_url, account_email, bootstrap_token, lan_addresses
+        root, error_report_url, account_email, bootstrap_token
     )
+    # Importing any app.* module implicitly initializes app/__init__.py.
+    # Finish environment and native linking before LAN setup can do that.
     _promote_android_python_symbols()
     _verify_android_cryptography_extension()
 
@@ -250,6 +250,7 @@ def start(
             app.register_blueprint(android_auth.bp)
         if android_paired_folder.bp.name not in app.blueprints:
             app.register_blueprint(android_paired_folder.bp)
+        _configure_lan_addresses(lan_addresses)
     except Exception as exc:
         raise RuntimeError(f"SimpleOffice4Me import failed: {type(exc).__name__}: {exc}") from exc
 
