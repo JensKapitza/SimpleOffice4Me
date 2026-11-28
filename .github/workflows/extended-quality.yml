@@ -117,6 +117,8 @@ jobs:
             node --check "$file" || { echo "SYNTAX ERROR in $file" >&2; failed=1; }
           done
           exit "$failed"
+      - name: Test the foreground workflow notice feed
+        run: node --test tests/v3_copy_notices.test.cjs
       - name: Mini Services software acceptance smoke
         shell: bash
         run: |

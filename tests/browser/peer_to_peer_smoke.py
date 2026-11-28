@@ -7,6 +7,7 @@ import json
 import os
 import re
 from pathlib import Path
+from urllib.parse import urlparse
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
@@ -269,15 +270,26 @@ def set_local_identity(
     button = page.get_by_role(
         "button", name="Identität speichern", exact=True
     )
-    with page.expect_navigation(wait_until="domcontentloaded") as navigation:
-        button.click()
+    with page.expect_response(
+        lambda item: item.request.method == "POST"
+        and urlparse(item.url).path.endswith("/admin/federation/peer-discovery/identity")
+    ) as mutation:
+        with page.expect_navigation(wait_until="domcontentloaded") as navigation:
+            button.click()
+    mutation_response = mutation.value
     response = navigation.value
-    feedback = compact(" ".join(page.locator(".alert[role='status']").all_inner_texts()))
-    if "Eigene Federation-Identität gespeichert." not in feedback:
+    feedback = compact(" ".join(page.locator("main .alert[role='status']:visible").all_inner_texts()))
+    saved_identity = page.locator("#identity-peer-id")
+    saved_peer_id = saved_identity.input_value() if saved_identity.count() == 1 else ""
+    if saved_peer_id != peer_id or "Eigene Federation-Identität gespeichert." not in feedback:
+        post_status = mutation_response.status if mutation_response is not None else "no-response"
         status = response.status if response is not None else "no-response"
+        final_path = urlparse(page.url).path
         raise RuntimeError(
-            f"Identität {peer_id} wurde nicht gespeichert (HTTP {status}; "
-            f"Rückmeldung: {feedback[:400] or 'keine'})."
+            f"Identität {peer_id} wurde nicht bestätigt (POST HTTP {post_status}; "
+            f"Weiterleitung HTTP {status} auf {final_path}; "
+            f"gespeicherte Peer-ID stimmt: {saved_peer_id == peer_id}; "
+            f"sichtbare Rückmeldung: {feedback[:400] or 'keine'})."
         )
 
 

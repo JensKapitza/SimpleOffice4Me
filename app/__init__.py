@@ -197,6 +197,22 @@ class SchemeAwareSessionInterface(SecureCookieSessionInterface):
     def get_cookie_secure(self, app):
         return request.is_secure or app.config.get("SESSION_COOKIE_SECURE", False)
 
+    def should_set_cookie(self, app, session):
+        # QR images are read-only subrequests commonly still in flight when an
+        # administrator submits the form on the same page. Refreshing the
+        # permanent session cookie on those responses can overwrite a newer
+        # cookie containing a POST/redirect flash. Let genuine session changes
+        # through, while keeping normal page requests on Flask's sliding expiry.
+        if (
+            request.endpoint in {
+                "federation_peer_admin.qr_svg",
+                "federation_peer_admin.lan_qr_svg",
+            }
+            and not session.modified
+        ):
+            return False
+        return super().should_set_cookie(app, session)
+
 
 if sys.version_info < (3,):
     raise BaseException("Wrong Python Version")
@@ -467,8 +483,11 @@ app.register_blueprint(v3_crm_routes.bp)
 from . import v3_health_routes
 app.register_blueprint(v3_health_routes.bp)
 
-from . import v3_federation_routes
+from . import v3_federation_routes, workflow_peer_notices
 app.register_blueprint(v3_federation_routes.bp)
+app.register_blueprint(workflow_peer_notices.bp)
+app.cli.add_command(workflow_peer_notices.send_command)
+app.cli.add_command(workflow_peer_notices.list_command)
 
 from . import v3_jobs_admin
 app.register_blueprint(v3_jobs_admin.bp)

@@ -95,6 +95,8 @@ class JobStore:
               ON v3_job(state,available_at,priority DESC,created_at);
             CREATE INDEX IF NOT EXISTS ix_v3_job_updated
               ON v3_job(updated_at DESC,job_id);
+            CREATE INDEX IF NOT EXISTS ix_v3_job_principal_kind
+              ON v3_job(principal,kind,updated_at DESC,job_id DESC);
             """)
             columns = {str(row[1]) for row in db.execute("PRAGMA table_info(v3_job)")}
             if "progress_json" not in columns:
@@ -119,6 +121,7 @@ class JobStore:
         *,
         idempotency_key: str,
         priority: int = 0,
+        not_before: int = 0,
         max_attempts: int = 3,
         max_open_per_principal: int = 0,
         max_open_total: int = 0,
@@ -129,8 +132,10 @@ class JobStore:
         kind=str(kind).strip(); principal=str(principal).strip(); key=str(idempotency_key).strip()
         if not kind or not principal or not key:
             raise ValueError("kind, principal and idempotency key are required")
+        if type(not_before) is not int or not 0 <= not_before <= (1 << 63) - 1:
+            raise ValueError("invalid earliest job time")
         now=int(time.time()); encoded=_json(payload)
-        attempts=max(1,min(20,int(max_attempts))); prio=max(-100,min(100,int(priority)))
+        attempts=max(1,min(40,int(max_attempts))); prio=max(-100,min(100,int(priority)))
         with self._db() as db:
             db.execute("BEGIN IMMEDIATE")
             existing=db.execute("SELECT * FROM v3_job WHERE idempotency_key=?",(key,)).fetchone()
@@ -175,7 +180,7 @@ class JobStore:
                 """INSERT INTO v3_job(job_id,kind,state,idempotency_key,principal,payload_json,
                    priority,max_attempts,available_at,created_at,updated_at)
                    VALUES(?,?,'queued',?,?,?,?,?,?,?,?)""",
-                (job_id,kind,key,principal,encoded,prio,attempts,0,now,now),
+                (job_id,kind,key,principal,encoded,prio,attempts,not_before,now,now),
             )
             row=db.execute("SELECT * FROM v3_job WHERE job_id=?",(job_id,)).fetchone()
         return self._record(row)
@@ -308,6 +313,18 @@ class JobStore:
             ).fetchall()
         return [self._record(row) for row in rows]
 
+    def recent_for_principal(self, principal: str, kind: str, *, limit: int = 50) -> list[Job]:
+        if not principal or not kind:
+            return []
+        size = max(1, min(100, int(limit)))
+        with self._db() as db:
+            rows = db.execute(
+                """SELECT * FROM v3_job WHERE principal=? COLLATE BINARY AND kind=?
+                   ORDER BY updated_at DESC, job_id DESC LIMIT ?""",
+                (principal, kind, size),
+            ).fetchall()
+        return [self._record(row) for row in rows]
+
     def metrics(self, *, now: int | None=None) -> dict[str, int]:
         current=int(time.time()) if now is None else int(now)
         with self._db() as db:
@@ -372,6 +389,12 @@ def default_handlers(
 ) -> dict[str,Handler]:
     jobs = store or JobStore(root)
     handlers = {"documents.reindex": document_reindex_handler(root)}
+    from .v3_copy_notices import NOTICE_JOB_KIND, copy_notice_job_handler
+
+    from .workflow_peer_notice_jobs import KIND as PEER_NOTICE_JOB_KIND, job_handler as peer_notice_job_handler
+
+    handlers[NOTICE_JOB_KIND] = copy_notice_job_handler(root)
+    handlers[PEER_NOTICE_JOB_KIND] = peer_notice_job_handler(root)
     if worker_id:
         from .smart_folder_batch_jobs import batch_handler
 

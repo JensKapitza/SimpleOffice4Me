@@ -134,9 +134,25 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.14'
-      - name: Install project Chromium test extra
+      - name: Install project Chromium and signed Ubuntu dependencies
+        shell: bash
         run: |
+          set -euo pipefail
           python -m pip install -e '.[test,web-export]'
+          # This job needs Ubuntu libraries only; optional runner vendor feeds
+          # must not block Playwright's apt update. Keep signature checks intact.
+          ubuntu_source=/etc/apt/sources.list.d/ubuntu.sources
+          test -r "$ubuntu_source"
+          grep -Eq '^Signed-By:[[:space:]]*/usr/share/keyrings/ubuntu-archive-keyring\.gpg[[:space:]]*$' "$ubuntu_source"
+          apt_scope="$(mktemp)"
+          runner_scope=/etc/apt/apt.conf.d/99-simpleoffice-scanner-ci
+          test ! -e "$runner_scope"
+          trap 'sudo rm -f -- "$runner_scope"; rm -f -- "$apt_scope"' EXIT
+          cat >"$apt_scope" <<'APT'
+          Dir::Etc::sourcelist "/etc/apt/sources.list.d/ubuntu.sources";
+          Dir::Etc::sourceparts "-";
+          APT
+          sudo install -m 0644 "$apt_scope" "$runner_scope"
           python -m playwright install --with-deps --no-shell chromium
       - name: Scan synthetic barcodes and share a reviewed PDF without reselecting it
         env:

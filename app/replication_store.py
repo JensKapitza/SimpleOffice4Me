@@ -10,16 +10,20 @@ import hashlib
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 import uuid
 from contextlib import closing
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import click
 from flask import current_app
+from flask.cli import with_appcontext
 
+from .db import get_db
+from .document_copy_events import capture_copy_job_completed, copy_run_id
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
 from .revision_history import RevisionHistory
@@ -114,7 +118,7 @@ class ReplicationStore:
         self._save(data, actor, "replication_rule_created", rule["rule_id"])
         return rule
 
-    def run_rule(self, rule_id: str, actor: str) -> dict[str, Any]:
+    def run_rule(self, rule_id: str, actor: str, *, record_completion: bool = True) -> dict[str, Any]:
         data = self.status()
         rule = next((item for item in data["rules"] if item["rule_id"] == rule_id), None)
         if not rule:
@@ -147,17 +151,31 @@ class ReplicationStore:
         target["last_run"] = result["at"]
         target["last_error"] = ""
         self._save(data, actor, "replication_completed", rule_id)
+        if record_completion:
+            capture_copy_job_completed(
+                self.root, actor, copy_run_id(""), files_copied=copied, rules_completed=1, rule_id=rule_id,
+            )
         return result
 
-    def run_all(self, actor: str) -> dict[str, Any]:
+    def run_all(
+        self, actor: str, *, run_id: str = "", on_completion: Callable[[str], None] | None = None,
+    ) -> dict[str, Any]:
+        run_id = copy_run_id(run_id)
         results, errors = [], []
         for rule in self.status()["rules"]:
             if not rule.get("enabled", True):
                 continue
             try:
-                results.append({"rule_id": rule["rule_id"], **self.run_rule(rule["rule_id"], actor)})
+                results.append({"rule_id": rule["rule_id"], **self.run_rule(rule["rule_id"], actor, record_completion=False)})
             except ValueError as exc:
                 errors.append({"rule_id": rule["rule_id"], "error": str(exc)})
+        if not errors:
+            event_id = capture_copy_job_completed(
+                self.root, actor, run_id, files_copied=sum(item["copied"] for item in results),
+                rules_completed=len(results),
+            )
+            if event_id and on_completion is not None:
+                on_completion(event_id)
         return {"completed": results, "errors": errors}
 
     def add_restic_repository(self, values: dict[str, Any], actor: str) -> dict[str, Any]:
@@ -311,10 +329,41 @@ class ReplicationStore:
             self.history.record(action, actor, "replication", object_id, data)
 
 
+def _active_local_notice_account(username: str) -> str | None:
+    row = get_db().execute(
+        "SELECT username FROM user WHERE username=? COLLATE BINARY AND COALESCE(is_disabled, 0)=0",
+        (username,),
+    ).fetchone()
+    return row["username"] if row else None
+
+
 @click.command("run-replications")
 @click.option("--actor", default="system", show_default=True)
-def run_replications_command(actor: str) -> None:
-    result = ReplicationStore(current_app.config["DOCUMENT_ROOT"]).run_all(actor)
+@click.option("--run-id", default="", help="Stable opaque run ID; reuse it only for retries.")
+@click.option("--notify-account", default="", help="Exact local account for opted-in batch completion notices.")
+@with_appcontext
+def run_replications_command(actor: str, run_id: str, notify_account: str) -> None:
+    from .v3_copy_notices import dispatch_replication_notice
+
+    root = current_app.config["DOCUMENT_ROOT"]
+    try:
+        recipient = _active_local_notice_account(notify_account) if notify_account else None
+    except sqlite3.Error as exc:
+        raise click.ClickException("notification account could not be checked") from exc
+    if notify_account and not recipient:
+        raise click.ClickException("notification recipient must be an active local account")
+
+    def notify(event_id: str) -> None:
+        try:
+            if recipient and _active_local_notice_account(recipient):
+                dispatch_replication_notice(root, event_id, actor, recipient)
+        except sqlite3.Error as exc:
+            current_app.logger.warning("replication notification account could not be checked: %s", type(exc).__name__)
+
+    try:
+        result = ReplicationStore(root).run_all(actor, run_id=run_id, on_completion=notify if recipient else None)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
     click.echo(json.dumps(result, ensure_ascii=False))
     if result["errors"]:
         raise click.ClickException("one or more replications failed")
