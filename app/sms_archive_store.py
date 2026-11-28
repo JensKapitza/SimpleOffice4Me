@@ -15,6 +15,8 @@ from pathlib import Path
 from .sqlite_utils import connect
 
 MAX_RECORDS = 50
+MAX_DEVICE_RECORDS = 1000
+MAX_DEVICE_TEXT_BYTES = 2 * 1024 * 1024
 MAX_BACKUP_BYTES = 6 * 1024 * 1024
 EXPORT_TTL = 300
 _EXPORTS_PER_OWNER = 8
@@ -28,6 +30,10 @@ MANUAL_SOURCE = hashlib.sha256(b"simpleoffice-sms-manual-v1").hexdigest()[:32]
 
 class ArchiveConflict(ValueError):
     """A source row was reused or changed. The earlier archive remains immutable."""
+
+
+class ArchivePreviewChanged(ValueError):
+    """The approved native source or archive state changed after preview."""
 
 
 class ArchiveIntegrityError(ValueError):
@@ -98,6 +104,23 @@ def _batch(records) -> list[dict]:
     if type(records) not in (list, tuple) or len(records) > MAX_RECORDS:
         raise ValueError("Select at most 50 SMS messages per operation")
     return [_message(record) for record in records]
+
+
+def _device_batch(records) -> list[dict]:
+    if type(records) is not list or len(records) > MAX_DEVICE_RECORDS:
+        raise ValueError("Too many device messages")
+    batch = [_message(record) for record in records]
+    sources = {row["source"] for row in batch}
+    if (len(sources) > 1 or MANUAL_SOURCE in sources
+            or len({row["provider_id"] for row in batch}) != len(batch)
+            or sum(len(row["body"].encode()) + len(row["address"].encode()) for row in batch)
+            > MAX_DEVICE_TEXT_BYTES):
+        raise ValueError("Invalid device archive batch")
+    return sorted(batch, key=lambda row: row["provider_id"])
+
+
+def _device_digest(batch: list[dict]) -> str:
+    return _digest(_canonical(batch))
 
 
 def _db_path(document_root: str | Path) -> Path:
@@ -219,7 +242,30 @@ class SmsArchive:
 
     def append(self, records) -> int:
         """Write all or none; exact replays do not create duplicates."""
-        records = _batch(records)
+        return self._append_validated(_batch(records))
+
+    def preview_device_records(self, records) -> tuple[str, int]:
+        """Count a bounded native result without inserting or changing messages."""
+        batch = _device_batch(records)
+        with self._connect() as db:
+            db.execute("BEGIN")
+            added = 0
+            for row in batch:
+                previous = self._stored(db, row["source"], row["provider_id"])
+                if previous is None:
+                    added += 1
+                elif self._checked(previous) != row:
+                    raise ArchiveConflict("SMS source row differs from its earlier archive")
+        return _device_digest(batch), added
+
+    def append_device_records(self, records, *, expected_digest: str, expected_new: int) -> int:
+        """Atomically insert only the messages matching an approved preview."""
+        batch = _device_batch(records)
+        if not hmac.compare_digest(expected_digest, _device_digest(batch)):
+            raise ArchivePreviewChanged("SMS provider changed since preview")
+        return self._append_validated(batch, expected_new=expected_new)
+
+    def _append_validated(self, records, *, expected_new: int | None = None) -> int:
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             added = 0
@@ -236,6 +282,8 @@ class SmsArchive:
                      now["address"], now["body"], _digest(_canonical(now))),
                 )
                 added += 1
+            if expected_new is not None and added != expected_new:
+                raise ArchivePreviewChanged("SMS archive changed since preview")
         return added
 
     def states(self, records) -> list[str]:

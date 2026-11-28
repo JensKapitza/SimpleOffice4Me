@@ -8,7 +8,7 @@ import re
 import subprocess
 import time
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, sync_playwright
 
 from tools.android_emulator_smoke import _adb
 
@@ -51,6 +51,18 @@ def webview_port(serial):
     raise AssertionError("No app WebView became available over the exact ADB socket")
 
 
+def wait_for_native_bridge(page):
+    # The APK injects the shim in WebViewClient.onPageFinished. A visible
+    # HTML control after DOMContentLoaded does not prove that callback ran.
+    try:
+        page.wait_for_function(
+            "() => location.pathname === '/inventory'"
+            " && typeof window.SimpleOfficeNativeNfc?.start === 'function'",
+        )
+    except PlaywrightTimeoutError:
+        raise AssertionError("Missing native NFC bridge after inventory navigation") from None
+
+
 def verify(page):
     page.wait_for_url(f"{ORIGIN}/**", timeout=120000)
     page.goto(f"{ORIGIN}/inventory", wait_until="domcontentloaded")
@@ -59,7 +71,7 @@ def verify(page):
     status = panel.locator("[data-nfc-find-status]")
     uid = panel.locator("#nfc-find-uid")
     button.wait_for(state="visible")
-    assert page.evaluate("() => typeof window.SimpleOfficeNativeNfc?.start === 'function'"), "Missing native bridge"
+    wait_for_native_bridge(page)
     requests = []
 
     def seen(request):

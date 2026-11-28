@@ -179,6 +179,7 @@ public final class BootstrapActivity extends Activity {
                 syncRuntimeAssets(runtimeRoot);
                 startupStage("assets-ready");
                 showStatus("Lokale Python-Laufzeit wird gestartet …", true);
+                AndroidSmsDeviceImport.initialize(this);
                 if (!Python.isStarted()) Python.start(new AndroidPlatform(this));
                 startupStage("python-ready");
                 String bootstrapToken = UUID.randomUUID().toString() + UUID.randomUUID();

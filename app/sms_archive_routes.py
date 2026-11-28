@@ -6,12 +6,15 @@ import sqlite3
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from flask import Blueprint, Response, abort, current_app, flash, g, redirect, render_template, request, session, url_for
+from flask import Blueprint, Response, abort, current_app, flash, g, jsonify, redirect, render_template, request, session, url_for
 
+from .android_device_sources import _local_apk_request
 from .auth import login_required
 from .security_controls import csrf_token
+from . import sms_device_preview
 from .sms_archive_store import (
-    ArchiveConflict, ArchiveIntegrityError, MANUAL_SOURCE, MAX_BACKUP_BYTES, MAX_RECORDS, SmsArchive, manual_message,
+    ArchiveConflict, ArchiveIntegrityError, ArchivePreviewChanged, MANUAL_SOURCE, MAX_BACKUP_BYTES, MAX_RECORDS,
+    SmsArchive, manual_message,
 )
 
 bp = Blueprint("sms_archive", __name__, url_prefix="/communication/sms")
@@ -24,6 +27,14 @@ _SELECTION = re.compile(r"([a-f0-9]{32}):([1-9][0-9]{0,18})")
 def limit_request() -> None:
     """Limit body size and type before the common CSRF check reads the form."""
     if request.blueprint != bp.name or request.method != "POST":
+        return
+    if request.endpoint == "sms_archive.device_import":
+        if request.content_length is None:
+            abort(411)
+        if request.content_length > 512:
+            abort(413)
+        if request.mimetype != "application/json":
+            abort(415)
         return
     upload = request.endpoint == "sms_archive.restore"
     limit = MAX_BACKUP_BYTES + 64 * 1024 if upload else (
@@ -116,7 +127,78 @@ def _render_archive(*, query="", page=0, filters=None, first=None, last=None, se
     return render_template("sms_archive/index.html", messages=messages, query=query,
                            page=page, has_next=len(rows) > PAGE_SIZE, manual_values=manual_values or {},
                            search_filters=filters, search_error=search_error, filtering=bool(query) or any(filters.values()),
-                           manual_error=manual_error, manual_zones=tuple(dict.fromkeys((zone, "UTC")))), status
+                           manual_error=manual_error, manual_zones=tuple(dict.fromkeys((zone, "UTC"))),
+                           device_import=_device_import_enabled()), status
+
+
+def _device_import_enabled() -> bool:
+    return bool(
+        callable(current_app.config.get("ANDROID_PRIVATE_SMS_READER"))
+        and callable(current_app.config.get("ANDROID_PRIVATE_SMS_LEASE_ACTIVE"))
+        and _local_apk_request()
+    )
+
+
+@bp.post("/device-import")
+@login_required
+def device_import():
+    """Native, foreground-only, authenticated input; HTTP never carries SMS data."""
+    if not _device_import_enabled():
+        abort(404)
+    lease = request.headers.get("X-SimpleOffice-SMS-Import", "")
+    if not re.fullmatch(r"[a-f0-9]{32}", lease):
+        abort(403)
+    payload = request.get_json(silent=True)
+    if type(payload) is not dict or set(payload) != {"from", "through", "stage", "preview"}:
+        abort(400)
+    if any(type(payload[key]) is not str or len(payload[key]) > 10 for key in ("from", "through")):
+        abort(400)
+    stage, ticket = payload["stage"], payload["preview"]
+    if type(ticket) is not str or not (
+        (stage == "preview" and not ticket)
+        or (stage == "commit" and re.fullmatch(r"[a-f0-9]{32}", ticket))
+    ):
+        abort(400)
+    try:
+        first = _archive_day(payload["from"]) or 0
+        last = _archive_day(payload["through"], end=True)
+        if last is None:
+            last = 253402300799999
+        if first > last:
+            raise ValueError("reversed range")
+    except ValueError:
+        return jsonify(state="invalid_range"), 422
+
+    scope = (str(g.user["username"]), str(current_app.config["DOCUMENT_ROOT"]), csrf_token(), (first, last))
+    approved = sms_device_preview.redeem(ticket, *scope) if stage == "commit" else None
+    if stage == "commit" and approved is None:
+        return jsonify(state="preview_expired"), 409
+
+    reader = current_app.config["ANDROID_PRIVATE_SMS_READER"]
+    try:
+        state, records = reader(lease, first, last)
+        if state == "unauthorized":
+            abort(403)
+        if state in {"denied", "unavailable", "too_many", "invalid_rows", "cancelled"}:
+            return jsonify(state=state), 409
+        if state != "ready" or type(records) is not list:
+            raise ValueError("invalid native result")
+        if not current_app.config["ANDROID_PRIVATE_SMS_LEASE_ACTIVE"](lease):
+            return jsonify(state="cancelled"), 409
+        archive = _archive()
+        if approved is None:
+            digest, added = archive.preview_device_records(records)
+            ticket = sms_device_preview.issue(*scope, digest, added)
+            return jsonify(state="preview", preview=ticket, added=added, already=len(records) - added)
+        added = archive.append_device_records(records, expected_digest=approved.digest, expected_new=approved.new)
+        return jsonify(state="ok", added=added, already=len(records) - added)
+    except ArchivePreviewChanged:
+        return jsonify(state="preview_changed"), 409
+    except ArchiveConflict:
+        return jsonify(state="conflict"), 409
+    except (ArchiveIntegrityError, OSError, sqlite3.Error, ValueError, RuntimeError) as exc:
+        current_app.logger.warning("Native SMS import unavailable: %s", type(exc).__name__)
+        return jsonify(state="unavailable"), 503
 
 
 def _manual_timestamp(value: str, zone_name: str) -> int:

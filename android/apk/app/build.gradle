@@ -4,6 +4,9 @@ plugins {
     id 'org.cyclonedx.bom'
 }
 
+// READ_SMS is hard restricted and must never be shipped in the ordinary APK.
+def deviceSmsImport = System.getenv('SIMPLEOFFICE_ANDROID_DEVICE_SMS') == '1'
+
 def errorReportUrl = (System.getenv('SIMPLEOFFICE_ERROR_REPORT_URL') ?: '').trim()
 if (errorReportUrl && !errorReportUrl.startsWith('https://')) {
     throw new GradleException('SIMPLEOFFICE_ERROR_REPORT_URL must use https://')
@@ -159,6 +162,7 @@ android {
         testInstrumentationRunner 'de.simpleoffice4me.android.ManagedContactsProviderAcceptance'
         versionCode appVersionCode
         versionName appVersionName
+        buildConfigField 'boolean', 'DEVICE_SMS_IMPORT', deviceSmsImport.toString()
         buildConfigField 'String', 'ERROR_REPORT_URL', "\"${escapedErrorReportUrl}\""
 
         ndk {
@@ -199,6 +203,10 @@ android {
     }
 
     sourceSets {
+        if (deviceSmsImport) {
+            debug.manifest.srcFile 'src/deviceSms/AndroidManifest.xml'
+            release.manifest.srcFile 'src/deviceSms/AndroidManifest.xml'
+        }
         main {
             assets.srcDir "$buildDir/generated/simpleofficeAssets"
             res.srcDir "$buildDir/generated/simpleofficeLogoRes"

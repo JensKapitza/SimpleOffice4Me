@@ -1,0 +1,19 @@
+<section class="mb-4" aria-labelledby="sms-device-title" id="sms-device-import" hidden>
+  <h2 class="h5" id="sms-device-title">{{ 'Import device SMS' if en else 'SMS vom Handy importieren' }}</h2>
+  <p>{{ 'Received and sent SMS are copied to your private local archive. The originals stay on your phone. If you have a large archive, import it in smaller date ranges.' if en else 'Empfangene und gesendete SMS werden in dein privates lokales Archiv kopiert. Die Originale bleiben auf deinem Handy. Bei vielen SMS wähle kleinere Zeiträume.' }}</p>
+  <form id="sms-device-form" method="get" action="{{ url_for('sms_archive.index') }}" data-language="{{ 'en' if en else 'de' }}">
+    <div class="row g-2 mb-2">
+      <div class="col-sm-6">
+        <label class="form-label" for="sms-device-from">{{ 'From (UTC, optional)' if en else 'Von (UTC, optional)' }}</label>
+        <input class="form-control" type="date" id="sms-device-from" min="1970-01-01" max="9999-12-31">
+      </div>
+      <div class="col-sm-6">
+        <label class="form-label" for="sms-device-through">{{ 'Through (UTC, optional)' if en else 'Bis einschließlich (UTC, optional)' }}</label>
+        <input class="form-control" type="date" id="sms-device-through" min="1970-01-01" max="9999-12-31">
+      </div>
+    </div>
+    <button class="btn btn-outline-primary" type="submit" id="sms-device-preview">{{ 'Preview SMS' if en else 'SMS-Vorschau' }}</button>
+    <button class="btn btn-primary" type="submit" id="sms-device-commit" hidden>{{ 'Archive previewed SMS' if en else 'Geprüfte SMS archivieren' }}</button>
+    <p id="sms-device-status" class="mt-2 mb-0" role="status" aria-live="polite"></p>
+  </form>
+</section>

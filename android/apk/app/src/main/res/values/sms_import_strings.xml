@@ -1,0 +1,7 @@
+<resources>
+    <string name="sms_device_import_title">Import device SMS</string>
+    <string name="sms_device_import_confirm">Save the previewed messages into your private SimpleOffice archive? No messages will be changed, deleted or sent.</string>
+    <string name="sms_device_import_action">Import SMS</string>
+    <string name="sms_device_preview_action">Preview SMS</string>
+    <string name="sms_device_preview_confirm">Read received and sent SMS for the chosen date range to count new and already archived messages? This does not save any messages. Android may ask for read access.</string>
+</resources>

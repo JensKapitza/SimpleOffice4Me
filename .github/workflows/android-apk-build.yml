@@ -14,6 +14,8 @@ on:
       - 'templates/sms_archive/**'
       - 'tools/android_sms_download_acceptance.py'
       - 'tools/run_android_sms_download_acceptance.sh'
+      - 'tools/*android_sms_device_import_acceptance*'
+      - 'static/js/android_sms_device_import.js'
       - 'static/js/optional-setup-progress.js'
       - 'templates/optional_setup/**'
       # Inventory runs in the bundled WebView, including browser-only NFC changes.
@@ -214,6 +216,17 @@ jobs:
           if v1 is not True or v2 is not True:
               raise SystemExit("AGP did not resolve both required release signature schemes")
           PY
+
+      - name: Verify ordinary APK does not request Android SMS access
+        shell: bash
+        run: |
+          set -euo pipefail
+          aapt="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          "$aapt" dump permissions android/apk/app/build/outputs/apk/debug/app-debug.apk > /tmp/ordinary-apk-permissions.txt
+          if grep -F 'android.permission.READ_SMS' /tmp/ordinary-apk-permissions.txt; then
+            echo 'Ordinary APK must not request READ_SMS' >&2
+            exit 1
+          fi
 
       - name: Verify bundled Python runtime assets and ABI
         shell: bash
@@ -502,3 +515,51 @@ jobs:
           bash tools/run_android_contacts_provider_acceptance.sh \
             android/apk/app/build/outputs/apk/debug/app-debug.apk \
             android/apk/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+
+      - name: Check whether direct Android SMS import is affected
+        id: device-sms
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only HEAD^1 HEAD -- \
+            'android/apk/app/src/deviceSms/**' 'android/apk/app/src/main/java/**/AndroidSms*' \
+            'android/apk/app/src/main/python/android_runtime.py' 'android/apk/app/build.gradle' \
+            'app/sms_archive_*.py' 'static/js/android_sms_device_import.js' \
+            'templates/sms_archive/**' '.github/workflows/android-apk-build.yml' \
+            'tools/*android_sms_device_import_acceptance*')"
+          if [[ -n "$changed" ]]; then echo 'needed=true' >> "$GITHUB_OUTPUT"; fi
+
+      - name: Preserve the ordinary APK for the in-place upgrade test
+        if: steps.device-sms.outputs.needed == 'true'
+        shell: bash
+        run: cp android/apk/app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/sms-ordinary-debug.apk"
+
+      - name: Build optional SMS APK for the isolated emulator
+        if: steps.device-sms.outputs.needed == 'true'
+        working-directory: android/apk
+        env:
+          SIMPLEOFFICE_ANDROID_DEVICE_SMS: '1'
+        run: gradle --no-daemon assembleDebug
+
+      - name: Direct Android SMS import on disposable emulator
+        if: steps.device-sms.outputs.needed == 'true'
+        timeout-minutes: 22
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=android/apk/app/build/outputs/apk/debug/app-debug.apk
+          aapt="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          "$aapt" dump permissions "$apk" > /tmp/opt-in-apk-permissions.txt
+          grep -F 'android.permission.READ_SMS' /tmp/opt-in-apk-permissions.txt
+          if grep -E 'android\.permission\.(WRITE_SMS|SEND_SMS|RECEIVE_SMS|RECEIVE_MMS)' /tmp/opt-in-apk-permissions.txt; then
+            echo 'The optional APK must not request SMS send, receive or write access' >&2
+            exit 1
+          fi
+          python -m pip install --require-hashes -r requirements-ci-tools.txt -r requirements-ci-browser.txt
+          ordinary="$RUNNER_TEMP/sms-ordinary-debug.apk"
+          apksigner="${aapt%/*}/apksigner"
+          "$apksigner" verify --print-certs "$ordinary" | grep 'certificate SHA-256 digest:' > "$RUNNER_TEMP/sms-ordinary-signers"
+          "$apksigner" verify --print-certs "$apk" | grep 'certificate SHA-256 digest:' > "$RUNNER_TEMP/sms-opt-in-signers"
+          cmp "$RUNNER_TEMP/sms-ordinary-signers" "$RUNNER_TEMP/sms-opt-in-signers"
+          bash tools/run_android_sms_device_import_acceptance.sh "$ordinary" "$apk"

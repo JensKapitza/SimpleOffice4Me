@@ -84,6 +84,7 @@ public class MainActivity extends Activity {
     private final AndroidAudioStreamer audioStreamer = new AndroidAudioStreamer();
     private final AndroidIntentRouter intentRouter = new AndroidIntentRouter();
     private AlertDialog smsShareDialog;
+    private final AndroidSmsImportController smsImport = new AndroidSmsImportController(this, mainHandler);
     private final AndroidIntakeBarcodeBridge intakeBarcode = new AndroidIntakeBarcodeBridge(this, mainHandler);
     private AndroidDownloadHandler downloadHandler;
     private AndroidGoogleAuthorization googleAuthorization;
@@ -335,6 +336,7 @@ public class MainActivity extends Activity {
                 super.onPageStarted(view, url, favicon);
                 if (smsShareDialog != null) smsShareDialog.dismiss();
                 intakeBarcode.onLoadStarted();
+                smsImport.onLoadStarted();
                 // Default-deny every navigation until a locally served speech page loads.
                 view.getSettings().setMediaPlaybackRequiresUserGesture(true);
                 offlineSpeechSettingsNonce = "";
@@ -372,6 +374,7 @@ public class MainActivity extends Activity {
                     if (bundledBackendReady && !mainFrameLoadFailed) {
                         view.getSettings().setMediaPlaybackRequiresUserGesture(!isLocalSpeechPage(url));
                         intakeBarcode.onLoadFinished(view, url);
+                        smsImport.onLoadFinished(view, url);
                         bindOfflineSpeechSettings(view, url);
                     }
                     injectPendingShareUi(view, url);
@@ -387,6 +390,7 @@ public class MainActivity extends Activity {
             public void doUpdateVisitedHistory(WebView view, String url, boolean isReload) {
                 super.doUpdateVisitedHistory(view, url, isReload);
                 intakeBarcode.onHistory(url, isReload);
+                smsImport.onHistory(url);
                 if (isReload || !isNfcInventoryPage(url)) {
                     nfcPageEpoch++;
                     stopNfcReader();
@@ -400,6 +404,7 @@ public class MainActivity extends Activity {
                 if (request.isForMainFrame()) {
                     nfcPageEpoch++;
                     intakeBarcode.onLoadFailed();
+                    smsImport.onLoadFailed();
                     offlineSpeechSettingsNonce = "";
                     deviceSourcePageReady = false;
                     if (deviceSourcePreview != null) deviceSourcePreview.onPageChanged();
@@ -420,6 +425,7 @@ public class MainActivity extends Activity {
                 super.onReceivedHttpError(view, request, errorResponse);
                 if (request.isForMainFrame()) {
                     intakeBarcode.onLoadFailed();
+                    smsImport.onLoadFailed();
                     offlineSpeechSettingsNonce = "";
                 }
                 if (request.isForMainFrame() && errorResponse.getStatusCode() >= 500) {
@@ -796,6 +802,10 @@ public class MainActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == AndroidSmsImportController.PERMISSION_REQUEST) {
+            smsImport.onPermissionResult();
+            return;
+        }
         if (requestCode == AUDIO_PERMISSION_REQUEST) {
             handleAudioPermissionResult(grantResults);
             return;
@@ -1979,6 +1989,7 @@ public class MainActivity extends Activity {
             File runtimeRoot = new File(getFilesDir(), "simpleoffice-runtime");
             syncRuntimeAssets(runtimeRoot);
             showStatus("Python-Laufzeit wird gestartet …", true);
+            AndroidSmsDeviceImport.initialize(this);
             if (!Python.isStarted()) Python.start(new AndroidPlatform(this));
             Python python = Python.getInstance();
             PyObject module = python.getModule("android_runtime");
@@ -2088,6 +2099,7 @@ public class MainActivity extends Activity {
         nfcPageEpoch++;
         AndroidOfflineSpeech.onPause(offlineSpeechOwner);
         intakeBarcode.setResumed(false);
+        smsImport.setResumed(false);
         // The Android permission dialog may pause this Activity before delivering its result.
         webPermissionFlow.setResumed(false);
         if (deviceSourcePreview != null) deviceSourcePreview.onPause();
@@ -2128,6 +2140,7 @@ public class MainActivity extends Activity {
             }
         }
         intakeBarcode.setResumed(true);
+        smsImport.setResumed(true);
         webPermissionFlow.setResumed(true);
         if (deviceSourcePreview != null) deviceSourcePreview.onResume();
         if (managedSync != null) managedSync.onResume();
@@ -2160,6 +2173,7 @@ public class MainActivity extends Activity {
         AndroidOfflineSpeech.onStop(offlineSpeechOwner);
         bundledBackendReady = false;
         intakeBarcode.close();
+        smsImport.close();
         AndroidFolderImportTask activeFolderImport = folderImportTask;
         boolean canStopExecutorImmediately = activeFolderImport == null
                 || activeFolderImport.pauseForActivityDestroy();
