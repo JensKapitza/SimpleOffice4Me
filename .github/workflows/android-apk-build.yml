@@ -530,6 +530,11 @@ jobs:
             'tools/*android_sms_device_import_acceptance*')"
           if [[ -n "$changed" ]]; then echo 'needed=true' >> "$GITHUB_OUTPUT"; fi
 
+      - name: Preserve the ordinary APK for the in-place upgrade test
+        if: steps.device-sms.outputs.needed == 'true'
+        shell: bash
+        run: cp android/apk/app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/sms-ordinary-debug.apk"
+
       - name: Build optional SMS APK for the isolated emulator
         if: steps.device-sms.outputs.needed == 'true'
         working-directory: android/apk
@@ -552,4 +557,9 @@ jobs:
             exit 1
           fi
           python -m pip install --require-hashes -r requirements-ci-tools.txt -r requirements-ci-browser.txt
-          bash tools/run_android_sms_device_import_acceptance.sh "$apk"
+          ordinary="$RUNNER_TEMP/sms-ordinary-debug.apk"
+          apksigner="${aapt%/*}/apksigner"
+          "$apksigner" verify --print-certs "$ordinary" | grep 'certificate SHA-256 digest:' > "$RUNNER_TEMP/sms-ordinary-signers"
+          "$apksigner" verify --print-certs "$apk" | grep 'certificate SHA-256 digest:' > "$RUNNER_TEMP/sms-opt-in-signers"
+          cmp "$RUNNER_TEMP/sms-ordinary-signers" "$RUNNER_TEMP/sms-opt-in-signers"
+          bash tools/run_android_sms_device_import_acceptance.sh "$ordinary" "$apk"

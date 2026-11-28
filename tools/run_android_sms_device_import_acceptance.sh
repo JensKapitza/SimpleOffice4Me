@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Real provider (only synthetic SMS), only a fresh CI-owned AVD.
 set -euo pipefail
-apk=${1:?path to the optional SMS debug APK required}
-test -r "$apk"
+ordinary=${1:?path to the ordinary debug APK required}
+opt_in=${2:?path to the optional SMS debug APK required}
+test -r "$ordinary"
+test -r "$opt_in"
 sdk=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}
 if [[ "${GITHUB_ACTIONS:-}" != true || ! -c /dev/kvm || -z "$sdk" ]]; then
   echo 'This acceptance provisions a fresh CI-owned AVD and never touches existing devices.' >&2
@@ -49,7 +51,7 @@ done
 [[ "$booted" == true ]]
 [[ "$(device shell getprop ro.build.version.sdk | tr -d '\r')" == 35 ]]
 [[ "$(device shell pm list packages de.simpleoffice4me.android | tr -d '\r')" == '' ]]
-device install "$apk"  # Do not pre-grant permissions: drive the actual Android dialog.
+device install "$ordinary"  # Only the test code upgrades; never pre-grant SMS permission.
 device shell run-as de.simpleoffice4me.android mkdir -p shared_prefs
 device shell -T "run-as de.simpleoffice4me.android sh -c 'umask 077; cat > shared_prefs/simpleoffice-android-identity.xml'" <<'XML'
 <?xml version='1.0' encoding='utf-8' standalone='yes' ?>
@@ -62,4 +64,5 @@ device shell svc power stayon true
 device shell settings put system screen_off_timeout 1800000
 device shell input keyevent KEYCODE_WAKEUP
 device shell wm dismiss-keyguard
-timeout 450 python -m tools.android_sms_device_import_acceptance --adb "$adb" --serial "$serial"
+timeout 600 python -m tools.android_sms_device_import_acceptance \
+  --adb "$adb" --serial "$serial" --opt-in-apk "$opt_in"
