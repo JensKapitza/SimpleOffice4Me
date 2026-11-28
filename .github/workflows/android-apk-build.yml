@@ -199,7 +199,12 @@ jobs:
 
       - name: Install pinned Android OCR native build tools
         shell: bash
-        run: sdkmanager 'ndk;28.2.13676358' 'cmake;3.22.1'
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:?Android SDK is required}}"
+          SDK_MANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDK_MANAGER"
+          "$SDK_MANAGER" --sdk_root="$SDK_ROOT" 'ndk;28.2.13676358' 'cmake;3.22.1'
 
       - name: Build debug APK and ephemeral signed release smoke APK
         working-directory: android/apk
