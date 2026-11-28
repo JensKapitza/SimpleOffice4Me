@@ -1,5 +1,13 @@
 from pathlib import Path
+import importlib.util
+import os
+import threading
 import unittest
+
+from werkzeug.serving import make_server
+
+from app import app
+from tests.http_api_fixture import PublicHttpTestCase
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -15,6 +23,52 @@ class GlobalQuickWinsTests(unittest.TestCase):
         self.assertIn('attributeFilter: ["disabled"]', script)
         self.assertIn("syncDisabledState", script)
         self.assertNotIn('"street-address"', script)
+
+
+@unittest.skipUnless(importlib.util.find_spec("playwright"), "install the optional web-export extra")
+class GlobalQuickWinsBrowserTests(PublicHttpTestCase):
+    def test_length_hints_keep_wrapped_serial_labels_valid_and_described(self):
+        from playwright.sync_api import Error, sync_playwright
+
+        cookie_name = app.config["SESSION_COOKIE_NAME"]
+        cookie = self.client.get_cookie(cookie_name)
+        self.assertIsNotNone(cookie)
+        with make_server("127.0.0.1", 0, app, threaded=True) as server, sync_playwright() as runtime:
+            try:
+                browser = runtime.chromium.launch(executable_path=os.environ.get("SIMPLEOFFICE_TEST_CHROMIUM") or None)
+            except Error as exc:
+                if "Executable doesn't exist" in str(exc):
+                    self.skipTest("install Playwright Chromium")
+                raise
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                origin = f"http://127.0.0.1:{server.server_port}"
+                context = browser.new_context(service_workers="block")
+                context.add_cookies([{"name": cookie_name, "value": cookie.value, "url": origin}])
+                page = context.new_page()
+                page.goto(origin + "/datalogger/serial", wait_until="load", timeout=15_000)
+                for selector, name, maximum in (
+                    ("[data-input]", "Nachricht", 8192),
+                    ('[name="gateway_ip"]', "Gateway-IP", 15),
+                    ('[name="unit"]', "Einheit", 40),
+                ):
+                    control = page.locator(selector)
+                    hint = page.locator(f"{selector} + .so-length-counter")
+                    hint.wait_for(timeout=5_000)
+                    self.assertEqual("SPAN", hint.evaluate("(el) => el.tagName"))
+                    self.assertEqual("block", hint.evaluate("(el) => getComputedStyle(el).display"))
+                    self.assertEqual("polite", hint.get_attribute("aria-live"))
+                    self.assertIn(hint.get_attribute("id"), control.get_attribute("aria-describedby").split())
+                    self.assertIn(name, control.evaluate("(el) => el.labels[0].textContent"))
+                    control.fill("42")
+                    self.assertEqual(f"2/{maximum}", hint.inner_text())
+                self.assertEqual(0, page.locator("main[data-serial-terminal] label div.so-length-counter").count())
+            finally:
+                browser.close()
+                server.shutdown()
+                thread.join(timeout=5)
+
 
 
 if __name__ == "__main__":
