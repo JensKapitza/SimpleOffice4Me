@@ -44,7 +44,7 @@ class GlobalQuickWinsBrowserTests(PublicHttpTestCase):
             thread.start()
             try:
                 origin = f"http://127.0.0.1:{server.server_port}"
-                context = browser.new_context(service_workers="block")
+                context = browser.new_context(service_workers="block", viewport={"width": 360, "height": 900})
                 context.add_cookies([{"name": cookie_name, "value": cookie.value, "url": origin}])
                 page = context.new_page()
                 page.goto(origin + "/datalogger/serial", wait_until="load", timeout=15_000)
@@ -70,6 +70,10 @@ class GlobalQuickWinsBrowserTests(PublicHttpTestCase):
                     accessible_label = control.evaluate("(el) => el.labels[0].textContent")
                     self.assertIn(name, accessible_label)
                     self.assertNotIn(hint.inner_text(), accessible_label)
+                    number_box, input_box = hint.bounding_box(), control.bounding_box()
+                    self.assertGreaterEqual(number_box["y"], input_box["y"] + input_box["height"] - 1)
+                    self.assertAlmostEqual(input_box["x"], number_box["x"], delta=2)
+                    self.assertAlmostEqual(input_box["width"], number_box["width"], delta=2)
                     control.fill("42")
                     self.assertEqual(f"2/{maximum}", hint.inner_text())
                 self.assertEqual(0, page.locator("main[data-serial-terminal] label .so-length-counter").count())
