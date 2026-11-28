@@ -155,3 +155,26 @@ bash tools/run_android_sms_download_acceptance.sh android/apk/app/build/outputs/
 
 Der vollständige Lauf mit zwei frischen Emulatoren ist Teil des Android-CI-Jobs.
 Ein grüner Exportmarker allein bestätigt noch nicht die Wiederherstellung.
+
+### Sicherung nach Zeitraum
+
+Für viele archivierte SMS öffnet **Zeitraum sichern** eine Auswahl nach
+UTC-Datum (inklusive beider Tage). Die Vorschau meldet die genaue Anzahl.
+Erst nach der Bestätigung wird eine Sicherungsdatei angeboten. Wenn in der
+Zwischenzeit weitere Nachrichten zum Zeitraum hinzukamen, ist eine neue
+Vorschau nötig. Eine Datei enthält bis zu 1.000 Nachrichten und höchstens
+6 MiB. Bei Überschreitung bitte den Zeitraum teilen; die Anwendung
+schneidet die Sicherung nicht still ab.
+
+Die Zeitraumdatei (Format 2) lässt sich im selben Archiv prüfen und
+wiederherstellen. Dateien aus der bisherigen Einzelauswahl (Format 1)
+bleiben nutzbar. Eine Vorschau oder ein geöffneter Dateidialog bedeutet
+noch nicht, dass die Sicherung gespeichert wurde.
+
+Unabhängiger Test mit zwei frischen CI-Emulatoren und ausschließlich
+synthetischen Nachrichten:
+
+```sh
+SIMPLEOFFICE_SMS_ACCEPTANCE_MODE=range \
+  bash tools/run_android_sms_download_acceptance.sh path/to/app-debug.apk
+```

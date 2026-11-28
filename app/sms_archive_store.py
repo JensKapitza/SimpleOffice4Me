@@ -15,6 +15,7 @@ from pathlib import Path
 from .sqlite_utils import connect
 
 MAX_RECORDS = 50
+MAX_RANGE_RECORDS = 1000
 MAX_BACKUP_BYTES = 6 * 1024 * 1024
 EXPORT_TTL = 300
 _EXPORTS_PER_OWNER = 8
@@ -23,6 +24,7 @@ _MAX_ID = (1 << 63) - 1
 _MAX_DATE_MS = 253402300799999
 _FIELDS = {"source", "provider_id", "date_ms", "direction", "address", "body"}
 _VERSION = 1
+_RANGE_VERSION = 2
 MANUAL_SOURCE = hashlib.sha256(b"simpleoffice-sms-manual-v1").hexdigest()[:32]
 
 
@@ -157,6 +159,9 @@ class SmsArchive:
     def prepare_export(self, keys, session_key: str, *, now: int | None = None) -> str:
         """Persist only checked selection references so WebView can fetch by GET."""
         items = [(row["source"], row["provider_id"]) for row in self.selected(keys)]
+        return self._issue_export(items, session_key, now=now)
+
+    def _issue_export(self, selection, session_key: str, *, now: int | None = None) -> str:
         if not session_key:
             raise ValueError("An authenticated download session is required")
         ticket = secrets.token_hex(24)
@@ -176,7 +181,7 @@ class SmsArchive:
                 raise OSError("SMS download preparation is at capacity")
             db.execute("INSERT INTO sms_archive_export VALUES(?,?,?,?,?)",
                        (_digest(ticket.encode()), self.owner, _digest(session_key.encode()),
-                        instant + EXPORT_TTL, _canonical(items).decode()))
+                        instant + EXPORT_TTL, _canonical(selection).decode()))
         return ticket
 
     def download_export(self, ticket: str, session_key: str, *, now: int | None = None) -> bytes:
@@ -193,7 +198,16 @@ class SmsArchive:
             ).fetchone()
         if row is None:
             raise ValueError("SMS download not found")
-        return self.export(json.loads(row["selection"]))
+        selection = json.loads(row["selection"])
+        if isinstance(selection, list):
+            return self.export(selection)
+        if (not isinstance(selection, dict) or set(selection) != {"format", "keys", "snapshot"}
+                or selection["format"] != _RANGE_VERSION or not isinstance(selection["snapshot"], str)):
+            raise ArchiveIntegrityError("Invalid SMS download selection")
+        data = self._range_backup(self._select_owned(selection["keys"], MAX_RANGE_RECORDS))
+        if not hmac.compare_digest(_digest(data), selection["snapshot"]):
+            raise ArchiveIntegrityError("SMS backup changed after confirmation")
+        return data
 
     def _connect(self):
         db = connect(str(self._path), timeout=5)
@@ -223,7 +237,9 @@ class SmsArchive:
 
     def append(self, records) -> int:
         """Write all or none; exact replays do not create duplicates."""
-        records = _batch(records)
+        return self._append_validated(_batch(records))
+
+    def _append_validated(self, records) -> int:
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             added = 0
@@ -244,7 +260,9 @@ class SmsArchive:
 
     def states(self, records) -> list[str]:
         """Mark a visible source page without falsely marking a reused provider ID."""
-        records = _batch(records)
+        return self._record_states(_batch(records))
+
+    def _record_states(self, records) -> list[str]:
         with self._connect() as db:
             db.execute("BEGIN")
             states = []
@@ -279,8 +297,11 @@ class SmsArchive:
 
     def selected(self, keys) -> list[dict]:
         """Load and check only an explicitly selected batch belonging to this account."""
-        if type(keys) not in (list, tuple) or not 1 <= len(keys) <= MAX_RECORDS:
-            raise ValueError("Select 1 to 50 archived SMS messages")
+        return self._select_owned(keys, MAX_RECORDS)
+
+    def _select_owned(self, keys, limit: int) -> list[dict]:
+        if type(keys) not in (list, tuple) or not 1 <= len(keys) <= limit:
+            raise ValueError("Invalid SMS selection size")
         selected = []
         for key in keys:
             if type(key) not in (list, tuple) or len(key) != 2:
@@ -301,6 +322,55 @@ class SmsArchive:
         payload = {"version": _VERSION, "owner": self.owner, "records": self.selected(keys)}
         return _canonical({"payload": payload, "sha256": _digest(_canonical(payload))})
 
+    def export_date_range(self, first_ms: int, last_ms: int) -> bytes:
+        """Bounded single snapshot containing all owned rows in the date range."""
+        if (type(first_ms) is not int or type(last_ms) is not int
+                or not 0 <= first_ms <= last_ms <= _MAX_DATE_MS):
+            raise ValueError("Invalid SMS backup range")
+        result = []
+        size = 0
+        with self._connect() as db:
+            db.execute("BEGIN")
+            rows = db.execute(
+                "SELECT source,provider_id,date_ms,direction,address,body,digest FROM archived_sms "
+                "WHERE owner=? AND date_ms BETWEEN ? AND ? "
+                "ORDER BY date_ms DESC,source,provider_id LIMIT ?",
+                (self.owner, first_ms, last_ms, MAX_RANGE_RECORDS + 1),
+            )
+            for row in rows:
+                if len(result) >= MAX_RANGE_RECORDS:
+                    raise ValueError("Choose a smaller backup range")
+                record = self._checked(row)
+                size += len(_canonical(record)) + 1
+                if size > MAX_BACKUP_BYTES:
+                    raise ValueError("Choose a smaller backup range")
+                result.append(record)
+        if not result:
+            raise ValueError("No messages in the selected range")
+        return self._range_backup(result)
+
+    def _range_backup(self, records: list[dict]) -> bytes:
+        payload = {"version": _RANGE_VERSION, "owner": self.owner, "records": records}
+        backup = _canonical({"payload": payload, "sha256": _digest(_canonical(payload))})
+        if len(backup) > MAX_BACKUP_BYTES:
+            raise ValueError("Choose a smaller backup range")
+        return backup
+
+    def preview_range_export(self, first_ms: int, last_ms: int) -> dict:
+        data = self.export_date_range(first_ms, last_ms)
+        return {"count": len(self._recovery_records(data)), "snapshot": _digest(data)}
+
+    def prepare_range_export(self, first_ms: int, last_ms: int, snapshot: str,
+                             session_key: str, *, now: int | None = None) -> str:
+        if not isinstance(snapshot, str) or not re.fullmatch(r"[a-f0-9]{64}", snapshot):
+            raise ValueError("Invalid SMS backup preview")
+        data = self.export_date_range(first_ms, last_ms)
+        if not hmac.compare_digest(_digest(data), snapshot):
+            raise ArchiveConflict("SMS backup contents changed since preview")
+        keys = [(row["source"], row["provider_id"]) for row in self._recovery_records(data)]
+        selection = {"format": _RANGE_VERSION, "keys": keys, "snapshot": snapshot}
+        return self._issue_export(selection, session_key, now=now)
+
     def _recovery_records(self, backup: bytes) -> list[dict]:
         """Decode only a bounded, checksummed recovery file for this account."""
         if type(backup) is not bytes or len(backup) > MAX_BACKUP_BYTES:
@@ -312,11 +382,18 @@ class SmsArchive:
             payload, digest = envelope["payload"], envelope["sha256"]
             if type(payload) is not dict or payload.keys() != {"version", "owner", "records"}:
                 raise ValueError
-            if type(payload["version"]) is not int or payload["version"] != _VERSION or payload["owner"] != self.owner:
+            version = payload["version"]
+            if type(version) is not int or version not in (_VERSION, _RANGE_VERSION) or payload["owner"] != self.owner:
                 raise ValueError
             if not isinstance(digest, str) or re.fullmatch(r"[a-f0-9]{64}", digest) is None:
                 raise ValueError
-            records = _batch(payload["records"])
+            raw = payload["records"]
+            if version == _VERSION:
+                records = _batch(raw)
+            else:
+                if type(raw) is not list or not 1 <= len(raw) <= MAX_RANGE_RECORDS:
+                    raise ValueError
+                records = [_message(row) for row in raw]
             if not records or not hmac.compare_digest(digest, _digest(_canonical(payload))):
                 raise ValueError
         except (TypeError, ValueError, RecursionError):
@@ -330,10 +407,10 @@ class SmsArchive:
 
     def verify_backup(self, backup: bytes) -> dict[str, int]:
         """Check a selected file against a read-only owned archive snapshot."""
-        states = self.states(self._recovery_records(backup))
+        states = self._record_states(self._recovery_records(backup))
         return {"matching": states.count("archived"), "missing": states.count("unarchived"),
                 "conflicting": states.count("conflict")}
 
     def restore(self, backup: bytes) -> int:
         """Restore valid records without overwriting any existing entry."""
-        return self.append(self._recovery_records(backup))
+        return self._append_validated(self._recovery_records(backup))

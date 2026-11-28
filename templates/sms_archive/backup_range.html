@@ -1,0 +1,34 @@
+{% extends "layout.html" %}
+{% set en = g.language == 'en' %}
+{% block title %}{{ 'Back up a date range' if en else 'Zeitraum sichern' }} · SimpleOffice4Me{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-lg py-4">
+  <h1 class="h2">{{ 'Back up a date range' if en else 'Zeitraum sichern' }}</h1>
+  <p>{{ 'Includes all archived messages in the selected UTC period, regardless of the search filter. Start by checking the count. Nothing is downloaded yet.' if en else 'Enthält alle archivierten SMS im gewählten UTC-Zeitraum, unabhängig vom Suchfilter. Prüfe zuerst die Anzahl. Es wird noch nichts heruntergeladen.' }}</p>
+  {% if error %}<p class="alert alert-warning" role="alert">{{ error }}</p>{% endif %}
+  {% if preview %}
+  <p role="status"><strong data-sms-range-count>{{ preview.count }}</strong> {{ 'messages in the backup preview' if en else 'SMS in der Sicherungsvorschau' }}:
+    <time datetime="{{ start }}">{{ start }}</time> {{ 'through' if en else 'bis' }} <time datetime="{{ end }}">{{ end }}</time> (UTC).</p>
+  <p>{{ 'The backup contains private message text. Save it outside the app in a protected location, then check the saved file.' if en else 'Die Sicherung enthält private Nachrichtentexte. Speichere sie außerhalb der App an einem geschützten Ort und prüfe anschließend die gespeicherte Datei.' }}</p>
+  <form method="post" action="{{ url_for('sms_archive.backup_range') }}" data-allow-multiple-submit="true">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="date_from" value="{{ start }}">
+    <input type="hidden" name="date_to" value="{{ end }}">
+    <input type="hidden" name="snapshot" value="{{ preview.snapshot }}">
+    <button class="btn btn-primary" type="submit" name="stage" value="save">{{ 'Save backup file' if en else 'Sicherungsdatei speichern' }}</button>
+  </form>
+  {% else %}
+  <form method="post" action="{{ url_for('sms_archive.backup_range') }}">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <label class="form-label" for="sms-backup-from">{{ 'From (UTC)' if en else 'Von (UTC)' }}</label>
+    <input class="form-control mb-2" id="sms-backup-from" name="date_from" type="date" min="1970-01-01" max="9999-12-31" value="{{ start or '' }}" required>
+    <label class="form-label" for="sms-backup-to">{{ 'Through (UTC)' if en else 'Bis einschließlich (UTC)' }}</label>
+    <input class="form-control mb-2" id="sms-backup-to" name="date_to" type="date" min="1970-01-01" max="9999-12-31" value="{{ end or '' }}" required>
+    <button class="btn btn-primary" type="submit" name="stage" value="preview">{{ 'Preview backup' if en else 'Sicherungsvorschau' }}</button>
+  </form>
+  {% endif %}
+  <a class="btn btn-link mt-3" href="{{ url_for('sms_archive.index') }}">{{ 'Back to SMS archive' if en else 'Zurück zum SMS-Archiv' }}</a>
+  {% if preview %}<a class="btn btn-link mt-3" href="{{ url_for('sms_archive.verify_backup') }}">{{ 'Check saved file' if en else 'Gespeicherte Datei prüfen' }}</a>{% endif %}
+</main>
+{% endblock %}

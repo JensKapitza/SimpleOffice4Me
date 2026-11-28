@@ -14,6 +14,7 @@
   {% else %}
   <div class="d-flex flex-wrap gap-2 mb-3">
     <a class="btn btn-outline-primary" href="#sms-manual">{{ 'Add copied message' if en else 'Kopierte SMS hinzufügen' }}</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('sms_archive.backup_range') }}">{{ 'Back up a date range' if en else 'Zeitraum sichern' }}</a>
     <a class="btn btn-outline-secondary" href="{{ url_for('sms_archive.verify_backup') }}">{{ 'Check a backup file' if en else 'Sicherungsdatei prüfen' }}</a>
     <a class="btn btn-outline-secondary" href="#sms-restore">{{ 'Restore backup' if en else 'Sicherung wiederherstellen' }}</a>
   </div>
