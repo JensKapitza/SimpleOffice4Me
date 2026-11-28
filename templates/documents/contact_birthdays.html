@@ -1,33 +1,45 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
+{% set en = g.language == 'en' %}
+{% macro source(contact) -%}
+  {% set provider = contact.get('source', {}).get('provider') %}
+  <span class="small text-secondary">{% if en %}Contact source: {{ provider if provider else 'not recorded' }}{% else %}Kontaktquelle: {{ provider if provider else 'nicht hinterlegt' }}{% endif %}</span>
+{%- endmacro %}
 <main id="main-content" class="container py-4">
-  <a href="{{ url_for('documents.contacts') }}">Zurück zu Kontakte</a>
-  <h1>Geburtstage verwalten</h1>
-  <p>Nach Monat und Tag sortiert. Ohne bekanntes Jahr bleibt das Datum unvollständig. Hinweise markieren mögliche Dubletten; nichts wird automatisch zusammengeführt.</p>
+  <a href="{{ url_for('documents.contacts') }}">{{ 'Back to contacts' if en else 'Zurück zu Kontakte' }}</a>
+  <h1>{{ 'Manage birthdays' if en else 'Geburtstage verwalten' }}</h1>
+  <p>{{ 'Sorted by month and day. A date without a known year stays incomplete. Warnings highlight possible duplicates; nothing is merged automatically.' if en else 'Nach Monat und Tag sortiert. Ohne bekanntes Jahr bleibt das Datum unvollständig. Hinweise markieren mögliche Dubletten; nichts wird automatisch zusammengeführt.' }}</p>
+  <nav aria-label="{{ 'Birthday filters' if en else 'Geburtstage filtern' }}" class="d-flex flex-wrap gap-2 mb-3">
+    <a class="btn btn-outline-secondary{% if not review_only %} active{% endif %}"
+       href="{{ url_for('documents.contact_birthdays') }}"{% if not review_only %} aria-current="page"{% endif %}>{{ 'All birthdays' if en else 'Alle Geburtstage' }}</a>
+    <a class="btn btn-outline-secondary{% if review_only %} active{% endif %}"
+       href="{{ url_for('documents.contact_birthdays', view='review') }}"{% if review_only %} aria-current="page"{% endif %}>{{ ('Needs review (' ~ warning_count ~ ')') if en else ('Zu prüfen (' ~ warning_count ~ ')') }}</a>
+  </nav>
   {% if rows %}
   <div class="table-responsive">
   <table class="table align-middle">
-    <caption>Geburtstage aus sichtbaren Kontakten</caption>
-    <thead><tr><th scope="col">Kontakt</th><th scope="col">Geburtstag</th><th scope="col">Prüfung</th></tr></thead>
+    <caption>{{ 'Birthdays from visible contacts' if en else 'Geburtstage aus sichtbaren Kontakten' }}</caption>
+    <thead><tr><th scope="col">{{ 'Contact' if en else 'Kontakt' }}</th><th scope="col">{{ 'Birthday' if en else 'Geburtstag' }}</th><th scope="col">{{ 'Review' if en else 'Prüfung' }}</th></tr></thead>
     <tbody>{% for contact, conflicts in rows %}
       <tr>
-        <td><a href="{{ url_for('documents.contact_detail', contact_id=contact.contact_id) }}">{{ contact.fields.display_name }}</a></td>
-        <td>{{ contact.fields.birthday }}{% if contact.fields.birthday.startswith('--') %} <span class="text-secondary">(Jahr unbekannt)</span>{% endif %}</td>
+        <td><a href="{{ url_for('documents.contact_detail', contact_id=contact.contact_id) }}">{{ contact.fields.display_name }}</a><div>{{ source(contact) }}</div></td>
+        <td>{{ contact.fields.birthday }}{% if contact.fields.birthday.startswith('--') %} <span class="text-secondary">({{ 'year unknown' if en else 'Jahr unbekannt' }})</span>{% endif %}</td>
         <td>{% if conflicts %}
-          <strong><span aria-hidden="true">!</span> Geburtstag prüfen</strong>
+          <strong><span aria-hidden="true">!</span> {{ 'Check birthday' if en else 'Geburtstag prüfen' }}</strong>
           <ul class="mb-0">{% for other in conflicts %}
-            <li><a href="{{ url_for('documents.contact_detail', contact_id=other.contact_id) }}">{{ other.fields.display_name }}</a>: {{ other.fields.birthday }}</li>
+            <li><a href="{{ url_for('documents.contact_detail', contact_id=other.contact_id) }}">{{ other.fields.display_name }}</a>: {{ other.fields.birthday }} · {{ source(other) }}</li>
           {% endfor %}</ul>
         {% else %}–{% endif %}</td>
       </tr>
     {% endfor %}</tbody>
   </table></div>
-  {% else %}<p>Keine Geburtstage gespeichert. Öffne einen Kontakt, um ein Datum einzutragen.</p>{% endif %}
-  {% if last > 1 %}<nav aria-label="Geburtstagsseiten" class="d-flex gap-3">
-    {% if page > 1 %}<a rel="prev" aria-label="Vorherige Geburtstagsseite" href="{{ url_for('documents.contact_birthdays', page=page - 1) }}">Vorherige Seite</a>{% endif %}
-    <span>Seite {{ page }} von {{ last }}</span>
-    {% if page < last %}<a rel="next" aria-label="Nächste Geburtstagsseite" href="{{ url_for('documents.contact_birthdays', page=page + 1) }}">Nächste Seite</a>{% endif %}
+  {% elif review_only %}<p>{{ 'No conflicting birthdays found.' if en else 'Keine widersprüchlichen Geburtstage gefunden.' }}</p>
+  {% else %}<p>{{ 'No birthdays saved. Open a contact to add a date.' if en else 'Keine Geburtstage gespeichert. Öffne einen Kontakt, um ein Datum einzutragen.' }}</p>{% endif %}
+  {% if last > 1 %}<nav aria-label="{{ 'Birthday pages' if en else 'Geburtstagsseiten' }}" class="d-flex flex-wrap gap-3">
+    {% if page > 1 %}<a rel="prev" aria-label="{{ 'Previous birthday page' if en else 'Vorherige Geburtstagsseite' }}" href="{{ url_for('documents.contact_birthdays', page=page - 1, view=('review' if review_only else none)) }}">{{ 'Previous page' if en else 'Vorherige Seite' }}</a>{% endif %}
+    <span>{{ ('Page ' ~ page ~ ' of ' ~ last) if en else ('Seite ' ~ page ~ ' von ' ~ last) }}</span>
+    {% if page < last %}<a rel="next" aria-label="{{ 'Next birthday page' if en else 'Nächste Geburtstagsseite' }}" href="{{ url_for('documents.contact_birthdays', page=page + 1, view=('review' if review_only else none)) }}">{{ 'Next page' if en else 'Nächste Seite' }}</a>{% endif %}
   </nav>{% endif %}
 </main>
 {% endblock %}

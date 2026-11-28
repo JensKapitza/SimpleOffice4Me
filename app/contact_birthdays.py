@@ -70,3 +70,14 @@ def birthday_warning_ids(visible):
                 dated.add(value)
     return {contact_id for contact_id, keys, known in contacts
             if any(len(groups[key][0]) > 1 or (known and len(groups[key][1]) > 1) for key in keys)}
+
+
+def birthday_review_page(visible, page, review_only, page_size=50):
+    """Build the authenticated contact list page without changing contact data."""
+    warnings = birthday_warning_ids(visible)
+    shown = [item for item in visible if not review_only or item["contact_id"] in warnings]
+    last = max(1, (len(shown) + page_size - 1) // page_size)
+    page = min(max(1, page), last)
+    rows = [(item, conflicting_birthdays(item, visible)[:5] if item["contact_id"] in warnings else [])
+            for item in shown[(page - 1) * page_size:page * page_size]]
+    return rows, page, last, len(warnings)

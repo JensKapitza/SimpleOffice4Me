@@ -5,7 +5,7 @@ import secrets
 from flask import make_response
 from .documents_core import *  # noqa: F401,F403
 from .smart_folder_views import SmartFolderViews
-from .contact_birthdays import conflicting_birthdays, normal_birthday
+from .contact_birthdays import birthday_review_page, conflicting_birthdays, normal_birthday
 from .contact_company_data import company_data_metadata_from_form, company_search_items
 from .mail_document_access import private_mail_document
 from .form_store import StockAdjustmentCommittedError
@@ -575,14 +575,14 @@ def contact_birthdays():
     visible = _contacts().contacts(str(g.user["username"]))
     eligible = [item for item in visible if normal_birthday(item.get("fields", {}).get("birthday"))]
     eligible.sort(key=lambda item: (item["fields"]["birthday"][-5:], item["fields"].get("display_name", "").casefold()))
+    review_only = request.args.get("view") == "review"
     try:
         page = max(1, int(request.args.get("page", "1")))
     except ValueError:
         page = 1
-    last = max(1, (len(eligible) + 49) // 50)
-    page = min(page, last)
-    rows = [(item, conflicting_birthdays(item, eligible)[:5]) for item in eligible[(page - 1) * 50:page * 50]]
-    response = make_response(render_template("documents/contact_birthdays.html", rows=rows, page=page, last=last))
+    rows, page, last, warning_count = birthday_review_page(eligible, page, review_only)
+    response = make_response(render_template("documents/contact_birthdays.html", rows=rows, page=page, last=last,
+                                             review_only=review_only, warning_count=warning_count))
     response.headers["Cache-Control"] = "private, no-store"
     return response
 
