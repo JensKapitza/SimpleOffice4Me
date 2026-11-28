@@ -108,23 +108,6 @@ def wait_for(action, label, seconds):
     raise AssertionError(f"Timed out waiting for {label}")
 
 
-def finish_native_bootstrap(device):
-    """Choose the existing offline fallback, without linking a Google account."""
-    def startup_node(node):
-        label = (node.get("text") or "").casefold()
-        if node.get("package") == APP:
-            return (node.get("class") == "android.webkit.WebView"
-                    or "lokale python-laufzeit" in label or "lokales benutzerkonto" in label)
-        return (node.get("package") in {"android", "com.android.settings", "com.google.android.gms"}
-                and any(text in label for text in ("choose an account", "add account", "konto hinzufügen",
-                                                  "konto für simpleoffice4me")))
-
-    ready = device.wait_node(startup_node, "offline first-launch choice", 60)
-    if ready.get("package") != APP:
-        device.adb("shell", "input", "keyevent", "KEYCODE_BACK")
-    print("Android launcher reached local account setup", flush=True)
-
-
 def seed(page, selected=DESIRED):
     page.locator("#sms-manual-address").fill("Synthetic sender")
     page.locator("#sms-manual-body").fill(selected)
@@ -154,7 +137,7 @@ def verify_backup(device):
                         "-c", "android.intent.category.LAUNCHER", "-n", f"{APP}/.BootstrapActivity", timeout=45)
     if "Status: ok" not in result:
         raise AssertionError("Android did not start the SimpleOffice activity")
-    finish_native_bootstrap(device)
+    print("Android launcher started; waiting for local WebView", flush=True)
     port = device.forwarded_socket()
     try:
         url = f"http://127.0.0.1:{port}"

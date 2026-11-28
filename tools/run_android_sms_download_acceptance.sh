@@ -72,6 +72,16 @@ abis="$(adb_for_test shell getprop ro.product.cpu.abilist | tr -d '\r')"
 installed="$(adb_for_test shell pm list packages de.simpleoffice4me.android | tr -d '\r')"
 [[ -z "$installed" ]] || { echo 'Use a fresh AVD without SimpleOffice already installed' >&2; exit 2; }
 adb_for_test install "$apk"
+# Select the already-supported no-account branch before the first launch.
+# run-as requires this fresh debug APK; no account, cookie or server state is seeded.
+adb_for_test shell run-as de.simpleoffice4me.android mkdir -p shared_prefs
+adb_for_test shell -T "run-as de.simpleoffice4me.android sh -c 'umask 077; cat > shared_prefs/simpleoffice-android-identity.xml'" <<'XML'
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <boolean name="identity-ready" value="true" />
+    <string name="google-email"></string>
+</map>
+XML
 adb_for_test shell input keyevent KEYCODE_WAKEUP
 adb_for_test shell wm dismiss-keyguard
 timeout 360 python -m tools.android_sms_download_acceptance --adb "$adb_bin" --serial "$serial"
