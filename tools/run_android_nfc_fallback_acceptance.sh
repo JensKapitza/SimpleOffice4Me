@@ -5,6 +5,8 @@ set -euo pipefail
 
 apk=${1:?path to the debug APK required}
 serial=${2:-}
+motion=${3:-}
+[[ -z "$motion" || "$motion" == "--motion" ]] || { echo 'Unknown emulator acceptance mode.' >&2; exit 2; }
 test -f "$apk"
 sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
 if [[ -n "$sdk" ]]; then export PATH="$sdk/platform-tools:$PATH"; fi
@@ -81,3 +83,7 @@ tadb shell settings put system screen_off_timeout 1800000
 tadb shell input keyevent KEYCODE_WAKEUP
 tadb shell wm dismiss-keyguard
 timeout 280 python -m tools.android_nfc_fallback_acceptance --serial "$serial"
+
+if [[ "$motion" == "--motion" ]]; then
+  timeout 240 python -m tools.android_motion_acceptance --serial "$serial"
+fi

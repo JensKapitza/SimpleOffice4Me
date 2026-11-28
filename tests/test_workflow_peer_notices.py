@@ -68,13 +68,39 @@ class WorkflowPeerNoticeTests(_WorkflowPeerNoticeFixture):
         self.assertEqual("duplicate", self._send(grant).json["status"])
         notice, = self._notice_rows()
         feed = self.client.get("/automation-v3/copy-notices").json["notices"]
-        self.assertEqual([{"id": notice.event_id, "kind": "peer", "at": notice.occurred_at}], feed)
-        self.assertEqual({}, notice.metadata)
+        self.assertEqual([{"id": notice.event_id, "kind": "peer", "at": notice.occurred_at,
+                           "alert_for_ms": 20_000}], feed)
+        self.assertEqual({"delivery_window": timing_envelope({"within_seconds": 120},
+                                                            self.now - timedelta(seconds=2))}, notice.metadata)
         self._register(self.client, "other")
         other = app.test_client()
         self._login(other, "other")
         self.assertEqual([], other.get("/automation-v3/copy-notices").json["notices"])
         self.assertNotIn(grant.encode(), other.get("/automation-v3").data)
+
+    def test_deadline_survives_replay_but_expired_or_legacy_notices_only_remain_visible(self):
+        from unittest.mock import patch
+
+        grant = self._grant()
+        at = self.now - timedelta(seconds=2)
+        values = {"within_seconds": 12, "timezone": "America/New_York"}
+        self.assertEqual("delivered", self._send(grant, at=at, timing=values).json["status"])
+        self.assertEqual("duplicate", self._send(grant, at=at, timing={"within_seconds": 120}).json["status"])
+        notice, = self._notice_rows()
+        self.assertEqual({"delivery_window": timing_envelope(values, at)}, notice.metadata)
+        legacy = ActivityStore(self.root).record(PEER_NOTICE, "owner", event_id="2" * 64,
+                                                  source="workflow.peer_notice")
+        url = "/automation-v3/copy-notices"
+        for when, expected in ((at + timedelta(seconds=4), 7000),
+                               (at + timedelta(seconds=11), None),
+                               (at + timedelta(seconds=13), None)):
+            with self.subTest(when=when), patch("app.v3_automation_routes.datetime", wraps=datetime) as clock:
+                clock.now.return_value = when
+                view = {row["id"]: row for row in self.client.get(url).json["notices"]}
+                self.assertEqual({notice.event_id, legacy.event_id}, set(view))
+                self.assertEqual(expected, view[notice.event_id].get("alert_for_ms"))
+                self.assertNotIn("alert_for_ms", view[legacy.event_id])
+                self.assertNotIn("delivery_window", view[notice.event_id])
 
     def test_read_receipts_are_explicit_atomic_private_and_do_not_remove_notices(self):
         store = ActivityStore(self.root)

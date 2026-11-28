@@ -203,6 +203,57 @@ class DataLoggerWebTest(unittest.TestCase):
             db.execute("INSERT INTO user_permission(user_id,feature,enabled,updated_at) VALUES(?,?,0,CURRENT_TIMESTAMP)", (uid, "datalogger")); db.commit()
         self.assertEqual(403, self.reader.get("/datalogger/").status_code)
 
+    def test_local_android_motion_requires_explicit_save_and_matching_editable_channel(self):
+        store = DataLoggerStore(app.config["DOCUMENT_ROOT"])
+        motion = store.create_channel("Eigene Bewegung", "owner", unit="m/s²", readers=["reader"])
+        wrong = store.create_channel("Andere Einheit", "owner", unit="rad/s")
+        url = "/datalogger/android-motion"
+        headers = {"User-Agent": "Synthetic SimpleOffice4Me-Android/test"}
+        self.assertIn(url, self.owner.get("/datalogger/", headers=headers).get_data(as_text=True))
+        self.assertNotIn(url, self.owner.get("/datalogger/").get_data(as_text=True))
+        self.assertEqual(403, self.owner.get(url, headers={**headers, "X-Forwarded-For": "192.0.2.9"}).status_code)
+        page = self.owner.get(url)
+        self.assertEqual("private, no-store", page.headers["Cache-Control"])
+        options = BeautifulSoup(page.data, "html.parser").select("[data-motion-save] option[data-unit]")
+        self.assertEqual({motion, wrong}, {option["value"] for option in options})
+        self.assertNotIn(motion, self.reader.get(url).get_data(as_text=True))
+        self.assertEqual([], store.samples(motion))
+        body = {"channel_id": motion, "kind": "acceleration", "value": "13"}
+        self.assertEqual(403, self.reader.post(url, data=body).status_code)
+        self.assertEqual(422, self.owner.post(url, data={**body, "channel_id": wrong}).status_code)
+        for invalid in ("nan", "inf", "-1", "2001"):
+            self.assertEqual(422, self.owner.post(url, data={**body, "value": invalid}).status_code)
+        self.assertEqual(400, self.owner.post(url, data={**body, "latitude": "1"}).status_code)
+        self.assertEqual(400, self.owner.post(url, data={**body, "value": ["13", "14"]}).status_code)
+        self.assertEqual([], store.samples(motion))
+        self.assertEqual(303, self.owner.post(url, data=body).status_code)
+        saved, = DataLoggerStore(app.config["DOCUMENT_ROOT"]).samples(motion)
+        self.assertEqual(13.0, saved["value"])
+        self.assertEqual("manual", saved["source_kind"])
+        self.assertEqual({"observation": "acceleration"}, saved["metadata"])
+
+    def test_android_motion_save_uses_existing_csrf_and_current_unit(self):
+        store = DataLoggerStore(app.config["DOCUMENT_ROOT"])
+        motion = store.create_channel("Drehung", "owner", unit="rad/s", editors=["reader"])
+        url = "/datalogger/android-motion"
+        body = {"channel_id": motion, "kind": "angular_speed", "value": "0"}
+        app.config["TEST_CSRF_PROTECTION"] = True
+        token = BeautifulSoup(self.reader.get(url).data, "html.parser").select_one("[data-motion-save] [name=_csrf_token]")["value"]
+        self.assertEqual(403, self.reader.post(url, data=body).status_code)
+        preflight = url + "/authorize"
+        self.assertEqual(403, self.reader.post(preflight).status_code)
+        auth = {"X-CSRF-Token": token}
+        self.assertEqual(403, self.reader.post(preflight, headers={**auth, "X-Forwarded-For": "192.0.2.9"}).status_code)
+        self.assertEqual(400, self.reader.post(preflight, headers=auth, data={"sample": "0"}).status_code)
+        self.assertEqual(204, self.reader.post(preflight, headers=auth).status_code)
+        self.assertEqual([], store.samples(motion))
+        store.update_channel(motion, "owner", unit="m/s²", editors=["reader"])
+        self.assertEqual(422, self.reader.post(url, data={**body, "_csrf_token": token}).status_code)
+        self.assertEqual([], store.samples(motion))
+        store.update_channel(motion, "owner", unit="rad/s", editors=["reader"])
+        self.assertEqual(303, self.reader.post(url, data={**body, "_csrf_token": token}).status_code)
+        self.assertEqual(0, store.samples(motion)[0]["value"])
+
     def test_unshared_channel_is_not_disclosed(self):
         response = self.owner.post("/datalogger/channels", data={"name": "Privat"})
         channel = response.headers["Location"].rsplit("/", 1)[-1]
