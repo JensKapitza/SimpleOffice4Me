@@ -144,9 +144,9 @@ def _verify_android_cryptography_extension() -> None:
 
 
 def _recognize_android_image(raster: bytes, width: int, height: int) -> str:
-    from java import jclass
-
     try:
+        from java import jclass
+
         result = jclass("de.simpleoffice4me.android.AndroidPhotoOcr").recognize(raster, width, height)
     except Exception as exc:
         # Do not put document text or native exception details in OCR status/logs.
@@ -275,8 +275,12 @@ def start(
         if android_paired_folder.bp.name not in app.blueprints:
             app.register_blueprint(android_paired_folder.bp)
         _configure_lan_addresses(lan_addresses)
-        from app import android_image_ocr
-        android_image_ocr.register_renderer(_recognize_android_image)
+        # Desktop tooling can exercise this module without an Android JVM.
+        # Do not install a process-wide photo renderer in that environment.
+        if hasattr(sys, "getandroidapilevel"):
+            from app import android_image_ocr
+
+            android_image_ocr.register_renderer(_recognize_android_image)
         _startup_stage(debug_startup, "routes-ready")
     except Exception as exc:
         raise RuntimeError(f"SimpleOffice4Me import failed: {type(exc).__name__}: {exc}") from exc

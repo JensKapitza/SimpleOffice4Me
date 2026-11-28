@@ -464,7 +464,7 @@ jobs:
           photo_ocr_changed="$(git diff --name-only HEAD^1 HEAD -- \
             'app/android_image_ocr.py' 'app/document_store_part_4.py' 'app/document_store_part_5.py' 'app/ocr_preprocessing.py' 'app/photo_upload.py' \
             'app/documents_routes_content.py' 'app/documents_routes_workflows.py' 'templates/documents/detail.html' 'templates/documents/images.html' \
-            'android/apk/app/src/main/**/AndroidPhotoOcr*' \
+            'android/apk/app/src/main/**/AndroidPhotoOcr*' 'android/apk/app/src/main/python/android_runtime.py' \
             'android/apk/app/build.gradle' 'android/apk/app/src/main/cpp/**' \
             'tools/android_photo_ocr_acceptance.py' 'tools/prepare_android_ocr_models.py' \
             'tools/check_android_photo_ocr_apk.py' 'licenses/android-ocr/**' 'licenses/TESSDATA-FAST-APACHE-2.0.txt')"
