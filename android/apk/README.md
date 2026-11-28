@@ -71,6 +71,7 @@ its published SHA-256 before Gradle uses it:
 cd android/apk
 export CHAQUOPY_BUILD_PYTHON="$(command -v python3.14)"
 export SIMPLEOFFICE_ANDROID_WHEEL_DIR="$PWD/app/wheelhouse"
+sdkmanager 'ndk;28.2.13676358' 'cmake;3.22.1'
 gradle assembleDebug
 ```
 
@@ -158,8 +159,10 @@ CI verifies that the APK contains only the requested native ABI and checks the s
 
 Background indexer, OSM indexer, data logger and MCP are disabled in the embedded
 Android runtime. External tools such as LibreOffice, Ghostscript, ClamAV,
-Poppler, Tesseract, and Piper with its voice model are not bundled. Android's
-built-in PDF renderer can display PDF pages without those tools. For photo
+Poppler, the Tesseract command-line program, and Piper with its voice model
+are not bundled. The app includes a native Tesseract backend for image OCR;
+it does not provide PDF OCR or a command-line executable. Android's built-in
+PDF renderer can display PDF pages without those tools. For photo
 capture, the WebView opens Android's file chooser; if it offers no camera,
 take the photo in the Android Camera app first and then select or share it.
 
@@ -170,6 +173,29 @@ APK uses its own backend and private data on the phone. See
 
 The Android build has its own dependency pins because binary Python packages
 must have Android-compatible wheels.
+
+## Bundled offline image OCR
+
+Use **Documents → Image analysis → Run OCR** on a JPEG or PNG to recognize
+German and English text locally, including when the device is offline. The
+document keeps its original bytes. The result uses that exact content digest
+and is made available in existing document search. Server/Docker/PWA and
+PDF OCR paths are unchanged.
+
+The build stages only the upstream [tessdata_fast 4.1.0](https://github.com/tesseract-ocr/tessdata_fast/releases/tag/4.1.0)
+German and English models from commit `65727574dfcd264acbb0c3e07860e4e9e9b22185`.
+The build checks size and SHA-256, embeds both files and their Apache-2.0
+license under `assets/android-ocr/`, and fails on missing or changed bytes.
+At first use, the APK verifies and copies those included assets to its private
+no-backup area. No model bytes, images or OCR results are sent over the network.
+
+Pillow checks the image size, applies orientation, composites transparency
+onto white and downscales before passing only fixed-stride 8-bit grayscale
+pixels to the native engine. There is no browser-to-native JavaScript OCR
+interface. Existing authenticated document access and CSRF checks still apply.
+The caller waits at most 25 seconds for the native worker. If it has not yet
+exited, the same worker retains the single admission slot rather than starting
+another native job.
 
 ## Launcher-Logo im fertigen APK prüfen
 

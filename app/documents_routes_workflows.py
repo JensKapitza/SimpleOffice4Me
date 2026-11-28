@@ -3,6 +3,7 @@ from __future__ import annotations
 import secrets
 
 from flask import make_response
+from .android_image_ocr import configured as android_image_ocr_configured
 from .documents_core import *  # noqa: F401,F403
 from .smart_folder_views import SmartFolderViews
 from .contact_birthdays import conflicting_birthdays, normal_birthday
@@ -60,6 +61,7 @@ def detail(document_id: str):
     response = make_response(render_template(
         "documents/detail.html",
         document=visible_document,
+        image_ocr_on_device=android_image_ocr_configured(),
         smart_folders=smart_views.activated_folders(),
         document_smart_folders=smart_views.assigned_to(document_id),
         import_origin_path=smart_views.import_origin_view_path(document),

@@ -117,7 +117,7 @@ class AndroidRuntimeTests(unittest.TestCase):
             return real_import(name, *args, **kwargs)
 
         from contextlib import ExitStack
-        from app import app as flask_app
+        from app import android_image_ocr, app as flask_app
         cwd = Path.cwd()
         path_before = sys.path[:]
         try:
@@ -143,6 +143,8 @@ class AndroidRuntimeTests(unittest.TestCase):
             sys.path[:] = path_before
         self.assertIn("app", steps)
         self.assertEqual(["symbols", "rust", "app"], steps[:3])
+        if not hasattr(sys, "getandroidapilevel"):
+            self.assertFalse(android_image_ocr.configured(), "Desktop boot must not replace its OCR engine")
 
     def test_cryptography_rust_extension_preflight_uses_the_expected_module(self):
         spec = importlib.util.spec_from_file_location("android_runtime_crypto_test", RUNTIME)

@@ -676,6 +676,7 @@ class _DocumentStorePart4:
         document_id_hint: str = "",
         *,
         track_location_change: bool = True,
+        run_image_ocr: bool = True,
     ) -> tuple[bool, bool, bool]:
         if path.is_relative_to(self.root) and is_v2_control_path(path.relative_to(self.root)):
             raise ValueError("V2 control metadata is not a managed document")
@@ -761,7 +762,8 @@ class _DocumentStorePart4:
         fingerprint.update({"sha256": digest, "first_seen_at": fingerprint.get("first_seen_at", now), "last_seen_at": now, "paths": sorted(known_paths), "seen_count": int(fingerprint.get("seen_count", 0)) + 1})
         atomic_json_write(fingerprint_path, fingerprint)
         metadata["system_state"] = "integrity_changed" if integrity_changed else ("duplicate" if duplicate else "indexed")
-        if self._is_image(path): self._apply_image_analysis(path, metadata)
+        if self._is_image(path):
+            self._apply_image_analysis(path, metadata, run_ocr=run_image_ocr)
         self._apply_document_text_extraction(path, metadata); self._save_document(metadata)
         if integrity_changed: self._event("integrity_changed", {"document_id": document_id, "expected_sha256": original_sha256, "observed_sha256": digest})
         self._refresh_search_index(metadata)

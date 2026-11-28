@@ -487,16 +487,8 @@ class PhotoBulkImporter:
         })
 
     def _scan_photo_file(self, path: Path, *, run_ocr: bool) -> None:
-        restore_ocr = None
-        if not run_ocr:
-            restore_ocr = self.store._image_ocr
-            self.store._image_ocr = lambda _path: ""  # type: ignore[method-assign]
-        try:
-            safe_path = resolve_file_under(self.store.root, path.relative_to(self.store.root))
-            self.store._scan_file(safe_path, force_hash=True)
-        finally:
-            if restore_ocr is not None:
-                self.store._image_ocr = restore_ocr  # type: ignore[method-assign]
+        safe_path = resolve_file_under(self.store.root, path.relative_to(self.store.root))
+        self.store._scan_file(safe_path, force_hash=True, run_image_ocr=run_ocr)
 
     def _complete_photo_import(
         self,
