@@ -134,7 +134,11 @@ def main():
         assert result.stdout.splitlines()[-1] == "duplicate"
         target = json.loads(dst.request("/automation-v3/copy-notices"))["notices"]
         assert len(target) == 1 and target[0]["kind"] == "peer"
-        assert set(target[0]) == {"id", "kind", "at"}
+        assert set(target[0]) == {"id", "kind", "at", "alert_for_ms"}
+        assert 0 < target[0]["alert_for_ms"] <= 20_000
+        def inbox_identity(rows):
+            return [{key: row[key] for key in ("id", "kind", "at")} for row in rows]
+
         assert not json.loads(src.request("/automation-v3/copy-notices"))["notices"]
         # A verified delivery is not an instruction to create a task.
         task_title = "Kopie prüfen / Review copy"
@@ -191,7 +195,7 @@ def main():
         dst.request(receipt, data=json.dumps({"ids": [target[0]["id"]]}).encode(),
                     headers={"Content-Type": "application/json", "X-CSRF-Token": dst.csrf("/automation-v3")})
         destination_feed = json.loads(dst.request("/automation-v3/copy-notices"))
-        assert destination_feed["seen"] == [target[0]["id"]] and destination_feed["notices"] == target
+        assert destination_feed["seen"] == [target[0]["id"]] and inbox_identity(destination_feed["notices"]) == inbox_identity(target)
         assert not json.loads(src.request("/automation-v3/copy-notices")).get("seen")
         source_page = src.page("/automation-v3")
         assert not source_page.select('[data-next-attempt], [data-delivery-state="peer_unreachable"], [data-delivery-state="retry_due"]')
@@ -201,7 +205,7 @@ def main():
         dst.page(consent, fields={"operation": "revoke", "grant": grant, "_csrf_token": dst.csrf("/automation-v3")})
         _work(root / a, tls)
         assert src.page("/automation-v3").select_one('[data-delivery-state="denied"]')
-        assert json.loads(dst.request("/automation-v3/copy-notices"))["notices"] == target
+        assert inbox_identity(json.loads(dst.request("/automation-v3/copy-notices"))["notices"]) == inbox_identity(target)
         print("PASS: real copy triggers durable peer job; paired HTTPS delivery, replay, end-of-day offline recovery, private read receipt, one manual personal task and revoke verified")
 
 

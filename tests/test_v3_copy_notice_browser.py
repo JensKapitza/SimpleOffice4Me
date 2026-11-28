@@ -1,4 +1,5 @@
 """Explicit opt-in and one real Web Audio node on the authenticated copy feed."""
+from datetime import datetime, timedelta, timezone
 import importlib.util
 from io import BytesIO
 import os
@@ -18,6 +19,7 @@ from app.federation_trust_store import FederationTrustStore
 from app.settings_store import SettingsStore
 from app.todo_store import TodoStore
 from app.v3_activity import ActivityStore
+from app.v3_automation_timing import timing_envelope
 from app.v3_copy_notices import NOTICE
 from app.workflow_peer_notices import PEER_NOTICE
 
@@ -102,22 +104,36 @@ class CopyNoticeSoundBrowserTest(unittest.TestCase):
         self.assertEqual([], page.evaluate("() => window.copyTones"))
         button.click()
         page.wait_for_selector('[data-copy-notice-sound][aria-pressed="true"]')
-        ActivityStore(root).record(PEER_NOTICE, "owner", event_id="a" * 64, source="synthetic.audio.smoke")
+        store = ActivityStore(root)
+        expired = store.record(
+            PEER_NOTICE, "owner", event_id="e" * 64, source="workflow.peer_notice",
+            metadata={"delivery_window": timing_envelope(
+                {"within_seconds": 2}, datetime.now(timezone.utc) - timedelta(seconds=30)
+            )},
+        )
+        page.wait_for_selector(f'[data-notice-id="{expired.event_id}"]', timeout=12_000)
+        self.assertEqual([], page.evaluate("() => window.copyTones"))
+        fresh = store.record(
+            PEER_NOTICE, "owner", event_id="a" * 64, source="workflow.peer_notice",
+            metadata={"delivery_window": timing_envelope(
+                {"within_seconds": 120}, datetime.now(timezone.utc) - timedelta(seconds=2)
+            )},
+        )
         page.wait_for_function("() => window.copyTones.length === 1", timeout=12_000)
-        self.assertEqual(1, page.locator("[data-copy-notice-list] [data-notice-id]").count())
+        self.assertEqual(2, page.locator("[data-copy-notice-list] [data-notice-id]").count())
         with page.expect_response(lambda response: response.url.endswith("/automation-v3/copy-notices"), timeout=10_000):
             pass
         self.assertEqual([660], page.evaluate("() => window.copyTones"))
         button.click()
         self.assertEqual("false", button.get_attribute("aria-pressed"))
         read = page.locator("[data-copy-read-button]")
-        notice = page.locator("[data-copy-notice-list] [data-notice-id]")
+        notice = page.locator(f'[data-notice-id="{fresh.event_id}"]')
         self.assertEqual("0", notice.get_attribute("data-notice-read"))
         with page.expect_response(lambda response: response.url.endswith("/copy-notices/read")) as receipt:
             read.focus()
             page.keyboard.press("Enter")
         self.assertEqual(204, receipt.value.status)
-        page.wait_for_selector('[data-notice-read="1"]')
+        notice.and_(page.locator('[data-notice-read="1"]')).wait_for()
         self.assertEqual("Read", notice.locator("[data-notice-read-label]").inner_text())
         self.assertEqual("Visible notices marked as read.", page.locator("[data-copy-read-status]").inner_text())
         page.reload(wait_until="domcontentloaded")

@@ -16,7 +16,7 @@ from .todo_store import TodoPrivateListRequired, TodoStore
 from .v3_activity import ActivityStore
 from .v3_automation import AutomationEngine, AutomationStore, default_action_registry
 from .v3_capabilities import enabled
-from .v3_automation_timing import action_window, window_status
+from .v3_automation_timing import action_window, received_window_status, utc_instant, window_status
 from .workflow_peer_notices import DEST, PEER_NOTICE, PeerNoticeGrants, feature_on, permitted_peer
 from .federation_store import FederationStore
 from . import workflow_peer_notice_jobs as peer_jobs
@@ -177,6 +177,23 @@ def index():
     return _render_index(actor)
 
 
+def _copy_notice_row(row, now):
+    kind = {JOB_NOTICE: "job", PEER_NOTICE: "peer"}.get(row.event_type, "browser")
+    result = {"id": row.event_id, "kind": kind, "at": row.occurred_at}
+    if kind == "peer":
+        # Legacy notices have no verifiable deadline: keep them visible, not audible.
+        window = row.metadata.get("delivery_window") if isinstance(row.metadata, dict) else None
+        if row.source == "workflow.peer_notice" and window:
+            try:
+                if received_window_status(window, now, uncertainty_seconds=1) == "ready":
+                    available_ms = int((utc_instant(window["expires_at"]) - now).total_seconds() * 1000) - 1000
+                    if available_ms > 0:
+                        result["alert_for_ms"] = min(20_000, available_ms)
+            except (ValueError, KeyError, TypeError, OverflowError):
+                pass
+    return result
+
+
 @bp.get("/copy-notices")
 @login_required
 def copy_notices_feed():
@@ -186,11 +203,9 @@ def copy_notices_feed():
         rows, seen = _notice_inbox(str(g.user["username"]), strict=True)
     except (OSError, sqlite3.Error):
         abort(503)
-    return jsonify({"enabled": True, **({"seen": sorted(seen)} if seen else {}), "notices": [
-        {"id": row.event_id, "kind": {JOB_NOTICE: "job", PEER_NOTICE: "peer"}.get(row.event_type, "browser"),
-         "at": row.occurred_at}
-        for row in rows
-    ]})
+    now = datetime.now(timezone.utc)
+    return jsonify({"enabled": True, **({"seen": sorted(seen)} if seen else {}),
+                    "notices": [_copy_notice_row(row, now) for row in rows]})
 
 
 @bp.post("/copy-notices/read")
