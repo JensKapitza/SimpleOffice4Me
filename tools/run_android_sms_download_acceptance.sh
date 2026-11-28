@@ -20,7 +20,9 @@ if [[ -z "$serial" ]]; then
   fi
   test -n "${sdk:?Android SDK not installed}"
   image='system-images;android-30;google_apis;x86_64'
-  serial=emulator-5560
+  port=5560
+  if [[ "${SMS_ACCEPTANCE_STARTUP_ONLY:-0}" == 1 ]]; then port=5562; fi
+  serial="emulator-$port"
   if [[ ! -r /dev/kvm || ! -w /dev/kvm ]]; then
     sudo chown "$(id -u):$(id -g)" /dev/kvm
   fi
@@ -41,7 +43,7 @@ if [[ -z "$serial" ]]; then
     exit 2
   fi
   emulator_log="$ANDROID_USER_HOME/emulator.log"
-  "$sdk/emulator/emulator" -avd "$avd" -port 5560 -no-window -no-audio -no-boot-anim \
+  "$sdk/emulator/emulator" -avd "$avd" -port "$port" -no-window -no-audio -no-boot-anim \
     -no-snapshot -wipe-data -gpu swiftshader_indirect >"$emulator_log" 2>&1 &
   emulator_pid=$!
   trap 'status=$?; kill "$emulator_pid" 2>/dev/null || true; if ((status != 0)); then tail -n 60 "$emulator_log" >&2; fi' EXIT
@@ -87,4 +89,6 @@ adb_for_test shell svc power stayon true
 adb_for_test shell settings put system screen_off_timeout 1800000
 adb_for_test shell input keyevent KEYCODE_WAKEUP
 adb_for_test shell wm dismiss-keyguard
-timeout 360 python -m tools.android_sms_download_acceptance --adb "$adb_bin" --serial "$serial"
+flags=()
+if [[ "${SMS_ACCEPTANCE_STARTUP_ONLY:-0}" == 1 ]]; then flags+=(--startup-only); fi
+timeout 360 python -m tools.android_sms_download_acceptance --adb "$adb_bin" --serial "$serial" "${flags[@]}"

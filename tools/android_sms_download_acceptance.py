@@ -220,7 +220,7 @@ def wait_for(action, label, seconds):
             found = action()
             if found is not None and found is not False:
                 return found
-        except (OSError, subprocess.SubprocessError, ElementTree.ParseError, IndexError):
+        except (OSError, subprocess.SubprocessError, ElementTree.ParseError, HTTPException, ValueError, IndexError):
             # The app, WebView, or native UI can be starting up.
             pass
         time.sleep(1)
@@ -249,7 +249,7 @@ def system_save(node):
                  or node.get("resource-id", "").endswith(":id/option_menu_save")))
 
 
-def verify_backup(device):
+def verify_backup(device, *, startup_only=False):
     if device.adb("shell", "getprop", "ro.hardware") not in {"ranchu", "goldfish"}:
         raise AssertionError("This acceptance runs on an Android emulator only")
     result = device.adb("shell", "am", "start", "-W", "-a", "android.intent.action.MAIN",
@@ -261,6 +261,25 @@ def verify_backup(device):
     port = device.forwarded_socket()
     try:
         url = f"http://127.0.0.1:{port}"
+        if startup_only:
+            def local_page():
+                connection = HTTPConnection("127.0.0.1", port, timeout=3)
+                try:
+                    connection.request("GET", "/json/list")
+                    response = connection.getresponse()
+                    targets = json.loads(response.read(65536)) if response.status == 200 else []
+                    return any(target.get("type") == "page" and target.get("url", "").startswith(LOCAL + "/")
+                               for target in targets)
+                finally:
+                    connection.close()
+
+            try:
+                wait_for(local_page, "baseline local WebView navigation", 150)
+            except AssertionError:
+                device.diagnose_startup("baseline-navigation-timeout")
+                raise
+            print("simpleoffice_sms_control_startup=pass")
+            return
         with sync_playwright() as playwright:
             browser = playwright.chromium.connect_over_cdp(url, timeout=15000)
             page, = browser.contexts[0].pages
@@ -312,10 +331,11 @@ def main():
     args = argparse.ArgumentParser(description=__doc__)
     args.add_argument("--adb", required=True)
     args.add_argument("--serial", required=True)
+    args.add_argument("--startup-only", action="store_true", help="Measure only the baseline cold startup")
     values = args.parse_args()
     if not re.fullmatch(r"emulator-\d+", values.serial):
         args.error("Only disposable emulator serials are accepted")
-    verify_backup(Device(values.adb, values.serial))
+    verify_backup(Device(values.adb, values.serial), startup_only=values.startup_only)
 
 
 if __name__ == "__main__":
