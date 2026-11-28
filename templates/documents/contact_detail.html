@@ -5,6 +5,7 @@
 {% block body %}
 {% set username = g.user['username'] %}
 {% set can_manage = is_owner or username in contact.managers|default([]) %}
+{% set en = g.language == 'en' %}
 {% set standard_fields = ['first_name','last_name','display_name','nickname','email','phone','birthday','company','company_contact_id','department','title','role','website','note','vcard_uid'] %}
 <main id="main-content" class="container-xl py-4">
   <div class="d-flex justify-content-between align-items-start gap-3 mb-4">
@@ -19,14 +20,14 @@
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   {% if birthday_conflicts %}
   <section class="border border-warning rounded p-3 mb-3" aria-labelledby="birthday-review">
-    <h2 class="h5" id="birthday-review"><span aria-hidden="true">!</span> Geburtstag prüfen</h2>
-    <p>Hier eingetragen: <strong>{{ contact.fields.birthday }}</strong> · Kontaktquelle: {{ contact.get('source', {}).get('provider') or 'nicht hinterlegt' }}. Bei möglichen Dubletten sind andere Daten gespeichert:</p>
+    <h2 class="h5" id="birthday-review"><span aria-hidden="true">!</span> {{ 'Check birthday' if en else 'Geburtstag prüfen' }}</h2>
+    <p>{{ 'Recorded here:' if en else 'Hier eingetragen:' }} <strong>{{ contact.fields.birthday }}</strong> · {{ 'Contact source:' if en else 'Kontaktquelle:' }} {{ contact.get('source', {}).get('provider') or ('not recorded' if en else 'nicht hinterlegt') }}. {{ 'Possible duplicates have different values:' if en else 'Bei möglichen Dubletten sind andere Daten gespeichert:' }}</p>
     <ul class="mb-1">
       {% for other in birthday_conflicts %}
-      <li><a href="{{ url_for('documents.contact_detail', contact_id=other.contact_id) }}">{{ other.fields.display_name }}</a>: {{ other.fields.birthday }} · Kontaktquelle: {{ other.get('source', {}).get('provider') or 'nicht hinterlegt' }}</li>
+      <li><a href="{{ url_for('documents.contact_detail', contact_id=other.contact_id) }}">{{ other.fields.display_name }}</a>: {{ other.fields.birthday }} · {{ 'Contact source:' if en else 'Kontaktquelle:' }} {{ other.get('source', {}).get('provider') or ('not recorded' if en else 'nicht hinterlegt') }}</li>
       {% endfor %}
     </ul>
-    <p class="small mb-0">Prüfe die Person und korrigiere den falschen Eintrag oder wähle den richtigen Kontakt im <a href="{{ url_for('contact_audit.duplicates') }}">Dublettenvergleich</a> aus. Gleiche Namen allein führen nicht zu einem Hinweis.</p>
+    <p class="small mb-0">{% if en %}Check the person and correct the wrong date or choose the right contact in the <a href="{{ url_for('contact_audit.duplicates') }}">duplicate review</a>. Matching names alone do not trigger a warning.{% else %}Prüfe die Person und korrigiere den falschen Eintrag oder wähle den richtigen Kontakt im <a href="{{ url_for('contact_audit.duplicates') }}">Dublettenvergleich</a> aus. Gleiche Namen allein führen nicht zu einem Hinweis.{% endif %}</p>
   </section>
   {% endif %}
   <div class="row g-4">

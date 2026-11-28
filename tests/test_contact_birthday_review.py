@@ -9,6 +9,11 @@ from tests.http_api_fixture import PublicHttpTestCase
 class ContactBirthdayReviewTests(PublicHttpTestCase):
     path = "/documents/contacts/birthdays"
 
+    def setUp(self):
+        super().setUp()
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
+
     def _page(self, url):
         response = self.client.get(url)
         self.assertEqual(200, response.status_code)
@@ -70,3 +75,38 @@ class ContactBirthdayReviewTests(PublicHttpTestCase):
         self.assertEqual(1, len(last.select("main tbody tr")))
         self.assertIn("view=review", last.select_one('a[rel="prev"]')["href"])
         self.assertNotIn("Outside review", last.get_text())
+
+    def test_english_review_and_html_escaped_source(self):
+        store = ContactStore(app.config["DOCUMENT_ROOT"])
+        source = "<img src=x onerror=alert(1)>"
+        store.upsert({"display_name": "Same contact", "email": "same@example.test", "birthday": "1990-05-01"},
+                     "owner", "owner-one", {"provider": source})
+        store.upsert({"display_name": "Same contact", "email": "same@example.test", "birthday": "1991-05-01"},
+                     "owner", "owner-two", {"provider": "Contact source two"})
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "en"
+        response = self._page(self.path + "?view=review")
+        html = str(response)
+        self.assertIn("Needs review (2)", html)
+        self.assertIn("Contact source:", html)
+        self.assertIn("&lt;img src=x onerror=alert(1)&gt;", html)
+        self.assertNotIn("<img src=x onerror=alert(1)>", html)
+        detail = self.client.get("/documents/contacts/owner-one")
+        self.assertIn(b"Check birthday", detail.data)
+        self.assertIn(b"Contact source:", detail.data)
+
+    def test_private_and_same_name_without_shared_identifier_do_not_warn(self):
+        store = ContactStore(app.config["DOCUMENT_ROOT"])
+        store.upsert({"display_name": "Repeated name", "email": "one@example.test", "birthday": "1990-05-01"},
+                     "owner", "one", {"provider": "Owner source"})
+        store.upsert({"display_name": "Repeated name", "email": "two@example.test", "birthday": "1991-05-01"},
+                     "owner", "two", {"provider": "Other owner source"})
+        store.upsert({"display_name": "Private", "email": "one@example.test", "birthday": "1980-05-01"},
+                     "other", "private", {"provider": "Private source"})
+        review = self._page(self.path + "?view=review")
+        self.assertIn("Keine widersprüchlichen Geburtstage gefunden.", review.get_text())
+        self.assertNotIn("Repeated name", review.get_text())
+        all_birthdays = self._page(self.path)
+        self.assertIn("Owner source", all_birthdays.get_text())
+        self.assertIn("Other owner source", all_birthdays.get_text())
+        self.assertNotIn("Private source", all_birthdays.get_text())
