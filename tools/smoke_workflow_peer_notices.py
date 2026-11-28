@@ -65,6 +65,24 @@ with app.app_context():
     assert result.returncode == 0, result.stderr
 
 
+def _prepare_browser_copy(root, tls, speaker):
+    code = """
+from io import BytesIO
+import os
+from pathlib import Path
+from app.document_store import DocumentStore
+root = Path(os.environ["SIMPLEOFFICE_DOCUMENT_ROOT"])
+(root / "synthetic-copies").mkdir()
+item = DocumentStore(root).import_upload(
+    BytesIO(b"synthetic browser copy"), "synthetic-copy-private.txt", %r,
+)
+print(item["document_id"])
+""" % speaker
+    result = _cli(root, tls, ["-c", code])
+    assert result.returncode == 0, result.stderr
+    return result.stdout.splitlines()[-1]
+
+
 def _copy(root, tls, speaker, run_id):
     (root / "documents" / ".simpleoffice-meta" / "notes.json").write_text(run_id, encoding="utf8")
     args = ["-m", "flask", "--app", "app", "run-replications", "--actor", speaker,
@@ -233,6 +251,37 @@ def main():
         _work(root / a, tls)
         assert src.page("/automation-v3").select_one('[data-delivery-state="denied"]')
         assert inbox_identity(json.loads(dst.request("/automation-v3/copy-notices"))["notices"]) == inbox_identity(target)
+        # Exercise the actual document UI route too, not just the job event.
+        consent_form = dst.page(consent, fields={"operation": "grant", "peer": a,
+                                     "_csrf_token": dst.csrf("/automation-v3")})
+        manual_grant = consent_form.select_one('input[name=grant]')["value"]
+        form = src.page("/automation-v3").select_one(f'form[action="{create}"]')
+        src.submit(form, {"peer": b, "destination": manual_grant, "source": "browser", "delay": "0",
+                          "deadline": "120", "zone": "Europe/Berlin"})
+        doc_id = _prepare_browser_copy(root / a, tls, a)
+        detail = src.page(f"/documents/{doc_id}")
+        form = detail.select_one(f'form[action="/documents/{doc_id}/copy"]')
+        assert form is not None, "Document copy form missing"
+        src.submit(form, {"destination_folder": "synthetic-copies", "_csrf_token":
+                          detail.select_one('meta[name="csrf-token"]')["content"]})
+        copied = root / a / "documents" / "synthetic-copies" / "synthetic-copy-private.txt"
+        assert copied.read_bytes() == b"synthetic browser copy"
+        assert len(src.page("/automation-v3").select('[data-delivery-state="peer_queued"]')) == 1
+        # A second click collides with the existing target; no new action may run.
+        src.submit(form, {"destination_folder": "synthetic-copies", "_csrf_token":
+                          detail.select_one('meta[name="csrf-token"]')["content"]})
+        assert len(src.page("/automation-v3").select('[data-delivery-state="peer_queued"]')) == 1
+        _work(root / a, tls)
+        _work(root / a, tls)
+        assert len(src.page("/automation-v3").select('[data-delivery-state="delivered"]')) == 3
+        body = dst.request("/automation-v3/copy-notices")
+        manual_inbox = json.loads(body)["notices"]
+        assert len(manual_inbox) == 3
+        previous_ids = {row["id"] for row in target}
+        new, = [row for row in manual_inbox if row["id"] not in previous_ids]
+        assert new["kind"] == "peer" and set(new) == {"id", "kind", "at", "alert_for_ms"}
+        assert doc_id.encode() not in body and b"synthetic-copy-private.txt" not in body
+        print("simpleoffice_manual_copy_peer_notice=pass", flush=True)
         print("PASS: real copy triggers durable peer job; paired HTTPS delivery, replay, end-of-day offline recovery, expired offline delivery suppressed, private read receipt, one manual personal task and revoke verified")
 
 
