@@ -45,6 +45,7 @@ final class ManagedCalendarProviderAcceptance {
             require(rows != null && !rows.moveToFirst(), "Android calendar store is not empty");
         }
         LocalFixture local = createUnrelatedEvent(resolver);
+        awaitLocalCalendarFixture(resolver, local);
         verifyLocalFixture(resolver, local, "before sync");
         Account account = AndroidManagedSyncAccount.require(context);
 
@@ -126,18 +127,37 @@ final class ManagedCalendarProviderAcceptance {
         return instances(resolver, fixture.calendarId(), "2027-03-21T00:00:00Z", "2027-03-22T00:00:00Z");
     }
 
-    private static void verifyLocalFixture(ContentResolver resolver, LocalFixture fixture, String phase) {
-        // Prove independently that the unrelated native rows exist and were not changed.
-        // Waiting for the Instances view never substitutes for matching those rows.
+    private static boolean localCalendarVisible(ContentResolver resolver, LocalFixture fixture, String phase) {
         try (Cursor calendar = resolver.query(ContentUris.withAppendedId(Calendars.CONTENT_URI, fixture.calendarId()),
                 new String[]{Calendars.ACCOUNT_NAME, Calendars.ACCOUNT_TYPE, Calendars.VISIBLE},
                 null, null, null)) {
-            require(calendar != null && calendar.moveToFirst()
-                            && LOCAL_NAME.equals(calendar.getString(0))
-                            && CalendarContract.ACCOUNT_TYPE_LOCAL.equals(calendar.getString(1))
-                            && calendar.getInt(2) == 1 && !calendar.moveToNext(),
-                    "Unrelated local calendar row changed or is hidden " + phase);
+            require(calendar != null, "Unrelated local calendar could not be queried " + phase);
+            if (!calendar.moveToFirst()) return false;
+            require(LOCAL_NAME.equals(calendar.getString(0))
+                            && CalendarContract.ACCOUNT_TYPE_LOCAL.equals(calendar.getString(1)),
+                    "Unrelated local calendar ownership changed " + phase);
+            boolean visible = calendar.getInt(2) == 1;
+            require(!calendar.moveToNext(), "Unrelated local calendar row was duplicated " + phase);
+            return visible;
         }
+    }
+
+    private static void awaitLocalCalendarFixture(ContentResolver resolver, LocalFixture fixture) {
+        // Synchronization starts only after the Android provider exposes our
+        // independent fixture. Never retry insert or relax post-sync checks.
+        long deadline = SystemClock.elapsedRealtime() + FIXTURE_VISIBLE_TIMEOUT_MS;
+        while (!localCalendarVisible(resolver, fixture, "while creating fixture")) {
+            require(SystemClock.elapsedRealtime() < deadline,
+                    "Unrelated local calendar never became visible before sync");
+            SystemClock.sleep(200);
+        }
+    }
+
+    private static void verifyLocalFixture(ContentResolver resolver, LocalFixture fixture, String phase) {
+        // Prove independently that the unrelated native rows exist and were not changed.
+        // Waiting for the Instances view never substitutes for matching those rows.
+        require(localCalendarVisible(resolver, fixture, phase),
+                "Unrelated local calendar is missing or hidden " + phase);
         try (Cursor event = resolver.query(ContentUris.withAppendedId(Events.CONTENT_URI, fixture.eventId()),
                 new String[]{Events.CALENDAR_ID, Events.TITLE, Events.DTSTART, Events.DTEND, Events.DELETED},
                 null, null, null)) {
