@@ -3,6 +3,7 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 from app import app
+from app.calendar_collections import CalendarCollections
 from app.db import get_db
 from tests.http_api_fixture import CsrfMetadata, PublicHttpTestCase
 
@@ -46,12 +47,20 @@ class AndroidDeviceSourceTests(PublicHttpTestCase):
         page = self.mobile.get(PAGE, base_url=ORIGIN, headers=APK)
         self.assertEqual(200, page.status_code)
         self.assertEqual("no-store", page.headers["Cache-Control"])
+        self.assertIn(b'data-managed-sync-status role="status" aria-live="polite" aria-atomic="true"', page.data)
         for source in ("calendar", "contacts"):
             self.assertIn(f'data-device-source="{source}" disabled', page.get_data(as_text=True))
             response = self.gate(source)
             self.assertEqual(204, response.status_code)
             self.assertEqual(b"", response.data)
             self.assertEqual("no-store", response.headers["Cache-Control"])
+
+    def test_calendar_labels_are_rendered_as_escaped_native_preview_data(self):
+        with app.app_context():
+            CalendarCollections(app.config["DOCUMENT_ROOT"]).create('Work <team> & home', "owner")
+        page = self.mobile.get(PAGE, base_url=ORIGIN, headers=APK)
+        self.assertEqual(200, page.status_code)
+        self.assertIn('data-calendar-label="Work &lt;team&gt; &amp; home"', page.get_data(as_text=True))
 
     def test_non_apk_and_forwarded_requests_get_help_without_provider_controls(self):
         for origin, headers, environ in (
@@ -64,6 +73,7 @@ class AndroidDeviceSourceTests(PublicHttpTestCase):
             self.assertEqual(200, page.status_code)
             self.assertNotIn(b"data-device-source=", page.data)
             self.assertNotIn(b'id="android-device-sources"', page.data)
+            self.assertNotIn(b"data-managed-sync-status", page.data)
         self.assertEqual(404, self.gate("contacts", headers={"User-Agent": "Desktop Browser"}).status_code)
         self.assertEqual(404, self.gate("contacts", headers={"X-Forwarded-For": "192.0.2.21"}).status_code)
 
@@ -89,10 +99,12 @@ class AndroidDeviceSourceTests(PublicHttpTestCase):
         self.assertEqual(403, self.gate("calendar").status_code)
         self.assertEqual(204, self.gate("contacts").status_code)
 
-    def test_manifest_adds_separate_read_permissions_without_write_permissions(self):
+    def test_manifest_declares_only_contextual_contact_and_calendar_grants(self):
         root = ElementTree.parse(MANIFEST).getroot()
         permissions = {item.attrib[ANDROID_NS + "name"] for item in root.findall("uses-permission")}
         self.assertIn("android.permission.READ_CALENDAR", permissions)
         self.assertIn("android.permission.READ_CONTACTS", permissions)
-        self.assertNotIn("android.permission.WRITE_CALENDAR", permissions)
-        self.assertNotIn("android.permission.WRITE_CONTACTS", permissions)
+        self.assertIn("android.permission.WRITE_CALENDAR", permissions)
+        self.assertIn("android.permission.WRITE_CONTACTS", permissions)
+        self.assertNotIn("android.permission.READ_SMS", permissions)
+        self.assertNotIn("android.permission.READ_PHONE_STATE", permissions)

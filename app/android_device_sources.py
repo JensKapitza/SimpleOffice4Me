@@ -1,9 +1,11 @@
 """Authorize the native APK's local, read-only device-source overview."""
 
-from flask import Blueprint, abort, g, make_response, render_template, request
+from flask import Blueprint, abort, current_app, g, jsonify, make_response, render_template, request
 
 from .access_control import has_feature
 from .auth import login_required
+from .calendar_collections import CalendarCollections
+from .android_managed_snapshot import BIRTHDAYS, SnapshotChanged, calendar_page, calendar_rows, contact_page, contact_rows, principal_id
 from .google_drive_admin import ANDROID_USER_AGENT_TOKEN
 
 bp = Blueprint("android_device_sources", __name__, url_prefix="/android/device-sources")
@@ -39,7 +41,12 @@ def index():
     allowed = [source for source in SOURCES if has_feature(g.user, source)] if local_apk else []
     if local_apk and not allowed:
         abort(403)
-    response = make_response(render_template("android/device_sources.html", sources=allowed))
+    choices = []
+    if "calendar" in allowed:
+        choices = CalendarCollections(current_app.config["DOCUMENT_ROOT"]).calendars(str(g.user["username"]))
+        if "contacts" in allowed:
+            choices.append({"calendar_id": BIRTHDAYS, "name": "SimpleOffice Geburtstage"})
+    response = make_response(render_template("android/device_sources.html", sources=allowed, calendars=choices))
     response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -57,4 +64,48 @@ def authorize(source):
         abort(400)
     response = make_response("", 204)
     response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@bp.post("/managed/<source>")
+@login_required
+def managed_snapshot(source):
+    if not _local_apk_request() or source not in SOURCES:
+        abort(404)
+    if not has_feature(g.user, source):
+        abort(403)
+    if request.headers.get("Transfer-Encoding") or (request.content_length or 0) > 4096:
+        abort(413)
+    if not request.is_json or not request.content_length:
+        abort(400)
+    data = request.get_json(silent=True)
+    if type(data) is not dict or type(data.get("calendar_ids")) is not list:
+        abort(400)
+    paged = set(data) == {"calendar_ids", "offset", "revision"}
+    if not paged and set(data) != {"calendar_ids"}:
+        abort(400)
+    selected = data["calendar_ids"]
+    if len(selected) > 8 or any(type(i) is not str or len(i) > 63 for i in selected) or (source == "contacts" and selected):
+        abort(400)
+    root = current_app.config["DOCUMENT_ROOT"]
+    actor = str(g.user["username"])
+    principal = principal_id(g.user)
+    try:
+        if paged and source == "contacts":
+            result = contact_page(root, actor, principal, data["offset"], data["revision"])
+        elif paged:
+            result = calendar_page(root, actor, principal, selected, has_feature(g.user, "contacts"),
+                                   data["offset"], data["revision"])
+        else:
+            rows = (contact_rows(root, actor) if source == "contacts" else
+                    calendar_rows(root, actor, selected, has_feature(g.user, "contacts")))
+            result = {"principal": principal, "rows": rows}
+    except SnapshotChanged:
+        abort(409)
+    except OverflowError:
+        abort(413)
+    except (ValueError, KeyError):
+        abort(422)
+    response = jsonify(result)
+    response.headers["Cache-Control"] = "private, no-store"
     return response

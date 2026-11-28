@@ -47,6 +47,17 @@
           <form method="post" action="{{ url_for('contact_audit.merge_contacts') }}"><input type="hidden" name="target_id" value="{{ pair.left.contact_id }}"><input type="hidden" name="source_id" value="{{ pair.right.contact_id }}"><input type="hidden" name="return_to" value="duplicates"><button type="submit" class="btn btn-sm btn-outline-danger w-100" data-confirm="{{ tr('duplicates.single_confirm') }}">{{ tr('duplicates.keep_recommended') }}</button></form>
           <form method="post" action="{{ url_for('contact_audit.merge_contacts') }}" class="mt-2"><input type="hidden" name="target_id" value="{{ pair.right.contact_id }}"><input type="hidden" name="source_id" value="{{ pair.left.contact_id }}"><input type="hidden" name="return_to" value="duplicates"><button type="submit" class="btn btn-sm btn-link text-secondary w-100" data-confirm="{{ tr('duplicates.single_confirm_reverse') }}">{{ tr('duplicates.keep_other') }}</button></form>
         </div>
+        {% set birthday_conflicts = pair.differences|selectattr('field', 'equalto', 'birthday')|selectattr('kind', 'equalto', 'conflict')|list %}
+        {% if birthday_conflicts and ('gleiche E-Mail' in pair.reasons or 'gleiche Telefonnummer' in pair.reasons) %}
+        <div class="col-12 border rounded p-2">
+          <strong><span aria-hidden="true">!</span> {{ 'Review birthday' if g.language == 'en' else 'Geburtstag prüfen' }}</strong>
+          <ul class="mb-1">
+            <li><a href="{{ url_for('documents.contact_detail', contact_id=pair.left.contact_id) }}">{{ pair.left.fields.display_name }}</a>: {{ pair.left.fields.birthday }}{% if left_source.get('provider') %} · {{ left_source.get('provider') }}{% endif %}</li>
+            <li><a href="{{ url_for('documents.contact_detail', contact_id=pair.right.contact_id) }}">{{ pair.right.fields.display_name }}</a>: {{ pair.right.fields.birthday }}{% if right_source.get('provider') %} · {{ right_source.get('provider') }}{% endif %}</li>
+          </ul>
+          <p class="small mb-0">Erst prüfen, ob es dieselbe Person ist. Das falsche Datum im jeweiligen Kontakt korrigieren oder nach Prüfung den richtigen Kontakt behalten.</p>
+        </div>
+        {% endif %}
         <div class="col-12 small text-secondary">{{ tr('duplicates.reasons') }}: {% for reason in pair.reasons %}{{ localized_reasons.get(reason, reason) }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
         <div class="col-12">
           <div class="d-flex flex-wrap gap-2 mb-2"><span class="badge text-bg-success">{{ pair.additions }} {{ tr('duplicates.new') }}</span><span class="badge text-bg-secondary">{{ pair.conflicts }} {{ tr('duplicates.different') }}</span>{% if pair.bulk_eligible %}<span class="badge text-bg-success">{{ tr('duplicates.safe_bulk') }}</span>{% elif pair.blocking_conflicts %}<span class="badge text-bg-warning">{{ tr('duplicates.review_required') }}</span>{% endif %}{% if not pair.differences %}<span class="badge text-bg-light border">{{ tr('duplicates.no_additional') }}</span>{% endif %}</div>
