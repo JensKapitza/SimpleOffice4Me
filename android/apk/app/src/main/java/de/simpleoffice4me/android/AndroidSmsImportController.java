@@ -50,7 +50,7 @@ final class AndroidSmsImportController {
     private boolean permissionReturned;
 
     private record Request(String csrf, String from, String through, String stage, String preview,
-                           String cookie, String userAgent) {}
+                           WebMessagePort documentPort, String userAgent) {}
 
     AndroidSmsImportController(Activity activity, Handler main) {
         this.activity = activity;
@@ -111,7 +111,7 @@ final class AndroidSmsImportController {
                 send(state("unauthorized"));
                 return;
             }
-            request = new Request(csrf, from, through, stage, preview, cookie, view.getSettings().getUserAgentString());
+            request = new Request(csrf, from, through, stage, preview, sender, view.getSettings().getUserAgentString());
         } catch (JSONException invalid) {
             return;
         }
@@ -174,6 +174,18 @@ final class AndroidSmsImportController {
     }
 
     private void start(Request request) {
+        if (!resumed || !current(request)) {
+            complete(request, state("cancelled"));
+            return;
+        }
+        // Refreshing a signed, permanent Flask cookie after a page load
+        // changes its serialization, not its session. Use the live cookie
+        // for the document's CSRF token; the server validates both together.
+        String cookie = CookieManager.getInstance().getCookie(PAGE);
+        if (cookie == null || cookie.isEmpty()) {
+            complete(request, state("unauthorized"));
+            return;
+        }
         String token = AndroidSmsDeviceImport.begin();
         if (token.isEmpty()) {
             complete(request, state("busy"));
@@ -184,7 +196,7 @@ final class AndroidSmsImportController {
             worker.execute(() -> {
                 String result;
                 try {
-                    result = post(request, token);
+                    result = post(request, cookie, token);
                 } finally {
                     AndroidSmsDeviceImport.finish(token);
                 }
@@ -196,7 +208,7 @@ final class AndroidSmsImportController {
         }
     }
 
-    private static String post(Request request, String token) {
+    private static String post(Request request, String cookie, String token) {
         HttpURLConnection connection = null;
         try {
             byte[] body = new JSONObject().put("from", request.from).put("through", request.through)
@@ -211,7 +223,7 @@ final class AndroidSmsImportController {
             connection.setDoOutput(true);
             connection.setFixedLengthStreamingMode(body.length);
             connection.setRequestProperty("Content-Type", "application/json");
-            connection.setRequestProperty("Cookie", request.cookie);
+            connection.setRequestProperty("Cookie", cookie);
             connection.setRequestProperty("X-CSRF-Token", request.csrf);
             connection.setRequestProperty("X-SimpleOffice-SMS-Import", token);
             connection.setRequestProperty("User-Agent", request.userAgent);
@@ -290,7 +302,7 @@ final class AndroidSmsImportController {
     }
 
     private boolean current(Request request) {
-        return currentPage() && request.cookie.equals(CookieManager.getInstance().getCookie(PAGE));
+        return currentPage() && request.documentPort == port;
     }
 
     private void complete(Request request, String result) {
