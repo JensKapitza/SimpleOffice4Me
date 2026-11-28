@@ -154,6 +154,7 @@ public class MainActivity extends Activity {
     private volatile String currentWebViewUrl = "";
     private volatile boolean deviceSourcePageReady;
     private AndroidDeviceSourcePreview deviceSourcePreview;
+    private AndroidManagedSync managedSync;
     private boolean mainFrameLoadFailed;
     private boolean bundledBackendReady;
     private String pendingBarcodeResult;
@@ -254,6 +255,7 @@ public class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) settings.setSafeBrowsingEnabled(true);
 
         deviceSourcePreview = new AndroidDeviceSourcePreview(this, this::isDeviceSourcePage);
+        managedSync = new AndroidManagedSync(this, this::isDeviceSourcePage, this::showManagedSyncStatus);
         webView.addJavascriptInterface(new NativeBridge(), "SimpleOfficeAndroid");
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
@@ -338,6 +340,7 @@ public class MainActivity extends Activity {
                 offlineSpeechSettingsNonce = "";
                 deviceSourcePageReady = false;
                 if (deviceSourcePreview != null) deviceSourcePreview.onPageChanged();
+                if (managedSync != null) managedSync.onPageChanged();
                 webPermissionFlow.denyPending();
                 currentWebViewUrl = url == null ? "" : url;
                 localFolderOwner = "";
@@ -400,6 +403,7 @@ public class MainActivity extends Activity {
                     offlineSpeechSettingsNonce = "";
                     deviceSourcePageReady = false;
                     if (deviceSourcePreview != null) deviceSourcePreview.onPageChanged();
+                    if (managedSync != null) managedSync.onPageChanged();
                     mainFrameLoadFailed = true;
                     localPageVisible = false;
                     stopNfcReader();
@@ -698,7 +702,24 @@ public class MainActivity extends Activity {
                 + "const csrf=document.querySelector('meta[name=csrf-token]')?.content||'';"
                 + "const result=window.SimpleOfficeAndroid.openDeviceSource(bridgeToken,button.dataset.deviceSource,csrf,en);"
                 + "if(result!=='pending')state.textContent=en?'The device preview is not available.':'Die Gerätevorschau ist nicht verfügbar.';"
+                + "});});"
+                + "deviceSources.querySelectorAll('[data-managed-source]').forEach(button=>{"
+                + "button.disabled=false;button.addEventListener('click',event=>{if(!event.isTrusted)return;"
+                + "const kind=button.dataset.managedSource;"
+                + "const ids=kind==='calendar'?Array.from(deviceSources.querySelectorAll('[data-managed-calendar]:checked'),item=>({id:item.value,name:item.dataset.calendarLabel||item.value})):[];"
+                + "const csrf=document.querySelector('meta[name=csrf-token]')?.content||'';"
+                + "if(window.SimpleOfficeAndroid.syncManagedSource(bridgeToken,kind,csrf,JSON.stringify(ids))!=='pending')"
+                + "{const target=deviceSources.querySelector('[data-managed-sync-status]');"
+                + "if(target)target.textContent=en?'Android sync is not available.':'Android-Abgleich ist nicht verfügbar.';}"
                 + "});});}";
+    }
+
+    private void showManagedSyncStatus(String text) {
+        if (!isDeviceSourcePage()) return;
+        webView.evaluateJavascript("(()=>{if(location.href!=="
+                + JSONObject.quote(AndroidDeviceSourcePreview.PAGE) + ")return;"
+                + "const status=document.querySelector('#android-device-sources [data-managed-sync-status]');"
+                + "if(status)status.textContent=" + JSONObject.quote(text) + ";})();", null);
     }
 
     private static String googleDriveUiShim() {
@@ -777,6 +798,10 @@ public class MainActivity extends Activity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == AUDIO_PERMISSION_REQUEST) {
             handleAudioPermissionResult(grantResults);
+            return;
+        }
+        if (requestCode == AndroidManagedSync.PERMISSION_REQUEST) {
+            if (managedSync != null) managedSync.onPermissionResult();
             return;
         }
         if (requestCode == AndroidDeviceSourcePreview.PERMISSION_REQUEST) {
@@ -1083,6 +1108,23 @@ public class MainActivity extends Activity {
     }
 
     private final class NativeBridge {
+        @JavascriptInterface
+        public String syncManagedSource(String token, String source, String csrf, String selected) {
+            if (!bridgeAllowed(token) || !deviceSourcePageReady
+                    || !AndroidDeviceSourcePreview.isPage(currentWebViewUrl)) return "blocked";
+            if (!("contacts".equals(source) || "calendar".equals(source))
+                    || !AndroidDeviceSourcePreview.isCsrf(csrf) || selected == null
+                    || selected.length() > AndroidManagedCalendarSelection.MAX_JSON_CHARS) {
+                return "invalid";
+            }
+            mainHandler.post(() -> {
+                if (managedSync != null && isDeviceSourcePage()) {
+                    managedSync.open(source, csrf, webView.getSettings().getUserAgentString(), selected);
+                }
+            });
+            return "pending";
+        }
+
         @JavascriptInterface
         public String openDeviceSource(String token, String source, String csrf, boolean english) {
             AndroidDeviceSourcePreview.Source selected = AndroidDeviceSourcePreview.Source.parse(source);
@@ -2049,6 +2091,7 @@ public class MainActivity extends Activity {
         // The Android permission dialog may pause this Activity before delivering its result.
         webPermissionFlow.setResumed(false);
         if (deviceSourcePreview != null) deviceSourcePreview.onPause();
+        if (managedSync != null) managedSync.onPause();
         localPageVisible = false;
         if (pcFolderConsent != null) pcFolderConsent.stop();
         if (localFolderNames != null) localFolderNames.clear();
@@ -2087,6 +2130,7 @@ public class MainActivity extends Activity {
         intakeBarcode.setResumed(true);
         webPermissionFlow.setResumed(true);
         if (deviceSourcePreview != null) deviceSourcePreview.onResume();
+        if (managedSync != null) managedSync.onResume();
     }
 
     @Override
@@ -2140,6 +2184,7 @@ public class MainActivity extends Activity {
             fileChooserCallback.onReceiveValue(null);
             fileChooserCallback = null;
         }
+        if (managedSync != null) { managedSync.close(); managedSync = null; }
         if (deviceSourcePreview != null) {
             deviceSourcePreview.close();
             deviceSourcePreview = null;

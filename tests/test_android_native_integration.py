@@ -30,6 +30,21 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertIn('path="simpleoffice-local-folders.xml"', legacy_backup)
         self.assertEqual(2, extraction.count('path="simpleoffice-local-folders.xml"'))
 
+    def test_managed_sync_reports_to_the_active_page_without_html_or_persistence(self):
+        sync = self.read(JAVA / "AndroidManagedSync.java")
+        source = self.read(JAVA / "MainActivity.java")
+        feedback = source.split("private void showManagedSyncStatus", 1)[1].split("private static String", 1)[0]
+        self.assertIn("if (!isDeviceSourcePage()) return;", feedback)
+        self.assertIn("if(location.href!==", feedback)
+        self.assertIn("status.textContent=", feedback)
+        self.assertIn("JSONObject.quote(text)", feedback)
+        self.assertNotIn("innerHTML", feedback)
+        self.assertIn("setOnCancelListener(ignored -> previewCanceled())", sync)
+        self.assertIn("if (resumed && !closed && currentPage.getAsBoolean()) feedback.accept(text);", sync)
+        self.assertIn("resumeNotice = resumeNotice || busy || confirmation != null;", sync)
+        self.assertNotIn("SharedPreferences", sync)
+        self.assertIn("PERMISSION_REQUEST = 709;", sync)
+
     def test_manifest_has_narrow_browsable_deep_link(self):
         manifest = self.read(ANDROID / "src" / "main" / "AndroidManifest.xml")
         self.assertIn('android.intent.action.VIEW', manifest)

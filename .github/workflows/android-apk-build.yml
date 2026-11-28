@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - 'android/apk/**'
+      - 'tools/run_android_contacts_provider_acceptance.sh'
       # This shared setup runs inside the APK WebView as well as on the server.
       - 'app/optional_local_setup.py'
       - 'app/optional_setup_routes.py'
@@ -475,3 +476,29 @@ jobs:
           python -m pip install --require-hashes -r requirements-ci-tools.txt -r requirements-ci-browser.txt
           bash tools/run_android_sms_download_acceptance.sh \
             android/apk/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Check whether the Android contacts acceptance is affected
+        id: contacts-acceptance
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only HEAD^1 HEAD -- \
+            'android/apk/app/src/main/java/de/simpleoffice4me/android/AndroidManaged*.java' \
+            'android/apk/app/src/androidTest/**' 'android/apk/app/build.gradle' \
+            '.github/workflows/android-apk-build.yml' 'tools/run_android_contacts_provider_acceptance.sh')"
+          if [[ -n "$changed" ]]; then echo 'needed=true' >> "$GITHUB_OUTPUT"; fi
+
+      - name: Build isolated contacts instrumentation APK
+        if: steps.contacts-acceptance.outputs.needed == 'true'
+        working-directory: android/apk
+        run: gradle --no-daemon assembleDebugAndroidTest
+
+      - name: Android contacts and calendar providers on disposable emulator
+        if: steps.contacts-acceptance.outputs.needed == 'true'
+        timeout-minutes: 20
+        shell: bash
+        run: |
+          bash tools/run_android_contacts_provider_acceptance.sh \
+            android/apk/app/build/outputs/apk/debug/app-debug.apk \
+            android/apk/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk

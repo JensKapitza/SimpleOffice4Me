@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from defusedxml import ElementTree
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import Error as PlaywrightError, sync_playwright
 
 APP = "de.simpleoffice4me.android"
 LOCAL = "http://127.0.0.1:8765"
@@ -56,9 +56,13 @@ class Device:
         for line in dump.splitlines():
             if not re.search(r"mResumedActivity|topResumedActivity|mCurrentFocus|mFocusedApp", line, re.I):
                 continue
-            for name in ("BootstrapActivity", "NavigationActivity"):
+            for name in ("BootstrapActivity", "NavigationActivity", "MainActivity"):
                 if re.search(re.escape(APP) + r"/(?:" + re.escape(APP) + r")?\." + name + r"\b", line):
                     return name
+            if any(pkg in line for pkg in DOCS_UI):
+                return "document-picker"
+            if "com.android.intentresolver" in line:
+                return "intent-resolver"
             if "com.android.systemui" in line or "Keyguard" in line:
                 return "system-ui"
             if re.search(r"(?:com\.android\.launcher|com\.google\.android\.apps\.nexuslauncher)", line):
@@ -393,10 +397,41 @@ def system_file(node):
 
 def choose_recovery_file(page, device):
     upload = page.locator("#sms-backup")
-    # With CDP state preserved this invokes Android's normal WebChromeClient
-    # picker, not Playwright's set_input_files or a Java bridge shortcut.
+    # After restore's 303 the flash and the input may render before Android
+    # has finished presenting the new WebView document. Wait for the same
+    # local page's native onPageFinished shim (no bridge call is needed).
+    page.wait_for_load_state("load")
+    page.wait_for_function("""() => {
+        const file = document.querySelector("#sms-backup");
+        return document.visibilityState === "visible" && document.readyState === "complete"
+            && typeof window.SimpleOfficeFolderImport?.count === "function"
+            && file && !file.disabled && file.files.length === 0;
+    }""")
+    # Record only whether WebView received a trusted user click and whether
+    # it was prevented. No filenames, form values, URLs, or session material.
+    upload.evaluate("""input => {
+        window.simpleOfficeTestFileClick = null;
+        input.addEventListener("click", event => {
+            queueMicrotask(() => {
+                window.simpleOfficeTestFileClick = [event.isTrusted, event.defaultPrevented];
+            });
+        }, {once: true});
+    }""")
+    # Do not replace Android's WebChromeClient picker with set_input_files.
     upload.click(no_wait_after=True)
-    device.wait_node(lambda node: node.get("package") in DOCS_UI, "Android restore document picker")
+    try:
+        device.wait_node(lambda node: node.get("package") in DOCS_UI, "Android restore document picker")
+    except AssertionError:
+        try:
+            signals = page.evaluate("() => window.simpleOfficeTestFileClick")
+        except PlaywrightError:
+            signals = None
+        if isinstance(signals, list) and len(signals) == 2 and all(type(v) is bool for v in signals):
+            print(f"Android restore input click: trusted={signals[0]} prevented={signals[1]}", flush=True)
+        else:
+            print("Android restore input click: not observed", flush=True)
+        device.foreground("restore document picker not observed")
+        raise
     choices = device.nodes()
     selected = next((node for node in choices if system_file(node)), None)
     if selected is None:
