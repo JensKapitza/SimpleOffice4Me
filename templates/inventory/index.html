@@ -5,6 +5,7 @@
   <div id="inventory-app" class="d-none" aria-hidden="true"
        data-library-capture="{{ '1' if capture_context.enabled else '0' }}"
        data-find-url="{{ url_for('inventory.find_item') }}"
+       data-nfc-find-url="{{ url_for('inventory.find_nfc_tag') }}"
        data-lookup-url="{{ url_for('inventory.book_lookup') }}"
        data-amazon-url="{{ url_for('inventory.amazon_search') }}"
        data-objects-url="{{ url_for('documents.objects') }}"
@@ -50,6 +51,26 @@
     </div>
   </div>
 
+  <section class="card mb-3" id="inventory-nfc-find" aria-labelledby="nfc-find-title"
+           data-endpoint="{{ url_for('inventory.find_nfc_tag') }}"
+           data-detail="{{ url_for('inventory.item_detail', object_id='__OBJECT__') }}" hidden>
+    <div class="card-body">
+      <h2 class="h5" id="nfc-find-title">{{ 'Find an existing NFC tag' if g.language == 'en' else 'Vorhandenen NFC-Tag finden' }}</h2>
+      <p class="small text-secondary">{{ 'Find an existing item without changing the capture form below. On a laptop, type the UID or use a USB reader in keyboard mode.' if g.language == 'en' else 'Sucht vorhandene Gegenstände, ohne das Erfassungsformular zu ändern. Am Laptop die UID eingeben oder einen USB-NFC-Leser im Tastaturmodus verwenden.' }}</p>
+      <form method="post" action="{{ url_for('inventory.find_nfc_tag') }}" class="row g-2 align-items-end">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md"><label class="form-label" for="nfc-find-uid">{{ 'Tag ID' if g.language == 'en' else 'Tag-Kennung' }}</label>
+          <input type="text" id="nfc-find-uid" class="form-control" maxlength="95" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+        <div class="col-md-auto d-flex gap-2">
+          <button type="submit" class="btn btn-outline-primary">{{ 'Find this tag' if g.language == 'en' else 'Tag suchen' }}</button>
+          <button type="button" class="btn btn-outline-secondary" data-nfc-find-scan hidden>{{ 'Read tag' if g.language == 'en' else 'Tag lesen' }}</button>
+        </div>
+      </form>
+      <p class="small my-2" role="status" aria-live="polite" data-nfc-find-status></p>
+      <ul class="list-group" data-nfc-find-results></ul>
+    </div>
+  </section>
+
   <div class="row g-3 align-items-start">
     <section class="col-xl-7">
       <div class="card shadow-sm">
@@ -69,7 +90,7 @@
           {% endif %}
           <div class="row g-2 mb-3">
             <div class="col-12 col-md-6 d-grid"><button type="button" class="btn btn-primary btn-lg" id="start-barcode">Barcode / ISBN scannen</button></div>
-            <div class="col-12 col-md-6 d-grid"><button type="button" class="btn btn-outline-primary btn-lg" id="scan-nfc">NFC lesen</button></div>
+            <div class="col-12 col-md-6 d-grid"><button type="button" class="btn btn-outline-primary btn-lg" id="scan-nfc" disabled>NFC lesen</button></div>
           </div>
           {% if contextflow_enabled|default(false) and feature_enabled('documents') %}
           <div class="row g-2 mb-3" id="photo-actions">
@@ -113,7 +134,7 @@
               </div>
             </div>
 
-            <div class="col-12"><label class="form-label" for="nfc-id">NFC-ID / Inhalt</label><input class="form-control" id="nfc-id" name="nfc_id" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="240"><div class="form-text">Kann auch manuell eingetragen werden.</div></div>
+            <div class="col-12"><label class="form-label" for="nfc-id">NFC-ID</label><div class="input-group"><input class="form-control" id="nfc-id" name="nfc_id" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="240" aria-describedby="nfc-help"><button type="button" class="btn btn-outline-secondary" id="nfc-keyboard" disabled>USB-NFC-Leser</button></div><div class="form-text" id="nfc-help">Für einen USB-Leser den Tastaturmodus wählen. Die Kennung kann auch von Hand eingegeben werden.</div></div>
 
             <div class="col-md-4"><label class="form-label" for="manufacturer">Hersteller</label><input class="form-control" id="manufacturer" name="manufacturer" maxlength="240"></div>
             <div class="col-md-4"><label class="form-label" for="model">Modell</label><input class="form-control" id="model" name="model" maxlength="240"></div>
@@ -236,7 +257,8 @@
 <script src="{{ url_for('static', filename='js/camera_capture.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/suggestion_fields.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/inventory_navigation.js') }}" defer></script>
-<script src="{{ url_for('static', filename='js/inventory.js') }}" data-module="static/js/inventory.js" defer></script>
+<script src="{{ url_for('static', filename='js/inventory_nfc.js', v=app_build.version) }}" defer></script>
+<script src="{{ url_for('static', filename='js/inventory.js', v=app_build.version) }}" data-module="static/js/inventory.js" defer></script>
 <script src="{{ url_for('static', filename='js/inventory_suggest.js') }}" data-module="static/js/inventory_suggest.js" defer></script>
 <script src="{{ url_for('static', filename='js/angel.js') }}" data-module="static/js/angel.js" defer></script>
 {% endblock %}
