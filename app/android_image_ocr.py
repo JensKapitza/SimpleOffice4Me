@@ -1,9 +1,10 @@
 """Private, bounded image OCR adapter configured only by the bundled APK."""
 from __future__ import annotations
 
+import os
 import threading
 from collections.abc import Callable
-from pathlib import Path
+from typing import BinaryIO
 
 from .ocr_preprocessing import MAX_OCR_PIXELS
 
@@ -26,15 +27,15 @@ def configured() -> bool:
     return _renderer is not None
 
 
-def _raster(path: Path) -> tuple[bytes, int, int]:
+def _raster(source: BinaryIO) -> tuple[bytes, int, int]:
     from PIL import Image, ImageOps
 
     try:
-        if path.stat().st_size > MAX_INPUT_BYTES:
+        if os.fstat(source.fileno()).st_size > MAX_INPUT_BYTES:
             raise RuntimeError("APK OCR input exceeds its size limit")
         Image.init()
         formats = tuple(name for name in _FORMATS if name in Image.OPEN)
-        with Image.open(path, formats=formats) as image:
+        with Image.open(source, formats=formats) as image:
             if image.width < 1 or image.height < 1 or image.width * image.height > MAX_OCR_PIXELS:
                 raise RuntimeError("APK OCR input exceeds its pixel limit")
             if image.format == "JPEG":
@@ -54,14 +55,14 @@ def _raster(path: Path) -> tuple[bytes, int, int]:
         raise RuntimeError("APK OCR could not prepare the image") from exc
 
 
-def recognize(path: Path) -> str:
+def recognize(source: BinaryIO) -> str:
     renderer = _renderer
     if renderer is None:
         raise RuntimeError("APK image OCR is unavailable")
     if not _slots.acquire(blocking=False):
         raise RuntimeError("APK image OCR is busy")
     try:
-        text = renderer(*_raster(path))
+        text = renderer(*_raster(source))
         if not isinstance(text, str) or len(text) > MAX_TEXT:
             raise RuntimeError("APK OCR returned an invalid result")
         return "\n".join(line.rstrip() for line in text.splitlines()).strip()

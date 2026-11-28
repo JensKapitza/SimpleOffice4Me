@@ -10,6 +10,7 @@ from .sqlite_utils import connect as sqlite_connect
 from .document_store_core import *  # noqa: F401,F403
 from .file_lock import exclusive_file_lock
 from .ocr_preprocessing import OCR_RENDER_EDGE, jpeg_ocr_input
+from .safe_paths import open_file_under
 
 MAX_EML_INDEX_BYTES = 25 * 1024 * 1024
 MAX_MANUAL_ANALYSIS_BYTES = 128 * 1024 * 1024
@@ -406,7 +407,12 @@ class _DocumentStorePart5:
 
         try:
             if android_image_ocr.configured():
-                ocr_text = android_image_ocr.recognize(path)
+                try:
+                    relative = Path(path).absolute().relative_to(self.root)
+                    with open_file_under(self.root, relative) as source:
+                        ocr_text = android_image_ocr.recognize(source)
+                except (OSError, ValueError) as exc:
+                    raise RuntimeError("APK OCR requires a managed regular file") from exc
             else:
                 with photo_ocr_input(path) as source:
                     ocr_text = self._image_ocr(source)
