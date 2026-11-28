@@ -15,6 +15,7 @@
   let seenIds = new Set(initialRows.filter(row => row.dataset.noticeRead === '1').map(row => row.dataset.noticeId));
   const taskTemplate = pane.querySelector('[data-copy-task-template]');
   const readButton = pane.querySelector('[data-copy-read-button]');
+  const readStatus = pane.querySelector('[data-copy-read-status]');
   const token = pane.querySelector('[data-copy-read-token]')?.value;
   let marking;
   let timer;
@@ -118,7 +119,12 @@
   const updateReadButton = () => {
     if (readButton) {
       readButton.hidden = stopped || !token || !pane.dataset.readEndpoint;
-      readButton.disabled = Boolean(marking) || !visibleIds.some(id => !seenIds.has(id));
+      const hasUnread = visibleIds.some(id => !seenIds.has(id));
+      readButton.disabled = Boolean(marking) || !hasUnread || !maySound();
+      if (readStatus) {
+        if (hasUnread && navigator.onLine === false) readStatus.textContent = pane.dataset.readOffline;
+        else if (readStatus.textContent === pane.dataset.readOffline) readStatus.textContent = '';
+      }
     }
   };
 
@@ -152,6 +158,7 @@
       li.dataset.noticeRead = read.has(item.id) ? '1' : '0';
       const status = document.createElement('span');
       status.className = 'small text-secondary';
+      status.dataset.noticeReadLabel = '1';
       status.textContent = read.has(item.id) ? pane.dataset.readLabel : pane.dataset.unreadLabel;
       instant.dateTime = item.at;
       instant.textContent = item.at;
@@ -237,9 +244,17 @@
         headers: {'Content-Type': 'application/json', 'X-CSRF-Token': token}, body: JSON.stringify({ids}),
       });
       if (response.status !== 204) throw new Error('copy notice receipt unavailable');
-      announcement.textContent = pane.dataset.readOk;
+      seenIds = new Set([...seenIds, ...ids]);
+      for (const row of list.querySelectorAll('[data-notice-id]')) {
+        if (!ids.includes(row.dataset.noticeId)) continue;
+        row.dataset.noticeRead = '1';
+        const label = row.querySelector('[data-notice-read-label]');
+        if (label) label.textContent = pane.dataset.readLabel;
+      }
+      updateReadButton();
+      if (readStatus) readStatus.textContent = pane.dataset.readOk;
     } catch (_error) {
-      announcement.textContent = pane.dataset.readFailed;
+      if (readStatus) readStatus.textContent = pane.dataset.readFailed;
     } finally {
       clearTimeout(timeout);
       marking = undefined;
@@ -250,10 +265,12 @@
   });
   updateReadButton();
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) { disarm(); cancel(); } else schedule(0);
+    if (document.hidden) { disarm(); cancel(); }
+    else schedule(0);
+    updateReadButton();
   });
-  window.addEventListener('offline', () => { disarm(); cancel(); });
-  window.addEventListener('online', () => schedule(0));
+  window.addEventListener('offline', () => { disarm(); cancel(); updateReadButton(); });
+  window.addEventListener('online', () => { updateReadButton(); schedule(0); });
   window.addEventListener('pagehide', () => { active = false; disarm(); cancel(); });
   window.addEventListener('pageshow', event => {
     if (event.persisted) { active = true; schedule(0); }

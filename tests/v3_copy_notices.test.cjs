@@ -8,9 +8,20 @@ const eventId = 'a'.repeat(64);
 const row = {id: eventId, kind: 'job', at: '2026-11-27T17:00:00Z'};
 
 function setup(initial = [], enableAudio = false) {
-  const constructors = () => ({dataset: {}, textContent: '', append(...items) { this.items = items; }});
+  const constructors = () => ({
+    dataset: {}, textContent: '', items: [],
+    append(...items) { this.items.push(...items); },
+    querySelector(selector) {
+      return selector === '[data-notice-read-label]'
+        ? this.items.find(item => item?.dataset?.noticeReadLabel) || null
+        : null;
+    },
+  });
   const list = {rows: initial, querySelectorAll() { return this.rows; }, replaceChildren(...rows) { this.rows = rows; }};
   const status = constructors();
+  const readStatus = constructors();
+  const readButton = Object.assign(new EventTarget(), {hidden: true, disabled: true});
+  const readToken = {value: 'synthetic-csrf-token'};
   const soundStatus = constructors();
   const soundButton = Object.assign(new EventTarget(), {
     attributes: {'aria-pressed': 'false'},
@@ -20,11 +31,16 @@ function setup(initial = [], enableAudio = false) {
   const sourceSelect = Object.assign(new EventTarget(), {value: 'peer'});
   const testSound = Object.assign(new EventTarget(), {disabled: true});
   const pane = {
-    dataset: {endpoint: '/automation-v3/copy-notices', jobLabel: 'Job complete', browserLabel: 'Document copied',
+    dataset: {endpoint: '/automation-v3/copy-notices', readEndpoint: '/automation-v3/copy-notices/read',
+      readLabel: 'Read', unreadLabel: 'Unread', readOk: 'Visible notices marked as read.',
+      readFailed: 'Could not mark notices as read.', readOffline: 'Reconnect to mark notices as read.',
+      jobLabel: 'Job complete', browserLabel: 'Document copied',
       peerLabel: 'Paired notice', emptyLabel: 'No notifications', newLabel: 'New notification',
       soundOnLabel: 'On', soundOffLabel: 'Off', soundUnavailableLabel: 'Unavailable'},
     querySelector(sel) {
       return {'[data-copy-notice-list]': list, '[data-copy-notice-announcement]': status,
+        '[data-copy-read-button]': readButton, '[data-copy-read-status]': readStatus,
+        '[data-copy-read-token]': readToken,
         '[data-copy-notice-audio]': audioControls, '[data-copy-notice-sound-source]': sourceSelect,
         '[data-copy-notice-test-sound]': testSound, '[data-copy-notice-sound]': soundButton, '[data-copy-notice-sound-status]': soundStatus}[sel];
     },
@@ -70,11 +86,50 @@ function setup(initial = [], enableAudio = false) {
     pending.shift().resolve(response);
     await promise;
   };
-  return {list, status, timers, pending, document, window, navigator, tick, start, answer, sounds, soundButton,
-    soundStatus, audioControls, sourceSelect, testSound, closeCount: () => closed};
+  return {list, status, readStatus, readButton, timers, pending, document, window, navigator, tick, start, answer,
+    sounds, soundButton, soundStatus, audioControls, sourceSelect, testSound, closeCount: () => closed};
 }
 
 const good = (...notices) => ({ok: true, status: 200, json: async () => ({enabled: true, notices})});
+const goodWithSeen = (notices, seen = []) => ({ok: true, status: 200, json: async () => ({enabled: true, notices, seen})});
+
+test('accepted read receipt updates visible rows immediately and survives a failed next feed', async () => {
+  const c = setup();
+  await c.answer(goodWithSeen([row]), c.start(5000));
+  const visible = c.list.rows[0];
+  assert.equal(visible.dataset.noticeRead, '0');
+  assert.equal(visible.querySelector('[data-notice-read-label]').textContent, 'Unread');
+  assert.equal(c.readButton.disabled, false);
+
+  c.navigator.onLine = false;
+  c.window.dispatchEvent(new Event('offline'));
+  assert.equal(c.readButton.disabled, true);
+  assert.equal(c.readStatus.textContent, 'Reconnect to mark notices as read.');
+  c.navigator.onLine = true;
+  c.window.dispatchEvent(new Event('online'));
+  assert.equal(c.readStatus.textContent, '');
+  assert.equal(c.readButton.disabled, false);
+
+  c.readButton.dispatchEvent(new Event('click'));
+  await new Promise(setImmediate);
+  const request = c.pending.shift();
+  assert.equal(request.url, '/automation-v3/copy-notices/read');
+  assert.equal(request.options.method, 'POST');
+  assert.equal(request.options.headers['X-CSRF-Token'], 'synthetic-csrf-token');
+  assert.deepEqual(JSON.parse(request.options.body), {ids: [eventId]});
+  request.resolve({status: 204});
+  await new Promise(setImmediate);
+
+  assert.equal(visible.dataset.noticeRead, '1');
+  assert.equal(visible.querySelector('[data-notice-read-label]').textContent, 'Read');
+  assert.equal(c.readButton.disabled, true);
+  assert.equal(c.readStatus.textContent, 'Visible notices marked as read.');
+
+  const failedRefresh = c.start(0);
+  await c.answer({ok: false, status: 503}, failedRefresh);
+  assert.equal(visible.dataset.noticeRead, '1');
+  assert.equal(c.readStatus.textContent, 'Visible notices marked as read.');
+});
 
 test('refresh renders a new job locally and announces it once without overlapping requests', async () => {
   const c = setup();

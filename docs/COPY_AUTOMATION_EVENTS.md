@@ -86,10 +86,15 @@ nachvertont. Eine Betriebssystem- oder Hintergrundbenachrichtigung ist das
 nicht.
 
 Mit **Sichtbare Meldungen als gelesen markieren** quittierst du nur die
-gerade angezeigten Einträge. Sie bleiben im Verlauf und der Gelesen-Status
-bleibt für dasselbe Konto erhalten. Meldungen, die währenddessen eintreffen,
-werden nicht mit markiert. Die Quittierung bestätigt keine Kenntnisnahme
-durch ein anderes Gerät und wird nicht an die Senderinstanz übertragen.
+gerade angezeigten Einträge. Nach der bestätigten Antwort aktualisiert die
+Seite die sichtbaren Zeilen sofort und zeigt den Erfolg dauerhaft neben der
+Aktion an; ein anschließender fehlgeschlagener Feed-Abruf setzt diesen Status
+nicht zurück. Offline ist die Aktion deaktiviert und erklärt, dass zuerst die
+Verbindung wiederhergestellt werden muss. Die Einträge bleiben im Verlauf und
+der Gelesen-Status bleibt für dasselbe Konto erhalten. Meldungen, die während
+der Quittierung eintreffen, werden nicht mit markiert. Die Quittierung
+bestätigt keine Kenntnisnahme durch ein anderes Gerät und wird nicht an die
+Senderinstanz übertragen.
 
 ## Erste Zustellung zwischen zwei verifizierten Instanzen
 
