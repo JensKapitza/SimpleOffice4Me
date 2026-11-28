@@ -9,6 +9,7 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.SystemClock;
 import android.provider.CalendarContract;
 import android.provider.CalendarContract.Calendars;
 import android.provider.CalendarContract.Events;
@@ -32,6 +33,7 @@ final class ManagedCalendarProviderAcceptance {
     private record LocalFixture(long calendarId, long eventId) {}
     private static final String LOCAL_START = "2027-03-21T10:00:00Z";
     private static final String LOCAL_END = "2027-03-21T11:00:00Z";
+    private static final long FIXTURE_VISIBLE_TIMEOUT_MS = 8_000L;
 
     private ManagedCalendarProviderAcceptance() {}
 
@@ -43,9 +45,7 @@ final class ManagedCalendarProviderAcceptance {
             require(rows != null && !rows.moveToFirst(), "Android calendar store is not empty");
         }
         LocalFixture local = createUnrelatedEvent(resolver);
-        List<Occurrence> baseline = localOccurrences(resolver, local);
-        require(baseline.equals(List.of(new Occurrence(ms(LOCAL_START), local.eventId(), LOCAL_TITLE))),
-                "Unrelated local event fixture was not visible before sync");
+        verifyLocalFixture(resolver, local, "before sync");
         Account account = AndroidManagedSyncAccount.require(context);
 
         JSONObject master = row("master", SERIES, "Weekly series", "2027-03-18T09:00:00Z",
@@ -80,8 +80,7 @@ final class ManagedCalendarProviderAcceptance {
             require(previousBirthday == null || previousBirthday.equals(leap), "Birthday provider ID changed on resync");
             previous = weekly;
             previousBirthday = leap;
-            require(baseline.equals(localOccurrences(resolver, local)),
-                    "Unrelated local calendar event changed after sync " + (repetition + 1));
+            verifyLocalFixture(resolver, local, "after sync " + (repetition + 1));
         }
     }
 
@@ -127,6 +126,37 @@ final class ManagedCalendarProviderAcceptance {
         return instances(resolver, fixture.calendarId(), "2027-03-21T00:00:00Z", "2027-03-22T00:00:00Z");
     }
 
+    private static void verifyLocalFixture(ContentResolver resolver, LocalFixture fixture, String phase) {
+        // Prove independently that the unrelated native rows exist and were not changed.
+        // Waiting for the Instances view never substitutes for matching those rows.
+        try (Cursor calendar = resolver.query(ContentUris.withAppendedId(Calendars.CONTENT_URI, fixture.calendarId()),
+                new String[]{Calendars.ACCOUNT_NAME, Calendars.ACCOUNT_TYPE, Calendars.VISIBLE},
+                null, null, null)) {
+            require(calendar != null && calendar.moveToFirst()
+                            && LOCAL_NAME.equals(calendar.getString(0))
+                            && CalendarContract.ACCOUNT_TYPE_LOCAL.equals(calendar.getString(1))
+                            && calendar.getInt(2) == 1 && !calendar.moveToNext(),
+                    "Unrelated local calendar row changed or is hidden " + phase);
+        }
+        try (Cursor event = resolver.query(ContentUris.withAppendedId(Events.CONTENT_URI, fixture.eventId()),
+                new String[]{Events.CALENDAR_ID, Events.TITLE, Events.DTSTART, Events.DTEND, Events.DELETED},
+                null, null, null)) {
+            require(event != null && event.moveToFirst() && event.getLong(0) == fixture.calendarId()
+                            && LOCAL_TITLE.equals(event.getString(1)) && event.getLong(2) == ms(LOCAL_START)
+                            && event.getLong(3) == ms(LOCAL_END) && event.getInt(4) == 0 && !event.moveToNext(),
+                    "Unrelated local event row changed or is missing " + phase);
+        }
+        List<Occurrence> observed = localOccurrences(resolver, fixture);
+        long deadline = SystemClock.elapsedRealtime() + FIXTURE_VISIBLE_TIMEOUT_MS;
+        while (observed.isEmpty() && SystemClock.elapsedRealtime() < deadline) {
+            SystemClock.sleep(200);
+            observed = localOccurrences(resolver, fixture);
+        }
+        require(!observed.isEmpty(), "Unrelated local row exists but its instance is still not visible " + phase);
+        require(observed.equals(List.of(new Occurrence(ms(LOCAL_START), fixture.eventId(), LOCAL_TITLE))),
+                "Unrelated local calendar occurrence changed " + phase + " (rows=" + observed.size() + ")");
+    }
+
     private static Uri localFixtureScope(Uri endpoint) {
         return endpoint.buildUpon()
                 .appendQueryParameter(CalendarContract.CALLER_IS_SYNCADAPTER, "true")
@@ -155,6 +185,8 @@ final class ManagedCalendarProviderAcceptance {
         event.put(Events.DTSTART, ms(LOCAL_START));
         event.put(Events.DTEND, ms(LOCAL_END));
         event.put(Events.EVENT_TIMEZONE, "UTC");
+        event.put(Events.ALL_DAY, 0);
+        event.put(Events.STATUS, Events.STATUS_CONFIRMED);
         Uri localEvent = resolver.insert(localFixtureScope(Events.CONTENT_URI), event);
         require(localEvent != null, "Unrelated local event fixture was not created");
         return new LocalFixture(ContentUris.parseId(localCalendar), ContentUris.parseId(localEvent));

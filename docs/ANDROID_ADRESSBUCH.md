@@ -81,7 +81,10 @@ zusätzlich den Abbruch und Wiederanlauf einer synthetischen Übernahme mit
 Android-Zeilen und Versionen, und ein unabhängiger Kontakt bleibt unberührt.
 Für den Kalender prüft er Vorkommen vor und nach der Zeitumstellung,
 eine verschobene und abgesagte Instanz, einen Schaltgeburtstag und ein
-unberührtes fremdes Kalenderereignis. WebView-Dialog und die Oberfläche einer
+unberührtes fremdes Kalenderereignis. Der Test prüft dafür das gespeicherte
+Ereignis und die vom Anbieter aufgebaute sichtbare Kalenderinstanz getrennt.
+Eine fehlende Instanz bekommt eine begrenzte Wartezeit, ohne fehlende oder
+veränderte Datensätze zu akzeptieren. WebView-Dialog und die Oberfläche einer
 bestimmten Android-App bleiben separate Tests.
 
 Für die manuelle Reproduktion muss ein **frischer, entbehrlicher AVD** laufen,
