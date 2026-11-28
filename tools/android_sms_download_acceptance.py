@@ -48,18 +48,56 @@ class Device:
             return next((node for node in self.nodes() if predicate(node)), None)
         return wait_for(locate, label, seconds)
 
+    @staticmethod
+    def classify_focus(dump):
+        """Do not return arbitrary activity names or intent arguments."""
+        for line in dump.splitlines():
+            if not re.search(r"mResumedActivity|topResumedActivity|mCurrentFocus|mFocusedApp", line, re.I):
+                continue
+            for name in ("BootstrapActivity", "NavigationActivity"):
+                if re.search(re.escape(APP) + r"/(?:" + re.escape(APP) + r")?\." + name + r"\b", line):
+                    return name
+            if "com.android.systemui" in line or "Keyguard" in line:
+                return "system-ui"
+            if re.search(r"(?:com\.android\.launcher|com\.google\.android\.apps\.nexuslauncher)", line):
+                return "launcher"
+            if "com.google.android.gms" in line or "com.android.settings" in line:
+                return "account-or-settings"
+        return "other-or-unknown"
+
+    def foreground(self, label):
+        try:
+            activities = self.adb("shell", "dumpsys", "activity", "activities")
+            windows = self.adb("shell", "dumpsys", "window", "windows")
+            display = self.adb("shell", "dumpsys", "power")
+            wakeful = re.search(r"mWakefulness=(Awake|Asleep|Dreaming|Dozing)\b", display)
+            print(f"Android {label}:", "activity=" + self.classify_focus(activities),
+                  "window=" + self.classify_focus(windows),
+                  "screen=" + (wakeful[1] if wakeful else "unknown"), flush=True)
+        except (OSError, subprocess.SubprocessError):
+            print(f"Android {label}: foreground unavailable", flush=True)
+
+    def backend_probe(self):
+        port = None
+        try:
+            port = int(self.adb("forward", "tcp:0", "tcp:8765"))
+            connection = HTTPConnection("127.0.0.1", port, timeout=4)
+            try:
+                connection.request("GET", "/", headers={"Connection": "close"})
+                print("Android embedded backend:", f"HTTP-{connection.getresponse().status}", flush=True)
+            finally:
+                connection.close()
+        except (OSError, HTTPException, ValueError, subprocess.SubprocessError) as error:
+            print("Android embedded backend:", type(error).__name__, flush=True)
+        finally:
+            if port is not None:
+                self.adb("forward", "--remove", f"tcp:{port}")
+
     def diagnose_startup(self, probe):
         """Report fixed phases, never a raw hierarchy, response, cookie or credential."""
         print("DevTools probe:", probe, flush=True)
-        try:
-            activities = self.adb("shell", "dumpsys", "activity", "activities")
-            resumed = next((line for line in activities.splitlines()
-                            if "ResumedActivity" in line or "mResumedActivity" in line), "")
-            phase = next((name for name in ("BootstrapActivity", "NavigationActivity")
-                          if APP + "/." + name in resumed), "other-or-unknown")
-            print("Resumed activity:", phase, flush=True)
-        except (OSError, subprocess.SubprocessError):
-            print("Resumed activity: unavailable", flush=True)
+        self.foreground("at timeout")
+        self.backend_probe()
         try:
             statuses = [node.get("text", "") for node in self.nodes() if node.get("package") == APP]
             details = next((item for item in statuses if item.startswith("Start fehlgeschlagen:")), "")
@@ -189,6 +227,7 @@ def verify_backup(device):
     if "Status: ok" not in result:
         raise AssertionError("Android did not start the SimpleOffice activity")
     print("Android launcher started; waiting for local WebView", flush=True)
+    device.foreground("after launcher start")
     port = device.forwarded_socket()
     try:
         url = f"http://127.0.0.1:{port}"

@@ -82,6 +82,9 @@ adb_for_test shell -T "run-as de.simpleoffice4me.android sh -c 'umask 077; cat >
     <string name="google-email"></string>
 </map>
 XML
+# Keep the disposable UI visible throughout bootstrap and the document picker.
+adb_for_test shell svc power stayon true
+adb_for_test shell settings put system screen_off_timeout 1800000
 adb_for_test shell input keyevent KEYCODE_WAKEUP
 adb_for_test shell wm dismiss-keyguard
 timeout 360 python -m tools.android_sms_download_acceptance --adb "$adb_bin" --serial "$serial"
