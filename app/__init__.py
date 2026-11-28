@@ -197,6 +197,22 @@ class SchemeAwareSessionInterface(SecureCookieSessionInterface):
     def get_cookie_secure(self, app):
         return request.is_secure or app.config.get("SESSION_COOKIE_SECURE", False)
 
+    def should_set_cookie(self, app, session):
+        # QR images are read-only subrequests commonly still in flight when an
+        # administrator submits the form on the same page. Refreshing the
+        # permanent session cookie on those responses can overwrite a newer
+        # cookie containing a POST/redirect flash. Let genuine session changes
+        # through, while keeping normal page requests on Flask's sliding expiry.
+        if (
+            request.endpoint in {
+                "federation_peer_admin.qr_svg",
+                "federation_peer_admin.lan_qr_svg",
+            }
+            and not session.modified
+        ):
+            return False
+        return super().should_set_cookie(app, session)
+
 
 if sys.version_info < (3,):
     raise BaseException("Wrong Python Version")
