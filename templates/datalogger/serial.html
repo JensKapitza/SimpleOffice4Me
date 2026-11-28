@@ -30,7 +30,9 @@
     <textarea class="form-control font-monospace" data-output readonly rows="10" spellcheck="false"></textarea>
   </label>
   <form method="get" class="d-flex flex-wrap gap-2 align-items-end mb-4" data-send-form>
-    <label>Nachricht <input class="form-control font-monospace" data-input required maxlength="8192" autocomplete="off" spellcheck="false"></label>
+    <div class="mw-100">
+      <label class="d-block">Nachricht <input class="form-control font-monospace" data-input required maxlength="8192" autocomplete="off" spellcheck="false"></label>
+    </div>
     <label>Format <select class="form-select" data-format><option value="text">UTF-8-Text</option><option value="hex">Hex-Bytes</option></select></label>
     <label>Zeilenende <select class="form-select" data-ending><option value="none">Keins</option><option value="lf">LF</option><option value="cr">CR</option><option value="crlf">CRLF</option></select></label>
     <button class="btn btn-outline-primary" type="submit" disabled data-send>Senden</button>
@@ -62,9 +64,13 @@
         <legend class="h6">Pico-Gateway schnell einrichten</legend>
         <p class="small">Zuerst die IP des Gateways in den <a href="{{ url_for('datalogger.settings') }}">Datenlogger-Einstellungen</a> erlauben. Das Formular legt private Messkanäle für <code>room_a</code> und <code>room_b</code> an. Der getrennte Datendienst fragt <code>/status</code> je Kanal im Minutentakt ab.</p>
         <div class="d-flex flex-wrap gap-2 mb-2">
-          <label>Gateway-IP <input class="form-control" name="gateway_ip" type="text" inputmode="decimal" placeholder="192.168.1.30" maxlength="15" required></label>
+          <div class="mw-100">
+            <label class="d-block">Gateway-IP <input class="form-control" name="gateway_ip" type="text" inputmode="decimal" placeholder="192.168.1.30" maxlength="15" required></label>
+          </div>
           <label>Port <input class="form-control" name="port" type="number" min="1" max="65535" value="8080" required></label>
-          <label>Einheit (optional) <input class="form-control" name="unit" type="text" placeholder="z. B. °C" maxlength="40"></label>
+          <div class="mw-100">
+            <label class="d-block">Einheit (optional) <input class="form-control" name="unit" type="text" placeholder="z. B. °C" maxlength="40"></label>
+          </div>
         </div>
         <label class="form-check mb-2"><input class="form-check-input" name="availability" type="checkbox" value="1"> Verfügbarkeit beider Knoten mit erfassen</label>
         <button class="btn btn-primary" type="submit">Pico-Kanäle anlegen</button>

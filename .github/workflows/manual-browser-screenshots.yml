@@ -11,6 +11,8 @@ on:
       - tests/browser/page_crawl.py
       - tests/browser/route_inventory.py
       - tests/test_browser_page_crawl.py
+      - tests/test_global_quickwins.py
+      - static/js/global_quickwins.js
       - templates/kids/_logic_shapes.html
       - templates/optional_setup/index.html
       - tests/browser/peer_to_peer_smoke.py
